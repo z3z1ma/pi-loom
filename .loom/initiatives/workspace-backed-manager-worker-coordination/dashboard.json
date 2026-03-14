@@ -1,0 +1,580 @@
+{
+  "initiative": {
+    "id": "workspace-backed-manager-worker-coordination",
+    "title": "Workspace-backed manager-worker coordination",
+    "status": "completed",
+    "objective": "Develop a truthful manager-worker operating model for Pi Loom in which workers are ephemeral workspaces, managers supervise and consolidate bounded execution across those workspaces, and the resulting system composes cleanly with plans, tickets, Ralph, critique, and documentation.",
+    "statusSummary": "Completed. The workspace-backed worker substrate is now implemented through `@pi-loom/pi-workers`, linked back into the initiative’s finalized spec and research context, and verified under workspace lint, typecheck, and full tests.",
+    "targetWindow": "later",
+    "owners": [],
+    "tags": [
+      "architecture",
+      "manager-worker",
+      "orchestration",
+      "workspace"
+    ],
+    "capabilityIds": [],
+    "roadmapRefs": [
+      "item-007"
+    ],
+    "updatedAt": "2026-03-16T00:45:46.699Z"
+  },
+  "linkedRoadmap": {
+    "total": 1,
+    "items": [
+      {
+        "id": "item-007",
+        "title": "Explore broader coordination surfaces only after the core proves out",
+        "status": "candidate",
+        "horizon": "later",
+        "summary": "Consider richer worker coordination, multi-repository work, or role-specialized model routing only after Pi Loom’s current local durable core demonstrates clear need and strong boundaries.",
+        "updatedAt": "2026-03-15T23:55:42.574Z"
+      }
+    ]
+  },
+  "linkedResearch": {
+    "total": 1,
+    "items": [
+      {
+        "id": "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces",
+        "title": "Prepare manager-worker architecture from pi-supervisor and Pi extension interfaces",
+        "status": "synthesized",
+        "updatedAt": "2026-03-16T00:03:16.510Z",
+        "path": ".loom/research/prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+      }
+    ]
+  },
+  "linkedSpecs": {
+    "total": 1,
+    "counts": {
+      "proposed": 0,
+      "clarifying": 0,
+      "planned": 0,
+      "tasked": 0,
+      "finalized": 1,
+      "archived": 0,
+      "superseded": 0
+    },
+    "items": [
+      {
+        "id": "add-workspace-backed-manager-worker-substrate",
+        "title": "Add workspace-backed manager-worker substrate",
+        "status": "finalized",
+        "requirementCount": 24,
+        "taskCount": 12,
+        "capabilityIds": [
+          "checkpoint-telemetry-and-observability",
+          "completion-approval-and-consolidation",
+          "durable-manager-worker-messaging",
+          "headless-operator-surface-and-recovery",
+          "loom-boundary-and-provenance-integration",
+          "out-of-band-supervisory-control",
+          "workspace-backed-worker-records",
+          "workspace-lifecycle-and-runtime-attachments"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "updatedAt": "2026-03-16T00:03:16.511Z",
+        "archived": false,
+        "path": ".loom/specs/changes/add-workspace-backed-manager-worker-substrate"
+      }
+    ]
+  },
+  "linkedTickets": {
+    "total": 12,
+    "counts": {
+      "open": 0,
+      "ready": 0,
+      "in_progress": 0,
+      "blocked": 0,
+      "review": 0,
+      "closed": 12
+    },
+    "ready": 0,
+    "blocked": 0,
+    "inProgress": 0,
+    "review": 0,
+    "closed": 12,
+    "items": [
+      {
+        "id": "t-0015",
+        "title": "Scaffold pi-workers package and worker ledger",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.707Z",
+        "updatedAt": "2026-03-16T00:44:14.798Z",
+        "deps": [],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "workspace-backed-worker-records"
+        ],
+        "specRequirements": [
+          "req-001",
+          "req-002",
+          "req-003"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0015.md"
+      },
+      {
+        "id": "t-0016",
+        "title": "Model worker state and portable workspace descriptors",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.723Z",
+        "updatedAt": "2026-03-16T00:44:14.810Z",
+        "deps": [
+          "t-0015"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "loom-boundary-and-provenance-integration",
+          "workspace-backed-worker-records",
+          "workspace-lifecycle-and-runtime-attachments"
+        ],
+        "specRequirements": [
+          "req-001",
+          "req-002",
+          "req-004",
+          "req-006",
+          "req-019"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0016.md"
+      },
+      {
+        "id": "t-0017",
+        "title": "Implement workspace provisioning and runtime attachment adapters",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.732Z",
+        "updatedAt": "2026-03-16T00:44:14.820Z",
+        "deps": [
+          "t-0015",
+          "t-0016"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "headless-operator-surface-and-recovery",
+          "workspace-lifecycle-and-runtime-attachments"
+        ],
+        "specRequirements": [
+          "req-004",
+          "req-005",
+          "req-006",
+          "req-023"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0017.md"
+      },
+      {
+        "id": "t-0018",
+        "title": "Persist durable message streams and broadcast semantics",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.744Z",
+        "updatedAt": "2026-03-16T00:44:14.829Z",
+        "deps": [
+          "t-0015",
+          "t-0016"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "durable-manager-worker-messaging"
+        ],
+        "specRequirements": [
+          "req-007",
+          "req-008",
+          "req-009"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0018.md"
+      },
+      {
+        "id": "t-0019",
+        "title": "Add checkpoints telemetry and worker dashboards",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.755Z",
+        "updatedAt": "2026-03-16T00:44:26.672Z",
+        "deps": [
+          "t-0015",
+          "t-0016",
+          "t-0018"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "checkpoint-telemetry-and-observability"
+        ],
+        "specRequirements": [
+          "req-010",
+          "req-011",
+          "req-012"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0019.md"
+      },
+      {
+        "id": "t-0020",
+        "title": "Build the manager supervisory control engine",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.776Z",
+        "updatedAt": "2026-03-16T00:44:26.683Z",
+        "deps": [
+          "t-0018",
+          "t-0019"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "out-of-band-supervisory-control"
+        ],
+        "specRequirements": [
+          "req-013",
+          "req-014",
+          "req-015"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0020.md"
+      },
+      {
+        "id": "t-0021",
+        "title": "Implement completion requests and approval workflow",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.788Z",
+        "updatedAt": "2026-03-16T00:44:26.694Z",
+        "deps": [
+          "t-0019",
+          "t-0020"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "completion-approval-and-consolidation"
+        ],
+        "specRequirements": [
+          "req-017",
+          "req-018"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0021.md"
+      },
+      {
+        "id": "t-0022",
+        "title": "Implement consolidation and fan-in outcomes",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.801Z",
+        "updatedAt": "2026-03-16T00:44:26.705Z",
+        "deps": [
+          "t-0017",
+          "t-0021"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "completion-approval-and-consolidation",
+          "loom-boundary-and-provenance-integration"
+        ],
+        "specRequirements": [
+          "req-016",
+          "req-017",
+          "req-018",
+          "req-021"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0022.md"
+      },
+      {
+        "id": "t-0023",
+        "title": "Integrate worker provenance with tickets plans Ralph critique and docs",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "medium",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.813Z",
+        "updatedAt": "2026-03-16T00:44:40.632Z",
+        "deps": [
+          "t-0016",
+          "t-0019",
+          "t-0022"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "loom-boundary-and-provenance-integration"
+        ],
+        "specRequirements": [
+          "req-019",
+          "req-020",
+          "req-021"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0023.md"
+      },
+      {
+        "id": "t-0024",
+        "title": "Expose worker commands tools and prompt guidance",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "medium",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.827Z",
+        "updatedAt": "2026-03-16T00:44:40.643Z",
+        "deps": [
+          "t-0017",
+          "t-0018",
+          "t-0019",
+          "t-0021"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "headless-operator-surface-and-recovery"
+        ],
+        "specRequirements": [
+          "req-022",
+          "req-024"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0024.md"
+      },
+      {
+        "id": "t-0025",
+        "title": "Harden recovery resume and retirement flows",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "medium",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.843Z",
+        "updatedAt": "2026-03-16T00:44:40.652Z",
+        "deps": [
+          "t-0017",
+          "t-0019",
+          "t-0024"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "headless-operator-surface-and-recovery",
+          "workspace-lifecycle-and-runtime-attachments"
+        ],
+        "specRequirements": [
+          "req-022",
+          "req-023"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0025.md"
+      },
+      {
+        "id": "t-0026",
+        "title": "Cover worker substrate with tests and operator documentation",
+        "status": "closed",
+        "storedStatus": "closed",
+        "priority": "medium",
+        "type": "task",
+        "createdAt": "2026-03-16T00:07:03.857Z",
+        "updatedAt": "2026-03-16T00:44:40.661Z",
+        "deps": [
+          "t-0020",
+          "t-0022",
+          "t-0023",
+          "t-0024",
+          "t-0025"
+        ],
+        "links": [
+          ".loom/specs/changes/add-workspace-backed-manager-worker-substrate/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-workspace-backed-manager-worker-substrate",
+        "specCapabilities": [
+          "checkpoint-telemetry-and-observability",
+          "completion-approval-and-consolidation",
+          "durable-manager-worker-messaging",
+          "headless-operator-surface-and-recovery",
+          "loom-boundary-and-provenance-integration",
+          "out-of-band-supervisory-control",
+          "workspace-backed-worker-records",
+          "workspace-lifecycle-and-runtime-attachments"
+        ],
+        "specRequirements": [
+          "req-001",
+          "req-005",
+          "req-014",
+          "req-016",
+          "req-021",
+          "req-024"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0026.md"
+      }
+    ]
+  },
+  "milestones": [
+    {
+      "id": "milestone-001",
+      "title": "Finalize manager-worker substrate spec",
+      "status": "in_progress",
+      "health": "active",
+      "description": "Create the durable initiative and a comprehensive specification that defines the workspace-backed manager-worker substrate and its boundaries.",
+      "specChangeIds": [],
+      "ticketIds": [],
+      "linkedOpenTicketCount": 0,
+      "linkedCompletedTicketCount": 0
+    }
+  ],
+  "openRisks": [
+    "Letting Ralph absorb worker state or execution truth would violate existing package and constitutional boundaries.",
+    "Overloading session fork/tree or task spawning semantics instead of introducing a truthful workspace abstraction would bake in a false model.",
+    "Under-specifying manager oversight, worker telemetry, or consolidation contracts would produce a superficially parallel system that is difficult to supervise safely over long horizons."
+  ],
+  "unlinkedReferences": {
+    "roadmapRefs": [],
+    "specChangeIds": [],
+    "ticketIds": []
+  }
+}

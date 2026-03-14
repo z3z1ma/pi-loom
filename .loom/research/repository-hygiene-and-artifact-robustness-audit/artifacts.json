@@ -1,0 +1,18 @@
+[
+  {
+    "id": "artifact-001",
+    "researchId": "repository-hygiene-and-artifact-robustness-audit",
+    "kind": "summary",
+    "title": "Cross-package audit findings on path portability and artifact hygiene",
+    "path": ".loom/research/repository-hygiene-and-artifact-robustness-audit/summaries/artifact-001.md",
+    "createdAt": "2026-03-15T21:53:25.258Z",
+    "summary": "Summarizes the ticket-worthy issues found during the repository robustness audit across persisted path fields, generated dashboards, subprocess launch roots, and documentation/commit guidance.",
+    "sourceUri": null,
+    "tags": [
+      "audit",
+      "findings",
+      "repo-hygiene"
+    ],
+    "linkedHypothesisIds": []
+  }
+]

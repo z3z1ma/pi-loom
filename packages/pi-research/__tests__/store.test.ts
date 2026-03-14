@@ -1,0 +1,158 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createInitiativeStore } from "../../pi-initiatives/extensions/domain/store.js";
+import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
+import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
+import { createResearchStore } from "../extensions/domain/store.js";
+
+describe("research store", () => {
+  let workspace: string;
+
+  beforeEach(() => {
+    workspace = mkdtempSync(join(tmpdir(), "pi-research-store-"));
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it("persists durable research state, append-only hypotheses, artifacts, dashboards, and maps", () => {
+    const store = createResearchStore(workspace);
+    const initiativeStore = createInitiativeStore(workspace);
+    const specStore = createSpecStore(workspace);
+    const ticketStore = createTicketStore(workspace);
+
+    initiativeStore.createInitiative({ title: "Theme modernization" });
+    specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+    const ticket = ticketStore.createTicket({ title: "Build theme toggle" });
+
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    const created = store.createResearch({
+      title: "Evaluate theme architecture",
+      question: "Should theme state live in a shared runtime service?",
+      objective: "Decide how theme state should be modeled.",
+      scope: ["theme state", "persistence"],
+      methodology: ["source review", "prototype"],
+      keywords: ["theme", "architecture"],
+      openQuestions: ["How should SSR hydration work?"],
+    });
+
+    expect(existsSync(join(workspace, ".loom", "research", "evaluate-theme-architecture", "state.json"))).toBe(true);
+    expect(existsSync(join(workspace, ".loom", "research", "evaluate-theme-architecture", "research.md"))).toBe(true);
+    expect(existsSync(join(workspace, ".loom", "research", "evaluate-theme-architecture", "dashboard.json"))).toBe(
+      true,
+    );
+    expect(created.summary).toMatchObject({
+      id: "evaluate-theme-architecture",
+      hypothesisCount: 0,
+      artifactCount: 0,
+      path: ".loom/research/evaluate-theme-architecture",
+    });
+    expect(store.listResearch()).toEqual([
+      expect.objectContaining({
+        id: "evaluate-theme-architecture",
+        path: ".loom/research/evaluate-theme-architecture",
+      }),
+    ]);
+
+    vi.setSystemTime(new Date("2026-03-15T12:05:00.000Z"));
+    store.recordHypothesis("evaluate-theme-architecture", {
+      statement: "A shared service reduces duplicated persistence logic.",
+      evidence: ["Current code duplicates storage reads."],
+      confidence: "medium",
+    });
+    store.recordHypothesis("evaluate-theme-architecture", {
+      id: "hyp-001",
+      statement: "A shared service reduces duplicated persistence logic.",
+      evidence: ["Current code duplicates storage reads."],
+      results: ["Prototype removed duplicate logic in two call sites."],
+      status: "supported",
+      confidence: "high",
+    });
+    store.recordHypothesis("evaluate-theme-architecture", {
+      statement: "Per-component state is simpler.",
+      status: "rejected",
+      confidence: "low",
+      results: ["Prototype increased hydration bugs."],
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T12:10:00.000Z"));
+    const withArtifact = store.recordArtifact("evaluate-theme-architecture", {
+      kind: "experiment",
+      title: "Shared service prototype",
+      summary: "Prototype centralizes theme reads and writes.",
+      body: "The prototype collapses duplicated persistence logic into one module.",
+      linkedHypothesisIds: ["hyp-001"],
+      sourceUri: "https://example.com/prototype",
+      tags: ["prototype"],
+    });
+
+    expect(withArtifact.hypotheses).toHaveLength(2);
+    expect(withArtifact.hypothesisHistory).toHaveLength(3);
+    expect(withArtifact.hypotheses.find((hypothesis) => hypothesis.id === "hyp-001")).toMatchObject({
+      status: "supported",
+      confidence: "high",
+    });
+    expect(withArtifact.hypotheses.find((hypothesis) => hypothesis.id === "hyp-002")).toMatchObject({
+      status: "rejected",
+    });
+    expect(withArtifact.artifacts).toEqual([
+      expect.objectContaining({
+        id: "artifact-001",
+        kind: "experiment",
+        linkedHypothesisIds: ["hyp-001"],
+        path: ".loom/research/evaluate-theme-architecture/experiments/artifact-001.md",
+      }),
+    ]);
+    expect(
+      existsSync(join(workspace, ".loom", "research", "evaluate-theme-architecture", "experiments", "artifact-001.md")),
+    ).toBe(true);
+    expect(withArtifact.dashboard).toMatchObject({
+      hypotheses: { counts: { supported: 1, rejected: 1 } },
+      artifacts: { counts: { experiment: 1 } },
+      openQuestions: ["How should SSR hydration work?"],
+    });
+    expect(withArtifact.dashboard).not.toHaveProperty("generatedAt");
+    expect(withArtifact.map.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: "evaluate-theme-architecture", to: "hyp-001", relation: "tracks_hypothesis" }),
+        expect.objectContaining({ from: "artifact-001", to: "hyp-001", relation: "supports_hypothesis" }),
+      ]),
+    );
+
+    const linked = store.updateResearch("evaluate-theme-architecture", {
+      initiativeIds: ["theme-modernization"],
+      specChangeIds: ["add-dark-mode"],
+      ticketIds: [ticket.summary.id],
+    });
+    expect(linked.dashboard).toMatchObject({
+      linkedInitiatives: { total: 1, items: [expect.objectContaining({ id: "theme-modernization" })] },
+      linkedSpecs: { total: 1, items: [expect.objectContaining({ id: "add-dark-mode" })] },
+      linkedTickets: { total: 1, items: [expect.objectContaining({ id: ticket.summary.id })] },
+    });
+    expect(initiativeStore.readInitiative("theme-modernization").state.researchIds).toEqual([
+      "evaluate-theme-architecture",
+    ]);
+    expect(specStore.readChange("add-dark-mode").state.researchIds).toEqual(["evaluate-theme-architecture"]);
+    expect(ticketStore.readTicket(ticket.summary.id).summary.researchIds).toEqual(["evaluate-theme-architecture"]);
+
+    const hypothesisLog = readFileSync(
+      join(workspace, ".loom", "research", "evaluate-theme-architecture", "hypotheses.jsonl"),
+      "utf-8",
+    );
+    expect(hypothesisLog.trim().split(/\r?\n/)).toHaveLength(3);
+    expect(hypothesisLog).toContain('"status":"rejected"');
+
+    const dashboardJson = readFileSync(
+      join(workspace, ".loom", "research", "evaluate-theme-architecture", "dashboard.json"),
+      "utf-8",
+    );
+    expect(dashboardJson).toContain('"supported": 1');
+    expect(dashboardJson).toContain('"experiment": 1');
+    expect(dashboardJson).not.toContain("generatedAt");
+  });
+});

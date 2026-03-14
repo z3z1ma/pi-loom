@@ -1,0 +1,58 @@
+{
+  "name": "pi-loom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi extension workspace focused on durable AI-native constitutional, research, initiative, specification, planning, ticket, worker, critique, Ralph orchestration, and documentation memory.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check package.json tsconfig.json vitest.config.ts biome.json README.md packages",
+    "lint:fix": "biome check --write package.json tsconfig.json vitest.config.ts biome.json README.md packages",
+    "check": "npm run lint && npm run typecheck",
+    "check:ci": "biome ci package.json tsconfig.json vitest.config.ts biome.json README.md packages && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "constitutional-memory",
+    "documentation",
+    "initiatives",
+    "ticketing",
+    "workers",
+    "workspace",
+    "planning",
+    "specifications",
+    "ledger",
+    "critique",
+    "ralph",
+    "loom"
+  ],
+  "pi": {
+    "extensions": [
+      "./packages/pi-constitution/extensions/index.ts",
+      "./packages/pi-research/extensions/index.ts",
+      "./packages/pi-initiatives/extensions/index.ts",
+      "./packages/pi-specs/extensions/index.ts",
+      "./packages/pi-plans/extensions/index.ts",
+      "./packages/pi-ticketing/extensions/index.ts",
+      "./packages/pi-workers/extensions/index.ts",
+      "./packages/pi-critique/extensions/index.ts",
+      "./packages/pi-ralph/extensions/index.ts",
+      "./packages/pi-docs/extensions/index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.5",
+    "@mariozechner/pi-ai": ">=0.57.0",
+    "@mariozechner/pi-coding-agent": ">=0.57.0",
+    "@sinclair/typebox": "^0.34.41",
+    "@types/node": "^22.13.11",
+    "typescript": "^5.8.2",
+    "vitest": "^4.0.18"
+  },
+  "license": "MIT"
+}

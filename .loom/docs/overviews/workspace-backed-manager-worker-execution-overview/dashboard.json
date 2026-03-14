@@ -1,0 +1,66 @@
+{
+  "doc": {
+    "id": "workspace-backed-manager-worker-execution-overview",
+    "title": "Workspace-backed manager-worker execution overview",
+    "status": "active",
+    "docType": "overview",
+    "sectionGroup": "overviews",
+    "updatedAt": "2026-03-16T00:46:28.139Z",
+    "sourceKind": "spec",
+    "sourceRef": "add-workspace-backed-manager-worker-substrate",
+    "summary": "Explain the new `pi-workers` package, `.loom/workers/` artifact model, manager-worker control flow, and how the worker substrate composes with tickets, plans, Ralph, critique, and docs.",
+    "revisionCount": 0,
+    "path": ".loom/docs/overviews/workspace-backed-manager-worker-execution-overview"
+  },
+  "packetPath": ".loom/docs/overviews/workspace-backed-manager-worker-execution-overview/packet.md",
+  "documentPath": ".loom/docs/overviews/workspace-backed-manager-worker-execution-overview/doc.md",
+  "revisionCount": 0,
+  "lastRevision": null,
+  "audience": [
+    "ai",
+    "human"
+  ],
+  "guideTopics": [],
+  "linkedOutputPaths": [
+    "AGENTS.md",
+    "packages/pi-workers/README.md",
+    "README.md"
+  ],
+  "contextRefs": {
+    "roadmapItemIds": [
+      "item-007"
+    ],
+    "initiativeIds": [
+      "workspace-backed-manager-worker-coordination"
+    ],
+    "researchIds": [
+      "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+    ],
+    "specChangeIds": [
+      "add-workspace-backed-manager-worker-substrate"
+    ],
+    "ticketIds": [
+      "t-0015",
+      "t-0016",
+      "t-0017",
+      "t-0018",
+      "t-0019",
+      "t-0020",
+      "t-0021",
+      "t-0022",
+      "t-0023",
+      "t-0024",
+      "t-0025",
+      "t-0026"
+    ],
+    "critiqueIds": []
+  },
+  "scopePaths": [
+    "AGENTS.md",
+    "packages/pi-plans",
+    "packages/pi-ralph",
+    "packages/pi-ticketing",
+    "packages/pi-workers",
+    "README.md"
+  ]
+}

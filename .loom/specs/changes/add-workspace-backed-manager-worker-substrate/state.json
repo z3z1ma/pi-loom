@@ -1,0 +1,724 @@
+{
+  "changeId": "add-workspace-backed-manager-worker-substrate",
+  "title": "Add workspace-backed manager-worker substrate",
+  "status": "finalized",
+  "createdAt": "2026-03-15T23:56:44.247Z",
+  "updatedAt": "2026-03-16T00:03:16.511Z",
+  "finalizedAt": "2026-03-16T00:03:04.264Z",
+  "archivedAt": null,
+  "archivedPath": null,
+  "initiativeIds": [
+    "workspace-backed-manager-worker-coordination"
+  ],
+  "researchIds": [
+    "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+  ],
+  "supersedes": [],
+  "proposalSummary": "Introduce a new workspace-backed execution substrate for Pi Loom in which workers are durable, ticket-attached abstractions over ephemeral workspaces and managers act as out-of-band supervisors and consolidators rather than as transcript-bound copilots. The change formalizes how manager-worker coordination fits into the existing Loom stack without overloading current session branching, task spawning, or Ralph orchestration semantics.\n\nThe motivating problem is that long-horizon execution needs stronger parallelism, isolation, and recoverability than a single transcript or bounded subagent call can provide. Current Pi runtime primitives are useful but incomplete: extension hooks can observe and steer work, task spawning can launch bounded subprocesses, and session branching can create fresh conversational context, but none of those surfaces truthfully model a worker as a persistent execution unit rooted in an ephemeral Git worktree or comparable workspace. At the same time, Pi Loom’s current constitutional boundaries require that tickets remain the live execution ledger, plans remain execution strategy, and Ralph remain bounded rather than expanding into a vague general workflow engine.\n\nThis spec therefore defines a new manager-worker substrate whose core job is to turn a bounded work slice into a workspace-backed worker lifecycle with durable records, portable metadata, message channels, checkpoints, telemetry, completion approval, and consolidation semantics. A worker is not merely a child session or a task subprocess: it is an execution unit with a stable worker identity, a workspace contract, an attached objective, explicit ticket relationships, durable communication history, and observable progress that can survive process turnover. A manager is not a new all-purpose memory layer; it is a role performed by an operator, plan-oriented agent, Ralph-launched process, or future orchestration surface that supervises workers from outside their context windows, allocates work, keeps workers unstuck, grants completion approval, and fans completed changes back into the target branch or execution stream.\n\nThe design draws heavily from the strongest ideas in `.agents/resources/pi-supervisor/`: a lightweight out-of-band overseer using compact snapshots, phase-aware intervention policy, append-only supervision history, and anti-stagnation rules. The manager-worker substrate should reuse those patterns at worker granularity. Managers should reason from compact worker telemetry, recent checkpoints, intervention history, and message deltas rather than from full worker transcript replay. Managers should also distinguish sharply between a busy worker, which should rarely be interrupted, and an idle or blocked worker, which should never be allowed to wait indefinitely without approval, redirection, or unblocking.\n\nThe spec intentionally keeps broader coordination bounded. It does not claim unrestricted peer meshes, multi-repository orchestration, or role-specialized model-routing as current Pi Loom truth. Instead it defines a repo-truthful v1 centered on one repository, one workspace root, many ephemeral worker workspaces, manager-mediated coordination by default, optional bounded broadcast for urgent team-wide signals, and explicit fan-in semantics that preserve tickets as the high-fidelity source of live execution truth. Ralph may eventually invoke or observe manager-worker execution at run boundaries, but this spec does not turn Ralph itself into the worker graph or execution ledger.",
+  "designNotes": "## Architectural intent\nThis change introduces a dedicated worker substrate, likely shipped as a new package such as `packages/pi-workers`, that persists durable worker records under `.loom/workers/` while using runtime-only launch descriptors for clone-local workspace attachments. The package exists to make 'worker as ephemeral workspace' truthful in the repository instead of approximating it through session branching or generic task spawning.\n\n## Layer boundaries\nThe new worker substrate must compose with existing Loom layers rather than replacing them. Tickets remain the live execution ledger. Plans remain execution strategy. Ralph remains bounded orchestration that may launch or observe worker-manager execution at run boundaries. Critique remains the durable review layer. Docs remain post-completion explanation. The worker package owns workspace-backed execution records, worker messaging, checkpoints, approval flow, and consolidation outcomes. Manager remains a role carried by an operator or orchestration surface, not a new top-level memory layer.\n\n## Durable layout\nA v1 worker directory should persist canonical state such as:\n- `.loom/workers/<worker-id>/state.json`\n- `.loom/workers/<worker-id>/worker.md`\n- `.loom/workers/<worker-id>/messages.jsonl`\n- `.loom/workers/<worker-id>/checkpoints.jsonl`\n- `.loom/workers/<worker-id>/dashboard.json`\n- `.loom/workers/<worker-id>/launch.json` (runtime-only, not canonical, analogous to Ralph/critique/docs launch descriptors)\nThe committed artifacts should preserve worker identity, objective, relationships, message/checkpoint history, approval status, and consolidation outcomes. Any absolute worktree path, process id, or machine-local attachment data belongs only in runtime-only descriptors.\n\n## Worker domain model\nWorker state should model at least: stable worker id; human title/objective; manager source ref (`kind` + `ref` + optional session/runtime metadata); attached ticket ids plus optional plan/spec/research/initiative/critique/ralph refs; target branch or consolidation target; portable workspace descriptor; lifecycle status; current checkpoint summary; latest telemetry; completion request state; approval decision; consolidation outcome; and timestamps. A worker is the durable anchor. Workspace metadata is carried inside worker state because the user-facing concept is the worker, but the workspace attachment must remain explicit and inspectable.\n\n## Workspace model\nThe portable workspace descriptor should record intended repository root, base ref, target branch naming, workspace strategy (`git-worktree` in v1, extensible later), and logical labels. Clone-local absolute paths and live attachment details must stay in `launch.json` or equivalent runtime state so committed records remain portable across machines. V1 should explicitly prefer Git worktrees as the runtime backing for worker isolation.\n\n## Messaging model\nWorkers need a durable message stream rather than ad hoc transcript archaeology. A single append-only `messages.jsonl` stream should preserve direction (`manager_to_worker`, `worker_to_manager`, `broadcast`), message kind, related refs, timestamps, delivery status, and optional causal links to earlier messages. Default routing is manager-mediated. V1 should not introduce unrestricted worker-to-worker chat. The only peer-style surface in scope is bounded broadcast for urgent shared information, with manager visibility preserved.\n\n## Checkpoints and telemetry\nWorkers should periodically append structured checkpoints summarizing current understanding, recent changes, validation run status, blockers, next intended action, and whether manager input is needed. Separate lightweight telemetry or heartbeat snapshots should tell the manager whether the worker is busy, idle, blocked, waiting for review, or finished. The key supervision pattern from `pi-supervisor` is reused here: the manager should inspect compact worker state plus recent deltas, not the full transcript.\n\n## Supervisory control loop\nManager oversight should be event-driven and phase-aware. Busy workers may be interrupted only on high-confidence drift or explicit danger conditions. Idle, blocked, waiting-for-review, or completion-requesting workers must always receive a prompt manager decision: approve, reject, unblock, redirect, escalate, or retire. Manager interventions must be durable. Anti-stagnation rules should detect repeated no-progress checkpoints, repeated identical blockers, repeated failed validations, or repeated ineffective interventions and then force escalation or reassignment instead of endless steering.\n\n## Completion and consolidation\nWorkers do not self-declare done by prose alone. They submit a structured completion request that includes claimed scope completed, validation evidence, remaining risks, and branch/workspace state. The manager then approves, rejects for further work, or escalates. Only approved workers may enter consolidation. Consolidation should support fan-in by merge, cherry-pick, patch application, or other explicit strategy, with durable outcome records capturing success, conflicts, validation failures, and rollback needs. The manager is the single point of consolidation because fan-in is where non-parallelizable truth must be decided.\n\n## Runtime model\nBecause current Pi runtime surfaces do not provide truthful in-process workspace switching and reserve session control for command contexts, v1 should prefer explicit subprocess-backed worker launches. Each worker runtime should start a Pi process with its cwd set to the workspace path, load the relevant extension surface, and attach to the worker inbox/outbox/checkpoint contract. This is closer to existing Ralph/critique/docs launch patterns and avoids pretending that session fork/tree are workspace operations.\n\n## Operator surface\nThe package should expose `/worker` commands and `worker_*` tools for creating, reading, listing, messaging, checkpointing, approving, rejecting, launching, resuming, retiring, and inspecting workers. Manager tooling must be headless-safe: structured artifacts, not widgets, are canonical. Widgets or dashboards may exist as convenience views, but correctness must flow through durable state and tool results.\n\n## Recovery and auditability\nAfter process interruption, a manager or replacement runtime must be able to reconstruct worker truth from durable state, message history, checkpoints, and the latest runtime descriptor. Dashboards and markdown summaries should surface worker status, stale heartbeats, pending approvals, blockers, and consolidation outcomes at a glance. The repository should make it obvious why a worker is active, blocked, waiting, rejected, approved, or retired without requiring transcript reconstruction.\n\n## Scope boundaries for v1\nIn scope: single-repository workspace-backed workers, manager-mediated coordination, bounded broadcast, durable messaging/checkpoints, structured approval, and explicit consolidation. Out of scope: multi-repository coordination, unrestricted peer meshes, automatic merge swarms, model-routing policy systems, and any attempt to replace tickets or Ralph with a generic workflow engine.",
+  "requirements": [
+    {
+      "id": "req-001",
+      "text": "Canonical worker state SHALL preserve only portable metadata and logical workspace descriptors; clone-local absolute paths, process ids, and machine-specific workspace attachments SHALL remain runtime-only and excluded from committed canonical state.",
+      "acceptance": [
+        "Committed worker artifacts contain no clone-local absolute paths even when the runtime used a Git worktree outside the repo root.",
+        "Creating a worker writes the expected artifact set with stable worker identity and portable metadata.",
+        "Reading worker state after process interruption reconstructs objective, relationships, current status, and the latest durable checkpoint without needing runtime-only files."
+      ],
+      "capabilities": [
+        "workspace-backed-worker-records"
+      ]
+    },
+    {
+      "id": "req-002",
+      "text": "Each worker SHALL have a stable worker id plus persisted objective, attached ticket ids, optional linked plan/spec/research/initiative/critique/ralph refs, source manager reference, and consolidation target metadata.",
+      "acceptance": [
+        "Committed worker artifacts contain no clone-local absolute paths even when the runtime used a Git worktree outside the repo root.",
+        "Creating a worker writes the expected artifact set with stable worker identity and portable metadata.",
+        "Reading worker state after process interruption reconstructs objective, relationships, current status, and the latest durable checkpoint without needing runtime-only files."
+      ],
+      "capabilities": [
+        "workspace-backed-worker-records"
+      ]
+    },
+    {
+      "id": "req-003",
+      "text": "The system SHALL create one durable worker record under `.loom/workers/<worker-id>/` with canonical state, markdown summary, append-only messages and checkpoints, dashboard state, and a runtime-only launch descriptor.",
+      "acceptance": [
+        "Committed worker artifacts contain no clone-local absolute paths even when the runtime used a Git worktree outside the repo root.",
+        "Creating a worker writes the expected artifact set with stable worker identity and portable metadata.",
+        "Reading worker state after process interruption reconstructs objective, relationships, current status, and the latest durable checkpoint without needing runtime-only files."
+      ],
+      "capabilities": [
+        "workspace-backed-worker-records"
+      ]
+    },
+    {
+      "id": "req-004",
+      "text": "The workspace descriptor SHALL record intended repository root, base ref, branch strategy, and workspace strategy, with `git-worktree` treated as the required v1 backing strategy and future strategies remaining additive.",
+      "acceptance": [
+        "A worker can be created before a live workspace exists and later transition through provisioning and ready states once the runtime attachment is materialized.",
+        "Launch and resume behavior can reconstruct the necessary runtime attachment from durable metadata plus runtime-only descriptors without rewriting canonical state.",
+        "The durable record distinguishes logical workspace intent from clone-local runtime attachment details."
+      ],
+      "capabilities": [
+        "workspace-lifecycle-and-runtime-attachments"
+      ]
+    },
+    {
+      "id": "req-005",
+      "text": "V1 runtime launches SHALL prefer explicit subprocess-backed Pi sessions with cwd set to the workspace attachment rather than mutating the current session cwd or relying on session fork/tree semantics as a surrogate for workspace isolation.",
+      "acceptance": [
+        "A worker can be created before a live workspace exists and later transition through provisioning and ready states once the runtime attachment is materialized.",
+        "Launch and resume behavior can reconstruct the necessary runtime attachment from durable metadata plus runtime-only descriptors without rewriting canonical state.",
+        "The durable record distinguishes logical workspace intent from clone-local runtime attachment details."
+      ],
+      "capabilities": [
+        "workspace-lifecycle-and-runtime-attachments"
+      ]
+    },
+    {
+      "id": "req-006",
+      "text": "Worker lifecycle SHALL include explicit workspace-oriented states such as requested, provisioning, ready, active, blocked, waiting_for_review, completion_requested, approved_for_consolidation, completed, retired, and failed rather than inferring lifecycle from prose.",
+      "acceptance": [
+        "A worker can be created before a live workspace exists and later transition through provisioning and ready states once the runtime attachment is materialized.",
+        "Launch and resume behavior can reconstruct the necessary runtime attachment from durable metadata plus runtime-only descriptors without rewriting canonical state.",
+        "The durable record distinguishes logical workspace intent from clone-local runtime attachment details."
+      ],
+      "capabilities": [
+        "workspace-lifecycle-and-runtime-attachments"
+      ]
+    },
+    {
+      "id": "req-007",
+      "text": "Each worker SHALL maintain an append-only durable message stream that records manager-to-worker instructions, worker-to-manager updates, and bounded broadcast messages with direction, kind, timestamps, and causal links.",
+      "acceptance": [
+        "A manager can inspect the full durable conversation relevant to a worker without reopening the worker's transient runtime transcript.",
+        "A worker can request help, clarification, or approval through structured messages that remain visible after process restart.",
+        "Broadcast messages appear durably with explicit scope and do not create invisible side channels outside manager visibility."
+      ],
+      "capabilities": [
+        "durable-manager-worker-messaging"
+      ]
+    },
+    {
+      "id": "req-008",
+      "text": "Manager-mediated routing SHALL be the default coordination mode; unrestricted worker-to-worker peer chat SHALL be out of scope for v1, with only optional bounded broadcast supported for urgent team-wide signals that still remain visible to the manager.",
+      "acceptance": [
+        "A manager can inspect the full durable conversation relevant to a worker without reopening the worker's transient runtime transcript.",
+        "A worker can request help, clarification, or approval through structured messages that remain visible after process restart.",
+        "Broadcast messages appear durably with explicit scope and do not create invisible side channels outside manager visibility."
+      ],
+      "capabilities": [
+        "durable-manager-worker-messaging"
+      ]
+    },
+    {
+      "id": "req-009",
+      "text": "Messages SHALL link to related worker ids, ticket/spec/plan refs, and delivery or resolution status instead of flattening coordination into anonymous prose blobs.",
+      "acceptance": [
+        "A manager can inspect the full durable conversation relevant to a worker without reopening the worker's transient runtime transcript.",
+        "A worker can request help, clarification, or approval through structured messages that remain visible after process restart.",
+        "Broadcast messages appear durably with explicit scope and do not create invisible side channels outside manager visibility."
+      ],
+      "capabilities": [
+        "durable-manager-worker-messaging"
+      ]
+    },
+    {
+      "id": "req-010",
+      "text": "Worker dashboards and packets SHALL make stale heartbeats, pending approvals, blockers, latest checkpoints, and consolidation readiness visible at a glance.",
+      "acceptance": [
+        "A manager can tell which workers are actively making progress, which are stale, and which are waiting for decisions from dashboard state alone.",
+        "A worker checkpoint contains enough information for a new manager session to continue supervision without reconstructing the whole transcript.",
+        "Observable worker state stays useful in headless mode through durable artifacts and tool responses rather than depending on interactive UI."
+      ],
+      "capabilities": [
+        "checkpoint-telemetry-and-observability"
+      ]
+    },
+    {
+      "id": "req-011",
+      "text": "Workers SHALL append structured checkpoints summarizing current understanding, recent changes, validation state, blockers, next intended action, and whether manager input is required.",
+      "acceptance": [
+        "A manager can tell which workers are actively making progress, which are stale, and which are waiting for decisions from dashboard state alone.",
+        "A worker checkpoint contains enough information for a new manager session to continue supervision without reconstructing the whole transcript.",
+        "Observable worker state stays useful in headless mode through durable artifacts and tool responses rather than depending on interactive UI."
+      ],
+      "capabilities": [
+        "checkpoint-telemetry-and-observability"
+      ]
+    },
+    {
+      "id": "req-012",
+      "text": "Workers SHALL expose compact telemetry or heartbeat state sufficient to distinguish busy, idle, blocked, waiting_for_review, and finished phases without requiring full transcript replay.",
+      "acceptance": [
+        "A manager can tell which workers are actively making progress, which are stale, and which are waiting for decisions from dashboard state alone.",
+        "A worker checkpoint contains enough information for a new manager session to continue supervision without reconstructing the whole transcript.",
+        "Observable worker state stays useful in headless mode through durable artifacts and tool responses rather than depending on interactive UI."
+      ],
+      "capabilities": [
+        "checkpoint-telemetry-and-observability"
+      ]
+    },
+    {
+      "id": "req-013",
+      "text": "Managers SHALL supervise workers from compact telemetry, recent checkpoints, recent message deltas, and intervention history rather than from full worker transcript context.",
+      "acceptance": [
+        "A busy worker is not interrupted on every heartbeat, but an idle or blocked worker does not remain unattended indefinitely.",
+        "Intervention history survives runtime turnover and can be audited to explain why a manager redirected or escalated work.",
+        "The system detects stagnation and records an explicit escalation or reassignment path instead of nudging forever."
+      ],
+      "capabilities": [
+        "out-of-band-supervisory-control"
+      ]
+    },
+    {
+      "id": "req-014",
+      "text": "The substrate SHALL persist interventions and enforce anti-stagnation policies that escalate, reassign, approve, or retire work after repeated no-progress checkpoints, repeated identical blockers, or repeated ineffective interventions.",
+      "acceptance": [
+        "A busy worker is not interrupted on every heartbeat, but an idle or blocked worker does not remain unattended indefinitely.",
+        "Intervention history survives runtime turnover and can be audited to explain why a manager redirected or escalated work.",
+        "The system detects stagnation and records an explicit escalation or reassignment path instead of nudging forever."
+      ],
+      "capabilities": [
+        "out-of-band-supervisory-control"
+      ]
+    },
+    {
+      "id": "req-015",
+      "text": "The supervisory policy SHALL distinguish busy execution from idle, blocked, waiting, or completion-requesting states and apply stricter interruption thresholds during active work than during idle or blocked phases.",
+      "acceptance": [
+        "A busy worker is not interrupted on every heartbeat, but an idle or blocked worker does not remain unattended indefinitely.",
+        "Intervention history survives runtime turnover and can be audited to explain why a manager redirected or escalated work.",
+        "The system detects stagnation and records an explicit escalation or reassignment path instead of nudging forever."
+      ],
+      "capabilities": [
+        "out-of-band-supervisory-control"
+      ]
+    },
+    {
+      "id": "req-016",
+      "text": "Approved workers SHALL enter an explicit consolidation flow that records chosen fan-in strategy, validation outcome, merge or patch result, conflict state, and any rollback or follow-up requirement durably.",
+      "acceptance": [
+        "A worker cannot reach completed state without an explicit approval decision and recorded consolidation outcome.",
+        "Consolidation failures such as merge conflicts or failed post-merge validation remain durable and do not silently disappear into chat history.",
+        "Managers can consolidate multiple workers into a target branch while preserving which worker changes were accepted, deferred, or rejected."
+      ],
+      "capabilities": [
+        "completion-approval-and-consolidation"
+      ]
+    },
+    {
+      "id": "req-017",
+      "text": "Managers SHALL record explicit approve, reject_for_revision, or escalate decisions, and worker completion SHALL NOT imply automatic merge or fan-in.",
+      "acceptance": [
+        "A worker cannot reach completed state without an explicit approval decision and recorded consolidation outcome.",
+        "Consolidation failures such as merge conflicts or failed post-merge validation remain durable and do not silently disappear into chat history.",
+        "Managers can consolidate multiple workers into a target branch while preserving which worker changes were accepted, deferred, or rejected."
+      ],
+      "capabilities": [
+        "completion-approval-and-consolidation"
+      ]
+    },
+    {
+      "id": "req-018",
+      "text": "Workers SHALL request completion through a structured completion payload that records claimed scope complete, validation evidence, remaining risks, and workspace/branch state rather than by prose alone.",
+      "acceptance": [
+        "A worker cannot reach completed state without an explicit approval decision and recorded consolidation outcome.",
+        "Consolidation failures such as merge conflicts or failed post-merge validation remain durable and do not silently disappear into chat history.",
+        "Managers can consolidate multiple workers into a target branch while preserving which worker changes were accepted, deferred, or rejected."
+      ],
+      "capabilities": [
+        "completion-approval-and-consolidation"
+      ]
+    },
+    {
+      "id": "req-019",
+      "text": "Every worker SHALL link to at least one ticket and MAY link to plans, specs, research, initiatives, critiques, Ralph runs, and docs through explicit references instead of copied summaries.",
+      "acceptance": [
+        "A reader can trace a worker from ticket to plan/spec/initiative context and back without guessing from prose.",
+        "Ralph can launch or observe manager-worker execution while remaining bounded and run-centric.",
+        "Worker artifacts do not become a shadow ticket system that competes with ticket status or dependency truth."
+      ],
+      "capabilities": [
+        "loom-boundary-and-provenance-integration"
+      ]
+    },
+    {
+      "id": "req-020",
+      "text": "Ralph, plans, critique, and docs SHALL interact with workers through links, packets, launch descriptors, and evidence references rather than by absorbing worker internals into their own records.",
+      "acceptance": [
+        "A reader can trace a worker from ticket to plan/spec/initiative context and back without guessing from prose.",
+        "Ralph can launch or observe manager-worker execution while remaining bounded and run-centric.",
+        "Worker artifacts do not become a shadow ticket system that competes with ticket status or dependency truth."
+      ],
+      "capabilities": [
+        "loom-boundary-and-provenance-integration"
+      ]
+    },
+    {
+      "id": "req-021",
+      "text": "Tickets SHALL remain the canonical live execution ledger; worker state SHALL complement tickets with workspace execution details and SHALL be able to feed key checkpoints, approvals, or outcomes back into ticket history without replacing ticket truth.",
+      "acceptance": [
+        "A reader can trace a worker from ticket to plan/spec/initiative context and back without guessing from prose.",
+        "Ralph can launch or observe manager-worker execution while remaining bounded and run-centric.",
+        "Worker artifacts do not become a shadow ticket system that competes with ticket status or dependency truth."
+      ],
+      "capabilities": [
+        "loom-boundary-and-provenance-integration"
+      ]
+    },
+    {
+      "id": "req-022",
+      "text": "All critical manager-worker flows SHALL be headless-safe and structured; interactive UI, widgets, or dashboards MAY assist operators but MUST NOT be required for correctness or recoverability.",
+      "acceptance": [
+        "A headless manager process can create, supervise, and consolidate workers using only tools and durable state.",
+        "An interrupted worker can be resumed or retired after inspecting durable records without depending on the original interactive session.",
+        "The package surface is rich enough that operators do not need to hand-edit JSON or markdown to keep workers moving."
+      ],
+      "capabilities": [
+        "headless-operator-surface-and-recovery"
+      ]
+    },
+    {
+      "id": "req-023",
+      "text": "Recovery after interruption SHALL rehydrate from durable worker state, messages, checkpoints, and runtime descriptors rather than from a monolithic transcript or hidden in-memory state.",
+      "acceptance": [
+        "A headless manager process can create, supervise, and consolidate workers using only tools and durable state.",
+        "An interrupted worker can be resumed or retired after inspecting durable records without depending on the original interactive session.",
+        "The package surface is rich enough that operators do not need to hand-edit JSON or markdown to keep workers moving."
+      ],
+      "capabilities": [
+        "headless-operator-surface-and-recovery"
+      ]
+    },
+    {
+      "id": "req-024",
+      "text": "The package SHALL expose `/worker` commands and `worker_*` tools for creating, reading, listing, messaging, checkpointing, approving, rejecting, launching, resuming, retiring, and inspecting workers without direct file editing.",
+      "acceptance": [
+        "A headless manager process can create, supervise, and consolidate workers using only tools and durable state.",
+        "An interrupted worker can be resumed or retired after inspecting durable records without depending on the original interactive session.",
+        "The package surface is rich enough that operators do not need to hand-edit JSON or markdown to keep workers moving."
+      ],
+      "capabilities": [
+        "headless-operator-surface-and-recovery"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "workspace-backed-worker-records",
+      "title": "Workspace-backed worker records",
+      "summary": "Persist workers as durable execution anchors whose state truthfully represents a workspace-backed execution unit rather than a transcript branch or generic subprocess.",
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003"
+      ],
+      "scenarios": [
+        "A manager creates a worker for a ticket-backed implementation slice and later inspects it from another machine clone.",
+        "A reviewer audits a committed worker record and can understand the work assignment without access to the original machine-local worktree path.",
+        "A worker runtime crashes and a new manager session resumes supervision from durable worker state."
+      ]
+    },
+    {
+      "id": "workspace-lifecycle-and-runtime-attachments",
+      "title": "Workspace lifecycle and runtime attachments",
+      "summary": "Model provisioning, attaching, resuming, and retiring ephemeral workspaces truthfully while preferring Git worktrees as the v1 isolation mechanism.",
+      "requirements": [
+        "req-004",
+        "req-005",
+        "req-006"
+      ],
+      "scenarios": [
+        "A headless manager process launches a worker Pi instance in a worktree while preserving portable committed state.",
+        "A manager allocates several workers before all worktrees are provisioned and later attaches them as resources become available.",
+        "A worker workspace is reprovisioned after local cleanup without changing the worker's durable identity."
+      ]
+    },
+    {
+      "id": "durable-manager-worker-messaging",
+      "title": "Durable manager-worker messaging",
+      "summary": "Provide a canonical message stream for coordination so worker communication survives turnover and remains inspectable without transcript archaeology.",
+      "requirements": [
+        "req-007",
+        "req-008",
+        "req-009"
+      ],
+      "scenarios": [
+        "A manager redirects a worker away from a false assumption and the intervention remains visible in the worker record.",
+        "A worker emits a bounded broadcast warning about a cross-cutting blocker and the manager can trace which workers received it.",
+        "A worker hits a blocker and sends a structured escalation to its manager while another session later audits the reason for delay."
+      ]
+    },
+    {
+      "id": "checkpoint-telemetry-and-observability",
+      "title": "Checkpoint telemetry and observability",
+      "summary": "Make worker progress observable through compact checkpoints and telemetry that enable supervision without sharing full worker context windows.",
+      "requirements": [
+        "req-010",
+        "req-011",
+        "req-012"
+      ],
+      "scenarios": [
+        "A long-running worker emits periodic checkpoints that allow a fresh manager process to resume oversight after restart.",
+        "A team dashboard highlights one worker as stale because its heartbeat has not advanced while others remain active.",
+        "A worker requests completion and includes the validation summary that the manager needs for approval."
+      ]
+    },
+    {
+      "id": "out-of-band-supervisory-control",
+      "title": "Out-of-band supervisory control",
+      "summary": "Reuse pi-supervisor’s strongest ideas at worker granularity so managers supervise compact worker state from outside the worker context window.",
+      "requirements": [
+        "req-013",
+        "req-014",
+        "req-015"
+      ],
+      "scenarios": [
+        "A worker becomes idle after asking for approval, and the manager must respond with approval, rejection, or a redirect instead of waiting indefinitely.",
+        "A worker is actively editing and testing, so the manager defers interruption until a clear drift signal appears.",
+        "A worker loops on the same blocker three checkpoints in a row and the manager escalates rather than repeating the same instruction."
+      ]
+    },
+    {
+      "id": "completion-approval-and-consolidation",
+      "title": "Completion approval and consolidation",
+      "summary": "Require structured completion evidence and make the manager the explicit point of approval and fan-in for non-parallelizable consolidation work.",
+      "requirements": [
+        "req-016",
+        "req-017",
+        "req-018"
+      ],
+      "scenarios": [
+        "A worker claims completion but lacks required evidence, so the manager rejects the request and sends a structured revision message.",
+        "A worker finishes an isolated feature slice and asks the manager to approve and merge it into a feature branch.",
+        "Two workers complete related slices, and the manager sequentially fans them into the target branch while recording conflicts and validation results."
+      ]
+    },
+    {
+      "id": "loom-boundary-and-provenance-integration",
+      "title": "Loom boundary and provenance integration",
+      "summary": "Integrate worker execution with existing Loom layers without diluting their responsibilities or duplicating their canonical records.",
+      "requirements": [
+        "req-019",
+        "req-020",
+        "req-021"
+      ],
+      "scenarios": [
+        "A critique record reviews a consolidation outcome and references worker evidence without worker artifacts pretending to be critique.",
+        "A plan spawns multiple ticket-attached workers and later links their approved outcomes back into the same execution slice.",
+        "A Ralph run launches a manager process that supervises several workers while Ralph records only run-level decisions and refs."
+      ]
+    },
+    {
+      "id": "headless-operator-surface-and-recovery",
+      "title": "Headless operator surface and recovery",
+      "summary": "Expose a complete command/tool/runtime surface that works in headless environments and supports deterministic recovery from process interruption.",
+      "requirements": [
+        "req-022",
+        "req-023",
+        "req-024"
+      ],
+      "scenarios": [
+        "A CI-like manager process runs headlessly, supervises workers, and resumes after restart from durable records.",
+        "A fresh session reads the latest worker packet and continues supervision with no access to prior chat transcript state.",
+        "An operator uses commands and tools to inspect a failed worker and retire it safely without opening the underlying files manually."
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Scaffold pi-workers package and worker ledger",
+      "summary": "Create the new extension package, README, index wiring, prompt guidance hooks, and `.loom/workers/` ledger bootstrap so the worker substrate has a truthful home in the repository.",
+      "deps": [],
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003"
+      ],
+      "capabilities": [
+        "workspace-backed-worker-records"
+      ],
+      "acceptance": [
+        "`packages/pi-workers/` follows existing package conventions and initializes `.loom/workers/` on session start.",
+        "Creating a worker writes the canonical artifact skeleton plus a runtime-only launch descriptor path that is ignored from committed truth.",
+        "Package guidance teaches the agent that workers are workspace-backed execution units, not session branches or generic subagents."
+      ]
+    },
+    {
+      "id": "task-002",
+      "title": "Model worker state and portable workspace descriptors",
+      "summary": "Implement canonical worker models, normalization, rendering, and store behavior for stable worker identity, linked refs, lifecycle states, objectives, and portable workspace metadata.",
+      "deps": [
+        "task-001"
+      ],
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-004",
+        "req-006",
+        "req-019"
+      ],
+      "capabilities": [
+        "loom-boundary-and-provenance-integration",
+        "workspace-backed-worker-records",
+        "workspace-lifecycle-and-runtime-attachments"
+      ],
+      "acceptance": [
+        "Logical workspace descriptors remain portable while runtime-only attachments can vary per machine.",
+        "Rendered worker markdown and state views expose enough information to inspect assignment and lifecycle without opening raw JSON.",
+        "Worker state persists stable identity, linked refs, lifecycle status, and workspace intent without clone-local absolute paths."
+      ]
+    },
+    {
+      "id": "task-003",
+      "title": "Implement workspace provisioning and runtime attachment adapters",
+      "summary": "Add workspace lifecycle operations and subprocess-backed runtime launch/resume support for Git-worktree-backed workers while keeping machine-local attachment details out of canonical state.",
+      "deps": [
+        "task-001",
+        "task-002"
+      ],
+      "requirements": [
+        "req-004",
+        "req-005",
+        "req-006",
+        "req-023"
+      ],
+      "capabilities": [
+        "headless-operator-surface-and-recovery",
+        "workspace-lifecycle-and-runtime-attachments"
+      ],
+      "acceptance": [
+        "A worker can transition from requested to provisioned and ready once a Git worktree attachment is materialized.",
+        "Launch and resume adapters can reconstruct runtime attachment from durable metadata plus runtime-only descriptor state.",
+        "No implementation path treats session fork/tree as the primary workspace isolation mechanism."
+      ]
+    },
+    {
+      "id": "task-004",
+      "title": "Persist durable message streams and broadcast semantics",
+      "summary": "Implement append-only worker messaging with manager-to-worker, worker-to-manager, and bounded broadcast records, including causal links, delivery status, and related Loom refs.",
+      "deps": [
+        "task-001",
+        "task-002"
+      ],
+      "requirements": [
+        "req-007",
+        "req-008",
+        "req-009"
+      ],
+      "capabilities": [
+        "durable-manager-worker-messaging"
+      ],
+      "acceptance": [
+        "Broadcast messages are durably recorded with explicit scope and manager visibility.",
+        "Managers and workers can exchange structured messages that survive process restart and remain inspectable in durable records.",
+        "Message records preserve related ticket/spec/plan refs and disposition state rather than anonymous prose."
+      ]
+    },
+    {
+      "id": "task-005",
+      "title": "Add checkpoints telemetry and worker dashboards",
+      "summary": "Implement checkpoint recording, heartbeat/telemetry summaries, dashboard generation, and worker packets that expose progress, blockers, approvals, and stale-state detection.",
+      "deps": [
+        "task-001",
+        "task-002",
+        "task-004"
+      ],
+      "requirements": [
+        "req-010",
+        "req-011",
+        "req-012"
+      ],
+      "capabilities": [
+        "checkpoint-telemetry-and-observability"
+      ],
+      "acceptance": [
+        "A fresh manager session can understand worker progress from durable checkpoint and dashboard state without replaying the transcript.",
+        "Dashboards and packets show stale heartbeats, pending approvals, blockers, and consolidation readiness at a glance.",
+        "Workers append structured checkpoints with recent changes, validation state, blockers, and next intended actions."
+      ]
+    },
+    {
+      "id": "task-006",
+      "title": "Build the manager supervisory control engine",
+      "summary": "Implement the out-of-band supervision policy that evaluates compact worker telemetry, distinguishes busy versus idle phases, persists interventions, and enforces anti-stagnation rules.",
+      "deps": [
+        "task-004",
+        "task-005"
+      ],
+      "requirements": [
+        "req-013",
+        "req-014",
+        "req-015"
+      ],
+      "capabilities": [
+        "out-of-band-supervisory-control"
+      ],
+      "acceptance": [
+        "Busy workers are not interrupted indiscriminately, while idle or blocked workers always receive timely approval, redirection, or escalation.",
+        "Manager interventions persist durably and can be audited later.",
+        "Repeated no-progress or repeated-blocker patterns trigger explicit escalation, reassignment, retirement, or other anti-stagnation outcomes instead of endless steering loops."
+      ]
+    },
+    {
+      "id": "task-007",
+      "title": "Implement completion requests and approval workflow",
+      "summary": "Add structured completion payloads, explicit manager approval/rejection/escalation actions, and worker state transitions around completion_requested and approved_for_consolidation.",
+      "deps": [
+        "task-005",
+        "task-006"
+      ],
+      "requirements": [
+        "req-017",
+        "req-018"
+      ],
+      "capabilities": [
+        "completion-approval-and-consolidation"
+      ],
+      "acceptance": [
+        "Managers can approve, reject for revision, or escalate with durable rationale.",
+        "Worker lifecycle records make it obvious whether a worker is waiting for approval, approved for fan-in, or sent back for more work.",
+        "Workers cannot become complete by prose alone and must submit structured completion evidence."
+      ]
+    },
+    {
+      "id": "task-008",
+      "title": "Implement consolidation and fan-in outcomes",
+      "summary": "Add the manager-owned consolidation flow that applies approved worker changes into the target branch or execution stream and records merge strategy, validation, conflict, and rollback outcomes durably.",
+      "deps": [
+        "task-003",
+        "task-007"
+      ],
+      "requirements": [
+        "req-016",
+        "req-017",
+        "req-018",
+        "req-021"
+      ],
+      "capabilities": [
+        "completion-approval-and-consolidation",
+        "loom-boundary-and-provenance-integration"
+      ],
+      "acceptance": [
+        "Approved workers can be consolidated through explicit strategies such as merge, cherry-pick, or patch application.",
+        "Conflict, validation failure, rollback, or follow-up requirements are captured durably instead of disappearing into chat.",
+        "Tickets can be updated with key approval and consolidation outcomes without worker state replacing ticket truth."
+      ]
+    },
+    {
+      "id": "task-009",
+      "title": "Integrate worker provenance with tickets plans Ralph critique and docs",
+      "summary": "Wire worker records into surrounding Loom layers through explicit refs, packet content, and update hooks while preserving each layer’s canonical role.",
+      "deps": [
+        "task-002",
+        "task-005",
+        "task-008"
+      ],
+      "requirements": [
+        "req-019",
+        "req-020",
+        "req-021"
+      ],
+      "capabilities": [
+        "loom-boundary-and-provenance-integration"
+      ],
+      "acceptance": [
+        "Plans and Ralph can observe or launch worker-manager execution without absorbing worker internals into their own state.",
+        "Ticket history remains the live execution ledger even when workers contribute checkpoints, approvals, and consolidation results.",
+        "Workers can link to tickets, plans, specs, initiatives, research, critiques, Ralph runs, and docs through explicit refs."
+      ]
+    },
+    {
+      "id": "task-010",
+      "title": "Expose worker commands tools and prompt guidance",
+      "summary": "Provide `/worker` commands, `worker_*` tools, and prompt guidance for creating, launching, messaging, approving, resuming, retiring, and inspecting workers in both interactive and headless flows.",
+      "deps": [
+        "task-003",
+        "task-004",
+        "task-005",
+        "task-007"
+      ],
+      "requirements": [
+        "req-022",
+        "req-024"
+      ],
+      "capabilities": [
+        "headless-operator-surface-and-recovery"
+      ],
+      "acceptance": [
+        "Operators and agents can manage workers entirely through supported command and tool surfaces without hand-editing files.",
+        "Prompt guidance teaches the right boundaries: workers are workspace-backed units, managers supervise out-of-band, tickets remain execution truth, and Ralph stays bounded.",
+        "The surface works correctly in headless contexts where UI widgets are unavailable."
+      ]
+    },
+    {
+      "id": "task-011",
+      "title": "Harden recovery resume and retirement flows",
+      "summary": "Implement deterministic recovery behavior for interrupted workers, stale runtime attachments, retire/cleanup flows, and safe resume after process turnover.",
+      "deps": [
+        "task-003",
+        "task-005",
+        "task-010"
+      ],
+      "requirements": [
+        "req-022",
+        "req-023"
+      ],
+      "capabilities": [
+        "headless-operator-surface-and-recovery",
+        "workspace-lifecycle-and-runtime-attachments"
+      ],
+      "acceptance": [
+        "A new manager session can inspect durable state and either resume or retire a worker without relying on the original transcript or live process.",
+        "Recovery paths work even when the previous machine-local worktree path is gone and must be reprovisioned.",
+        "Retirement and cleanup preserve durable worker history while making it clear that the runtime attachment is no longer active."
+      ]
+    },
+    {
+      "id": "task-012",
+      "title": "Cover worker substrate with tests and operator documentation",
+      "summary": "Add comprehensive tests for state persistence, path portability, launch/resume behavior, messaging, supervision, approval, consolidation, and neighboring-layer integration, then update package documentation to explain truthful usage.",
+      "deps": [
+        "task-006",
+        "task-008",
+        "task-009",
+        "task-010",
+        "task-011"
+      ],
+      "requirements": [
+        "req-001",
+        "req-005",
+        "req-014",
+        "req-016",
+        "req-021",
+        "req-024"
+      ],
+      "capabilities": [
+        "checkpoint-telemetry-and-observability",
+        "completion-approval-and-consolidation",
+        "durable-manager-worker-messaging",
+        "headless-operator-surface-and-recovery",
+        "loom-boundary-and-provenance-integration",
+        "out-of-band-supervisory-control",
+        "workspace-backed-worker-records",
+        "workspace-lifecycle-and-runtime-attachments"
+      ],
+      "acceptance": [
+        "Automated tests prove portable-path handling, worker lifecycle transitions, supervision decisions, completion approvals, and consolidation outcomes.",
+        "Failure-mode coverage includes stale heartbeats, repeated blockers, lost runtime attachments, and merge conflicts.",
+        "Package README and prompt-guidance tests explain the new worker substrate and preserve truthful boundaries with tickets, plans, Ralph, critique, and docs."
+      ]
+    }
+  ],
+  "artifactVersions": {
+    "proposal": "2026-03-16T00:03:16.512Z",
+    "design": "2026-03-16T00:03:16.512Z",
+    "tasks": "2026-03-16T00:03:16.512Z",
+    "analysis": "2026-03-16T00:03:04.254Z",
+    "checklist": "2026-03-16T00:03:04.260Z"
+  }
+}

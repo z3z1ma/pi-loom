@@ -1,0 +1,57 @@
+{
+  "doc": {
+    "id": "loom-ralph-orchestration-overview",
+    "title": "Loom Ralph orchestration overview",
+    "status": "active",
+    "docType": "overview",
+    "sectionGroup": "overviews",
+    "updatedAt": "2026-03-15T21:07:35.095Z",
+    "sourceKind": "workspace",
+    "sourceRef": "repo",
+    "summary": "Explains the new pi-ralph package, the durable `.loom/ralph/` run model, and how Ralph composes with plans, tickets, critique, and docs without replacing those layers.",
+    "revisionCount": 0,
+    "path": "/Users/alexanderbutler/code_projects/pi-loom/.loom/docs/overviews/loom-ralph-orchestration-overview"
+  },
+  "generatedAt": "2026-03-15T21:07:43.953Z",
+  "packetPath": "/Users/alexanderbutler/code_projects/pi-loom/.loom/docs/overviews/loom-ralph-orchestration-overview/packet.md",
+  "documentPath": "/Users/alexanderbutler/code_projects/pi-loom/.loom/docs/overviews/loom-ralph-orchestration-overview/doc.md",
+  "revisionCount": 0,
+  "lastRevision": null,
+  "audience": [
+    "ai",
+    "human"
+  ],
+  "guideTopics": [
+    "fresh-context-launches",
+    "loop-policy",
+    "ralph-orchestration"
+  ],
+  "linkedOutputPaths": [],
+  "contextRefs": {
+    "roadmapItemIds": [],
+    "initiativeIds": [],
+    "researchIds": [
+      "state-of-the-art-for-ralph-loop-orchestration"
+    ],
+    "specChangeIds": [
+      "add-ralph-loop-orchestration-extension"
+    ],
+    "ticketIds": [
+      "t-0001",
+      "t-0002",
+      "t-0003",
+      "t-0004",
+      "t-0005",
+      "t-0006",
+      "t-0007"
+    ],
+    "critiqueIds": [
+      "critique-pi-ralph-implementation-rollout"
+    ]
+  },
+  "scopePaths": [
+    "CONSTITUTION.md",
+    "packages/pi-ralph",
+    "README.md"
+  ]
+}

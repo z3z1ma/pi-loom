@@ -1,0 +1,56 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import { describe, expect, it } from "vitest";
+import { handleSpecCommand } from "../extensions/commands/spec.js";
+
+function createTempWorkspace(): { cwd: string; cleanup: () => void } {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-specs-commands-"));
+  return {
+    cwd,
+    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+  };
+}
+
+function createContext(cwd: string): ExtensionCommandContext {
+  return { cwd } as unknown as ExtensionCommandContext;
+}
+
+describe("/spec command handler", () => {
+  it("initializes, proposes, plans, tasks, finalizes, projects, and archives durable spec state", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const ctx = createContext(cwd);
+
+      const initialized = await handleSpecCommand("init", ctx);
+      expect(initialized).toContain(`Initialized spec memory at ${join(cwd, ".loom", "specs")}`);
+      expect(existsSync(join(cwd, ".loom", "specs", "changes"))).toBe(true);
+
+      const created = await handleSpecCommand("propose Add dark mode", ctx);
+      expect(created).toContain("add-dark-mode [proposed]");
+
+      const planned = await handleSpecCommand(
+        "plan add-dark-mode Theme toggling :: Users can toggle dark mode :: Use CSS variables",
+        ctx,
+      );
+      expect(planned).toContain("Capabilities: theme-toggling");
+
+      const tasked = await handleSpecCommand("tasks add-dark-mode Implement theme toggle :: req-001", ctx);
+      expect(tasked).toContain("Tasks: 1");
+
+      const finalized = await handleSpecCommand("finalize add-dark-mode", ctx);
+      expect(finalized).toContain("add-dark-mode [finalized]");
+
+      const projected = await handleSpecCommand("tickets add-dark-mode", ctx);
+      expect(projected).toContain("Projected tickets: 1");
+      expect(existsSync(join(cwd, ".loom", "tickets", "t-0001.md"))).toBe(true);
+
+      const archived = await handleSpecCommand("archive add-dark-mode", ctx);
+      expect(archived).toContain("add-dark-mode [archived]");
+      expect(existsSync(join(cwd, ".loom", "specs", "capabilities", "theme-toggling.md"))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+});

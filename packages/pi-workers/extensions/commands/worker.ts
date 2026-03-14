@@ -1,0 +1,285 @@
+import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ConsolidationStrategy } from "../domain/models.js";
+import { createWorkerStore } from "../domain/store.js";
+
+type ApprovalShortcut = "approve" | "reject" | "escalate";
+
+type ConsolidationShortcut = "merge" | "cherry-pick" | "patch" | "conflicted" | "validation-failed" | "deferred";
+
+function splitArgs(args: string): string[] {
+  return args.trim().split(/\s+/).filter(Boolean);
+}
+
+function parseDoubleColonArgs(args: string): string[] {
+  return args
+    .split("::")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function parseCreateArgs(args: string): { title: string; objective?: string; ticketIds: string[] } {
+  const [left, objective, ticketsPart] = parseDoubleColonArgs(args);
+  const title = left?.trim();
+  if (!title) {
+    throw new Error("Usage: /worker create <title> [:: <objective>] [:: <ticket1> | <ticket2>]");
+  }
+  const ticketIds = ticketsPart
+    ? ticketsPart
+        .split("|")
+        .map((ticket) => ticket.trim())
+        .filter(Boolean)
+    : [];
+  return { title, objective, ticketIds };
+}
+
+function parseMessageArgs(args: string): { ref: string; direction: string; kind: string; text: string } {
+  const [left, text] = parseDoubleColonArgs(args);
+  const [ref, direction, kind] = splitArgs(left ?? "");
+  if (!ref || !direction || !kind || !text) {
+    throw new Error("Usage: /worker message <worker> <direction> <kind> :: <text>");
+  }
+  return { ref, direction, kind, text };
+}
+
+function parseCheckpointArgs(args: string): {
+  ref: string;
+  summary?: string;
+  understanding?: string;
+  blockers: string[];
+  nextAction?: string;
+} {
+  const [left, understanding, blockersPart, nextAction] = parseDoubleColonArgs(args);
+  const [ref, ...summaryParts] = splitArgs(left ?? "");
+  if (!ref) {
+    throw new Error(
+      "Usage: /worker checkpoint <worker> [summary] [:: <understanding>] [:: <blocker1> | <blocker2>] [:: <next-action>]",
+    );
+  }
+  return {
+    ref,
+    summary: summaryParts.join(" ").trim() || undefined,
+    understanding,
+    blockers: blockersPart
+      ? blockersPart
+          .split("|")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [],
+    nextAction,
+  };
+}
+
+function parseCompletionArgs(args: string): { ref: string; summary?: string; validation: string[]; risks: string[] } {
+  const [left, summary, validationPart, riskPart] = parseDoubleColonArgs(args);
+  const [ref] = splitArgs(left ?? "");
+  if (!ref) {
+    throw new Error(
+      "Usage: /worker complete <worker> [:: <summary>] [:: <validation1> | <validation2>] [:: <risk1> | <risk2>]",
+    );
+  }
+  return {
+    ref,
+    summary,
+    validation: validationPart
+      ? validationPart
+          .split("|")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [],
+    risks: riskPart
+      ? riskPart
+          .split("|")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [],
+  };
+}
+
+function parseApprovalArgs(args: string): {
+  ref: string;
+  status: ApprovalShortcut;
+  summary?: string;
+  rationale: string[];
+} {
+  const [left, summary, rationalePart] = parseDoubleColonArgs(args);
+  const [ref, status] = splitArgs(left ?? "");
+  if (!ref || !status) {
+    throw new Error(
+      "Usage: /worker approve <worker> <approve|reject|escalate> [:: <summary>] [:: <rationale1> | <rationale2>]",
+    );
+  }
+  return {
+    ref,
+    status: status as ApprovalShortcut,
+    summary,
+    rationale: rationalePart
+      ? rationalePart
+          .split("|")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [],
+  };
+}
+
+function parseConsolidationArgs(args: string): {
+  ref: string;
+  status: ConsolidationShortcut;
+  summary?: string;
+  validation: string[];
+  conflicts: string[];
+} {
+  const [left, summary, validationPart, conflictPart] = parseDoubleColonArgs(args);
+  const [ref, status] = splitArgs(left ?? "");
+  if (!ref || !status) {
+    throw new Error(
+      "Usage: /worker consolidate <worker> <merge|cherry-pick|patch|conflicted|validation-failed|deferred> [:: <summary>] [:: <validation1> | <validation2>] [:: <conflict1> | <conflict2>]",
+    );
+  }
+  return {
+    ref,
+    status: status as ConsolidationShortcut,
+    summary,
+    validation: validationPart
+      ? validationPart
+          .split("|")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [],
+    conflicts: conflictPart
+      ? conflictPart
+          .split("|")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [],
+  };
+}
+
+export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandContext): Promise<string> {
+  const store = createWorkerStore(_ctx.cwd);
+  const [subcommand, ...rest] = splitArgs(args);
+  if (!subcommand) {
+    return "Usage: /worker <init|create|list|show|dashboard|message|checkpoint|complete|approve|supervise|launch|resume|consolidate|retire>";
+  }
+
+  switch (subcommand) {
+    case "init": {
+      const result = store.initLedger();
+      return `Initialized worker memory at ${result.root}`;
+    }
+    case "create": {
+      const parsed = parseCreateArgs(rest.join(" "));
+      return store.renderDetail(
+        store.createWorker({
+          title: parsed.title,
+          objective: parsed.objective,
+          linkedRefs: { ticketIds: parsed.ticketIds },
+        }).state.workerId,
+      );
+    }
+    case "list":
+      return store.renderList();
+    case "show": {
+      const ref = rest[0];
+      if (!ref) throw new Error("Usage: /worker show <worker>");
+      return store.renderDetail(ref);
+    }
+    case "dashboard": {
+      const ref = rest[0];
+      if (!ref) throw new Error("Usage: /worker dashboard <worker>");
+      return store.renderDashboard(ref);
+    }
+    case "message": {
+      const parsed = parseMessageArgs(rest.join(" "));
+      store.appendMessage(parsed.ref, {
+        direction: parsed.direction as never,
+        kind: parsed.kind as never,
+        text: parsed.text,
+      });
+      return store.renderDetail(parsed.ref);
+    }
+    case "checkpoint": {
+      const parsed = parseCheckpointArgs(rest.join(" "));
+      store.appendCheckpoint(parsed.ref, {
+        summary: parsed.summary,
+        understanding: parsed.understanding,
+        blockers: parsed.blockers,
+        nextAction: parsed.nextAction,
+        managerInputRequired: parsed.blockers.length > 0,
+      });
+      return store.renderDetail(parsed.ref);
+    }
+    case "complete": {
+      const parsed = parseCompletionArgs(rest.join(" "));
+      store.requestCompletion(parsed.ref, {
+        summary: parsed.summary,
+        validationEvidence: parsed.validation,
+        remainingRisks: parsed.risks,
+      });
+      return store.renderDetail(parsed.ref);
+    }
+    case "approve": {
+      const parsed = parseApprovalArgs(rest.join(" "));
+      const mapped =
+        parsed.status === "approve" ? "approved" : parsed.status === "reject" ? "rejected_for_revision" : "escalated";
+      store.decideApproval(parsed.ref, { status: mapped, summary: parsed.summary, rationale: parsed.rationale });
+      return store.renderDetail(parsed.ref);
+    }
+    case "supervise": {
+      const ref = rest[0];
+      const apply = rest.includes("apply");
+      if (!ref) throw new Error("Usage: /worker supervise <worker> [apply]");
+      const result = store.superviseWorker(ref, apply);
+      return [
+        `Action: ${result.decision.action}`,
+        `Confidence: ${result.decision.confidence}`,
+        `Reasoning: ${result.decision.reasoning}`,
+        result.decision.message ? `Message: ${result.decision.message}` : "Message: (none)",
+        result.decision.evidence.length > 0 ? `Evidence: ${result.decision.evidence.join(" | ")}` : "Evidence: (none)",
+      ].join("\n");
+    }
+    case "launch": {
+      const ref = rest[0];
+      if (!ref) throw new Error("Usage: /worker launch <worker>");
+      store.prepareLaunch(ref, false, "Interactive launch prepared via command surface.");
+      return store.renderLaunch(ref);
+    }
+    case "resume": {
+      const ref = rest[0];
+      if (!ref) throw new Error("Usage: /worker resume <worker>");
+      store.prepareLaunch(ref, true, "Interactive resume prepared via command surface.");
+      return store.renderLaunch(ref);
+    }
+    case "consolidate": {
+      const parsed = parseConsolidationArgs(rest.join(" "));
+      const statusMap: Record<
+        ConsolidationShortcut,
+        {
+          status: "merged" | "cherry_picked" | "patched" | "conflicted" | "validation_failed" | "deferred";
+          strategy: ConsolidationStrategy;
+        }
+      > = {
+        merge: { status: "merged", strategy: "merge" },
+        "cherry-pick": { status: "cherry_picked", strategy: "cherry-pick" },
+        patch: { status: "patched", strategy: "patch" },
+        conflicted: { status: "conflicted", strategy: "merge" },
+        "validation-failed": { status: "validation_failed", strategy: "merge" },
+        deferred: { status: "deferred", strategy: "manual" },
+      };
+      store.recordConsolidation(parsed.ref, {
+        ...statusMap[parsed.status],
+        summary: parsed.summary,
+        validation: parsed.validation,
+        conflicts: parsed.conflicts,
+      });
+      return store.renderDetail(parsed.ref);
+    }
+    case "retire": {
+      const ref = rest[0];
+      if (!ref) throw new Error("Usage: /worker retire <worker>");
+      store.retireWorker(ref, "Retired via command surface.");
+      return store.renderDetail(ref);
+    }
+    default:
+      throw new Error(`Unknown /worker subcommand: ${subcommand}`);
+  }
+}

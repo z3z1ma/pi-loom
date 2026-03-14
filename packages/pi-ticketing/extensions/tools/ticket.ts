@@ -1,0 +1,350 @@
+import { StringEnum } from "@mariozechner/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { type Static, Type } from "@sinclair/typebox";
+import type {
+  AttachArtifactInput,
+  CreateCheckpointInput,
+  CreateTicketInput,
+  TicketStatus,
+  UpdateTicketInput,
+} from "../domain/models.js";
+import { renderGraph, renderTicketDetail, renderTicketSummary } from "../domain/render.js";
+import { createTicketStore } from "../domain/store.js";
+
+const TicketStatusEnum = StringEnum(["open", "ready", "in_progress", "blocked", "review", "closed"] as const);
+const TicketTypeEnum = StringEnum(["task", "bug", "feature", "epic", "chore", "review", "security"] as const);
+const TicketPriorityEnum = StringEnum(["low", "medium", "high", "critical"] as const);
+const TicketRiskEnum = StringEnum(["low", "medium", "high"] as const);
+const TicketReviewStatusEnum = StringEnum(["none", "requested", "changes_requested", "approved"] as const);
+const JournalKindEnum = StringEnum([
+  "note",
+  "decision",
+  "progress",
+  "verification",
+  "checkpoint",
+  "attachment",
+  "state",
+] as const);
+const TicketWriteActionEnum = StringEnum([
+  "create",
+  "update",
+  "start",
+  "close",
+  "add_note",
+  "add_journal_entry",
+  "attach_artifact",
+  "add_dependency",
+  "remove_dependency",
+] as const);
+const TicketCheckpointActionEnum = StringEnum(["create", "read"] as const);
+
+const TicketListParams = Type.Object({
+  status: Type.Optional(TicketStatusEnum),
+  type: Type.Optional(TicketTypeEnum),
+  includeClosed: Type.Optional(Type.Boolean()),
+  text: Type.Optional(Type.String()),
+});
+
+const TicketReadParams = Type.Object({
+  ref: Type.String({ description: "Ticket id, #ticket id, filename, or markdown path." }),
+});
+
+const TicketWriteParams = Type.Object({
+  action: TicketWriteActionEnum,
+  ref: Type.Optional(Type.String({ description: "Existing ticket reference for non-create actions." })),
+  title: Type.Optional(Type.String()),
+  summary: Type.Optional(Type.String()),
+  context: Type.Optional(Type.String()),
+  plan: Type.Optional(Type.String()),
+  notes: Type.Optional(Type.String()),
+  verification: Type.Optional(Type.String()),
+  journalSummary: Type.Optional(Type.String()),
+  status: Type.Optional(StringEnum(["open", "in_progress", "review"] as const)),
+  priority: Type.Optional(TicketPriorityEnum),
+  type: Type.Optional(TicketTypeEnum),
+  tags: Type.Optional(Type.Array(Type.String())),
+  links: Type.Optional(Type.Array(Type.String())),
+  initiativeIds: Type.Optional(Type.Array(Type.String())),
+  researchIds: Type.Optional(Type.Array(Type.String())),
+  specChange: Type.Optional(Type.String()),
+  specCapabilities: Type.Optional(Type.Array(Type.String())),
+  specRequirements: Type.Optional(Type.Array(Type.String())),
+  parent: Type.Optional(Type.String()),
+  assignee: Type.Optional(Type.String()),
+  acceptance: Type.Optional(Type.Array(Type.String())),
+  labels: Type.Optional(Type.Array(Type.String())),
+  risk: Type.Optional(TicketRiskEnum),
+  reviewStatus: Type.Optional(TicketReviewStatusEnum),
+  externalRefs: Type.Optional(Type.Array(Type.String())),
+  dependency: Type.Optional(Type.String()),
+  journalKind: Type.Optional(JournalKindEnum),
+  text: Type.Optional(Type.String()),
+  artifact: Type.Optional(
+    Type.Object({
+      label: Type.String(),
+      description: Type.Optional(Type.String()),
+      path: Type.Optional(Type.String()),
+      content: Type.Optional(Type.String()),
+      mediaType: Type.Optional(Type.String()),
+      metadata: Type.Optional(Type.Object({}, { additionalProperties: true })),
+    }),
+  ),
+});
+
+const TicketGraphParams = Type.Object({
+  ref: Type.Optional(Type.String()),
+});
+
+const TicketCheckpointParams = Type.Object({
+  action: TicketCheckpointActionEnum,
+  ref: Type.String(),
+  title: Type.Optional(Type.String()),
+  body: Type.Optional(Type.String()),
+  supersedes: Type.Optional(Type.String()),
+});
+
+type TicketWriteParamsValue = Static<typeof TicketWriteParams>;
+
+function getStore(ctx: ExtensionContext) {
+  return createTicketStore(ctx.cwd);
+}
+
+function requireRef(ref: string | undefined): string {
+  if (!ref) {
+    throw new Error("Ticket reference is required for this action");
+  }
+  return ref;
+}
+
+function toUpdateInput(params: TicketWriteParamsValue): UpdateTicketInput {
+  return {
+    title: params.title,
+    summary: params.summary,
+    context: params.context,
+    plan: params.plan,
+    notes: params.notes,
+    verification: params.verification,
+    journalSummary: params.journalSummary,
+    status: params.status,
+    priority: params.priority,
+    type: params.type,
+    tags: params.tags,
+    links: params.links,
+    initiativeIds: params.initiativeIds,
+    researchIds: params.researchIds,
+    specChange: params.specChange,
+    specCapabilities: params.specCapabilities,
+    specRequirements: params.specRequirements,
+    parent: params.parent,
+    assignee: params.assignee,
+    acceptance: params.acceptance,
+    labels: params.labels,
+    risk: params.risk,
+    reviewStatus: params.reviewStatus,
+    externalRefs: params.externalRefs,
+  };
+}
+
+function toCreateInput(params: TicketWriteParamsValue): CreateTicketInput {
+  if (!params.title?.trim()) {
+    throw new Error("title is required for create");
+  }
+  return {
+    title: params.title,
+    summary: params.summary,
+    context: params.context,
+    plan: params.plan,
+    notes: params.notes,
+    verification: params.verification,
+    journalSummary: params.journalSummary,
+    priority: params.priority,
+    type: params.type,
+    tags: params.tags,
+    links: params.links,
+    initiativeIds: params.initiativeIds,
+    researchIds: params.researchIds,
+    specChange: params.specChange,
+    specCapabilities: params.specCapabilities,
+    specRequirements: params.specRequirements,
+    parent: params.parent,
+    assignee: params.assignee,
+    acceptance: params.acceptance,
+    labels: params.labels,
+    risk: params.risk,
+    reviewStatus: params.reviewStatus,
+    externalRefs: params.externalRefs,
+  };
+}
+
+function machineResult(details: Record<string, unknown>, text: string) {
+  return {
+    content: [{ type: "text" as const, text }],
+    details,
+  };
+}
+
+export function registerTicketTools(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "ticket_list",
+    label: "ticket_list",
+    description: "List tickets from the durable local ledger.",
+    promptSnippet: "Inspect backlog, ready work, blocked work, or existing intent before creating a new ticket.",
+    promptGuidelines: [
+      "Use this tool before creating tickets so you do not duplicate existing work.",
+      "Use status filters to inspect ready or blocked work before proposing sequencing or parallelism.",
+      "Use the existing ledger to inherit durable context, dependencies, and verification expectations before writing a new ticket body.",
+    ],
+    parameters: TicketListParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const tickets = getStore(ctx).listTickets({
+        status: params.status as TicketStatus | undefined,
+        type: params.type,
+        includeClosed: params.includeClosed,
+        text: params.text,
+      });
+      return machineResult(
+        { tickets },
+        tickets.length > 0 ? tickets.map(renderTicketSummary).join("\n") : "No tickets.",
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "ticket_read",
+    label: "ticket_read",
+    description:
+      "Read a fully detailed ticket with acceptance criteria, journal history, attachments, checkpoints, and graph context.",
+    promptSnippet: "Load the current truth for a ticket before acting on it or changing it.",
+    promptGuidelines: [
+      "Read the ticket before editing code when durable intent or previous discoveries may matter.",
+      "Use the full ticket body, acceptance criteria, provenance, and journal as the execution record; do not overwrite a complete unit of work with a thinner restatement that would leave a newcomer unsure why the work exists or how to recognize completion.",
+    ],
+    parameters: TicketReadParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const result = getStore(ctx).readTicket(params.ref);
+      return machineResult({ ticket: result }, renderTicketDetail(result));
+    },
+  });
+
+  pi.registerTool({
+    name: "ticket_write",
+    label: "ticket_write",
+    description: "Create or update fully specified durable ticket state in the local ledger.",
+    promptSnippet:
+      "Persist substantial work intent, acceptance criteria, implementation plan, progress, blockers, verification, dependencies, and artifacts instead of keeping them only in chat.",
+    promptGuidelines: [
+      "Use this tool for durable work state rather than transient scratch planning.",
+      "Create ticket bodies as complete, self-contained units of work with concrete context, acceptance criteria, plan, dependencies, risks, provenance, and verification expectations rather than minimal blurbs; a capable newcomer should be able to understand why the task exists, what generally needs to happen, and what done looks like.",
+      "Update the ticket as the work evolves so future turns and agents can rely on truthful ongoing state instead of stale summaries.",
+    ],
+    parameters: TicketWriteParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const store = getStore(ctx);
+      switch (params.action) {
+        case "create": {
+          const result = store.createTicket(toCreateInput(params));
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "update": {
+          const result = store.updateTicket(requireRef(params.ref), toUpdateInput(params));
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "start": {
+          const result = store.startTicket(requireRef(params.ref));
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "close": {
+          const result = store.closeTicket(requireRef(params.ref), params.verification);
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "add_note": {
+          if (!params.text?.trim()) throw new Error("text is required for add_note");
+          const result = store.addNote(requireRef(params.ref), params.text);
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "add_journal_entry": {
+          if (!params.text?.trim()) throw new Error("text is required for add_journal_entry");
+          const result = store.addJournalEntry(requireRef(params.ref), params.journalKind ?? "progress", params.text);
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "attach_artifact": {
+          if (!params.artifact) throw new Error("artifact is required for attach_artifact");
+          const result = store.attachArtifact(requireRef(params.ref), params.artifact as AttachArtifactInput);
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "add_dependency": {
+          if (!params.dependency) throw new Error("dependency is required for add_dependency");
+          const result = store.addDependency(requireRef(params.ref), params.dependency);
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "remove_dependency": {
+          if (!params.dependency) throw new Error("dependency is required for remove_dependency");
+          const result = store.removeDependency(requireRef(params.ref), params.dependency);
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "ticket_graph",
+    label: "ticket_graph",
+    description: "Inspect dependency and parent relationships across the ticket ledger.",
+    promptSnippet: "Inspect dependencies and ready or blocked work before choosing sequence or parallelism.",
+    promptGuidelines: [
+      "Use this tool when ordering work or explaining why something is blocked.",
+      "Ground ticket sequencing in the stored dependency graph instead of flattening dependency context into vague ticket prose.",
+    ],
+    parameters: TicketGraphParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const graph = getStore(ctx).graph();
+      if (params.ref) {
+        const ticketId = getStore(ctx).resolveTicketRef(params.ref);
+        return machineResult(
+          { graph, node: graph.nodes[ticketId] ?? null },
+          graph.nodes[ticketId]
+            ? renderGraph({
+                nodes: { [ticketId]: graph.nodes[ticketId] },
+                ready: graph.ready.filter((id) => id === ticketId),
+                blocked: graph.blocked.filter((id) => id === ticketId),
+                cycles: graph.cycles.filter((cycle) => cycle.includes(ticketId)),
+              })
+            : `No graph node for ${ticketId}`,
+        );
+      }
+      return machineResult({ graph }, renderGraph(graph));
+    },
+  });
+
+  pi.registerTool({
+    name: "ticket_checkpoint",
+    label: "ticket_checkpoint",
+    description: "Persist or read durable handoff checkpoints linked to a ticket.",
+    promptSnippet: "Persist checkpoints when work spans turns, agents, reviews, or handoff boundaries.",
+    promptGuidelines: [
+      "Use checkpoints for reusable durable handoff records, not ephemeral chat summaries.",
+      "Checkpoint bodies should preserve the critical execution detail needed for truthful resumption, including state, decisions, risks, acceptance progress, and verification status, so a later worker can tell what remains and how completion will be judged.",
+    ],
+    parameters: TicketCheckpointParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const store = getStore(ctx);
+      if (params.action === "read") {
+        const result = store.readTicket(params.ref);
+        return machineResult(
+          { checkpoints: result.checkpoints },
+          result.checkpoints.map((checkpoint) => `${checkpoint.id} ${checkpoint.title}`).join("\n") ||
+            "No checkpoints.",
+        );
+      }
+      if (!params.title?.trim() || !params.body?.trim()) {
+        throw new Error("title and body are required for checkpoint creation");
+      }
+      const result = store.recordCheckpoint(params.ref, {
+        title: params.title,
+        body: params.body,
+        supersedes: params.supersedes,
+      } as CreateCheckpointInput);
+      return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+    },
+  });
+}

@@ -1,0 +1,121 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createResearchStore } from "../../pi-research/extensions/domain/store.js";
+import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
+import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
+import { createInitiativeStore } from "../extensions/domain/store.js";
+
+describe("InitiativeStore durable memory", () => {
+  let workspace: string;
+
+  beforeEach(() => {
+    workspace = mkdtempSync(join(tmpdir(), "pi-initiatives-store-"));
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it("writes durable initiative artifacts, links multiple specs and tickets, and preserves archive state", () => {
+    const initiativeStore = createInitiativeStore(workspace);
+    const researchStore = createResearchStore(workspace);
+    const specStore = createSpecStore(workspace);
+    const ticketStore = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    researchStore.createResearch({ title: "Investigate theme migration" });
+    specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+    specStore.createChange({ title: "Modernize theming tokens", summary: "Replace legacy color literals." });
+    const blocker = ticketStore.createTicket({ title: "Prepare token inventory" });
+    const dependent = ticketStore.createTicket({
+      title: "Apply token migration",
+      deps: [blocker.summary.id],
+    });
+
+    const created = initiativeStore.createInitiative({
+      title: "Platform modernization",
+      objective: "Coordinate the long-horizon modernization program.",
+      outcomes: ["Shared theming strategy", "Stable migration sequencing"],
+      scope: ["Theme system", "Token migration"],
+      nonGoals: ["Visual redesign"],
+      successMetrics: ["No legacy color literals remain"],
+      risks: ["Migration may stall on unknown token consumers"],
+      statusSummary: "Scoping and sequencing underway.",
+      owners: ["platform"],
+      tags: ["modernization", "ui"],
+      specChangeIds: ["add-dark-mode", "modernize-theming-tokens"],
+      ticketIds: [blocker.summary.id, dependent.summary.id],
+      milestones: [
+        {
+          title: "Define migration path",
+          description: "Lock the initial spec and ticket graph.",
+          specChangeIds: ["add-dark-mode"],
+          ticketIds: [dependent.summary.id],
+        },
+      ],
+    });
+
+    expect(created.state.initiativeId).toBe("platform-modernization");
+    expect(created.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
+    expect(existsSync(join(workspace, ".loom", "initiatives", "platform-modernization", "initiative.md"))).toBe(true);
+    expect(existsSync(join(workspace, ".loom", "initiatives", "platform-modernization", "dashboard.json"))).toBe(true);
+    expect(created.dashboard.linkedSpecs.total).toBe(2);
+    expect(created.dashboard.linkedTickets.total).toBe(2);
+    expect(created.dashboard.linkedTickets.blocked).toBe(1);
+    expect(created.dashboard.milestones[0]).toMatchObject({ health: "at_risk" });
+    expect(created.state.researchIds).toEqual([]);
+    expect(specStore.readChange("add-dark-mode").state.initiativeIds).toEqual(["platform-modernization"]);
+    expect(ticketStore.readTicket(blocker.summary.id).summary.initiativeIds).toEqual(["platform-modernization"]);
+
+    const linkedResearch = researchStore.linkInitiative("investigate-theme-migration", "platform-modernization");
+    expect(linkedResearch.state.initiativeIds).toEqual(["platform-modernization"]);
+    const hydrated = initiativeStore.readInitiative("platform-modernization");
+    expect(hydrated.state.researchIds).toEqual(["investigate-theme-migration"]);
+    expect(hydrated.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
+    expect(hydrated.dashboard.linkedResearch.items).toMatchObject([
+      {
+        id: "investigate-theme-migration",
+        path: join(".loom", "research", "investigate-theme-migration"),
+      },
+    ]);
+    expect(hydrated.dashboard).not.toHaveProperty("generatedAt");
+
+    vi.setSystemTime(new Date("2026-03-15T12:10:00.000Z"));
+    const updated = initiativeStore.recordDecision(
+      "platform-modernization",
+      "Should dark mode land before token migration?",
+      "Yes, so the migration can target the finalized theme contract.",
+    );
+    expect(updated.decisions).toHaveLength(1);
+
+    vi.setSystemTime(new Date("2026-03-15T12:15:00.000Z"));
+    const archived = initiativeStore.archiveInitiative("platform-modernization");
+    expect(archived.state.status).toBe("archived");
+    expect(archived.state.archivedAt).toBe("2026-03-15T12:15:00.000Z");
+    expect(archived.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
+    expect(initiativeStore.listInitiatives({ includeArchived: true })[0]?.path).toBe(
+      join(".loom", "initiatives", "platform-modernization"),
+    );
+    expect(specStore.readChange("modernize-theming-tokens").summary.initiativeIds).toEqual(["platform-modernization"]);
+
+    const persistedDashboard = JSON.parse(
+      readFileSync(join(workspace, ".loom", "initiatives", "platform-modernization", "dashboard.json"), "utf-8"),
+    ) as { linkedResearch: { items: Array<{ path: string }> }; generatedAt?: string };
+    expect(persistedDashboard.linkedResearch.items[0]?.path).toBe(
+      join(".loom", "research", "investigate-theme-migration"),
+    );
+    expect(persistedDashboard.generatedAt).toBeUndefined();
+
+    const brief = readFileSync(
+      join(workspace, ".loom", "initiatives", "platform-modernization", "initiative.md"),
+      "utf-8",
+    );
+    expect(brief).toContain("## Objective");
+    expect(brief).toContain("Coordinate the long-horizon modernization program.");
+    expect(brief).toContain("## Milestones");
+  });
+});

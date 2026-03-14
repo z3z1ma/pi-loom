@@ -1,0 +1,81 @@
+{
+  "researchId": "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces",
+  "title": "Prepare manager-worker architecture from pi-supervisor and Pi extension interfaces",
+  "status": "synthesized",
+  "createdAt": "2026-03-15T23:44:27.983Z",
+  "updatedAt": "2026-03-16T00:03:16.510Z",
+  "archivedAt": null,
+  "synthesizedAt": "2026-03-15T23:49:50.175Z",
+  "question": "How should Pi Loom evolve toward a manager-worker architecture grounded in ephemeral workspaces while borrowing the strongest ideas from pi-supervisor's lightweight supervision model?",
+  "objective": "Produce source-backed architectural guidance for a manager-worker operating model that fits Pi Loom's constitutional boundaries, workspace-centric worker abstraction, and current Pi extension/runtime capabilities.",
+  "scope": [
+    ".agents/resources/pi-supervisor",
+    ".loom/constitution",
+    "CONSTITUTION.md",
+    "packages/pi-*/extensions",
+    "README.md",
+    "related reference resources under .agents/resources"
+  ],
+  "nonGoals": [
+    "Claim runtime capabilities not supported by current Pi or repository code",
+    "Design a full generic workflow engine that erases current Loom layer boundaries",
+    "Implement the architecture"
+  ],
+  "methodology": [
+    "Compare findings against desired manager-worker model and derive bounded recommendations",
+    "Inspect constitutional and repository guidance first",
+    "Study Pi extension interface and nearby examples for supported hooks/runtime surfaces",
+    "Study pi-supervisor design and source implementation"
+  ],
+  "keywords": [
+    "extension interface",
+    "manager-worker",
+    "orchestration",
+    "pi-supervisor",
+    "workspace",
+    "worktree"
+  ],
+  "statusSummary": "Research synthesized. pi-supervisor, Pi runtime surfaces, and pi-loom Ralph boundaries were compared to derive a bounded manager-worker direction centered on workspace-backed workers and out-of-band supervision.",
+  "conclusions": [
+    "Current Pi runtime surfaces support extension-based observation, message injection, bounded subprocess/task spawning, and session branch/fork flows, but they do not currently provide an explicit workspace/worktree-backed worker abstraction.",
+    "Pi Loom’s current constitutional and package boundaries explicitly keep Ralph bounded and tickets as the live execution ledger. Manager-worker should therefore be introduced as a new workspace-aware execution mechanism that Ralph or plans may invoke and observe, not by turning Ralph into a general workflow engine.",
+    "pi-supervisor demonstrates a reusable lightweight oversight pattern: supervise a worker from a separate in-memory Pi session using compact session snapshots, intervention history, and recent deltas rather than sharing full worker context."
+  ],
+  "recommendations": [
+    "Add explicit workspace lifecycle and worker messaging contracts rather than overloading current session fork/tree primitives, which are conversation-log operations and keep cwd unchanged.",
+    "Design worker communication to be durable and headless-safe: inbox/outbox/broadcast records and structured telemetry should be canonical, with UI widgets as optional views rather than required control surfaces.",
+    "Keep fan-out/fan-in accountable through existing Loom boundaries: plans remain execution strategy, tickets remain live execution state, Ralph remains bounded loop orchestration, and manager-worker supplies workspace execution plus consolidation.",
+    "Model worker identity around an ephemeral workspace plus Pi session, inbox/outbox, ticket attachment, and durable telemetry instead of around session-tree branching alone.",
+    "Reuse pi-supervisor’s outside-observer pattern for manager oversight: a manager should monitor compact worker telemetry and recent message deltas, intervene differently when a worker is busy vs idle, and avoid living inside the worker’s context window."
+  ],
+  "openQuestions": [
+    "What structured telemetry and merge/review contract must a worker expose so a manager can approve completion and safely consolidate work from multiple workspaces?",
+    "Which Loom layer or package should own workspace records and worker inbox/outbox state so that manager-worker stays truthful without duplicating ticket or Ralph responsibilities?"
+  ],
+  "initiativeIds": [
+    "workspace-backed-manager-worker-coordination"
+  ],
+  "specChangeIds": [
+    "add-workspace-backed-manager-worker-substrate"
+  ],
+  "ticketIds": [],
+  "capabilityIds": [],
+  "artifactIds": [
+    "artifact-001"
+  ],
+  "sourceRefs": [
+    ".agents/resources/pi-supervisor/README.md",
+    ".loom/constitution/brief.md",
+    "agent://0-SupervisorCore",
+    "agent://1-PiRuntimeSurfaces",
+    "agent://2-RalphFit",
+    "CONSTITUTION.md",
+    "README.md"
+  ],
+  "supersedes": [],
+  "tags": [
+    "architecture",
+    "orchestration",
+    "research"
+  ]
+}

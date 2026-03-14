@@ -1,0 +1,163 @@
+{
+  "planId": "workspace-backed-manager-worker-substrate-rollout",
+  "title": "Workspace-backed manager-worker substrate rollout",
+  "status": "completed",
+  "createdAt": "2026-03-16T00:12:11.421Z",
+  "updatedAt": "2026-03-16T00:45:26.953Z",
+  "summary": "Completed the implementation of the finalized workspace backed manager worker substrate spec as a dependency aware rollout that preserved Pi Loom’s layer boundaries, added a new pi workers package, and left the workspace green under lint, …",
+  "purpose": "Bridge the finalized manager-worker substrate spec into an ordered linked-ticket execution program so implementation can proceed with high contextual fidelity, explicit sequencing, and strong architectural guardrails while tickets remain the live execution record.",
+  "contextAndOrientation": "This rollout started from the finalized worker substrate spec and the linked research record that anchored three constraints: use `pi-supervisor` as a source of supervisory-loop ideas rather than as the worker model itself; do not confuse current Pi session/task primitives with truthful workspace-backed workers; and keep Ralph bounded and run-centric. The completed implementation turned those constraints into code by adding a dedicated `pi-workers` package, durable worker records under `.loom/workers/`, Git-worktree-backed runtime attachment helpers, durable messages/checkpoints/telemetry, a compact supervision engine, explicit approval and consolidation stages, and operator surfaces through `/worker` commands plus `worker_*` tools.\n\nThe resulting package composes with tickets rather than replacing them. Worker records now carry explicit linked refs and update ticket external refs/journal history for key worker lifecycle events. Root workspace metadata and docs were updated so the repository truthfully reports ten packages and the new worker layer. The implementation remained bounded: no unrestricted peer mesh, no multi-repo orchestration, and no attempt to turn Ralph into the worker graph.",
+  "planOfWork": "Completed in the planned waves: foundation and worker model first; runtime attachment and messaging next; checkpoints/telemetry and supervision after that; approval and consolidation after the supervisory substrate existed; bounded operator/provenance/recovery integration after the lifecycle was real; and final hardening through comprehensive tests and docs. The dependency order proved correct: the worker model stabilized the rest of the implementation, and leaving verification/documentation until the end prevented tests and docs from fossilizing placeholder behavior.",
+  "concreteSteps": "Completed tickets in order and linked them back into the plan: t-0015 foundation, t-0016 model, t-0017 runtime attachment, t-0018 messaging, t-0019 observability, t-0020 supervision, t-0021 approval, t-0022 consolidation, t-0023 provenance integration, t-0024 operator surface, t-0025 recovery, and t-0026 verification/documentation. No projected tickets remain open for this rollout.",
+  "validation": "Final verification passed end-to-end: `npm run lint`, `npm run typecheck`, and `npm test`. Full workspace results: 64 test files passed and 133 tests passed. Focused worker-package coverage also passed across index, prompt guidance, store, commands, tools, and runtime suites. `npm install` refreshed the workspace lockfile after adding the new package.",
+  "risksAndQuestions": "Residual questions are now evolutionary rather than blocking: future iterations can decide whether to deepen bidirectional plan/Ralph visibility into worker state or to add richer runtime adapters, but those are follow-on enhancements rather than missing foundations. The main guardrail going forward is to preserve the portability rule for canonical state and to resist drifting toward a generic workflow engine.",
+  "outcomesAndRetrospective": "Outcome: Pi Loom now ships a first-class `@pi-loom/pi-workers` package and a workspace-backed worker substrate under `.loom/workers/`. Workers are durable execution units with portable state, runtime-only launch descriptors, Git-worktree-backed attachment helpers, durable messages/checkpoints/telemetry, manager supervision heuristics, explicit completion approval, consolidation outcomes, and a headless-safe operator surface.\n\nRetrospective: the spec-driven ticket graph sequenced the work effectively, the worker package stayed bounded instead of leaking into Ralph or ticket truth, and the final green verification pass provides strong evidence that the new substrate integrates cleanly with the existing workspace.",
+  "scopePaths": [
+    ".gitignore",
+    "AGENTS.md",
+    "CONSTITUTION.md",
+    "package-lock.json",
+    "package.json",
+    "packages/pi-critique",
+    "packages/pi-docs",
+    "packages/pi-initiatives",
+    "packages/pi-plans",
+    "packages/pi-ralph",
+    "packages/pi-research",
+    "packages/pi-specs",
+    "packages/pi-ticketing",
+    "packages/pi-workers",
+    "README.md"
+  ],
+  "sourceTarget": {
+    "kind": "spec",
+    "ref": "add-workspace-backed-manager-worker-substrate"
+  },
+  "contextRefs": {
+    "roadmapItemIds": [
+      "item-007"
+    ],
+    "initiativeIds": [
+      "workspace-backed-manager-worker-coordination"
+    ],
+    "researchIds": [
+      "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+    ],
+    "specChangeIds": [
+      "add-workspace-backed-manager-worker-substrate"
+    ],
+    "ticketIds": [
+      "t-0015",
+      "t-0016",
+      "t-0017",
+      "t-0018",
+      "t-0019",
+      "t-0020",
+      "t-0021",
+      "t-0022",
+      "t-0023",
+      "t-0024",
+      "t-0025",
+      "t-0026"
+    ],
+    "critiqueIds": [],
+    "docIds": []
+  },
+  "linkedTickets": [
+    {
+      "ticketId": "t-0015",
+      "role": "foundation",
+      "order": 1
+    },
+    {
+      "ticketId": "t-0016",
+      "role": "model",
+      "order": 2
+    },
+    {
+      "ticketId": "t-0017",
+      "role": "runtime-attachment",
+      "order": 3
+    },
+    {
+      "ticketId": "t-0018",
+      "role": "messaging",
+      "order": 4
+    },
+    {
+      "ticketId": "t-0019",
+      "role": "observability",
+      "order": 5
+    },
+    {
+      "ticketId": "t-0020",
+      "role": "supervision",
+      "order": 6
+    },
+    {
+      "ticketId": "t-0021",
+      "role": "approval",
+      "order": 7
+    },
+    {
+      "ticketId": "t-0022",
+      "role": "consolidation",
+      "order": 8
+    },
+    {
+      "ticketId": "t-0023",
+      "role": "provenance-integration",
+      "order": 9
+    },
+    {
+      "ticketId": "t-0024",
+      "role": "operator-surface",
+      "order": 10
+    },
+    {
+      "ticketId": "t-0025",
+      "role": "recovery",
+      "order": 11
+    },
+    {
+      "ticketId": "t-0026",
+      "role": "verification",
+      "order": 12
+    }
+  ],
+  "discoveries": [
+    {
+      "note": "A bounded worker package can deliver meaningful manager-worker behavior without overloading Ralph, as long as worker truth is anchored in portable records and runtime-only descriptors.",
+      "evidence": "Implemented `packages/pi-workers` with durable records, runtime helpers, and no changes that turned Ralph into the worker graph."
+    },
+    {
+      "note": "Ticket external refs and ticket journal updates are enough for a strong first provenance bridge from worker execution back into the live execution ledger.",
+      "evidence": "Worker creation, checkpoints, approvals, and consolidation now update linked ticket artifacts while tickets remain canonical execution truth."
+    },
+    {
+      "note": "The supervision engine can stay compact and useful by evaluating telemetry/checkpoints/messages instead of transcript replay, directly applying the most valuable `pi-supervisor` lesson.",
+      "evidence": "Implemented `superviseWorker` heuristics and validated them through worker store tests."
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "Implement the worker substrate as a dedicated `pi-workers` package instead of extending Ralph or task-session semantics.",
+      "rationale": "That preserved the finalized spec’s truthful representation: workspace-backed workers with their own ledger and runtime behavior.",
+      "date": "2026-03-16",
+      "author": "ChatGPT"
+    },
+    {
+      "decision": "Use `.loom/runtime/workers/` as the ignored runtime attachment root while keeping `.loom/workers/` as canonical state.",
+      "rationale": "This kept machine-local worktree paths out of committed worker truth while still making the runtime attachment model explicit.",
+      "date": "2026-03-16",
+      "author": "ChatGPT"
+    },
+    {
+      "decision": "Treat completion approval and consolidation as distinct stages.",
+      "rationale": "That preserved the manager as the explicit authority for non-parallelizable fan-in decisions and made post-approval failure states durable.",
+      "date": "2026-03-16",
+      "author": "ChatGPT"
+    }
+  ],
+  "packetSummary": "spec:add-workspace-backed-manager-worker-substrate; 12 linked ticket(s); 1 roadmap; 1 initiative; 1 research; 1 spec; 12 ticket; 0 critique; 0 doc"
+}

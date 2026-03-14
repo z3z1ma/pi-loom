@@ -1,0 +1,210 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@mariozechner/pi-ai", () => ({
+  StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
+}));
+
+vi.mock("@sinclair/typebox", () => ({
+  Type: {
+    Array: (value: unknown) => ({ type: "array", items: value }),
+    Boolean: () => ({ type: "boolean" }),
+    Object: (properties: Record<string, unknown>, options?: Record<string, unknown>) => ({
+      type: "object",
+      properties,
+      ...(options ?? {}),
+    }),
+    Optional: (value: unknown) => ({ ...((value as Record<string, unknown>) ?? {}), optional: true }),
+    String: (options?: Record<string, unknown>) => ({ type: "string", ...(options ?? {}) }),
+  },
+}));
+
+type MockPi = {
+  tools: Map<string, ToolDefinition>;
+  registerTool: ReturnType<typeof vi.fn>;
+};
+
+function createTempWorkspace(): { cwd: string; cleanup: () => void } {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-research-tools-"));
+  return {
+    cwd,
+    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+  };
+}
+
+function createMockPi(): MockPi {
+  const tools = new Map<string, ToolDefinition>();
+  return {
+    tools,
+    registerTool: vi.fn((definition: ToolDefinition) => {
+      tools.set(definition.name, definition);
+    }),
+  };
+}
+
+function getTool(mockPi: MockPi, name: string): ToolDefinition {
+  const tool = mockPi.tools.get(name);
+  expect(tool).toBeDefined();
+  if (!tool) {
+    throw new Error(`Missing tool ${name}`);
+  }
+  return tool;
+}
+
+function createContext(cwd: string): ExtensionContext {
+  return { cwd } as ExtensionContext;
+}
+
+describe("research tools", () => {
+  it("registers tool definitions with prompt snippets and guidelines", async () => {
+    const mockPi = createMockPi();
+    const { registerResearchTools } = await import("../extensions/tools/research.js");
+    registerResearchTools(mockPi as unknown as ExtensionAPI);
+
+    expect([...mockPi.tools.keys()].sort()).toEqual([
+      "research_artifact",
+      "research_dashboard",
+      "research_hypothesis",
+      "research_list",
+      "research_map",
+      "research_read",
+      "research_write",
+    ]);
+
+    for (const tool of mockPi.tools.values()) {
+      expect(tool.promptSnippet).toEqual(expect.any(String));
+      expect(tool.promptSnippet?.length).toBeGreaterThan(20);
+      expect(tool.promptGuidelines).toEqual(expect.arrayContaining([expect.any(String)]));
+    }
+
+    expect(getTool(mockPi, "research_hypothesis").promptSnippet).toContain("Persist structured reasoning");
+  });
+
+  it("returns machine-usable shapes for list, read, write, hypothesis, artifact, dashboard, and map flows", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const mockPi = createMockPi();
+      const { registerResearchTools } = await import("../extensions/tools/research.js");
+      registerResearchTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const researchWrite = getTool(mockPi, "research_write");
+      const researchList = getTool(mockPi, "research_list");
+      const researchRead = getTool(mockPi, "research_read");
+      const researchHypothesis = getTool(mockPi, "research_hypothesis");
+      const researchArtifact = getTool(mockPi, "research_artifact");
+      const researchDashboard = getTool(mockPi, "research_dashboard");
+      const researchMap = getTool(mockPi, "research_map");
+
+      const created = await researchWrite.execute(
+        "call-1",
+        {
+          action: "create",
+          title: "Evaluate theme architecture",
+          question: "Should theme state move into a shared service?",
+          keywords: ["theme", "architecture"],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(created.details).toMatchObject({
+        action: "create",
+        research: { summary: { id: "evaluate-theme-architecture", status: "proposed" } },
+      });
+
+      const hypothesis = await researchHypothesis.execute(
+        "call-2",
+        {
+          ref: "evaluate-theme-architecture",
+          statement: "A shared service reduces duplicated persistence logic.",
+          evidence: ["Storage reads are duplicated today."],
+          status: "supported",
+          confidence: "high",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(hypothesis.details).toMatchObject({
+        research: { hypotheses: [expect.objectContaining({ id: "hyp-001", status: "supported" })] },
+      });
+
+      const artifact = await researchArtifact.execute(
+        "call-3",
+        {
+          ref: "evaluate-theme-architecture",
+          kind: "experiment",
+          title: "Prototype",
+          summary: "Centralized theme writes.",
+          body: "Prototype notes",
+          linkedHypothesisIds: ["hyp-001"],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(artifact.details).toMatchObject({
+        research: {
+          artifacts: [expect.objectContaining({ id: "artifact-001", kind: "experiment" })],
+        },
+      });
+
+      const listed = await researchList.execute("call-4", { includeArchived: true }, undefined, undefined, ctx);
+      expect(listed.details).toMatchObject({
+        research: [expect.objectContaining({ id: "evaluate-theme-architecture" })],
+      });
+
+      const read = await researchRead.execute(
+        "call-5",
+        { ref: "evaluate-theme-architecture" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(read.details).toMatchObject({
+        research: {
+          summary: { id: "evaluate-theme-architecture" },
+          hypotheses: [expect.objectContaining({ id: "hyp-001" })],
+          artifacts: [expect.objectContaining({ id: "artifact-001" })],
+        },
+      });
+
+      const dashboard = await researchDashboard.execute(
+        "call-6",
+        { ref: "evaluate-theme-architecture" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(dashboard.details).toMatchObject({
+        dashboard: {
+          hypotheses: { total: 1, counts: { supported: 1 } },
+          artifacts: { total: 1, counts: { experiment: 1 } },
+        },
+      });
+
+      const map = await researchMap.execute(
+        "call-7",
+        { ref: "evaluate-theme-architecture" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(map.details).toMatchObject({
+        map: {
+          nodes: expect.objectContaining({
+            "evaluate-theme-architecture": expect.objectContaining({ kind: "research" }),
+            "artifact-001": expect.objectContaining({ kind: "artifact" }),
+            "hyp-001": expect.objectContaining({ kind: "hypothesis" }),
+          }),
+        },
+      });
+    } finally {
+      cleanup();
+    }
+  });
+});

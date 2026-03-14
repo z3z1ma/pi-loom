@@ -1,0 +1,70 @@
+{
+  "critiqueId": "critique-workspace-backed-manager-worker-rollout",
+  "title": "Critique workspace-backed manager-worker rollout",
+  "status": "resolved",
+  "createdAt": "2026-03-16T00:57:00.373Z",
+  "updatedAt": "2026-03-16T01:27:06.700Z",
+  "target": {
+    "kind": "workspace",
+    "ref": "workspace-backed-manager-worker-substrate-rollout",
+    "path": "packages/pi-workers"
+  },
+  "focusAreas": [
+    "architecture",
+    "correctness",
+    "docs",
+    "edge_cases",
+    "maintainability",
+    "process"
+  ],
+  "reviewQuestion": "Does the implemented workspace-backed manager-worker substrate satisfy the finalized spec and all closed rollout tickets while preserving ticket/plan/Ralph boundaries, portability constraints, and recovery/supervision semantics?",
+  "scopePaths": [
+    "AGENTS.md",
+    "package.json",
+    "packages/pi-plans",
+    "packages/pi-ralph",
+    "packages/pi-ticketing",
+    "packages/pi-workers",
+    "README.md"
+  ],
+  "nonGoals": [
+    "Do not critique unrelated pre-existing formatting churn outside touched files unless it changes reviewability or correctness.",
+    "Do not request new features beyond the finalized spec."
+  ],
+  "contextRefs": {
+    "roadmapItemIds": [
+      "item-007"
+    ],
+    "initiativeIds": [
+      "workspace-backed-manager-worker-coordination"
+    ],
+    "researchIds": [
+      "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+    ],
+    "specChangeIds": [
+      "add-workspace-backed-manager-worker-substrate"
+    ],
+    "ticketIds": [
+      "t-0015",
+      "t-0016",
+      "t-0017",
+      "t-0018",
+      "t-0019",
+      "t-0020",
+      "t-0021",
+      "t-0022",
+      "t-0023",
+      "t-0024",
+      "t-0025",
+      "t-0026"
+    ]
+  },
+  "packetSummary": "workspace:workspace-backed-manager-worker-substrate-rollout; 6 focus area(s); 1 roadmap; 1 initiative; 1 research; 1 spec; 12 ticket",
+  "currentVerdict": "pass",
+  "openFindingIds": [],
+  "followupTicketIds": [],
+  "freshContextRequired": true,
+  "lastRunId": "run-002",
+  "lastLaunchAt": "2026-03-16T01:08:29.903Z",
+  "launchCount": 1
+}

@@ -1,0 +1,253 @@
+import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
+import type {
+  CanonicalCapabilityRecord,
+  SpecAnalysisResult,
+  SpecArtifactName,
+  SpecChangeRecord,
+  SpecChangeState,
+  SpecChangeSummary,
+  SpecChecklistResult,
+  SpecDecisionRecord,
+  SpecRequirementRecord,
+  SpecTaskRecord,
+} from "./models.js";
+
+function joinNonEmpty(chunks: string[]): string {
+  return chunks.filter(Boolean).join("\n\n");
+}
+
+function renderRequirements(requirements: SpecRequirementRecord[]): string {
+  if (requirements.length === 0) {
+    return "(none)";
+  }
+  return requirements
+    .map((requirement) => {
+      const acceptance =
+        requirement.acceptance.length > 0 ? `\n  Acceptance: ${requirement.acceptance.join("; ")}` : "";
+      const capabilities =
+        requirement.capabilities.length > 0 ? `\n  Capabilities: ${requirement.capabilities.join(", ")}` : "";
+      return `- ${requirement.id}: ${requirement.text}${acceptance}${capabilities}`;
+    })
+    .join("\n");
+}
+
+function renderTasks(tasks: SpecTaskRecord[]): string {
+  if (tasks.length === 0) {
+    return "(none)";
+  }
+  return tasks
+    .map((task) => {
+      const lines = [`- ${task.id}: ${task.title}`];
+      if (task.summary) lines.push(`  Summary: ${task.summary}`);
+      if (task.requirements.length > 0) lines.push(`  Requirements: ${task.requirements.join(", ")}`);
+      if (task.capabilities.length > 0) lines.push(`  Capabilities: ${task.capabilities.join(", ")}`);
+      if (task.deps.length > 0) lines.push(`  Dependencies: ${task.deps.join(", ")}`);
+      if (task.acceptance.length > 0) lines.push(`  Acceptance: ${task.acceptance.join("; ")}`);
+      return lines.join("\n");
+    })
+    .join("\n");
+}
+
+function renderDecisions(decisions: SpecDecisionRecord[]): string {
+  if (decisions.length === 0) {
+    return "(none)";
+  }
+  return decisions.map((decision) => `- ${decision.createdAt} ${decision.question} -> ${decision.answer}`).join("\n");
+}
+
+export function renderProposalMarkdown(state: SpecChangeState, decisions: SpecDecisionRecord[]): string {
+  return serializeMarkdownArtifact(
+    {
+      id: state.changeId,
+      title: state.title,
+      status: state.status,
+      "created-at": state.createdAt,
+      "updated-at": state.updatedAt,
+      research: state.researchIds,
+      initiatives: state.initiativeIds,
+      capabilities: state.capabilities.map((capability) => capability.id),
+    },
+    joinNonEmpty([
+      renderSection("Overview", state.proposalSummary || "(empty)"),
+      renderSection(
+        "Capabilities",
+        renderBulletList(state.capabilities.map((capability) => `${capability.id}: ${capability.title}`)),
+      ),
+      renderSection("Requirements", renderRequirements(state.requirements)),
+      renderSection("Clarifications", renderDecisions(decisions)),
+    ]),
+  );
+}
+
+export function renderDesignMarkdown(state: SpecChangeState): string {
+  return serializeMarkdownArtifact(
+    {
+      id: state.changeId,
+      title: state.title,
+      status: state.status,
+      "created-at": state.createdAt,
+      "updated-at": state.updatedAt,
+      research: state.researchIds,
+      initiatives: state.initiativeIds,
+      capabilities: state.capabilities.map((capability) => capability.id),
+    },
+    joinNonEmpty([
+      renderSection("Design Notes", state.designNotes || "(empty)"),
+      renderSection(
+        "Capability Map",
+        renderBulletList(state.capabilities.map((capability) => `${capability.id}: ${capability.title}`)),
+      ),
+      renderSection("Requirements", renderRequirements(state.requirements)),
+    ]),
+  );
+}
+
+export function renderTasksMarkdown(state: SpecChangeState): string {
+  return serializeMarkdownArtifact(
+    {
+      id: state.changeId,
+      title: state.title,
+      status: state.status,
+      "created-at": state.createdAt,
+      "updated-at": state.updatedAt,
+      research: state.researchIds,
+      initiatives: state.initiativeIds,
+    },
+    joinNonEmpty([
+      renderSection("Task Graph", renderTasks(state.tasks)),
+      renderSection(
+        "Traceability",
+        renderBulletList(
+          state.tasks.map((task) => `${task.id} -> ${task.requirements.join(", ") || "(no requirements linked)"}`),
+        ),
+      ),
+    ]),
+  );
+}
+
+export function renderCapabilityMarkdown(changeId: string, capability: CanonicalCapabilityRecord): string {
+  return serializeMarkdownArtifact(
+    {
+      id: capability.id,
+      title: capability.title,
+      change: changeId,
+      "updated-at": capability.updatedAt,
+      "source-changes": capability.sourceChanges,
+    },
+    joinNonEmpty([
+      renderSection("Summary", capability.summary || "(empty)"),
+      renderSection("Requirements", renderBulletList(capability.requirements)),
+      renderSection("Scenarios", renderBulletList(capability.scenarios)),
+    ]),
+  );
+}
+
+export function renderCanonicalCapabilityMarkdown(capability: CanonicalCapabilityRecord): string {
+  return serializeMarkdownArtifact(
+    {
+      id: capability.id,
+      title: capability.title,
+      "updated-at": capability.updatedAt,
+      "source-changes": capability.sourceChanges,
+    },
+    joinNonEmpty([
+      renderSection("Summary", capability.summary || "(empty)"),
+      renderSection("Requirements", renderBulletList(capability.requirements)),
+      renderSection("Scenarios", renderBulletList(capability.scenarios)),
+    ]),
+  );
+}
+
+export function renderAnalysisMarkdown(result: SpecAnalysisResult): string {
+  return serializeMarkdownArtifact(
+    {
+      id: result.changeId,
+      "generated-at": result.generatedAt,
+      ready: result.readyToFinalize ? "true" : "false",
+    },
+    joinNonEmpty([
+      renderSection(
+        "Summary",
+        result.readyToFinalize
+          ? "Specification quality gates passed. This does not verify implementation correctness."
+          : "Specification quality gates failed. Fix the spec before projecting or implementing tickets.",
+      ),
+      renderSection(
+        "Findings",
+        renderBulletList(
+          result.findings.map(
+            (finding) =>
+              `[${finding.severity}] ${finding.artifact}${finding.blocking ? " (blocking)" : ""}: ${finding.message}`,
+          ),
+          "(none)",
+        ),
+      ),
+    ]),
+  );
+}
+
+export function renderChecklistMarkdown(result: SpecChecklistResult): string {
+  return serializeMarkdownArtifact(
+    {
+      id: result.changeId,
+      "generated-at": result.generatedAt,
+      passed: result.passed ? "true" : "false",
+    },
+    joinNonEmpty([
+      renderSection(
+        "Summary",
+        "This checklist validates specification quality and traceability. It does not replace code-level tests.",
+      ),
+      renderSection(
+        "Checklist",
+        renderBulletList(
+          result.items.map((item) => `${item.passed ? "[x]" : "[ ]"} ${item.title} — ${item.detail}`),
+          "(none)",
+        ),
+      ),
+    ]),
+  );
+}
+
+export function renderSpecSummary(summary: SpecChangeSummary): string {
+  return `${summary.id} [${summary.status}] caps=${summary.capabilityIds.length} reqs=${summary.requirementCount} tasks=${summary.taskCount} ${summary.title}`;
+}
+
+export function renderSpecDetail(record: SpecChangeRecord): string {
+  const projectionCount = record.projection?.tickets.length ?? 0;
+  return [
+    renderSpecSummary(record.summary),
+    `Artifacts: ${
+      record.artifacts
+        .filter((artifact) => artifact.exists)
+        .map((artifact) => artifact.name)
+        .join(", ") || "none"
+    }`,
+    `Research: ${record.state.researchIds.join(", ") || "none"}`,
+    `Initiatives: ${record.state.initiativeIds.join(", ") || "none"}`,
+    `Capabilities: ${record.state.capabilities.map((capability) => capability.id).join(", ") || "none"}`,
+    `Requirements: ${record.state.requirements.length}`,
+    `Tasks: ${record.state.tasks.length}`,
+    `Decisions: ${record.decisions.length}`,
+    `Projected tickets: ${projectionCount}`,
+    "",
+    "Proposal:",
+    record.state.proposalSummary || "(empty)",
+  ].join("\n");
+}
+
+export function renderCapabilityDetail(record: CanonicalCapabilityRecord): string {
+  return [
+    `${record.id} ${record.title}`,
+    `Source changes: ${record.sourceChanges.join(", ") || "none"}`,
+    `Requirements: ${record.requirements.length}`,
+    `Scenarios: ${record.scenarios.length}`,
+    "",
+    "Summary:",
+    record.summary || "(empty)",
+  ].join("\n");
+}
+
+export function artifactNames(artifacts: { name: SpecArtifactName; exists: boolean }[]): string[] {
+  return artifacts.filter((artifact) => artifact.exists).map((artifact) => artifact.name);
+}

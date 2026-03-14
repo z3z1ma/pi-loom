@@ -1,0 +1,130 @@
+{
+  "changeId": "add-ralph-loop-orchestration-extension",
+  "projectedAt": "2026-03-15T20:24:14.321Z",
+  "mode": "initial",
+  "capabilityIds": [
+    "critique-and-verifier-integration",
+    "durable-ralph-runs",
+    "fresh-context-operator-surface",
+    "policy-driven-loop-lifecycle"
+  ],
+  "tickets": [
+    {
+      "taskId": "task-001",
+      "ticketId": "t-0001",
+      "signature": "24fe343c226a83cc",
+      "capabilityIds": [
+        "durable-ralph-runs"
+      ],
+      "requirementIds": [
+        "req-001",
+        "req-003"
+      ],
+      "dependencyTaskIds": []
+    },
+    {
+      "taskId": "task-002",
+      "ticketId": "t-0002",
+      "signature": "cd32d7aa073ca7ef",
+      "capabilityIds": [
+        "durable-ralph-runs",
+        "fresh-context-operator-surface"
+      ],
+      "requirementIds": [
+        "req-002",
+        "req-011"
+      ],
+      "dependencyTaskIds": [
+        "task-001"
+      ]
+    },
+    {
+      "taskId": "task-003",
+      "ticketId": "t-0003",
+      "signature": "f2f879c631741a53",
+      "capabilityIds": [
+        "policy-driven-loop-lifecycle"
+      ],
+      "requirementIds": [
+        "req-004",
+        "req-005",
+        "req-006"
+      ],
+      "dependencyTaskIds": [
+        "task-001"
+      ]
+    },
+    {
+      "taskId": "task-004",
+      "ticketId": "t-0004",
+      "signature": "fb57f3a213b5ef76",
+      "capabilityIds": [
+        "critique-and-verifier-integration"
+      ],
+      "requirementIds": [
+        "req-007",
+        "req-008",
+        "req-009"
+      ],
+      "dependencyTaskIds": [
+        "task-002",
+        "task-003"
+      ]
+    },
+    {
+      "taskId": "task-005",
+      "ticketId": "t-0005",
+      "signature": "752e90988ff59681",
+      "capabilityIds": [
+        "fresh-context-operator-surface"
+      ],
+      "requirementIds": [
+        "req-010"
+      ],
+      "dependencyTaskIds": [
+        "task-002",
+        "task-003"
+      ]
+    },
+    {
+      "taskId": "task-006",
+      "ticketId": "t-0006",
+      "signature": "71d75de07c012c92",
+      "capabilityIds": [
+        "fresh-context-operator-surface"
+      ],
+      "requirementIds": [
+        "req-011",
+        "req-012"
+      ],
+      "dependencyTaskIds": [
+        "task-002",
+        "task-004",
+        "task-005"
+      ]
+    },
+    {
+      "taskId": "task-007",
+      "ticketId": "t-0007",
+      "signature": "d86e728868fac60e",
+      "capabilityIds": [
+        "critique-and-verifier-integration",
+        "durable-ralph-runs",
+        "fresh-context-operator-surface",
+        "policy-driven-loop-lifecycle"
+      ],
+      "requirementIds": [
+        "req-002",
+        "req-005",
+        "req-009",
+        "req-010",
+        "req-012"
+      ],
+      "dependencyTaskIds": [
+        "task-004",
+        "task-005",
+        "task-006"
+      ]
+    }
+  ]
+}

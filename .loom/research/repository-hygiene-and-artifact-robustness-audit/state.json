@@ -1,0 +1,97 @@
+{
+  "researchId": "repository-hygiene-and-artifact-robustness-audit",
+  "title": "Repository hygiene and artifact robustness audit",
+  "status": "synthesized",
+  "createdAt": "2026-03-15T21:44:12.392Z",
+  "updatedAt": "2026-03-15T21:55:06.574Z",
+  "archivedAt": null,
+  "synthesizedAt": "2026-03-15T21:55:06.574Z",
+  "question": "What correctness, robustness, and repository-hygiene issues exist across the Pi Loom packages, especially around path handling, persisted artifacts, and git cleanliness?",
+  "objective": "Audit all package implementations for issues, enhancements, bugs, and opportunities; preserve findings durably; and identify what persisted artifacts should or should not be committed.",
+  "scope": [
+    ".loom artifact examples",
+    "packages/pi-constitution",
+    "packages/pi-critique",
+    "packages/pi-docs",
+    "packages/pi-initiatives",
+    "packages/pi-plans",
+    "packages/pi-ralph",
+    "packages/pi-research",
+    "packages/pi-specs",
+    "packages/pi-ticketing",
+    "root README/package/workspace config"
+  ],
+  "nonGoals": [
+    "Implement fixes during this audit",
+    "Produce speculative findings without repository evidence"
+  ],
+  "methodology": [
+    "Compare checked-in .loom artifacts with code expectations",
+    "Inspect root guidance and package entrypoints",
+    "Persist findings as research conclusions and execution tickets",
+    "Review dashboard and state render/store code for mutable generated fields",
+    "Search for path serialization and artifact-writing patterns"
+  ],
+  "keywords": [
+    "artifacts",
+    "dashboard",
+    "git-cleanliness",
+    "paths",
+    "relative-paths",
+    "repo-hygiene",
+    "robustness"
+  ],
+  "statusSummary": "Audit complete. Filed execution tickets for path portability, dashboard churn, subprocess launch root correctness, `.loom` commit policy, path API normalization, and documentation truthfulness.",
+  "conclusions": [
+    "`dashboard.json` behaves like a derived observability rollup today, but the code stamps volatile generation timestamps that guarantee git churn when the artifact is tracked.",
+    "Absolute path leakage also exists in tool-returned summary/read contracts, not only in persisted files.",
+    "Fresh critique/docs/ralph subprocess launches currently derive the extension root from the consumer workspace instead of the package root, which is fragile outside this monorepo.",
+    "Repository documentation does not yet define which `.loom` artifacts are canonical and should be committed versus which are generated/runtime-only.",
+    "Several Loom layers persist absolute workspace paths into durable `.loom` artifacts, which breaks portability across clones and creates misleading checked-in state.",
+    "Top-level documentation contains path drift (`.loom/constitutional` vs `.loom/constitution`) and the `pi-ralph` README understates shipped behavior."
+  ],
+  "recommendations": [
+    "Correct README drift immediately so maintainers copy accurate path and capability guidance.",
+    "Define a cross-layer contract for path fields in tool outputs so summaries and read results do not expose clone-specific absolute paths.",
+    "Document a repository-wide `.loom` artifact commit policy and align `.gitignore`/store behavior with it.",
+    "Either make dashboards semantically stable on no-op updates or treat them as generated artifacts and keep them out of git.",
+    "Normalize persisted path-bearing fields to repo-relative paths or resolvable ids before writing durable artifacts.",
+    "Refactor critique/docs/ralph subprocess launchers to resolve extension package roots from package metadata and share the logic."
+  ],
+  "openQuestions": [
+    "Which path-bearing fields are consumed externally and therefore require a migration strategy?",
+    "Which persisted artifacts are intended as canonical examples versus generated cache-like views?"
+  ],
+  "initiativeIds": [],
+  "specChangeIds": [],
+  "ticketIds": [
+    "t-0008",
+    "t-0009",
+    "t-0010",
+    "t-0011",
+    "t-0012",
+    "t-0013",
+    "t-0014"
+  ],
+  "capabilityIds": [],
+  "artifactIds": [
+    "artifact-001"
+  ],
+  "sourceRefs": [
+    ".gitignore",
+    "packages/pi-critique/extensions/domain/store.ts",
+    "packages/pi-docs/extensions/domain/dashboard.ts",
+    "packages/pi-initiatives/extensions/domain/dashboard.ts",
+    "packages/pi-plans/extensions/domain/dashboard.ts",
+    "packages/pi-ralph/extensions/domain/runtime.ts",
+    "packages/pi-research/extensions/domain/store.ts",
+    "packages/pi-ticketing/extensions/domain/frontmatter.ts",
+    "README.md"
+  ],
+  "supersedes": [],
+  "tags": [
+    "artifact-robustness",
+    "audit",
+    "repo-hygiene"
+  ]
+}

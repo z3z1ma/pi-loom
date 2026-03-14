@@ -1,0 +1,15 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const PROMPTS_DIR = dirname(fileURLToPath(import.meta.url));
+const BASE_GUIDANCE_PATH = join(PROMPTS_DIR, "base-initiative-guidance.md");
+const BASE_GUIDANCE = readFileSync(BASE_GUIDANCE_PATH, "utf-8").trim();
+
+export function getBaseInitiativeGuidance(): string {
+  return BASE_GUIDANCE;
+}
+
+export function buildInitiativeSystemPrompt(cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nWorkspace initiative memory root: ${join(cwd, ".loom", "initiatives")}\nPrefer initiative tools before ad-hoc strategic tracking for program-level work.`;
+}

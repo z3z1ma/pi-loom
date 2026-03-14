@@ -1,0 +1,79 @@
+{
+  "critique": {
+    "id": "critique-workspace-backed-manager-worker-rollout",
+    "title": "Critique workspace-backed manager-worker rollout",
+    "status": "resolved",
+    "verdict": "pass",
+    "targetKind": "workspace",
+    "targetRef": "workspace-backed-manager-worker-substrate-rollout",
+    "focusAreas": [
+      "architecture",
+      "correctness",
+      "docs",
+      "edge_cases",
+      "maintainability",
+      "process"
+    ],
+    "updatedAt": "2026-03-16T01:27:06.700Z",
+    "openFindingCount": 0,
+    "followupTicketCount": 0,
+    "path": ".loom/critiques/critique-workspace-backed-manager-worker-rollout"
+  },
+  "packetPath": ".loom/critiques/critique-workspace-backed-manager-worker-rollout/packet.md",
+  "launchPath": ".loom/critiques/critique-workspace-backed-manager-worker-rollout/launch.json",
+  "lastLaunchAt": "2026-03-16T01:08:29.903Z",
+  "counts": {
+    "runs": 2,
+    "findings": 6,
+    "openFindings": 0,
+    "acceptedFindings": 0,
+    "followupTickets": 0,
+    "bySeverity": {
+      "low": 0,
+      "medium": 2,
+      "high": 4,
+      "critical": 0
+    },
+    "byStatus": {
+      "open": 0,
+      "accepted": 0,
+      "rejected": 0,
+      "fixed": 6,
+      "superseded": 0
+    },
+    "byVerdict": {
+      "pass": 1,
+      "concerns": 1,
+      "blocked": 0,
+      "needs_revision": 0
+    }
+  },
+  "latestRun": {
+    "id": "run-002",
+    "critiqueId": "critique-workspace-backed-manager-worker-rollout",
+    "createdAt": "2026-03-16T01:26:36.468Z",
+    "kind": "verification",
+    "summary": "After fixing the accepted findings, the worker substrate now enforces ticket-linked creation, requires approval before any consolidation outcome, keeps prepare-only launch state truthful, persists launch execution results durably, constrains retirement cleanup to managed runtime paths, and updates AGENTS/constitutional docs to include the worker layer. Independent post-fix spotchecks found no remaining documentation concern and no remaining correctness concern from the previously reported set. Workspace verification is green under lint, typecheck, and the full test suite.",
+    "verdict": "pass",
+    "freshContext": false,
+    "focusAreas": [
+      "architecture",
+      "correctness",
+      "docs",
+      "edge_cases",
+      "maintainability",
+      "process"
+    ],
+    "findingIds": [
+      "finding-001",
+      "finding-002",
+      "finding-003",
+      "finding-004",
+      "finding-005",
+      "finding-006"
+    ],
+    "followupTicketIds": []
+  },
+  "openFindings": [],
+  "followupTicketIds": []
+}

@@ -1,0 +1,25 @@
+{
+	"name": "@pi-loom/pi-constitution",
+	"version": "0.1.0",
+	"description": "Durable constitutional memory for pi.",
+	"type": "module",
+	"files": ["extensions/", "README.md", "LICENSE"],
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"constitutional",
+		"memory",
+		"roadmap",
+		"loom"
+	],
+	"pi": {
+		"extensions": ["./extensions/index.ts"]
+	},
+	"peerDependencies": {
+		"@mariozechner/pi-ai": ">=0.57.0",
+		"@mariozechner/pi-coding-agent": ">=0.57.0",
+		"@sinclair/typebox": "^0.34.41"
+	},
+	"license": "MIT"
+}

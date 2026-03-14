@@ -1,0 +1,272 @@
+import { StringEnum } from "@mariozechner/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { type Static, Type } from "@sinclair/typebox";
+import type { SpecPlanInput, SpecTasksInput } from "../domain/models.js";
+import { projectSpecTickets } from "../domain/projection.js";
+import { renderCapabilityDetail, renderSpecDetail, renderSpecSummary } from "../domain/render.js";
+import { createSpecStore } from "../domain/store.js";
+
+const SpecStatusEnum = StringEnum([
+  "proposed",
+  "clarifying",
+  "planned",
+  "tasked",
+  "finalized",
+  "archived",
+  "superseded",
+] as const);
+const SpecWriteActionEnum = StringEnum(["init", "propose", "clarify", "plan", "tasks", "finalize", "archive"] as const);
+const SpecAnalyzeModeEnum = StringEnum(["analysis", "checklist", "both"] as const);
+
+const SpecListParams = Type.Object({
+  status: Type.Optional(SpecStatusEnum),
+  includeArchived: Type.Optional(Type.Boolean()),
+  text: Type.Optional(Type.String()),
+});
+
+const SpecReadParams = Type.Object({
+  ref: Type.String({ description: "Spec change id or canonical capability id." }),
+  kind: Type.Optional(StringEnum(["change", "capability"] as const)),
+});
+
+const SpecPlanCapabilityParams = Type.Object({
+  id: Type.Optional(Type.String()),
+  title: Type.String(),
+  summary: Type.Optional(Type.String()),
+  requirements: Type.Optional(Type.Array(Type.String())),
+  acceptance: Type.Optional(Type.Array(Type.String())),
+  scenarios: Type.Optional(Type.Array(Type.String())),
+});
+
+const SpecTaskParams = Type.Object({
+  id: Type.Optional(Type.String()),
+  title: Type.String(),
+  summary: Type.Optional(Type.String()),
+  deps: Type.Optional(Type.Array(Type.String())),
+  requirements: Type.Optional(Type.Array(Type.String())),
+  capabilities: Type.Optional(Type.Array(Type.String())),
+  acceptance: Type.Optional(Type.Array(Type.String())),
+});
+
+const SpecWriteParams = Type.Object({
+  action: SpecWriteActionEnum,
+  ref: Type.Optional(Type.String()),
+  title: Type.Optional(Type.String()),
+  summary: Type.Optional(Type.String()),
+  question: Type.Optional(Type.String()),
+  answer: Type.Optional(Type.String()),
+  designNotes: Type.Optional(Type.String()),
+  supersedes: Type.Optional(Type.Array(Type.String())),
+  capabilities: Type.Optional(Type.Array(SpecPlanCapabilityParams)),
+  tasks: Type.Optional(Type.Array(SpecTaskParams)),
+  replace: Type.Optional(Type.Boolean()),
+});
+
+const SpecAnalyzeParams = Type.Object({
+  ref: Type.String(),
+  mode: Type.Optional(SpecAnalyzeModeEnum),
+});
+
+const SpecProjectParams = Type.Object({
+  ref: Type.String(),
+});
+
+type SpecWriteParamsValue = Static<typeof SpecWriteParams>;
+
+function getStore(ctx: ExtensionContext) {
+  return createSpecStore(ctx.cwd);
+}
+
+function machineResult(details: Record<string, unknown>, text: string) {
+  return {
+    content: [{ type: "text" as const, text }],
+    details,
+  };
+}
+
+function requireRef(ref: string | undefined): string {
+  if (!ref) {
+    throw new Error("Spec change reference is required for this action");
+  }
+  return ref;
+}
+
+function toPlanInput(params: SpecWriteParamsValue): SpecPlanInput {
+  if (!params.capabilities || params.capabilities.length === 0) {
+    throw new Error("capabilities are required for plan");
+  }
+  return {
+    designNotes: params.designNotes,
+    supersedes: params.supersedes,
+    capabilities: params.capabilities,
+  };
+}
+
+function toTasksInput(params: SpecWriteParamsValue): SpecTasksInput {
+  if (!params.tasks || params.tasks.length === 0) {
+    throw new Error("tasks are required for tasks action");
+  }
+  return {
+    replace: params.replace,
+    tasks: params.tasks,
+  };
+}
+
+export function registerSpecTools(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "spec_list",
+    label: "spec_list",
+    description: "List spec changes and existing capability specs from durable local spec memory.",
+    promptSnippet:
+      "Inspect relevant existing specs before opening a new change or projecting tickets so the new spec can inherit bounded detail instead of re-inventing it.",
+    promptGuidelines: [
+      "Use this tool before creating a new spec so you do not duplicate existing capability work.",
+      "Use finalized and archived views to understand whether a capability already has a canonical spec.",
+    ],
+    parameters: SpecListParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const changes = getStore(ctx).listChanges({
+        status: params.status,
+        includeArchived: params.includeArchived,
+        text: params.text,
+      });
+      const capabilities = getStore(ctx).listCapabilities();
+      return machineResult(
+        { changes, capabilities },
+        [
+          changes.length > 0 ? changes.map(renderSpecSummary).join("\n") : "No spec changes.",
+          capabilities.length > 0
+            ? `Capabilities: ${capabilities.map((capability) => capability.id).join(", ")}`
+            : "Capabilities: none",
+        ].join("\n"),
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "spec_read",
+    label: "spec_read",
+    description: "Read a spec change or canonical capability spec from durable local spec memory.",
+    promptSnippet:
+      "Load the current spec truth before planning work, projecting tickets, or implementing derived tickets so bounded requirements, rationale, and edge cases stay explicit.",
+    promptGuidelines: [
+      "Read the active or finalized spec before implementation when it is the durable source of product intent.",
+      "Use the loaded spec to recover detailed requirements, rationale, dependencies, risks, edge cases, and acceptance instead of reconstructing them from memory.",
+    ],
+    parameters: SpecReadParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      if (params.kind === "capability") {
+        const capability = getStore(ctx).readCapability(params.ref);
+        return machineResult({ capability }, renderCapabilityDetail(capability));
+      }
+      try {
+        const change = getStore(ctx).readChange(params.ref);
+        return machineResult({ change }, renderSpecDetail(change));
+      } catch {
+        const capability = getStore(ctx).readCapability(params.ref);
+        return machineResult({ capability }, renderCapabilityDetail(capability));
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "spec_write",
+    label: "spec_write",
+    description: "Create or update durable spec state in the local spec memory layer.",
+    promptSnippet:
+      "Persist proposal, clarification, design, and task structure durably as a substantial specification contract instead of leaving product intent skeletal or trapped in chat.",
+    promptGuidelines: [
+      "Use this tool to formalize product intent before implementation when the work exceeds a narrow localized fix.",
+      "Write clarifications back into the spec so future turns and agents can rely on them.",
+      "Capture enough bounded detail for the spec layer: problem framing, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
+      "Do not project tickets from a spec that is still missing substantive requirements or testable acceptance criteria.",
+    ],
+    parameters: SpecWriteParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const store = getStore(ctx);
+      switch (params.action) {
+        case "init": {
+          const result = store.initLedger();
+          return machineResult(
+            { action: params.action, initialized: result },
+            `Initialized spec memory at ${result.root}`,
+          );
+        }
+        case "propose": {
+          if (!params.title?.trim()) throw new Error("title is required for propose");
+          const change = store.createChange({ title: params.title, summary: params.summary });
+          return machineResult({ action: params.action, change }, renderSpecDetail(change));
+        }
+        case "clarify": {
+          if (!params.question?.trim() || !params.answer?.trim()) {
+            throw new Error("question and answer are required for clarify");
+          }
+          const change = store.recordClarification(requireRef(params.ref), params.question, params.answer);
+          return machineResult({ action: params.action, change }, renderSpecDetail(change));
+        }
+        case "plan": {
+          const change = store.updatePlan(requireRef(params.ref), toPlanInput(params));
+          return machineResult({ action: params.action, change }, renderSpecDetail(change));
+        }
+        case "tasks": {
+          const change = store.updateTasks(requireRef(params.ref), toTasksInput(params));
+          return machineResult({ action: params.action, change }, renderSpecDetail(change));
+        }
+        case "finalize": {
+          const change = store.finalizeChange(requireRef(params.ref));
+          return machineResult({ action: params.action, change }, renderSpecDetail(change));
+        }
+        case "archive": {
+          const change = store.archiveChange(requireRef(params.ref));
+          return machineResult({ action: params.action, change }, renderSpecDetail(change));
+        }
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "spec_analyze",
+    label: "spec_analyze",
+    description: "Run spec-quality analysis or checklist generation over a spec change.",
+    promptSnippet:
+      "Validate that the spec is clear, complete, traceable, and detailed enough to stand as the contract before turning it into tickets.",
+    promptGuidelines: [
+      "Use this tool to validate the specification itself, not to claim the code is correct.",
+      "Run analysis before finalizing and projecting tickets from a non-trivial spec change.",
+      "Treat missing rationale, edge cases, dependencies, or verification detail as a spec-quality failure to fix before projection.",
+    ],
+    parameters: SpecAnalyzeParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const store = getStore(ctx);
+      if (params.mode === "checklist") {
+        const change = store.generateChecklist(params.ref);
+        return machineResult({ mode: params.mode, change }, renderSpecDetail(change));
+      }
+      if (params.mode === "both") {
+        store.analyzeChange(params.ref);
+        const change = store.generateChecklist(params.ref);
+        return machineResult({ mode: params.mode, change }, renderSpecDetail(change));
+      }
+      const change = store.analyzeChange(params.ref);
+      return machineResult({ mode: params.mode ?? "analysis", change }, renderSpecDetail(change));
+    },
+  });
+
+  pi.registerTool({
+    name: "spec_project_tickets",
+    label: "spec_project_tickets",
+    description: "Project a finalized spec change into deterministic tickets with explicit provenance.",
+    promptSnippet:
+      "Generate execution tickets only after the spec is finalized, validated, and detailed enough to serve as the durable contract for execution.",
+    promptGuidelines: [
+      "Project tickets only from finalized specs so execution state does not outrun product intent.",
+      "Require substantial specification detail before projection so tickets inherit complete requirements, rationale, dependencies, edge cases, and verification expectations.",
+      "Re-run projection when the finalized spec changes and you need the ticket graph refreshed deterministically.",
+    ],
+    parameters: SpecProjectParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const change = projectSpecTickets(ctx.cwd, params.ref);
+      return machineResult({ change }, renderSpecDetail(change));
+    },
+  });
+}

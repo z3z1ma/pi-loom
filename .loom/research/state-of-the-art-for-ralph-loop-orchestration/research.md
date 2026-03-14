@@ -1,0 +1,75 @@
+---
+id: state-of-the-art-for-ralph-loop-orchestration
+title: "State of the art for Ralph loop orchestration"
+status: synthesized
+created-at: 2026-03-15T20:02:04.880Z
+updated-at: 2026-03-15T20:19:13.149Z
+initiatives: []
+specs:
+  - add-ralph-loop-orchestration-extension
+tickets: []
+capabilities: []
+artifacts: []
+---
+
+## Question
+What is the current state of the art for Ralph/Ralph Wiggum loops and adjacent iterative agent orchestration patterns, and how should Pi's Ralph extension align with those patterns while preserving Loom's plan/ticket/critique/docs primitives?
+
+## Objective
+Establish a source-backed design baseline for a Pi extension that orchestrates iterative plan→execution→critique→revision loops over existing Loom primitives with bounded stopping conditions and durable review history.
+
+## Status Summary
+Research synthesized. Ralph is best understood as a practitioner/community label over a bounded iterative agent loop. Modern practice favors explicit checkpointing, interrupt/resume, external verifier feedback, and hard stop policies; the repo's current critique-layer separation is directionally aligned.
+
+## Scope
+- Adjacent state-of-the-art iterative agent loop patterns (planner-executor-critic, self-refine, reviewer loops, agentic repair loops)
+- Ralph loop / Ralph Wiggum loop terminology in agent tooling
+- Stopping conditions, observability, safety, and durable state requirements relevant to a Pi extension
+
+## Non-Goals
+- Finalize a spec or ticket breakdown before the research is synthesized
+- Implement the extension
+- Treat critique as synonymous with loop orchestration
+
+## Methodology
+- Compared external patterns against existing Loom primitives and constraints
+- Inspected repo constitutional and architectural context
+- Searched authoritative external sources and recent practitioner implementations
+
+## Keywords
+- agent loop
+- iterative agent orchestration
+- planner executor critic
+- Ralph loop
+- Ralph Wiggum loop
+- self-refine
+
+## Hypotheses
+(none)
+
+## Conclusions
+- 'Ralph loop' / 'Ralph Wiggum loop' is not a canonical academic/framework term; it is an emerging community label used in practitioner articles, repos, and tooling docs.
+- For coding-agent systems, scaffold design and verifier wiring matter materially; current benchmark ecosystems increasingly measure the combined agent-plus-scaffold rather than the base model in isolation.
+- Modern production frameworks treat loop orchestration as explicit runtime control with persistence/checkpointing, interrupt-resume boundaries, human approval hooks, tracing, and bounded stop policies.
+- Recent surveys and papers indicate that pure prompted self-correction is unreliable in general; loops become materially stronger when critique is grounded in reliable external feedback such as tests, tool outputs, environment signals, or trained evaluators.
+- The closest established patterns are ReAct, Self-Refine, Reflexion, CRITIC, Tree-of-Thoughts, Constitutional AI, and evaluator-optimizer / planner-executor-critic workflows.
+- The repo's current doctrine—plan/execution/critique/revision loop with critique kept as a reusable durable layer distinct from the loop itself—is directionally aligned with stronger state-of-the-art patterns.
+
+## Recommendations
+- Consider a fresh-context-per-iteration design that rehydrates from durable plan/ticket/critique state, matching practitioner Ralph usage while keeping Loom artifacts canonical.
+- Drive revision from durable critique findings plus verifier signals from plans/tickets/tests/diagnostics, not from self-critique alone.
+- Expose hard stop policies from day one: max iterations, explicit completion approval, timeout/budget caps, and escalation behavior when blockers or repeated failures occur.
+- Keep 'Ralph' as the project-local product name, but describe the capability externally as a bounded iterative agent loop or planner-executor-critic loop.
+- Make critique a first-class gate and artifact in the orchestration contract, not merely an appended reflection prompt.
+- Model each iteration as explicit durable state with run/thread identity, checkpointed artifacts, and resumable control flow rather than as one ever-growing chat transcript.
+- Preserve observability across loops: per-iteration history, why the loop continued or stopped, and links to the underlying plan/ticket/critique artifacts.
+
+## Open Questions
+- Should critique approval be sufficient to stop, or must stop also require satisfaction of linked ticket/spec acceptance/verifier checks?
+- Which stop policy mix should be first-class in the extension API: iteration count only, or count plus time/token/budget/escalation policies?
+
+## Linked Work
+- spec:add-ralph-loop-orchestration-extension
+
+## Artifacts
+(none)
