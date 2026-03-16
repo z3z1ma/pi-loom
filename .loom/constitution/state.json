@@ -2,7 +2,7 @@
   "projectId": "pi-loom",
   "title": "Pi Loom",
   "createdAt": "2026-03-15T18:32:51.617Z",
-  "updatedAt": "2026-03-16T01:35:27.968Z",
+  "updatedAt": "2026-03-16T17:28:05.892Z",
   "visionSummary": "Build Pi Loom into a repo-visible, local-first, composable coordination and memory system for long-horizon technical work by humans and AI.",
   "visionNarrative": "Pi Loom turns the ideas in the root CONSTITUTION.md into concrete Loom layers that survive session turnover. It should preserve constitutional policy, research, initiatives, specs, plans, tickets, workers, critique, Ralph orchestration, and documentation as distinct but explicitly linked artifacts under .loom/ so work can be resumed, inspected, critiqued, and improved without transcript archaeology. The project should provide durable primitives and bounded orchestration rather than one rigid workflow, keeping project truth in the repository itself while leaving room for multiple operating modes to emerge from shared building blocks.",
   "principles": [
@@ -192,6 +192,24 @@
       "researchIds": [],
       "specChangeIds": [],
       "updatedAt": "2026-03-15T23:55:42.574Z"
+    },
+    {
+      "id": "item-008",
+      "title": "Migrate Loom storage to a shared database substrate with repo projection sync",
+      "status": "active",
+      "horizon": "now",
+      "summary": "Replace per-repo file-backed canonical state with a local shared database substrate that supports cross-repo Loom coordination, repo/worktree-aware execution, deterministic repo projection, and future PostgreSQL backends.",
+      "rationale": "The current file-backed `.loom` model hard-codes repo-local identity and direct file reads across packages, which prevents first-class cross-repo tickets, plans, and initiatives. A shared database substrate is now a user-directed architectural shift, but it must preserve local-first operation, human-reviewable projections, repo-native docs, and an explicit sync/hydration path for SQLite users.",
+      "initiativeIds": [
+        "loom-storage-substrate-migration"
+      ],
+      "researchIds": [
+        "sqlite-first-storage-substrate-and-sync-architecture"
+      ],
+      "specChangeIds": [
+        "sqlite-first-canonical-storage-substrate"
+      ],
+      "updatedAt": "2026-03-16T17:28:05.892Z"
     }
   ],
   "roadmapItemIds": [
@@ -201,7 +219,8 @@
     "item-004",
     "item-005",
     "item-006",
-    "item-007"
+    "item-007",
+    "item-008"
   ],
   "strategicDirectionSummary": "Turn Pi Loom into a repo-truthful, composable, local operating system for long-horizon technical work by grounding every layer in durable constitutional policy, explicit graph relationships, observable artifacts, and bounded orchestration.",
   "currentFocus": [
@@ -217,11 +236,16 @@
     "Which process-memory concerns deserve first-class Loom artifacts rather than remaining in AGENTS, critique, or documentation?"
   ],
   "initiativeIds": [
+    "loom-storage-substrate-migration",
     "workspace-backed-manager-worker-coordination",
     "workspace-package-reliability-scrub"
   ],
-  "researchIds": [],
-  "specChangeIds": [],
+  "researchIds": [
+    "sqlite-first-storage-substrate-and-sync-architecture"
+  ],
+  "specChangeIds": [
+    "sqlite-first-canonical-storage-substrate"
+  ],
   "artifactPaths": {
     "root": "/Users/alexanderbutler/code_projects/pi-loom/.loom/constitution",
     "state": "/Users/alexanderbutler/code_projects/pi-loom/.loom/constitution/state.json",

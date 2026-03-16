@@ -1,7 +1,7 @@
 ---
 project: pi-loom
 count: 8
-updated-at: 2026-03-16T01:35:27.968Z
+updated-at: 2026-03-16T17:28:05.892Z
 ---
 
 ## Guiding Principles

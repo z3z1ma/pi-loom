@@ -1,0 +1,132 @@
+{
+  "changeId": "sqlite-first-canonical-storage-substrate",
+  "projectedAt": "2026-03-16T17:36:49.727Z",
+  "mode": "refresh",
+  "capabilityIds": [
+    "cap-postgres-portability",
+    "cap-projections-and-docs",
+    "cap-sqlite-backend",
+    "cap-storage-contract",
+    "cap-storage-topology",
+    "cap-sync-hydration",
+    "cap-worker-runtime-carveout"
+  ],
+  "tickets": [
+    {
+      "taskId": "task-001",
+      "ticketId": "t-0044",
+      "signature": "b8ddc7fe7cf2498a",
+      "capabilityIds": [
+        "cap-storage-contract",
+        "cap-storage-topology"
+      ],
+      "requirementIds": [
+        "req-002",
+        "req-003",
+        "req-004",
+        "req-005",
+        "req-007",
+        "req-008"
+      ],
+      "dependencyTaskIds": []
+    },
+    {
+      "taskId": "task-002",
+      "ticketId": "t-0045",
+      "signature": "40fe3e1fde5502f1",
+      "capabilityIds": [
+        "cap-sqlite-backend",
+        "cap-storage-topology"
+      ],
+      "requirementIds": [
+        "req-001",
+        "req-002",
+        "req-003",
+        "req-010"
+      ],
+      "dependencyTaskIds": [
+        "task-001"
+      ]
+    },
+    {
+      "taskId": "task-003",
+      "ticketId": "t-0046",
+      "signature": "af84151811ea8dce",
+      "capabilityIds": [
+        "cap-projections-and-docs",
+        "cap-sqlite-backend"
+      ],
+      "requirementIds": [
+        "req-009",
+        "req-011",
+        "req-012",
+        "req-013",
+        "req-014",
+        "req-015",
+        "req-016"
+      ],
+      "dependencyTaskIds": [
+        "task-001",
+        "task-002"
+      ]
+    },
+    {
+      "taskId": "task-004",
+      "ticketId": "t-0047",
+      "signature": "debfb6ed1a72f43c",
+      "capabilityIds": [
+        "cap-projections-and-docs",
+        "cap-sync-hydration"
+      ],
+      "requirementIds": [
+        "req-017",
+        "req-018",
+        "req-019",
+        "req-020"
+      ],
+      "dependencyTaskIds": [
+        "task-002",
+        "task-003"
+      ]
+    },
+    {
+      "taskId": "task-005",
+      "ticketId": "t-0048",
+      "signature": "8dfe91049a1cc68a",
+      "capabilityIds": [
+        "cap-worker-runtime-carveout"
+      ],
+      "requirementIds": [
+        "req-021",
+        "req-022",
+        "req-023",
+        "req-024"
+      ],
+      "dependencyTaskIds": [
+        "task-001",
+        "task-003"
+      ]
+    },
+    {
+      "taskId": "task-006",
+      "ticketId": "t-0049",
+      "signature": "a2b6e6d47272d07f",
+      "capabilityIds": [
+        "cap-postgres-portability",
+        "cap-storage-contract"
+      ],
+      "requirementIds": [
+        "req-006",
+        "req-025",
+        "req-026",
+        "req-027",
+        "req-028"
+      ],
+      "dependencyTaskIds": [
+        "task-001",
+        "task-003",
+        "task-004"
+      ]
+    }
+  ]
+}

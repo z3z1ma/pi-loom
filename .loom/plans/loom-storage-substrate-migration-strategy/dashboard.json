@@ -1,0 +1,106 @@
+{
+  "plan": {
+    "id": "loom-storage-substrate-migration-strategy",
+    "title": "Loom storage substrate migration strategy",
+    "status": "active",
+    "updatedAt": "2026-03-16T17:27:40.449Z",
+    "sourceKind": "initiative",
+    "sourceRef": "loom-storage-substrate-migration",
+    "linkedTicketCount": 6,
+    "summary": "Execution strategy for migrating Pi Loom from file backed repo .loom state to a shared SQLite first substrate with global IDs, repo native docs, deterministic sync exports, and future PostgreSQL support.",
+    "path": ".loom/plans/loom-storage-substrate-migration-strategy"
+  },
+  "packetPath": ".loom/plans/loom-storage-substrate-migration-strategy/packet.md",
+  "planPath": ".loom/plans/loom-storage-substrate-migration-strategy/plan.md",
+  "sourceTarget": {
+    "kind": "initiative",
+    "ref": "loom-storage-substrate-migration"
+  },
+  "contextRefs": {
+    "roadmapItemIds": [
+      "item-008"
+    ],
+    "initiativeIds": [
+      "loom-storage-substrate-migration"
+    ],
+    "researchIds": [
+      "sqlite-first-storage-substrate-and-sync-architecture"
+    ],
+    "specChangeIds": [
+      "sqlite-first-canonical-storage-substrate"
+    ],
+    "ticketIds": [],
+    "critiqueIds": [],
+    "docIds": []
+  },
+  "scopePaths": [
+    "CONSTITUTION.md",
+    "packages/pi-constitution/",
+    "packages/pi-critique/",
+    "packages/pi-docs/",
+    "packages/pi-initiatives/",
+    "packages/pi-plans/",
+    "packages/pi-ralph/",
+    "packages/pi-research/",
+    "packages/pi-specs/",
+    "packages/pi-ticketing/",
+    "packages/pi-workers/",
+    "README.md"
+  ],
+  "linkedTickets": [
+    {
+      "ticketId": "t-0044",
+      "role": "policy-and-contract",
+      "order": 1,
+      "status": "closed",
+      "title": "Update policy and extract storage contract",
+      "path": ".loom/tickets/closed/t-0044.md"
+    },
+    {
+      "ticketId": "t-0045",
+      "role": "identity-migration",
+      "order": 2,
+      "status": "closed",
+      "title": "Introduce global IDs and ownership metadata",
+      "path": ".loom/tickets/closed/t-0045.md"
+    },
+    {
+      "ticketId": "t-0046",
+      "role": "sqlite-backend-and-projections",
+      "order": 3,
+      "status": "closed",
+      "title": "Implement SQLite backend and deterministic projections",
+      "path": ".loom/tickets/closed/t-0046.md"
+    },
+    {
+      "ticketId": "t-0047",
+      "role": "sync-hydration",
+      "order": 4,
+      "status": "closed",
+      "title": "Design reserved-branch export and hydration",
+      "path": ".loom/tickets/closed/t-0047.md"
+    },
+    {
+      "ticketId": "t-0048",
+      "role": "worker-runtime-carveout",
+      "order": 5,
+      "status": "closed",
+      "title": "Separate durable worker history from local runtime state",
+      "path": ".loom/tickets/closed/t-0048.md"
+    },
+    {
+      "ticketId": "t-0049",
+      "role": "postgres-portability",
+      "order": 6,
+      "status": "closed",
+      "title": "Validate backend portability and prepare PostgreSQL path",
+      "path": ".loom/tickets/closed/t-0049.md"
+    }
+  ],
+  "counts": {
+    "tickets": 6,
+    "byStatus": {
+      "closed": 6
+    }
+  }
+}

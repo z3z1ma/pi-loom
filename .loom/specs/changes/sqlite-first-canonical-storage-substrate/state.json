@@ -1,0 +1,613 @@
+{
+  "changeId": "sqlite-first-canonical-storage-substrate",
+  "title": "SQLite-first canonical storage substrate",
+  "status": "finalized",
+  "createdAt": "2026-03-16T17:12:54.867Z",
+  "updatedAt": "2026-03-16T17:40:15.372Z",
+  "finalizedAt": "2026-03-16T17:40:15.372Z",
+  "archivedAt": null,
+  "archivedPath": null,
+  "initiativeIds": [
+    "loom-storage-substrate-migration"
+  ],
+  "researchIds": [
+    "sqlite-first-storage-substrate-and-sync-architecture"
+  ],
+  "supersedes": [],
+  "proposalSummary": "Propose a backend-agnostic storage contract that replaces path-derived `.loom` canonical state with a shared SQLite-first substrate, while preserving repo-native documentation and deterministic git sync/hydration surfaces.",
+  "designNotes": "The current file-backed stores derive identity from `<cwd>/.loom/...` and reopen neighboring package files directly. The new design must break that assumption. Canonical operational graph state should live behind a backend-agnostic storage contract implemented by SQLite first. Repo-native documentation should remain file-authoritative. Binary or copied artifacts should be content-addressed files referenced by the DB. Worker runtime/worktree control-plane state remains clone-local; only durable worker history may move to shared storage once leases/heartbeats exist. The sync branch is a projection surface carrying deterministic entity snapshots and/or append-only event bundles plus artifact manifests. Raw SQLite files, WAL files, and binary session changesets are not the merge unit.",
+  "requirements": [
+    {
+      "id": "req-001",
+      "text": "Every durable entity has a stable app-generated global ID; human-friendly refs remain secondary aliases or projections.",
+      "acceptance": [
+        "A single space can own work across two repositories without ID collisions or path-derived composite keys.",
+        "Existing repo-local refs such as `t-0042` can still be rendered for humans without acting as the canonical key.",
+        "Two worktrees of the same repository attach to one logical repository/project record without duplicating tickets or plans."
+      ],
+      "capabilities": [
+        "cap-storage-topology"
+      ]
+    },
+    {
+      "id": "req-002",
+      "text": "Logical coordination containers are modeled explicitly so tickets, plans, initiatives, and provenance can span repositories.",
+      "acceptance": [
+        "A single space can own work across two repositories without ID collisions or path-derived composite keys.",
+        "Existing repo-local refs such as `t-0042` can still be rendered for humans without acting as the canonical key.",
+        "Two worktrees of the same repository attach to one logical repository/project record without duplicating tickets or plans."
+      ],
+      "capabilities": [
+        "cap-storage-topology"
+      ]
+    },
+    {
+      "id": "req-003",
+      "text": "Repo-relative paths remain data attributes and scopes, not primary identity.",
+      "acceptance": [
+        "A single space can own work across two repositories without ID collisions or path-derived composite keys.",
+        "Existing repo-local refs such as `t-0042` can still be rendered for humans without acting as the canonical key.",
+        "Two worktrees of the same repository attach to one logical repository/project record without duplicating tickets or plans."
+      ],
+      "capabilities": [
+        "cap-storage-topology"
+      ]
+    },
+    {
+      "id": "req-004",
+      "text": "The default canonical store is one user-level Loom catalog rather than one database per repository.",
+      "acceptance": [
+        "A single space can own work across two repositories without ID collisions or path-derived composite keys.",
+        "Existing repo-local refs such as `t-0042` can still be rendered for humans without acting as the canonical key.",
+        "Two worktrees of the same repository attach to one logical repository/project record without duplicating tickets or plans."
+      ],
+      "capabilities": [
+        "cap-storage-topology"
+      ]
+    },
+    {
+      "id": "req-005",
+      "text": "Packages stop reopening neighboring `.loom` files directly to discover state.",
+      "acceptance": [
+        "A PostgreSQL backend can be designed later without changing the contract's logical semantics.",
+        "Representative package stores can be rewritten against the contract without needing direct path traversal to neighboring packages.",
+        "The contract supports append-only event history and current-state queries for the same entity."
+      ],
+      "capabilities": [
+        "cap-storage-contract"
+      ]
+    },
+    {
+      "id": "req-006",
+      "text": "SQLite-specific features may be used as accelerators only if the logical contract remains satisfiable by PostgreSQL later.",
+      "acceptance": [
+        "A PostgreSQL backend can be designed later without changing the contract's logical semantics.",
+        "Representative package stores can be rewritten against the contract without needing direct path traversal to neighboring packages.",
+        "The contract supports append-only event history and current-state queries for the same entity."
+      ],
+      "capabilities": [
+        "cap-storage-contract"
+      ]
+    },
+    {
+      "id": "req-007",
+      "text": "The contract can express constitution, research, initiative, spec, plan, ticket, critique, Ralph, durable worker history, docs indexes, and cross-layer links.",
+      "acceptance": [
+        "A PostgreSQL backend can be designed later without changing the contract's logical semantics.",
+        "Representative package stores can be rewritten against the contract without needing direct path traversal to neighboring packages.",
+        "The contract supports append-only event history and current-state queries for the same entity."
+      ],
+      "capabilities": [
+        "cap-storage-contract"
+      ]
+    },
+    {
+      "id": "req-008",
+      "text": "The contract defines optimistic versioning, ownership, and query semantics independently of SQLite implementation details.",
+      "acceptance": [
+        "A PostgreSQL backend can be designed later without changing the contract's logical semantics.",
+        "Representative package stores can be rewritten against the contract without needing direct path traversal to neighboring packages.",
+        "The contract supports append-only event history and current-state queries for the same entity."
+      ],
+      "capabilities": [
+        "cap-storage-contract"
+      ]
+    },
+    {
+      "id": "req-009",
+      "text": "A transitional phase can dual-write canonical DB state and generated repo projections until file-backed reads are removed.",
+      "acceptance": [
+        "A user can clone a repo in a new location and still attach it to the same logical catalog/project records.",
+        "Canonical writes occur in SQLite while projected artifacts can still be regenerated for review during migration.",
+        "No durable record leaks clone-local absolute paths into canonical storage or projections."
+      ],
+      "capabilities": [
+        "cap-sqlite-backend"
+      ]
+    },
+    {
+      "id": "req-010",
+      "text": "Migration introduces stable IDs and ownership metadata before full canonical cutover.",
+      "acceptance": [
+        "A user can clone a repo in a new location and still attach it to the same logical catalog/project records.",
+        "Canonical writes occur in SQLite while projected artifacts can still be regenerated for review during migration.",
+        "No durable record leaks clone-local absolute paths into canonical storage or projections."
+      ],
+      "capabilities": [
+        "cap-sqlite-backend"
+      ]
+    },
+    {
+      "id": "req-011",
+      "text": "SQLite operation is same-host only; the design does not assume network-shared SQLite.",
+      "acceptance": [
+        "A user can clone a repo in a new location and still attach it to the same logical catalog/project records.",
+        "Canonical writes occur in SQLite while projected artifacts can still be regenerated for review during migration.",
+        "No durable record leaks clone-local absolute paths into canonical storage or projections."
+      ],
+      "capabilities": [
+        "cap-sqlite-backend"
+      ]
+    },
+    {
+      "id": "req-012",
+      "text": "The default local database path is user-level and independent of repo checkout location.",
+      "acceptance": [
+        "A user can clone a repo in a new location and still attach it to the same logical catalog/project records.",
+        "Canonical writes occur in SQLite while projected artifacts can still be regenerated for review during migration.",
+        "No durable record leaks clone-local absolute paths into canonical storage or projections."
+      ],
+      "capabilities": [
+        "cap-sqlite-backend"
+      ]
+    },
+    {
+      "id": "req-013",
+      "text": "Artifact payloads that are binary or large remain file-based and content-addressed, with DB references to their metadata.",
+      "acceptance": [
+        "A documentation update still lands as a repo file change after canonical state migration.",
+        "A projected plan packet regenerated twice from the same canonical state is byte-stable aside from explicitly allowed timestamps/version fields.",
+        "Artifact references survive hydration/export without embedding clone-local absolute paths."
+      ],
+      "capabilities": [
+        "cap-projections-and-docs"
+      ]
+    },
+    {
+      "id": "req-014",
+      "text": "Docs content (`doc.md` and related human-facing docs) remains repo-authoritative and reviewable in git.",
+      "acceptance": [
+        "A documentation update still lands as a repo file change after canonical state migration.",
+        "A projected plan packet regenerated twice from the same canonical state is byte-stable aside from explicitly allowed timestamps/version fields.",
+        "Artifact references survive hydration/export without embedding clone-local absolute paths."
+      ],
+      "capabilities": [
+        "cap-projections-and-docs"
+      ]
+    },
+    {
+      "id": "req-015",
+      "text": "Plans, tickets, checkpoints, packets, dashboards, and similar review surfaces may remain materialized as deterministic projections when valuable.",
+      "acceptance": [
+        "A documentation update still lands as a repo file change after canonical state migration.",
+        "A projected plan packet regenerated twice from the same canonical state is byte-stable aside from explicitly allowed timestamps/version fields.",
+        "Artifact references survive hydration/export without embedding clone-local absolute paths."
+      ],
+      "capabilities": [
+        "cap-projections-and-docs"
+      ]
+    },
+    {
+      "id": "req-016",
+      "text": "Projected artifacts stay repo-relative and portable and can be regenerated idempotently from canonical state.",
+      "acceptance": [
+        "A documentation update still lands as a repo file change after canonical state migration.",
+        "A projected plan packet regenerated twice from the same canonical state is byte-stable aside from explicitly allowed timestamps/version fields.",
+        "Artifact references survive hydration/export without embedding clone-local absolute paths."
+      ],
+      "capabilities": [
+        "cap-projections-and-docs"
+      ]
+    },
+    {
+      "id": "req-017",
+      "text": "Each exported entity carries stable IDs, ownership/project metadata, versions, and link data needed for idempotent import.",
+      "acceptance": [
+        "A fresh machine can import the reserved branch and rebuild the same logical graph with stable IDs intact.",
+        "Conflicting edits on the same entity are detected and reported instead of silently last-write-wins.",
+        "Two developers can merge non-conflicting entity exports on the reserved branch and hydrate successfully."
+      ],
+      "capabilities": [
+        "cap-sync-hydration"
+      ]
+    },
+    {
+      "id": "req-018",
+      "text": "Hydration can reconstruct a local database from an empty state using the reserved branch plus repo-native docs/artifacts.",
+      "acceptance": [
+        "A fresh machine can import the reserved branch and rebuild the same logical graph with stable IDs intact.",
+        "Conflicting edits on the same entity are detected and reported instead of silently last-write-wins.",
+        "Two developers can merge non-conflicting entity exports on the reserved branch and hydrate successfully."
+      ],
+      "capabilities": [
+        "cap-sync-hydration"
+      ]
+    },
+    {
+      "id": "req-019",
+      "text": "Import detects conflicting concurrent edits to the same entity/version and surfaces them explicitly.",
+      "acceptance": [
+        "A fresh machine can import the reserved branch and rebuild the same logical graph with stable IDs intact.",
+        "Conflicting edits on the same entity are detected and reported instead of silently last-write-wins.",
+        "Two developers can merge non-conflicting entity exports on the reserved branch and hydrate successfully."
+      ],
+      "capabilities": [
+        "cap-sync-hydration"
+      ]
+    },
+    {
+      "id": "req-020",
+      "text": "Sync exports are deterministic text/entity bundles or event bundles, not raw SQLite database files.",
+      "acceptance": [
+        "A fresh machine can import the reserved branch and rebuild the same logical graph with stable IDs intact.",
+        "Conflicting edits on the same entity are detected and reported instead of silently last-write-wins.",
+        "Two developers can merge non-conflicting entity exports on the reserved branch and hydrate successfully."
+      ],
+      "capabilities": [
+        "cap-sync-hydration"
+      ]
+    },
+    {
+      "id": "req-021",
+      "text": "Durable worker messages, checkpoints, approvals, and completion history may move into canonical storage only if lease/heartbeat semantics prevent stale running state.",
+      "acceptance": [
+        "A crashed worker cannot leave a permanent shared `running` state with no expiry or recovery path.",
+        "A second clone can inspect durable worker history without inheriting another machine's runtime attachment details.",
+        "Worker projections/summaries can be regenerated from canonical history without exposing clone-local internals."
+      ],
+      "capabilities": [
+        "cap-worker-runtime-carveout"
+      ]
+    },
+    {
+      "id": "req-022",
+      "text": "Sync exports exclude clone-local runtime attachments and process metadata.",
+      "acceptance": [
+        "A crashed worker cannot leave a permanent shared `running` state with no expiry or recovery path.",
+        "A second clone can inspect durable worker history without inheriting another machine's runtime attachment details.",
+        "Worker projections/summaries can be regenerated from canonical history without exposing clone-local internals."
+      ],
+      "capabilities": [
+        "cap-worker-runtime-carveout"
+      ]
+    },
+    {
+      "id": "req-023",
+      "text": "Worker histories in canonical storage distinguish durable shared facts from machine-local execution details.",
+      "acceptance": [
+        "A crashed worker cannot leave a permanent shared `running` state with no expiry or recovery path.",
+        "A second clone can inspect durable worker history without inheriting another machine's runtime attachment details.",
+        "Worker projections/summaries can be regenerated from canonical history without exposing clone-local internals."
+      ],
+      "capabilities": [
+        "cap-worker-runtime-carveout"
+      ]
+    },
+    {
+      "id": "req-024",
+      "text": "Worktree paths, PIDs, transient launch descriptors, local runtime attachments, and similar clone-specific state remain local-only.",
+      "acceptance": [
+        "A crashed worker cannot leave a permanent shared `running` state with no expiry or recovery path.",
+        "A second clone can inspect durable worker history without inheriting another machine's runtime attachment details.",
+        "Worker projections/summaries can be regenerated from canonical history without exposing clone-local internals."
+      ],
+      "capabilities": [
+        "cap-worker-runtime-carveout"
+      ]
+    },
+    {
+      "id": "req-025",
+      "text": "Backend contract tests cover identity, links, events, optimistic versioning, and projection determinism.",
+      "acceptance": [
+        "A future PostgreSQL adapter can satisfy the same storage-contract test suite as SQLite.",
+        "Disabling SQLite-specific accelerators does not change logical results.",
+        "The architecture does not assume network-shared SQLite as a supported deployment."
+      ],
+      "capabilities": [
+        "cap-postgres-portability"
+      ]
+    },
+    {
+      "id": "req-026",
+      "text": "Operational guidance explicitly treats PostgreSQL as the path for multi-machine shared canonical state.",
+      "acceptance": [
+        "A future PostgreSQL adapter can satisfy the same storage-contract test suite as SQLite.",
+        "Disabling SQLite-specific accelerators does not change logical results.",
+        "The architecture does not assume network-shared SQLite as a supported deployment."
+      ],
+      "capabilities": [
+        "cap-postgres-portability"
+      ]
+    },
+    {
+      "id": "req-027",
+      "text": "SQLite-only features such as WAL tuning, session changesets, or FTS are optional and never required for logical correctness.",
+      "acceptance": [
+        "A future PostgreSQL adapter can satisfy the same storage-contract test suite as SQLite.",
+        "Disabling SQLite-specific accelerators does not change logical results.",
+        "The architecture does not assume network-shared SQLite as a supported deployment."
+      ],
+      "capabilities": [
+        "cap-postgres-portability"
+      ]
+    },
+    {
+      "id": "req-028",
+      "text": "Sync/export semantics remain backend-independent.",
+      "acceptance": [
+        "A future PostgreSQL adapter can satisfy the same storage-contract test suite as SQLite.",
+        "Disabling SQLite-specific accelerators does not change logical results.",
+        "The architecture does not assume network-shared SQLite as a supported deployment."
+      ],
+      "capabilities": [
+        "cap-postgres-portability"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "cap-storage-topology",
+      "title": "Shared catalog topology and global identity",
+      "summary": "Pi Loom uses one user-level shared catalog by default, with explicit spaces/projects, repositories, and worktrees, and all durable entities carry stable global IDs independent of repo-relative paths.",
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003",
+        "req-004"
+      ],
+      "scenarios": [
+        "A cross-repo initiative links tickets in `service-a` and `service-b` while remaining one initiative.",
+        "A user opens three worktrees of one repo and all attach to one shared ticket graph."
+      ]
+    },
+    {
+      "id": "cap-storage-contract",
+      "title": "Backend-agnostic canonical storage contract",
+      "summary": "All Loom layers read and write through a storage contract that models entities, links, events, projections, and path scopes without hard-coding file-backed assumptions or SQLite-only semantics.",
+      "requirements": [
+        "req-005",
+        "req-006",
+        "req-007",
+        "req-008"
+      ],
+      "scenarios": [
+        "A plan query can fetch linked tickets, critiques, and roadmap refs without reopening markdown or JSON files from other packages.",
+        "A PostgreSQL adapter can satisfy the same domain tests used by the SQLite adapter."
+      ]
+    },
+    {
+      "id": "cap-sqlite-backend",
+      "title": "SQLite-first local backend and migration mode",
+      "summary": "SQLite becomes the default canonical backend for local operation, with migration support from current file-backed artifacts and deterministic projection generation during cutover.",
+      "requirements": [
+        "req-009",
+        "req-010",
+        "req-011",
+        "req-012"
+      ],
+      "scenarios": [
+        "A maintainer moves a repository checkout and the shared catalog still recognizes the same logical repository.",
+        "A migration command imports existing `.loom` artifacts into the catalog and regenerates equivalent projections."
+      ]
+    },
+    {
+      "id": "cap-projections-and-docs",
+      "title": "Repo-native docs and deterministic projection surfaces",
+      "summary": "Documentation remains authoritative in repos, while selected human-reviewable Loom artifacts become deterministic projections generated from canonical DB state.",
+      "requirements": [
+        "req-013",
+        "req-014",
+        "req-015",
+        "req-016"
+      ],
+      "scenarios": [
+        "A code review includes a projected ticket markdown diff generated from canonical DB state.",
+        "A docs overview remains authored and reviewed inside the repository even though linked tickets live in SQLite."
+      ]
+    },
+    {
+      "id": "cap-sync-hydration",
+      "title": "Reserved-branch sync and hydration for SQLite users",
+      "summary": "SQLite users can export deterministic sync bundles to a dedicated branch and hydrate or update a local database from that branch with explicit conflict handling.",
+      "requirements": [
+        "req-017",
+        "req-018",
+        "req-019",
+        "req-020"
+      ],
+      "scenarios": [
+        "A contributor clones a repo, checks out the reserved sync branch, hydrates a new local catalog, and resumes work.",
+        "Two branches independently add unrelated tickets and initiatives, then merge their sync exports without manual DB surgery."
+      ]
+    },
+    {
+      "id": "cap-worker-runtime-carveout",
+      "title": "Execution-local runtime carve-out and durable worker history boundary",
+      "summary": "Clone-local worker runtime/worktree control-plane data stays local, while shared durable worker history moves only as far as the canonical contract can support truthfully.",
+      "requirements": [
+        "req-021",
+        "req-022",
+        "req-023",
+        "req-024"
+      ],
+      "scenarios": [
+        "A second developer reads worker checkpoints and approvals without seeing the first developer's local PID or worktree path.",
+        "A worker dies mid-run and a manager session can recover based on expired leases and durable history."
+      ]
+    },
+    {
+      "id": "cap-postgres-portability",
+      "title": "PostgreSQL portability without semantic drift",
+      "summary": "The storage contract and migration plan preserve a clean path to a later PostgreSQL backend for multi-machine canonical storage.",
+      "requirements": [
+        "req-025",
+        "req-026",
+        "req-027",
+        "req-028"
+      ],
+      "scenarios": [
+        "A sync export generated from SQLite can be generated equivalently from PostgreSQL later.",
+        "A team replaces the local SQLite backend with PostgreSQL while preserving entity IDs and projections."
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Update policy and extract storage contract",
+      "summary": "Rewrite constitutional and README policy so canonical DB state and projection/doc carve-outs are explicit, then define the backend-agnostic storage contract for entities, links, events, projections, projects, repositories, and worktrees.",
+      "deps": [],
+      "requirements": [
+        "req-002",
+        "req-003",
+        "req-004",
+        "req-005",
+        "req-007",
+        "req-008"
+      ],
+      "capabilities": [
+        "cap-storage-contract",
+        "cap-storage-topology"
+      ],
+      "acceptance": [
+        "Constitution/README are truthful about DB-canonical operational state, repo-native docs, and projection surfaces.",
+        "Representative package stores can target the contract instead of filesystem traversal APIs."
+      ]
+    },
+    {
+      "id": "task-002",
+      "title": "Introduce global IDs and ownership metadata",
+      "summary": "Add stable global IDs, ownership/project metadata, and version semantics to all durable entity types while preserving human-friendly local refs as aliases or projections.",
+      "deps": [
+        "task-001"
+      ],
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003",
+        "req-010"
+      ],
+      "capabilities": [
+        "cap-sqlite-backend",
+        "cap-storage-topology"
+      ],
+      "acceptance": [
+        "Cross-repo entities no longer rely on path-derived or per-repo sequence IDs.",
+        "Existing refs can still be rendered or mapped without ambiguity."
+      ]
+    },
+    {
+      "id": "task-003",
+      "title": "Implement SQLite backend and deterministic projections",
+      "summary": "Build the SQLite adapter behind the storage contract, import current file-backed state, and generate deterministic projections during the cutover period.",
+      "deps": [
+        "task-001",
+        "task-002"
+      ],
+      "requirements": [
+        "req-009",
+        "req-011",
+        "req-012",
+        "req-013",
+        "req-014",
+        "req-015",
+        "req-016"
+      ],
+      "capabilities": [
+        "cap-projections-and-docs",
+        "cap-sqlite-backend"
+      ],
+      "acceptance": [
+        "A migrated repo can round-trip current state into SQLite without losing links or path portability.",
+        "Canonical writes land in SQLite and projected artifacts can still be generated for affected layers."
+      ]
+    },
+    {
+      "id": "task-004",
+      "title": "Design reserved-branch export and hydration",
+      "summary": "Define and implement deterministic sync exports, content-addressed artifact manifests, hydration/import flows, and explicit conflict handling for SQLite users.",
+      "deps": [
+        "task-002",
+        "task-003"
+      ],
+      "requirements": [
+        "req-017",
+        "req-018",
+        "req-019",
+        "req-020"
+      ],
+      "capabilities": [
+        "cap-projections-and-docs",
+        "cap-sync-hydration"
+      ],
+      "acceptance": [
+        "A fresh machine can hydrate from the reserved branch and reproduce the same logical graph.",
+        "Two non-conflicting sync exports can merge cleanly in git and import successfully."
+      ]
+    },
+    {
+      "id": "task-005",
+      "title": "Separate durable worker history from local runtime state",
+      "summary": "Define and implement the boundary between canonical shared worker history and clone-local worktree/runtime control-plane state, including leases and heartbeats for any canonical worker liveness state.",
+      "deps": [
+        "task-001",
+        "task-003"
+      ],
+      "requirements": [
+        "req-021",
+        "req-022",
+        "req-023",
+        "req-024"
+      ],
+      "capabilities": [
+        "cap-worker-runtime-carveout"
+      ],
+      "acceptance": [
+        "Canonical worker history remains portable across clones without machine-local pollution.",
+        "Worker crash recovery can distinguish stale local runtime from durable shared history."
+      ]
+    },
+    {
+      "id": "task-006",
+      "title": "Validate backend portability and prepare PostgreSQL path",
+      "summary": "Build backend-contract tests and backend-neutral semantics so PostgreSQL can later replace or complement SQLite without redesigning domain behavior.",
+      "deps": [
+        "task-001",
+        "task-003",
+        "task-004"
+      ],
+      "requirements": [
+        "req-006",
+        "req-025",
+        "req-026",
+        "req-027",
+        "req-028"
+      ],
+      "capabilities": [
+        "cap-postgres-portability",
+        "cap-storage-contract"
+      ],
+      "acceptance": [
+        "A backend-neutral test suite exists for core storage semantics.",
+        "The architecture docs and spec do not assume network-shared SQLite as a supported deployment."
+      ]
+    }
+  ],
+  "artifactVersions": {
+    "proposal": "2026-03-16T17:40:15.372Z",
+    "design": "2026-03-16T17:40:15.373Z",
+    "tasks": "2026-03-16T17:40:15.373Z",
+    "analysis": "2026-03-16T17:40:15.362Z",
+    "checklist": "2026-03-16T17:40:15.369Z"
+  }
+}

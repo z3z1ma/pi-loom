@@ -1,7 +1,7 @@
 ---
 project: pi-loom
-items: 7
-updated-at: 2026-03-16T01:35:27.968Z
+items: 8
+updated-at: 2026-03-16T17:28:05.892Z
 ---
 
 ## Strategic Direction
@@ -23,6 +23,12 @@ Turn Pi Loom into a repo-truthful, composable, local operating system for long-h
 - item-003 [now/active] Mature bounded Ralph orchestration and verifier contracts
   Summary: Deepen Ralph’s bounded plan-execute-critique-revise loop with stronger verifier evidence, stop policies, and review integration while preserving layer boundaries.
   Rationale: The root constitution includes iterative looping and adversarial review, and the current Ralph package is explicitly the place where that narrower orchestration should mature.
+- item-008 [now/active] Migrate Loom storage to a shared database substrate with repo projection sync
+  Summary: Replace per-repo file-backed canonical state with a local shared database substrate that supports cross-repo Loom coordination, repo/worktree-aware execution, deterministic repo projection, and future PostgreSQL backends.
+  Rationale: The current file-backed `.loom` model hard-codes repo-local identity and direct file reads across packages, which prevents first-class cross-repo tickets, plans, and initiatives. A shared database substrate is now a user-directed architectural shift, but it must preserve local-first operation, human-reviewable projections, repo-native docs, and an explicit sync/hydration path for SQLite users.
+  Initiatives: loom-storage-substrate-migration
+  Research: sqlite-first-storage-substrate-and-sync-architecture
+  Specs: sqlite-first-canonical-storage-substrate
 
 ## Next
 - item-004 [next/candidate] Tighten durable artifact portability and auditability across Loom

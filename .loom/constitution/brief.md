@@ -37,6 +37,7 @@ Turn Pi Loom into a repo-truthful, composable, local operating system for long-h
 - item-001 [now/active] Derive and rely on repo-truthful constitutional memory — Replace placeholder constitutional state with a constitution that is substantively derived from the root CONSTITUTION.md, the README, and shipped Loom behavior.
 - item-002 [now/active] Harden cross-layer provenance, packets, dashboards, and queryability — Make the graph linking constitution, research, initiatives, specs, plans, tickets, workers, critiques, Ralph runs, and docs easier to recover, inspect, and trust from durable artifacts.
 - item-003 [now/active] Mature bounded Ralph orchestration and verifier contracts — Deepen Ralph’s bounded plan-execute-critique-revise loop with stronger verifier evidence, stop policies, and review integration while preserving layer boundaries.
+- item-008 [now/active] Migrate Loom storage to a shared database substrate with repo projection sync — Replace per-repo file-backed canonical state with a local shared database substrate that supports cross-repo Loom coordination, repo/worktree-aware execution, deterministic repo projection, and future PostgreSQL backends.
 
 ## Open Constitutional Questions
 - How much explicit hypothesis and rejected-path structure should the research layer carry before it becomes ceremony?

@@ -125,6 +125,27 @@ Knowledge generated during work contributes to:
 
 ---
 
+## 2.6 Shared Canonical State, Local Runtime, And Review Surfaces
+
+The harness may persist canonical operational state in a shared database-backed substrate rather than requiring every durable record to remain a repo-local file.
+
+When a shared canonical store exists:
+
+* globally meaningful entities must not derive their identity from local file paths
+* machine-oriented metadata and current-state records may live in the canonical store
+* clone-local runtime/control-plane details may remain local when sharing them would create stale or misleading global state
+* human-facing markdown bodies and review surfaces may remain repo-native when grepability, code review, and long-term readability benefit from that materialization
+
+The system must preserve a truthful distinction between:
+
+* canonical shared state
+* repo-materialized review surfaces
+* clone-local runtime state
+
+No projection or cached artifact may masquerade as canonical truth once a different substrate owns the truth.
+
+---
+
 # 3. System Entities
 
 The harness is composed of several classes of entities.
