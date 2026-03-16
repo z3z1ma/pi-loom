@@ -2,7 +2,7 @@
 id: headless-operator-surface-and-recovery
 title: "Headless operator surface and recovery"
 change: add-workspace-backed-manager-worker-substrate
-updated-at: 2026-03-16T00:03:16.511Z
+updated-at: 2026-03-16T02:19:49.118Z
 source-changes:
   - add-workspace-backed-manager-worker-substrate
 ---

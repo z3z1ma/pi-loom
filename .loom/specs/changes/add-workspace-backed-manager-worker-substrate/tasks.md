@@ -3,8 +3,9 @@ id: add-workspace-backed-manager-worker-substrate
 title: "Add workspace-backed manager-worker substrate"
 status: finalized
 created-at: 2026-03-15T23:56:44.247Z
-updated-at: 2026-03-16T00:03:16.511Z
+updated-at: 2026-03-16T02:19:49.118Z
 research:
+  - evaluate-pi-control-surfaces-for-long-lived-workers
   - prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces
 initiatives:
   - workspace-backed-manager-worker-coordination
