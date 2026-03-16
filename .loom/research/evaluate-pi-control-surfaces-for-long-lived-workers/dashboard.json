@@ -124,11 +124,11 @@
       {
         "id": "workspace-backed-manager-worker-coordination",
         "title": "Workspace-backed manager-worker coordination",
-        "status": "active",
+        "status": "completed",
         "milestoneCount": 1,
         "specChangeCount": 2,
         "ticketCount": 21,
-        "updatedAt": "2026-03-16T02:45:20.878Z",
+        "updatedAt": "2026-03-16T05:14:25.711Z",
         "tags": [
           "architecture",
           "manager-worker",

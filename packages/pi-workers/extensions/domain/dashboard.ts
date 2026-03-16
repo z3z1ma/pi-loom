@@ -16,6 +16,18 @@ function summarizeLatestCheckpoint(checkpoint: WorkerCheckpointRecord | null): W
   return checkpoint;
 }
 
+function unresolvedInbox(messages: WorkerMessageRecord[]): WorkerMessageRecord[] {
+  return messages.filter((message) => message.awaiting === "worker" && message.status !== "resolved");
+}
+
+function pendingManagerActions(messages: WorkerMessageRecord[]): WorkerMessageRecord[] {
+  return messages.filter((message) => message.awaiting === "manager" && message.status !== "resolved");
+}
+
+function acknowledgedInbox(messages: WorkerMessageRecord[]): WorkerMessageRecord[] {
+  return messages.filter((message) => message.awaiting === "worker" && message.status === "acknowledged");
+}
+
 export function summarizeWorker(worker: WorkerReadResult): WorkerSummary {
   return worker.summary;
 }
@@ -23,6 +35,9 @@ export function summarizeWorker(worker: WorkerReadResult): WorkerSummary {
 export function buildWorkerDashboard(cwd: string, worker: WorkerReadResult): WorkerDashboard {
   const latestMessage = summarizeLatestMessage(worker.messages.at(-1) ?? null);
   const latestCheckpoint = summarizeLatestCheckpoint(worker.checkpoints.at(-1) ?? null);
+  const acknowledgedBacklog = acknowledgedInbox(worker.messages);
+  const inboxBacklog = unresolvedInbox(worker.messages);
+  const managerBacklog = pendingManagerActions(worker.messages);
   const latestHeartbeat = worker.state.latestTelemetry.heartbeatAt
     ? new Date(worker.state.latestTelemetry.heartbeatAt).getTime()
     : 0;
@@ -31,6 +46,9 @@ export function buildWorkerDashboard(cwd: string, worker: WorkerReadResult): Wor
   return {
     worker: {
       ...worker.summary,
+      acknowledgedInboxCount: acknowledgedBacklog.length,
+      unresolvedInboxCount: inboxBacklog.length,
+      pendingManagerActionCount: managerBacklog.length,
       path: relative(cwd, worker.artifacts.worker) || worker.artifacts.worker,
     },
     workerPath: relative(cwd, worker.artifacts.worker) || worker.artifacts.worker,
@@ -38,10 +56,14 @@ export function buildWorkerDashboard(cwd: string, worker: WorkerReadResult): Wor
     latestTelemetry: worker.state.latestTelemetry,
     latestCheckpoint,
     latestMessage,
+    unresolvedInbox: inboxBacklog,
+    pendingManagerActions: managerBacklog,
     counts: {
       messages: worker.messages.length,
       checkpoints: worker.checkpoints.length,
-      unresolvedMessages: worker.messages.filter((message) => message.status !== "resolved").length,
+      acknowledgedInbox: acknowledgedBacklog.length,
+      unresolvedMessages: inboxBacklog.length,
+      pendingManagerActions: managerBacklog.length,
     },
     approval: worker.state.approval,
     consolidation: worker.state.consolidation,

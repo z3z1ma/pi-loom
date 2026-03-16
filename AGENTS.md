@@ -16,12 +16,12 @@
 
 ### Layer boundaries
 - Core execution flow: `constitution -> research -> initiatives -> specs -> plans -> tickets`, with `pi-workers` adding a bounded workspace-backed execution substrate alongside ticket execution rather than replacing the ticket ledger.
-- `pi-workers` is the workspace-backed execution substrate; it complements tickets with durable worker state, messaging, checkpoints, approvals, and consolidation outcomes without replacing the ticket ledger.
+- `pi-workers` is the workspace-backed execution substrate; it complements tickets with durable worker state, inbox-driven messaging, checkpoints, manager orchestration, approvals, and consolidation outcomes without replacing the ticket ledger.
 - `pi-critique` is the durable review layer; it does not replace tickets or plans.
 - `pi-ralph` orchestrates bounded plan/execute/review loops across the other layers; it is not a general workflow engine.
 - `pi-docs` is the post-completion explanatory layer.
 - `pi-plans` is the only naming exception: the slash command is `/workplan`, not `/plan`.
-- Command and tool families are paired by layer: `/ticket` + `ticket_*`, `/worker` + `worker_*`, `/spec` + `spec_*`, `/workplan` + `plan_*`, `/critique` + `critique_*`, `/docs` + `docs_*`, `/ralph` + `ralph_*`.
+- Command and tool families are paired by layer: `/ticket` + `ticket_*`, `/worker` + `worker_*`, `/manager` + `manager_*` for fleet orchestration, `/spec` + `spec_*`, `/workplan` + `plan_*`, `/critique` + `critique_*`, `/docs` + `docs_*`, `/ralph` + `ralph_*`.
 
 ## Key Directories
 - `packages/` — all extension packages.

@@ -3,10 +3,12 @@ import type {
   ConsolidationStatus,
   ManagerRef,
   ManagerRefKind,
+  MessageAwaiting,
   MessageDirection,
   MessageKind,
   MessageStatus,
   WorkerConsolidationOutcome,
+  WorkerRuntimeKind,
   WorkerTelemetry,
   WorkerTelemetryState,
   WorkerWorkspaceDescriptor,
@@ -17,9 +19,11 @@ import {
   CONSOLIDATION_STATUSES,
   CONSOLIDATION_STRATEGIES,
   MANAGER_REF_KINDS,
+  MESSAGE_AWAITING,
   MESSAGE_DIRECTIONS,
   MESSAGE_KINDS,
   MESSAGE_STATUSES,
+  WORKER_RUNTIME_KINDS,
   WORKER_TELEMETRY_STATES,
   WORKSPACE_STRATEGIES,
 } from "./models.js";
@@ -88,6 +92,10 @@ export function normalizeMessageDirection(value: string | null | undefined): Mes
   return expectEnum("message direction", value, MESSAGE_DIRECTIONS, "worker_to_manager");
 }
 
+export function normalizeMessageAwaiting(value: string | null | undefined): MessageAwaiting {
+  return expectEnum("message awaiting state", value, MESSAGE_AWAITING, "none");
+}
+
 export function normalizeMessageKind(value: string | null | undefined): MessageKind {
   return expectEnum("message kind", value, MESSAGE_KINDS, "note");
 }
@@ -98,6 +106,10 @@ export function normalizeMessageStatus(value: string | null | undefined): Messag
 
 export function normalizeTelemetryState(value: string | null | undefined): WorkerTelemetryState {
   return expectEnum("worker telemetry state", value, WORKER_TELEMETRY_STATES, "unknown");
+}
+
+export function normalizeRuntimeKind(value: string | null | undefined): WorkerRuntimeKind {
+  return expectEnum("worker runtime kind", value, WORKER_RUNTIME_KINDS, "subprocess");
 }
 
 export function normalizeApprovalStatus(value: string | null | undefined): ApprovalStatus {

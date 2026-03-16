@@ -15,6 +15,7 @@ export const WORKER_STATUSES = [
   "archived",
 ] as const;
 export const WORKSPACE_STRATEGIES = ["git-worktree"] as const;
+export const WORKER_RUNTIME_KINDS = ["subprocess", "sdk", "rpc"] as const;
 export const WORKER_TELEMETRY_STATES = [
   "unknown",
   "busy",
@@ -25,11 +26,14 @@ export const WORKER_TELEMETRY_STATES = [
 ] as const;
 export const MANAGER_REF_KINDS = ["operator", "manual", "plan", "ticket", "ralph", "runtime"] as const;
 export const MESSAGE_DIRECTIONS = ["manager_to_worker", "worker_to_manager", "broadcast"] as const;
+export const MESSAGE_AWAITING = ["none", "worker", "manager"] as const;
 export const MESSAGE_KINDS = [
   "assignment",
+  "acknowledgement",
   "clarification",
   "unblock",
   "escalation",
+  "resolution",
   "checkpoint_notice",
   "completion_notice",
   "approval_decision",
@@ -62,9 +66,11 @@ export const SUPERVISION_ACTIONS = ["continue", "steer", "escalate", "approve", 
 
 export type WorkerStatus = (typeof WORKER_STATUSES)[number];
 export type WorkspaceStrategy = (typeof WORKSPACE_STRATEGIES)[number];
+export type WorkerRuntimeKind = (typeof WORKER_RUNTIME_KINDS)[number];
 export type WorkerTelemetryState = (typeof WORKER_TELEMETRY_STATES)[number];
 export type ManagerRefKind = (typeof MANAGER_REF_KINDS)[number];
 export type MessageDirection = (typeof MESSAGE_DIRECTIONS)[number];
+export type MessageAwaiting = (typeof MESSAGE_AWAITING)[number];
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
 export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
@@ -151,7 +157,10 @@ export interface WorkerState {
   latestCheckpointSummary: string;
   lastMessageAt: string | null;
   lastLaunchAt: string | null;
+  lastSchedulerAt: string | null;
+  lastSchedulerSummary: string;
   launchCount: number;
+  lastRuntimeKind: WorkerRuntimeKind | null;
   interventionCount: number;
   completionRequest: WorkerCompletionRequest;
   approval: WorkerApprovalDecision;
@@ -167,8 +176,13 @@ export interface WorkerSummary {
   updatedAt: string;
   managerKind: ManagerRefKind;
   ticketCount: number;
+  runtimeKind: WorkerRuntimeKind | null;
   telemetryState: WorkerTelemetryState;
   latestCheckpointSummary: string;
+  lastSchedulerSummary: string;
+  acknowledgedInboxCount: number;
+  unresolvedInboxCount: number;
+  pendingManagerActionCount: number;
   pendingApproval: boolean;
   path: string;
 }
@@ -178,12 +192,17 @@ export interface WorkerMessageRecord {
   workerId: string;
   createdAt: string;
   direction: MessageDirection;
+  awaiting: MessageAwaiting;
   kind: MessageKind;
   status: MessageStatus;
   from: string;
   text: string;
   relatedRefs: string[];
   replyTo: string | null;
+  acknowledgedAt: string | null;
+  acknowledgedBy: string | null;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
 }
 
 export interface WorkerCheckpointRecord {
@@ -196,6 +215,9 @@ export interface WorkerCheckpointRecord {
   validation: string[];
   blockers: string[];
   nextAction: string;
+  acknowledgedMessageIds: string[];
+  resolvedMessageIds: string[];
+  remainingInboxCount: number;
   managerInputRequired: boolean;
 }
 
@@ -203,7 +225,7 @@ export interface WorkerRuntimeDescriptor {
   workerId: string;
   createdAt: string;
   updatedAt: string;
-  runtime: "subprocess";
+  runtime: WorkerRuntimeKind;
   resume: boolean;
   workspacePath: string;
   branch: string;
@@ -230,10 +252,14 @@ export interface WorkerDashboard {
   latestTelemetry: WorkerTelemetry;
   latestCheckpoint: WorkerCheckpointRecord | null;
   latestMessage: WorkerMessageRecord | null;
+  unresolvedInbox: WorkerMessageRecord[];
+  pendingManagerActions: WorkerMessageRecord[];
   counts: {
     messages: number;
     checkpoints: number;
+    acknowledgedInbox: number;
     unresolvedMessages: number;
+    pendingManagerActions: number;
   };
   approval: WorkerApprovalDecision;
   consolidation: WorkerConsolidationOutcome;
@@ -250,6 +276,21 @@ export interface WorkerReadResult {
   dashboard: WorkerDashboard;
   packet: string;
   artifacts: WorkerArtifactPaths;
+}
+
+export interface ManagerOverview {
+  workers: WorkerSummary[];
+  unresolvedInboxWorkers: WorkerSummary[];
+  pendingManagerActionWorkers: WorkerSummary[];
+  pendingApprovalWorkers: WorkerSummary[];
+  resumeCandidates: WorkerSummary[];
+}
+
+export interface ManagerSchedulerDecision {
+  workerId: string;
+  action: "resume" | "needs_approval" | "message" | "wait" | "blocked";
+  applied: boolean;
+  summary: string;
 }
 
 export interface WorkerListFilter {
@@ -283,6 +324,7 @@ export interface AppendWorkerMessageInput {
   id?: string;
   createdAt?: string;
   direction?: MessageDirection;
+  awaiting?: MessageAwaiting;
   kind?: MessageKind;
   status?: MessageStatus;
   from?: string;
@@ -300,6 +342,9 @@ export interface AppendWorkerCheckpointInput {
   validation?: string[];
   blockers?: string[];
   nextAction?: string;
+  acknowledgedMessageIds?: string[];
+  resolvedMessageIds?: string[];
+  remainingInboxCount?: number;
   managerInputRequired?: boolean;
 }
 
@@ -344,4 +389,5 @@ export interface PrepareWorkerLaunchInput {
   resume?: boolean;
   note?: string;
   prompt?: string;
+  runtime?: WorkerRuntimeKind;
 }

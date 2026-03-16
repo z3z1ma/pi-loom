@@ -2,12 +2,12 @@
   "plan": {
     "id": "manager-worker-control-plane-next-phase",
     "title": "Manager-worker control-plane next phase",
-    "status": "active",
-    "updatedAt": "2026-03-16T02:44:53.593Z",
+    "status": "completed",
+    "updatedAt": "2026-03-16T05:13:56.406Z",
     "sourceKind": "spec",
     "sourceRef": "add-inbox-driven-manager-worker-control-plane",
     "linkedTicketCount": 9,
-    "summary": "Sequence the successor implementation phase for Pi Loom’s manager worker system now that the foundation worker substrate exists and the new inbox driven control plane spec is finalized. This plan bridges the finalized next phase spec into …",
+    "summary": "Completed the successor implementation phase for Pi Loom’s manager worker system. The inbox driven control plane spec is now implemented with durable inbox semantics, inbox aware worker turns, a first class manager surface, runtime abstrac…",
     "path": ".loom/plans/manager-worker-control-plane-next-phase"
   },
   "packetPath": ".loom/plans/manager-worker-control-plane-next-phase/packet.md",
@@ -55,6 +55,7 @@
       "t-0039"
     ],
     "critiqueIds": [
+      "critique-inbox-driven-manager-worker-control-plane",
       "critique-workspace-backed-manager-worker-rollout"
     ],
     "docIds": [
@@ -75,80 +76,79 @@
       "ticketId": "t-0031",
       "role": "inbox-protocol",
       "order": 1,
-      "status": "ready",
+      "status": "closed",
       "title": "Refactor worker messages into a durable inbox protocol",
-      "path": ".loom/tickets/t-0031.md"
+      "path": ".loom/tickets/closed/t-0031.md"
     },
     {
       "ticketId": "t-0032",
       "role": "inbox-driven-runs",
       "order": 2,
-      "status": "blocked",
+      "status": "closed",
       "title": "Make worker runs inbox-driven and stop-condition aware",
-      "path": ".loom/tickets/t-0032.md"
+      "path": ".loom/tickets/closed/t-0032.md"
     },
     {
       "ticketId": "t-0033",
       "role": "manager-surface",
       "order": 3,
-      "status": "blocked",
+      "status": "closed",
       "title": "Add first-class manager commands and tools",
-      "path": ".loom/tickets/t-0033.md"
+      "path": ".loom/tickets/closed/t-0033.md"
     },
     {
       "ticketId": "t-0034",
       "role": "runtime-abstraction",
       "order": 4,
-      "status": "blocked",
+      "status": "closed",
       "title": "Introduce runtime abstraction for worker execution",
-      "path": ".loom/tickets/t-0034.md"
+      "path": ".loom/tickets/closed/t-0034.md"
     },
     {
       "ticketId": "t-0035",
       "role": "sdk-runtime",
       "order": 5,
-      "status": "blocked",
+      "status": "closed",
       "title": "Implement SDK-backed live worker runtime",
-      "path": ".loom/tickets/t-0035.md"
+      "path": ".loom/tickets/closed/t-0035.md"
     },
     {
       "ticketId": "t-0036",
       "role": "rpc-fallback",
       "order": 6,
-      "status": "blocked",
+      "status": "closed",
       "title": "Add RPC fallback seam for live workers",
-      "path": ".loom/tickets/t-0036.md"
+      "path": ".loom/tickets/closed/t-0036.md"
     },
     {
       "ticketId": "t-0037",
       "role": "scheduler",
       "order": 7,
-      "status": "blocked",
+      "status": "closed",
       "title": "Build bounded manager scheduler loop",
-      "path": ".loom/tickets/t-0037.md"
+      "path": ".loom/tickets/closed/t-0037.md"
     },
     {
       "ticketId": "t-0038",
       "role": "recovery-observability",
       "order": 8,
-      "status": "blocked",
+      "status": "closed",
       "title": "Extend recovery and observability for the new control plane",
-      "path": ".loom/tickets/t-0038.md"
+      "path": ".loom/tickets/closed/t-0038.md"
     },
     {
       "ticketId": "t-0039",
       "role": "verification-docs",
       "order": 9,
-      "status": "blocked",
+      "status": "closed",
       "title": "Harden docs tests and neighboring integrations",
-      "path": ".loom/tickets/t-0039.md"
+      "path": ".loom/tickets/closed/t-0039.md"
     }
   ],
   "counts": {
     "tickets": 9,
     "byStatus": {
-      "ready": 1,
-      "blocked": 8
+      "closed": 9
     }
   }
 }

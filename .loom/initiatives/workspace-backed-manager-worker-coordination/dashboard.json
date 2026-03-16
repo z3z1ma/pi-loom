@@ -2,9 +2,9 @@
   "initiative": {
     "id": "workspace-backed-manager-worker-coordination",
     "title": "Workspace-backed manager-worker coordination",
-    "status": "active",
+    "status": "completed",
     "objective": "Develop a truthful manager-worker operating model for Pi Loom in which workers are ephemeral workspaces, managers supervise and consolidate bounded execution across those workspaces, and the resulting system composes cleanly with plans, tickets, Ralph, critique, and documentation.",
-    "statusSummary": "Active for the next phase with a finalized inbox-driven control-plane spec and a linked nine-ticket rollout covering inbox semantics, manager surface, runtime abstraction, SDK-first workers, bounded scheduling, and recovery/observability.",
+    "statusSummary": "Completed. Pi Loom now has both the foundational worker substrate and the inbox-driven manager-worker control plane implemented, linked to durable research/spec/plan context and verified under lint, typecheck, tests, and critique.",
     "targetWindow": "later",
     "owners": [],
     "tags": [
@@ -17,7 +17,7 @@
     "roadmapRefs": [
       "item-007"
     ],
-    "updatedAt": "2026-03-16T02:45:20.878Z"
+    "updatedAt": "2026-03-16T05:14:25.711Z"
   },
   "linkedRoadmap": {
     "total": 1,
@@ -122,17 +122,17 @@
     "total": 21,
     "counts": {
       "open": 0,
-      "ready": 1,
+      "ready": 0,
       "in_progress": 0,
-      "blocked": 8,
+      "blocked": 0,
       "review": 0,
-      "closed": 12
+      "closed": 21
     },
-    "ready": 1,
-    "blocked": 8,
+    "ready": 0,
+    "blocked": 0,
     "inProgress": 0,
     "review": 0,
-    "closed": 12,
+    "closed": 21,
     "items": [
       {
         "id": "t-0015",
@@ -589,12 +589,12 @@
       {
         "id": "t-0031",
         "title": "Refactor worker messages into a durable inbox protocol",
-        "status": "ready",
-        "storedStatus": "open",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "task",
         "createdAt": "2026-03-16T02:39:44.427Z",
-        "updatedAt": "2026-03-16T02:44:33.813Z",
+        "updatedAt": "2026-03-16T03:07:08.911Z",
         "deps": [],
         "links": [
           ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
@@ -617,18 +617,18 @@
         ],
         "tags": [],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0031.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0031.md"
       },
       {
         "id": "t-0032",
         "title": "Make worker runs inbox-driven and stop-condition aware",
-        "status": "blocked",
-        "storedStatus": "open",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "task",
         "createdAt": "2026-03-16T02:39:44.446Z",
-        "updatedAt": "2026-03-16T02:44:36.097Z",
+        "updatedAt": "2026-03-16T03:11:21.517Z",
         "deps": [
           "t-0031"
         ],
@@ -653,18 +653,18 @@
         ],
         "tags": [],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0032.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0032.md"
       },
       {
         "id": "t-0033",
         "title": "Add first-class manager commands and tools",
-        "status": "blocked",
-        "storedStatus": "open",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "task",
         "createdAt": "2026-03-16T02:39:44.463Z",
-        "updatedAt": "2026-03-16T02:44:38.405Z",
+        "updatedAt": "2026-03-16T03:18:59.692Z",
         "deps": [
           "t-0031"
         ],
@@ -689,18 +689,18 @@
         ],
         "tags": [],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0033.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0033.md"
       },
       {
         "id": "t-0034",
         "title": "Introduce runtime abstraction for worker execution",
-        "status": "blocked",
-        "storedStatus": "open",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "task",
         "createdAt": "2026-03-16T02:39:44.478Z",
-        "updatedAt": "2026-03-16T02:44:40.790Z",
+        "updatedAt": "2026-03-16T03:29:29.614Z",
         "deps": [
           "t-0032"
         ],
@@ -725,18 +725,18 @@
         ],
         "tags": [],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0034.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0034.md"
       },
       {
         "id": "t-0035",
         "title": "Implement SDK-backed live worker runtime",
-        "status": "blocked",
-        "storedStatus": "open",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "task",
         "createdAt": "2026-03-16T02:39:44.496Z",
-        "updatedAt": "2026-03-16T02:44:43.307Z",
+        "updatedAt": "2026-03-16T03:29:29.630Z",
         "deps": [
           "t-0034"
         ],
@@ -761,18 +761,18 @@
         ],
         "tags": [],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0035.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0035.md"
       },
       {
         "id": "t-0036",
         "title": "Add RPC fallback seam for live workers",
-        "status": "blocked",
-        "storedStatus": "open",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "medium",
         "type": "task",
         "createdAt": "2026-03-16T02:39:44.511Z",
-        "updatedAt": "2026-03-16T02:44:45.823Z",
+        "updatedAt": "2026-03-16T03:29:29.645Z",
         "deps": [
           "t-0034"
         ],
@@ -797,18 +797,18 @@
         ],
         "tags": [],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0036.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0036.md"
       },
       {
         "id": "t-0037",
         "title": "Build bounded manager scheduler loop",
-        "status": "blocked",
-        "storedStatus": "open",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "task",
         "createdAt": "2026-03-16T02:39:44.526Z",
-        "updatedAt": "2026-03-16T02:44:48.320Z",
+        "updatedAt": "2026-03-16T03:42:00.771Z",
         "deps": [
           "t-0033",
           "t-0035"
@@ -835,18 +835,18 @@
         ],
         "tags": [],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0037.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0037.md"
       },
       {
         "id": "t-0038",
         "title": "Extend recovery and observability for the new control plane",
-        "status": "blocked",
-        "storedStatus": "open",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "medium",
         "type": "task",
         "createdAt": "2026-03-16T02:39:44.544Z",
-        "updatedAt": "2026-03-16T02:44:50.909Z",
+        "updatedAt": "2026-03-16T03:42:00.787Z",
         "deps": [
           "t-0031",
           "t-0034",
@@ -873,18 +873,18 @@
         ],
         "tags": [],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0038.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0038.md"
       },
       {
         "id": "t-0039",
         "title": "Harden docs tests and neighboring integrations",
-        "status": "blocked",
-        "storedStatus": "open",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "medium",
         "type": "task",
         "createdAt": "2026-03-16T02:39:44.564Z",
-        "updatedAt": "2026-03-16T02:44:53.585Z",
+        "updatedAt": "2026-03-16T03:47:12.499Z",
         "deps": [
           "t-0032",
           "t-0033",
@@ -922,8 +922,8 @@
         ],
         "tags": [],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0039.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0039.md"
       }
     ]
   },

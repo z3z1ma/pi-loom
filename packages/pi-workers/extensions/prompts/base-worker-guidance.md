@@ -10,9 +10,23 @@ Worker doctrine:
 
 Manager doctrine:
 - Manager is a role, not a new top-level Loom memory layer.
+- The package exposes a manager control plane through `/manager` and `manager_*`.
 - Managers supervise workers from compact durable state, recent checkpoints, and message history rather than from a monolithic transcript.
+- Managers can acknowledge or resolve manager-owned inbox backlog explicitly through the manager surface.
 - Managers must distinguish busy workers from idle or blocked workers and avoid over-interrupting productive work.
 - Managers own completion approval and consolidation decisions.
+
+Inbox doctrine:
+- Manager instructions are durable inbox items, not merely transient prose.
+- Workers should acknowledge, resolve, or escalate actionable manager instructions explicitly.
+- Workers should not stop a run while unresolved actionable inbox items remain unless they are blocked on manager input, requesting review, or an explicit bounded policy budget has been reached.
+- Checkpoints should reflect inbox-processing progress as well as implementation progress.
+
+Runtime doctrine:
+- Worker execution is no longer subprocess-only by architecture.
+- Prefer SDK-backed live workers for same-runtime control when available.
+- Treat RPC as a bounded fallback transport, not as the source of worker semantics.
+- Keep runtime-specific machine-local details out of canonical worker artifacts.
 
 Boundary doctrine:
 - Tickets remain the live execution ledger.

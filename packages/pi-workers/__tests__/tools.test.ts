@@ -7,6 +7,7 @@ import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store
 import { describe, expect, it, vi } from "vitest";
 import { runWorkerLaunch } from "../extensions/domain/runtime.js";
 import { createWorkerStore } from "../extensions/domain/store.js";
+import { registerManagerTools } from "../extensions/tools/manager.js";
 import { registerWorkerTools } from "../extensions/tools/worker.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
@@ -76,8 +77,13 @@ describe("worker tools", () => {
       createWorkerTicket(cwd);
 
       const mockPi = createMockPi();
+      registerManagerTools(mockPi as unknown as ExtensionAPI);
       registerWorkerTools(mockPi as unknown as ExtensionAPI);
       expect([...mockPi.tools.keys()].sort()).toEqual([
+        "manager_overview",
+        "manager_schedule",
+        "manager_supervise",
+        "manager_write",
         "worker_dashboard",
         "worker_launch",
         "worker_list",
@@ -109,6 +115,112 @@ describe("worker tools", () => {
         createCtx(cwd),
       );
       expect(JSON.stringify(read)).toContain("tool-worker");
+
+      await workerWrite?.execute(
+        "call-4",
+        {
+          action: "append_message",
+          ref: "tool-worker",
+          message: {
+            direction: "manager_to_worker",
+            kind: "assignment",
+            text: "Handle the inbox item",
+          },
+        },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      const inbox = await workerRead?.execute(
+        "call-5",
+        { ref: "tool-worker", mode: "inbox" },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      expect(JSON.stringify(inbox)).toContain("Handle the inbox item");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("supports explicit message acknowledgement and resolution actions", async () => {
+    const { cwd, cleanup } = createWorkspace();
+    try {
+      createWorkerTicket(cwd);
+
+      const mockPi = createMockPi();
+      registerManagerTools(mockPi as unknown as ExtensionAPI);
+      registerWorkerTools(mockPi as unknown as ExtensionAPI);
+      const workerWrite = mockPi.tools.get("worker_write");
+      const workerRead = mockPi.tools.get("worker_read");
+      expect(workerWrite && workerRead).toBeTruthy();
+
+      await workerWrite?.execute(
+        "call-create",
+        { action: "create", title: "Inbox Tool Worker", linkedRefs: { ticketIds: ["t-0001"] } },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      await workerWrite?.execute(
+        "call-message",
+        {
+          action: "append_message",
+          ref: "inbox-tool-worker",
+          message: {
+            direction: "manager_to_worker",
+            kind: "assignment",
+            text: "Acknowledge and resolve this instruction",
+          },
+        },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+
+      const inbox = await workerRead?.execute(
+        "call-inbox",
+        { ref: "inbox-tool-worker", mode: "inbox" },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      const inboxDetails = JSON.parse(((inbox?.content ?? [])[0] as { text?: string } | undefined)?.text ?? "{}") as {
+        workerInbox?: Array<{ id: string }>;
+      };
+      const messageId = inboxDetails.workerInbox?.[0]?.id;
+      expect(messageId).toBeTruthy();
+      if (!messageId) throw new Error("Expected inbox message id");
+
+      await workerWrite?.execute(
+        "call-ack",
+        {
+          action: "acknowledge_message",
+          ref: "inbox-tool-worker",
+          message: { replyTo: messageId, text: "Starting the work" },
+        },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      let worker = createWorkerStore(cwd).readWorker("inbox-tool-worker");
+      expect(worker.dashboard.unresolvedInbox[0]?.status).toBe("acknowledged");
+
+      await workerWrite?.execute(
+        "call-resolve",
+        {
+          action: "resolve_message",
+          ref: "inbox-tool-worker",
+          message: { replyTo: messageId, text: "Completed the instruction" },
+        },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      worker = createWorkerStore(cwd).readWorker("inbox-tool-worker");
+      expect(worker.summary.unresolvedInboxCount).toBe(0);
+      expect(worker.messages.at(-1)?.kind).toBe("resolution");
     } finally {
       cleanup();
     }
@@ -118,6 +230,7 @@ describe("worker tools", () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const mockPi = createMockPi();
+      registerManagerTools(mockPi as unknown as ExtensionAPI);
       registerWorkerTools(mockPi as unknown as ExtensionAPI);
       const workerWrite = mockPi.tools.get("worker_write");
       expect(workerWrite).toBeTruthy();
@@ -144,6 +257,7 @@ describe("worker tools", () => {
       createWorkerTicket(cwd);
 
       const mockPi = createMockPi();
+      registerManagerTools(mockPi as unknown as ExtensionAPI);
       registerWorkerTools(mockPi as unknown as ExtensionAPI);
       const workerWrite = mockPi.tools.get("worker_write");
       const workerLaunch = mockPi.tools.get("worker_launch");
@@ -191,6 +305,92 @@ describe("worker tools", () => {
       expect(worker.state.latestTelemetry.summary).toContain("Execution cancelled: Cancelled");
     } finally {
       runWorkerLaunchMock.mockReset();
+      cleanup();
+    }
+  });
+
+  it("supports manager overview and manager-write flows", async () => {
+    const { cwd, cleanup } = createWorkspace();
+    try {
+      createWorkerTicket(cwd);
+
+      const mockPi = createMockPi();
+      registerManagerTools(mockPi as unknown as ExtensionAPI);
+      registerWorkerTools(mockPi as unknown as ExtensionAPI);
+      const managerOverview = mockPi.tools.get("manager_overview");
+      const managerSchedule = mockPi.tools.get("manager_schedule");
+      const managerSupervise = mockPi.tools.get("manager_supervise");
+      const managerWrite = mockPi.tools.get("manager_write");
+      const workerWrite = mockPi.tools.get("worker_write");
+      expect(managerOverview && managerSchedule && managerSupervise && managerWrite && workerWrite).toBeTruthy();
+
+      await workerWrite?.execute(
+        "call-create",
+        { action: "create", title: "Managed Tool Worker", linkedRefs: { ticketIds: ["t-0001"] } },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      await managerWrite?.execute(
+        "call-message",
+        {
+          action: "message",
+          ref: "managed-tool-worker",
+          kind: "assignment",
+          text: "Do the work from the manager surface",
+        },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+
+      const overview = await managerOverview?.execute("call-overview", {}, undefined, undefined, createCtx(cwd));
+      expect(JSON.stringify(overview)).toContain("Unresolved worker inbox");
+
+      await workerWrite?.execute(
+        "call-worker-escalation",
+        {
+          action: "append_message",
+          ref: "managed-tool-worker",
+          message: {
+            direction: "worker_to_manager",
+            kind: "escalation",
+            text: "Need manager decision",
+          },
+        },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      const managerInboxMessageId = createWorkerStore(cwd).readInbox("managed-tool-worker").managerInbox[0]?.id;
+      expect(managerInboxMessageId).toBeTruthy();
+      if (!managerInboxMessageId) throw new Error("Expected manager inbox message id");
+
+      await managerWrite?.execute(
+        "call-manager-resolve",
+        {
+          action: "resolve_message",
+          ref: "managed-tool-worker",
+          messageId: managerInboxMessageId,
+          text: "Decision applied",
+        },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+
+      const supervise = await managerSupervise?.execute(
+        "call-supervise",
+        { refs: ["managed-tool-worker"] },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      expect(JSON.stringify(supervise)).toContain("managed-tool-worker");
+
+      const schedule = await managerSchedule?.execute("call-schedule", {}, undefined, undefined, createCtx(cwd));
+      expect(JSON.stringify(schedule)).toContain("managed-tool-worker");
+    } finally {
       cleanup();
     }
   });

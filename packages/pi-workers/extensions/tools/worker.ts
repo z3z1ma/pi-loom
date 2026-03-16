@@ -27,12 +27,15 @@ const WorkerTelemetryEnum = StringEnum([
   "waiting_for_review",
   "finished",
 ] as const);
+const WorkerRuntimeKindEnum = StringEnum(["subprocess", "sdk", "rpc"] as const);
 const MessageDirectionEnum = StringEnum(["manager_to_worker", "worker_to_manager", "broadcast"] as const);
 const MessageKindEnum = StringEnum([
   "assignment",
+  "acknowledgement",
   "clarification",
   "unblock",
   "escalation",
+  "resolution",
   "checkpoint_notice",
   "completion_notice",
   "approval_decision",
@@ -41,11 +44,14 @@ const MessageKindEnum = StringEnum([
   "note",
 ] as const);
 const MessageStatusEnum = StringEnum(["pending", "acknowledged", "resolved"] as const);
+const MessageAwaitingEnum = StringEnum(["none", "worker", "manager"] as const);
 const WorkerWriteActionEnum = StringEnum([
   "init",
   "create",
   "update",
   "append_message",
+  "acknowledge_message",
+  "resolve_message",
   "append_checkpoint",
   "set_telemetry",
   "request_completion",
@@ -82,6 +88,7 @@ const ManagerRefSchema = Type.Object({
 
 const MessageSchema = Type.Object({
   direction: Type.Optional(MessageDirectionEnum),
+  awaiting: Type.Optional(MessageAwaitingEnum),
   kind: Type.Optional(MessageKindEnum),
   status: Type.Optional(MessageStatusEnum),
   from: Type.Optional(Type.String()),
@@ -97,6 +104,9 @@ const CheckpointSchema = Type.Object({
   validation: Type.Optional(Type.Array(Type.String())),
   blockers: Type.Optional(Type.Array(Type.String())),
   nextAction: Type.Optional(Type.String()),
+  acknowledgedMessageIds: Type.Optional(Type.Array(Type.String())),
+  resolvedMessageIds: Type.Optional(Type.Array(Type.String())),
+  remainingInboxCount: Type.Optional(Type.Number()),
   managerInputRequired: Type.Optional(Type.Boolean()),
 });
 
@@ -179,7 +189,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     description: "Read a worker record, packet, or dashboard from local Loom memory.",
     parameters: Type.Object({
       ref: Type.String(),
-      mode: Type.Optional(StringEnum(["full", "state", "packet", "worker", "dashboard"] as const)),
+      mode: Type.Optional(StringEnum(["full", "state", "packet", "worker", "dashboard", "inbox"] as const)),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const worker = getStore(ctx).readWorker(params.ref);
@@ -187,6 +197,10 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       if (mode === "state") return machineResult({ state: worker.state }, JSON.stringify(worker.state, null, 2));
       if (mode === "packet") return machineResult({ packet: worker.packet }, worker.packet);
       if (mode === "worker") return machineResult({ worker: worker.worker }, worker.worker);
+      if (mode === "inbox") {
+        const inbox = getStore(ctx).readInbox(params.ref);
+        return machineResult({ inbox }, JSON.stringify(inbox, null, 2));
+      }
       if (mode === "dashboard")
         return machineResult({ dashboard: worker.dashboard }, renderWorkerDashboard(worker.dashboard));
       return machineResult({ worker }, renderWorkerDetail(worker));
@@ -253,6 +267,28 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
           const worker = store.appendMessage(params.ref, params.message);
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
+        case "acknowledge_message": {
+          if (!params.ref || !params.message?.replyTo)
+            throw new Error("ref and message.replyTo are required for acknowledge_message");
+          const worker = store.acknowledgeMessage(
+            params.ref,
+            params.message.replyTo,
+            params.message.from ?? "worker",
+            params.message.text,
+          );
+          return machineResult({ worker }, renderWorkerDetail(worker));
+        }
+        case "resolve_message": {
+          if (!params.ref || !params.message?.replyTo)
+            throw new Error("ref and message.replyTo are required for resolve_message");
+          const worker = store.resolveMessage(
+            params.ref,
+            params.message.replyTo,
+            params.message.from ?? "worker",
+            params.message.text,
+          );
+          return machineResult({ worker }, renderWorkerDetail(worker));
+        }
         case "append_checkpoint": {
           if (!params.ref || !params.checkpoint)
             throw new Error("ref and checkpoint are required for append_checkpoint");
@@ -300,10 +336,11 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       ref: Type.String(),
       prepareOnly: Type.Optional(Type.Boolean()),
       note: Type.Optional(Type.String()),
+      runtime: Type.Optional(WorkerRuntimeKindEnum),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
-      const prepared = store.prepareLaunch(params.ref, false, params.note);
+      const prepared = store.prepareLaunch(params.ref, false, params.note, params.runtime);
       if (params.prepareOnly === true) {
         return machineResult({ launch: prepared.launch }, store.renderLaunch(params.ref));
       }
@@ -328,10 +365,11 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       ref: Type.String(),
       prepareOnly: Type.Optional(Type.Boolean()),
       note: Type.Optional(Type.String()),
+      runtime: Type.Optional(WorkerRuntimeKindEnum),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
-      const prepared = store.prepareLaunch(params.ref, true, params.note ?? "Resume requested");
+      const prepared = store.prepareLaunch(params.ref, true, params.note ?? "Resume requested", params.runtime);
       if (params.prepareOnly === true) {
         return machineResult({ launch: prepared.launch }, store.renderLaunch(params.ref));
       }

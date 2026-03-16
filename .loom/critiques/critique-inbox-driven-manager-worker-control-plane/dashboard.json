@@ -1,0 +1,75 @@
+{
+  "critique": {
+    "id": "critique-inbox-driven-manager-worker-control-plane",
+    "title": "Critique inbox-driven manager-worker control plane",
+    "status": "resolved",
+    "verdict": "pass",
+    "targetKind": "workspace",
+    "targetRef": "manager-worker-control-plane-next-phase",
+    "focusAreas": [
+      "architecture",
+      "correctness",
+      "docs",
+      "edge_cases",
+      "maintainability"
+    ],
+    "updatedAt": "2026-03-16T05:15:08.786Z",
+    "openFindingCount": 0,
+    "followupTicketCount": 0,
+    "path": ".loom/critiques/critique-inbox-driven-manager-worker-control-plane"
+  },
+  "packetPath": ".loom/critiques/critique-inbox-driven-manager-worker-control-plane/packet.md",
+  "launchPath": ".loom/critiques/critique-inbox-driven-manager-worker-control-plane/launch.json",
+  "lastLaunchAt": "2026-03-16T03:48:06.246Z",
+  "counts": {
+    "runs": 2,
+    "findings": 4,
+    "openFindings": 0,
+    "acceptedFindings": 0,
+    "followupTickets": 0,
+    "bySeverity": {
+      "low": 0,
+      "medium": 1,
+      "high": 3,
+      "critical": 0
+    },
+    "byStatus": {
+      "open": 0,
+      "accepted": 0,
+      "rejected": 0,
+      "fixed": 4,
+      "superseded": 0
+    },
+    "byVerdict": {
+      "pass": 1,
+      "concerns": 0,
+      "blocked": 0,
+      "needs_revision": 1
+    }
+  },
+  "latestRun": {
+    "id": "run-002",
+    "critiqueId": "critique-inbox-driven-manager-worker-control-plane",
+    "createdAt": "2026-03-16T05:14:44.216Z",
+    "kind": "verification",
+    "summary": "Post-fix review found no remaining material concern in the previously reported manager/scheduler/runtime issues. The control plane now executes and finalizes manager-driven resumes truthfully, schedules unblocked workers again, exposes manager-side inbox resolution, records runtime kind only when execution starts, and handles SDK setup failures without leaving false running state. Full workspace verification is green under lint, typecheck, and tests.",
+    "verdict": "pass",
+    "freshContext": false,
+    "focusAreas": [
+      "architecture",
+      "correctness",
+      "docs",
+      "edge_cases",
+      "maintainability"
+    ],
+    "findingIds": [
+      "finding-001",
+      "finding-002",
+      "finding-003",
+      "finding-004"
+    ],
+    "followupTicketIds": []
+  },
+  "openFindings": [],
+  "followupTicketIds": []
+}

@@ -41,6 +41,15 @@ function parseMessageArgs(args: string): { ref: string; direction: string; kind:
   return { ref, direction, kind, text };
 }
 
+function parseMessageStateArgs(args: string): { ref: string; messageId: string; note?: string } {
+  const [left, note] = parseDoubleColonArgs(args);
+  const [ref, messageId] = splitArgs(left ?? "");
+  if (!ref || !messageId) {
+    throw new Error("Usage: /worker <ack|resolve> <worker> <message-id> [:: <note>]");
+  }
+  return { ref, messageId, note };
+}
+
 function parseCheckpointArgs(args: string): {
   ref: string;
   summary?: string;
@@ -158,7 +167,7 @@ export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandCo
   const store = createWorkerStore(_ctx.cwd);
   const [subcommand, ...rest] = splitArgs(args);
   if (!subcommand) {
-    return "Usage: /worker <init|create|list|show|dashboard|message|checkpoint|complete|approve|supervise|launch|resume|consolidate|retire>";
+    return "Usage: /worker <init|create|list|show|dashboard|inbox|message|ack|resolve|checkpoint|complete|approve|supervise|launch|resume|consolidate|retire>";
   }
 
   switch (subcommand) {
@@ -188,6 +197,11 @@ export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandCo
       if (!ref) throw new Error("Usage: /worker dashboard <worker>");
       return store.renderDashboard(ref);
     }
+    case "inbox": {
+      const ref = rest[0];
+      if (!ref) throw new Error("Usage: /worker inbox <worker>");
+      return JSON.stringify(store.readInbox(ref), null, 2);
+    }
     case "message": {
       const parsed = parseMessageArgs(rest.join(" "));
       store.appendMessage(parsed.ref, {
@@ -195,6 +209,16 @@ export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandCo
         kind: parsed.kind as never,
         text: parsed.text,
       });
+      return store.renderDetail(parsed.ref);
+    }
+    case "ack": {
+      const parsed = parseMessageStateArgs(rest.join(" "));
+      store.acknowledgeMessage(parsed.ref, parsed.messageId, "worker", parsed.note);
+      return store.renderDetail(parsed.ref);
+    }
+    case "resolve": {
+      const parsed = parseMessageStateArgs(rest.join(" "));
+      store.resolveMessage(parsed.ref, parsed.messageId, "worker", parsed.note);
       return store.renderDetail(parsed.ref);
     }
     case "checkpoint": {
@@ -239,14 +263,16 @@ export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandCo
     }
     case "launch": {
       const ref = rest[0];
+      const runtime = rest[1] as "subprocess" | "sdk" | "rpc" | undefined;
       if (!ref) throw new Error("Usage: /worker launch <worker>");
-      store.prepareLaunch(ref, false, "Interactive launch prepared via command surface.");
+      store.prepareLaunch(ref, false, "Interactive launch prepared via command surface.", runtime);
       return store.renderLaunch(ref);
     }
     case "resume": {
       const ref = rest[0];
+      const runtime = rest[1] as "subprocess" | "sdk" | "rpc" | undefined;
       if (!ref) throw new Error("Usage: /worker resume <worker>");
-      store.prepareLaunch(ref, true, "Interactive resume prepared via command surface.");
+      store.prepareLaunch(ref, true, "Interactive resume prepared via command surface.", runtime);
       return store.renderLaunch(ref);
     }
     case "consolidate": {

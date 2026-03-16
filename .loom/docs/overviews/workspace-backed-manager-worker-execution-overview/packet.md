@@ -4,25 +4,25 @@ title: "Workspace-backed manager-worker execution overview"
 status: active
 type: overview
 section: overviews
-source: spec:add-workspace-backed-manager-worker-substrate
+source: spec:add-inbox-driven-manager-worker-control-plane
 audience:
   - ai
   - human
 created-at: 2026-03-16T00:46:28.139Z
-updated-at: 2026-03-16T00:46:28.139Z
+updated-at: 2026-03-16T03:46:28.374Z
 ---
 
 ## Documentation Target
-add-workspace-backed-manager-worker-substrate [finalized] Add workspace-backed manager-worker substrate
-Proposal: Introduce a new workspace-backed execution substrate for Pi Loom in which workers are durable, ticket-attached abstractions over ephemeral workspaces and managers act as out-of-band supervisors and consolidators rather than as transcript-bound copilots. The change formalizes how…
-Requirements: 24
-Tasks: 12
+add-inbox-driven-manager-worker-control-plane [finalized] Add inbox-driven manager-worker control plane
+Proposal: Evolve the implemented worker substrate from a durable, subprocess-backed foundation into a more useful manager-worker control plane centered on durable inbox semantics, inbox-driven worker turns, an explicit manager orchestration surface, and a worker runtime abstraction that c…
+Requirements: 21
+Tasks: 9
 
 ## Update Reason
-Completed implementation of the workspace-backed worker substrate materially changes the repo's architecture and execution workflow understanding.
+The worker layer now includes a durable inbox protocol, manager control surface, runtime abstraction, and bounded scheduler behavior, materially changing the high-level architecture and operator workflow.
 
 ## Current Document Summary
-Why this layer exists Pi Loom now includes a dedicated worker substrate because long horizon execution needed a truthful representation of parallel work that was stronger than transcript branching, generic task subprocesses, or Ralph run s… | sections: Architectural boundary to protect, Manager role, Operator surface, Relationship to the rest of Loom, Runtime and recovery, What is a worker, Why this layer exists, Workspace model
+Why this layer exists Pi Loom now includes a dedicated worker substrate because long horizon execution needed a truthful representation of parallel work that was stronger than transcript branching, generic task subprocesses, or Ralph run s… | sections: Architectural boundary to protect, Durable inbox protocol, Manager role and control plane, Recovery and observability, Relationship to the rest of Loom, Runtime model, What is a worker, Why this layer exists, Worker turn semantics, Workspace model
 
 ## Audience
 ai, human
@@ -46,16 +46,18 @@ ai, human
 
 ## Likely Sections To Update
 - Architectural boundary to protect
-- Manager role
-- Operator surface
+- Durable inbox protocol
+- Manager role and control plane
+- Recovery and observability
 - Relationship to the rest of Loom
-- Runtime and recovery
+- Runtime model
 - What is a worker
 - Why this layer exists
+- Worker turn semantics
 - Workspace model
 
 ## Existing Revisions
-(none)
+- rev-001 The worker layer now includes a durable inbox protocol, manager control surface, runtime abstraction, and bounded scheduler behavior, materially changing the high-level architecture and operator workflow. — Explain the evolved `pi-workers` package, `.loom/workers/` artifact model, durable inbox protocol, manager control plane, runtime abstraction, and how the worker substrate composes with tickets, plans, Ralph, critique, and docs. (Architectural boundary to protect, Durable inbox protocol, Manager role and control plane, Recovery and observability, Relationship to the rest of Loom, Runtime model, What is a worker, Why this layer exists, Worker turn semantics, Workspace model)
 
 ## Constitutional Context
 Project: Pi Loom
@@ -74,6 +76,7 @@ Open constitutional questions: How much explicit hypothesis and rejected-path st
 - prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces [synthesized] Prepare manager-worker architecture from pi-supervisor and Pi extension interfaces — conclusions: Current Pi runtime surfaces support extension-based observation, message injection, bounded subprocess/task spawning, and session branch/fork flows, but they do not currently provide an explicit workspace/worktree-backed worker abstraction.; Pi Loom’s current constitutional and package boundaries explicitly keep Ralph bounded and tickets as the live execution ledger. Manager-worker should therefore be introduced as a new workspace-aware execution mechanism that Ralph or plans may invoke and observe, not by turning Ralph into a general workflow engine.; pi-supervisor demonstrates a reusable lightweight oversight pattern: supervise a worker from a separate in-memory Pi session using compact session snapshots, intervention history, and recent deltas rather than sharing full worker context.
 
 ## Specs
+- add-inbox-driven-manager-worker-control-plane [finalized] Add inbox-driven manager-worker control plane — reqs=21 tasks=9
 - add-workspace-backed-manager-worker-substrate [finalized] Add workspace-backed manager-worker substrate — reqs=24 tasks=12
 
 ## Tickets
@@ -89,6 +92,15 @@ Open constitutional questions: How much explicit hypothesis and rejected-path st
 - t-0024 [closed] Expose worker commands tools and prompt guidance — Provide the first-class operator and agent surface for the worker substrate through `/worker` commands, `worker_*` tools, and prompt guidance that teaches the right architecture and keeps the feature usable in both interactive and headless environments.
 - t-0025 [closed] Harden recovery resume and retirement flows — Implement deterministic recovery, resume, reprovision, and retirement behavior so managers can safely recover from crashes, stale attachments, or abandoned workers without relying on the original live process or transcript.
 - t-0026 [closed] Cover worker substrate with tests and operator documentation — Close the implementation slice with comprehensive failure-aware tests and package/operator documentation so the new worker substrate is both defended by automation and understandable to future maintainers with minimal prior context.
+- t-0031 [closed] Refactor worker messages into a durable inbox protocol — Turn the existing worker message stream into a real durable inbox contract so manager instructions, worker acknowledgments, resolutions, escalations, and bounded broadcast state are all queryable, actionable, and impossible to silently ignore.
+- t-0032 [closed] Make worker runs inbox-driven and stop-condition aware — Change worker run semantics so each run consumes unresolved inbox state, records message-handling progress durably, re-checks the inbox before stopping, and exits only at explicit bounded stop conditions.
+- t-0033 [closed] Add first-class manager commands and tools — Introduce `/manager` and `manager_*` surfaces so a manager can supervise many workers intentionally through a native control plane instead of stitching together raw `worker_*` operations ad hoc.
+- t-0034 [closed] Introduce runtime abstraction for worker execution — Refactor worker execution behind a runtime abstraction so the current subprocess runner becomes one strategy rather than the architecture itself, making room for SDK-backed and RPC-backed live workers without duplicating worker domain semantics.
+- t-0035 [closed] Implement SDK-backed live worker runtime — Add a same-process SDK-backed worker host that can execute inbox-driven worker turns with direct Pi session control while persisting all important state transitions back into the durable worker ledger.
+- t-0036 [closed] Add RPC fallback seam for live workers — Add a bounded RPC-backed runtime seam or implementation so process-separated live workers remain possible without letting RPC redefine the worker contract or become the semantic center of the package.
+- t-0037 [closed] Build bounded manager scheduler loop — Implement the manager polling loop that scans worker state, unresolved inbox backlog, telemetry, and approvals, then makes durable bounded decisions to message, resume, escalate, or surface approvals without requiring a human between every worker turn.
+- t-0038 [closed] Extend recovery and observability for the new control plane — Expand worker dashboards, packets, queue summaries, and recovery behavior so unresolved inbox state, runtime kind, scheduler visibility, and restart-safe reconstruction remain obvious across the stronger control plane.
+- t-0039 [closed] Harden docs tests and neighboring integrations — Close the control-plane phase with comprehensive tests, prompt guidance, README updates, and neighboring package integration checks so the stronger inbox protocol, manager surface, runtime abstraction, and scheduler behavior are all documented and defended by automation.
 
 ## Critiques
-(none)
+- critique-workspace-backed-manager-worker-rollout [resolved/pass] Critique workspace-backed manager-worker rollout — open findings: 0

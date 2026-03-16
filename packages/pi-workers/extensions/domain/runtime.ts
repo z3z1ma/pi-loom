@@ -1,8 +1,14 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs, { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { PrepareWorkerLaunchInput, WorkerReadResult, WorkerRuntimeDescriptor } from "./models.js";
-import { getWorkerPaths, getWorkerRuntimeDir } from "./paths.js";
+import { createAgentSession, SessionManager } from "@mariozechner/pi-coding-agent";
+import type {
+  PrepareWorkerLaunchInput,
+  WorkerReadResult,
+  WorkerRuntimeDescriptor,
+  WorkerRuntimeKind,
+} from "./models.js";
+import { getWorkerRuntimeDir } from "./paths.js";
 import { renderWorkerPacket } from "./render.js";
 
 function writeFileAtomic(filePath: string, content: string): void {
@@ -143,7 +149,7 @@ export function ensureWorkerWorkspace(cwd: string, worker: WorkerReadResult): st
   if (existsSync(runtimeRoot) && existsSync(path.join(runtimeRoot, ".git"))) {
     const currentBranch = runGit(runtimeRoot, ["branch", "--show-current"]);
     if (currentBranch !== worker.state.workspace.branch) {
-      retireWorkerWorkspace(cwd, runtimeRoot);
+      retireWorkerWorkspace(cwd, worker.state.workerId, runtimeRoot);
     }
   }
 
@@ -166,18 +172,17 @@ export function ensureWorkerWorkspace(cwd: string, worker: WorkerReadResult): st
   return runtimeRoot;
 }
 
-function resolveManagedRuntimePath(cwd: string, workspacePath: string): string {
-  const runtimeRoot = path.resolve(getWorkerPaths(cwd).runtimeDir);
+function resolveManagedRuntimePath(cwd: string, workerId: string, workspacePath: string): string {
+  const expectedWorkspacePath = path.resolve(getWorkerRuntimeDir(cwd, workerId));
   const resolvedWorkspacePath = path.resolve(workspacePath);
-  const relativePath = path.relative(runtimeRoot, resolvedWorkspacePath);
-  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    throw new Error(`Refusing to retire unmanaged worker workspace: ${workspacePath}`);
+  if (resolvedWorkspacePath !== expectedWorkspacePath) {
+    throw new Error(`Refusing to retire workspace not owned by worker ${workerId}: ${workspacePath}`);
   }
-  return resolvedWorkspacePath;
+  return expectedWorkspacePath;
 }
 
-export function retireWorkerWorkspace(cwd: string, workspacePath: string): void {
-  const managedWorkspacePath = resolveManagedRuntimePath(cwd, workspacePath);
+export function retireWorkerWorkspace(cwd: string, workerId: string, workspacePath: string): void {
+  const managedWorkspacePath = resolveManagedRuntimePath(cwd, workerId, workspacePath);
   if (!existsSync(managedWorkspacePath)) {
     return;
   }
@@ -193,6 +198,24 @@ export function retireWorkerWorkspace(cwd: string, workspacePath: string): void 
   }
 }
 
+function normalizeRuntimeKind(
+  input: PrepareWorkerLaunchInput | undefined,
+  worker: WorkerReadResult,
+): WorkerRuntimeKind {
+  return input?.runtime ?? worker.state.lastRuntimeKind ?? "subprocess";
+}
+
+function runtimeCommandPlaceholder(runtime: WorkerRuntimeKind, prompt: string): string[] {
+  if (runtime === "subprocess") {
+    const command = getPiSpawnCommand(["--mode", "json", "-p", "--no-session", prompt]);
+    return [command.command, ...command.args];
+  }
+  if (runtime === "sdk") {
+    return ["sdk-session", prompt];
+  }
+  return ["rpc-session", "--mode", "rpc"];
+}
+
 export function prepareWorkerLaunchDescriptor(
   cwd: string,
   worker: WorkerReadResult,
@@ -200,25 +223,25 @@ export function prepareWorkerLaunchDescriptor(
 ): WorkerRuntimeDescriptor {
   const workspacePath = ensureWorkerWorkspace(cwd, worker);
   const prompt = input.prompt?.trim() || renderWorkerPacket(worker);
-  const command = getPiSpawnCommand(["--mode", "json", "-p", "--no-session", prompt]);
+  const runtime = normalizeRuntimeKind(input, worker);
   return {
     workerId: worker.state.workerId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    runtime: "subprocess",
+    runtime,
     resume: input.resume === true,
     workspacePath,
     branch: worker.state.workspace.branch,
     baseRef: worker.state.workspace.baseRef,
     launchPrompt: prompt,
-    command: [command.command, ...command.args],
+    command: runtimeCommandPlaceholder(runtime, prompt),
     pid: null,
     status: "prepared",
     note: input.note?.trim() ?? "",
   };
 }
 
-export async function runWorkerLaunch(
+async function runSubprocessWorkerLaunch(
   launch: WorkerRuntimeDescriptor,
   signal?: AbortSignal,
   onUpdate?: (text: string) => void,
@@ -291,6 +314,101 @@ export async function runWorkerLaunch(
       resolve({ status: "failed", output, error: error.message });
     });
   });
+}
+
+async function runSdkWorkerLaunch(
+  launch: WorkerRuntimeDescriptor,
+  signal?: AbortSignal,
+  onUpdate?: (text: string) => void,
+): Promise<WorkerExecutionResult> {
+  let output = "";
+  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+
+  try {
+    const created = await createAgentSession({
+      cwd: launch.workspacePath,
+      sessionManager: SessionManager.inMemory(),
+    });
+    session = created.session;
+  } catch (error) {
+    return {
+      status: "failed",
+      output: "",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  if (!session) {
+    return { status: "failed", output: "", error: "SDK worker session was not created" };
+  }
+
+  const unsubscribe = session.subscribe((event: unknown) => {
+    const messageEvent = event as {
+      type?: string;
+      assistantMessageEvent?: { type?: string; delta?: string };
+    };
+    if (messageEvent.type === "message_update" && messageEvent.assistantMessageEvent?.type === "text_delta") {
+      output += messageEvent.assistantMessageEvent.delta ?? "";
+      onUpdate?.(output);
+    }
+  });
+
+  const abortHandler = () => session.abort();
+  signal?.addEventListener("abort", abortHandler, { once: true });
+
+  try {
+    await session.prompt(launch.launchPrompt);
+    if (signal?.aborted) {
+      return { status: "cancelled", output, error: "Cancelled" };
+    }
+    return { status: "completed", output: output.trim(), error: null };
+  } catch (error) {
+    if (signal?.aborted) {
+      return { status: "cancelled", output: output.trim(), error: "Cancelled" };
+    }
+    return {
+      status: "failed",
+      output: output.trim(),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    unsubscribe();
+    signal?.removeEventListener("abort", abortHandler);
+    await session.dispose();
+  }
+}
+
+async function runRpcWorkerLaunch(
+  launch: WorkerRuntimeDescriptor,
+  _signal?: AbortSignal,
+  _onUpdate?: (text: string) => void,
+): Promise<WorkerExecutionResult> {
+  return {
+    status: "failed",
+    output: "",
+    error: `RPC worker runtime fallback is not implemented yet for ${launch.workerId}`,
+  };
+}
+
+export async function runWorkerLaunch(
+  launch: WorkerRuntimeDescriptor,
+  signal?: AbortSignal,
+  onUpdate?: (text: string) => void,
+): Promise<WorkerExecutionResult> {
+  switch (launch.runtime) {
+    case "subprocess":
+      return runSubprocessWorkerLaunch(launch, signal, onUpdate);
+    case "sdk":
+      return runSdkWorkerLaunch(launch, signal, onUpdate);
+    case "rpc":
+      return runRpcWorkerLaunch(launch, signal, onUpdate);
+    default:
+      return {
+        status: "failed",
+        output: "",
+        error: `Unsupported worker runtime: ${(launch as { runtime?: string }).runtime ?? "unknown"}`,
+      };
+  }
 }
 
 export function writeRuntimeDescriptor(pathToFile: string, descriptor: WorkerRuntimeDescriptor): void {

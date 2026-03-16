@@ -89,15 +89,21 @@ function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: 
 }
 
 describe("pi-workers extension", () => {
-  it("registers the /worker command, worker tools, and lifecycle hooks", async () => {
+  it("registers the /worker and /manager commands, worker tools, and lifecycle hooks", async () => {
     const mockPi = createMockPi();
     const { default: piWorkers } = await import("../extensions/index.js");
 
     piWorkers(mockPi as unknown as ExtensionAPI);
 
     expect(mockPi.commands.has("worker")).toBe(true);
+    expect(mockPi.commands.has("manager")).toBe(true);
+    expect(getCommand(mockPi, "manager").description).toContain("worker fleets");
     expect(getCommand(mockPi, "worker").description).toContain("workspace-backed workers");
     expect([...mockPi.tools.keys()].sort()).toEqual([
+      "manager_overview",
+      "manager_schedule",
+      "manager_supervise",
+      "manager_write",
       "worker_dashboard",
       "worker_launch",
       "worker_list",
@@ -110,7 +116,7 @@ describe("pi-workers extension", () => {
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
 
-  it("routes /worker output and initializes worker storage", async () => {
+  it("routes /worker and /manager output and initializes worker storage", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
@@ -126,11 +132,14 @@ describe("pi-workers extension", () => {
       ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
 
       const command = getCommand(mockPi, "worker");
+      const managerCommand = getCommand(mockPi, "manager");
       const { ctx, ui } = createCommandContext(cwd);
       await command.handler("create Worker foundation :: Create worker package :: t-0001", ctx);
+      await managerCommand.handler("overview", ctx);
 
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("worker-foundation [requested]"), "info");
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Tickets:"), "info");
+      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Workers: 1"), "info");
     } finally {
       cleanup();
     }

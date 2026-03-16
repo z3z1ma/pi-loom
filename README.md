@@ -49,7 +49,7 @@ The current Loom stack is:
 - specs for durable bounded change contracts that bridge research into execution planning
 - plans for durable execution strategy and linked multi-ticket rollouts
 - tickets for durable execution state
-- workers for durable workspace-backed execution units, manager-worker messaging, checkpoints, approvals, and consolidation records
+- workers for durable workspace-backed execution units, inbox-driven manager-worker messaging, explicit manager control surfaces, bounded manager scheduling, checkpoints, approvals, and consolidation records
 - critique for durable adversarial review packets, verdicts, findings, and follow-up work
 - docs for durable high-level architecture, workflow, concept, and operations understanding after completed work changes the system narrative
 

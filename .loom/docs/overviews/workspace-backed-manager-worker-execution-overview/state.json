@@ -5,8 +5,8 @@
   "docType": "overview",
   "sectionGroup": "overviews",
   "createdAt": "2026-03-16T00:46:28.139Z",
-  "updatedAt": "2026-03-16T00:46:28.139Z",
-  "summary": "Explain the new `pi-workers` package, `.loom/workers/` artifact model, manager-worker control flow, and how the worker substrate composes with tickets, plans, Ralph, critique, and docs.",
+  "updatedAt": "2026-03-16T03:46:28.374Z",
+  "summary": "Explain the evolved `pi-workers` package, `.loom/workers/` artifact model, durable inbox protocol, manager control plane, runtime abstraction, and how the worker substrate composes with tickets, plans, Ralph, critique, and docs.",
   "audience": [
     "ai",
     "human"
@@ -27,9 +27,11 @@
       "workspace-backed-manager-worker-coordination"
     ],
     "researchIds": [
+      "evaluate-pi-control-surfaces-for-long-lived-workers",
       "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
     ],
     "specChangeIds": [
+      "add-inbox-driven-manager-worker-control-plane",
       "add-workspace-backed-manager-worker-substrate"
     ],
     "ticketIds": [
@@ -44,20 +46,31 @@
       "t-0023",
       "t-0024",
       "t-0025",
-      "t-0026"
+      "t-0026",
+      "t-0031",
+      "t-0032",
+      "t-0033",
+      "t-0034",
+      "t-0035",
+      "t-0036",
+      "t-0037",
+      "t-0038",
+      "t-0039"
     ],
-    "critiqueIds": []
+    "critiqueIds": [
+      "critique-workspace-backed-manager-worker-rollout"
+    ]
   },
   "sourceTarget": {
     "kind": "spec",
-    "ref": "add-workspace-backed-manager-worker-substrate"
+    "ref": "add-inbox-driven-manager-worker-control-plane"
   },
-  "updateReason": "Completed implementation of the workspace-backed worker substrate materially changes the repo's architecture and execution workflow understanding.",
+  "updateReason": "The worker layer now includes a durable inbox protocol, manager control surface, runtime abstraction, and bounded scheduler behavior, materially changing the high-level architecture and operator workflow.",
   "guideTopics": [],
   "linkedOutputPaths": [
     "AGENTS.md",
     "packages/pi-workers/README.md",
     "README.md"
   ],
-  "lastRevisionId": null
+  "lastRevisionId": "rev-001"
 }

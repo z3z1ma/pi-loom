@@ -8,7 +8,12 @@ import type {
   ApprovalStatus,
   CreateWorkerInput,
   DecideWorkerApprovalInput,
+  ManagerOverview,
   ManagerRef,
+  ManagerSchedulerDecision,
+  MessageAwaiting,
+  MessageDirection,
+  MessageKind,
   RecordWorkerConsolidationInput,
   RequestWorkerCompletionInput,
   SetWorkerTelemetryInput,
@@ -35,10 +40,12 @@ import {
   normalizeApprovalStatus,
   normalizeConsolidationOutcome,
   normalizeManagerRef,
+  normalizeMessageAwaiting,
   normalizeMessageDirection,
   normalizeMessageKind,
   normalizeMessageStatus,
   normalizeOptionalString,
+  normalizeRuntimeKind,
   normalizeStringList,
   normalizeTelemetry,
   normalizeWorkspaceDescriptor,
@@ -55,6 +62,7 @@ import {
 import {
   prepareWorkerLaunchDescriptor,
   retireWorkerWorkspace,
+  runWorkerLaunch,
   type WorkerExecutionResult,
   writeRuntimeDescriptor,
 } from "./runtime.js";
@@ -95,6 +103,70 @@ function relativePath(cwd: string, filePath: string): string {
 
 function nextSequenceId(existingCount: number, prefix: string): string {
   return `${prefix}-${String(existingCount + 1).padStart(4, "0")}`;
+}
+
+function isManagerOwnedInbox(message: WorkerMessageRecord): boolean {
+  return message.awaiting === "worker" && message.status !== "resolved";
+}
+
+function isWorkerOwnedInbox(message: WorkerMessageRecord): boolean {
+  return message.awaiting === "manager" && message.status !== "resolved";
+}
+
+function unresolvedInbox(messages: WorkerMessageRecord[]): WorkerMessageRecord[] {
+  return messages.filter(isManagerOwnedInbox);
+}
+
+function pendingManagerActions(messages: WorkerMessageRecord[]): WorkerMessageRecord[] {
+  return messages.filter(isWorkerOwnedInbox);
+}
+
+function acknowledgedInbox(messages: WorkerMessageRecord[]): WorkerMessageRecord[] {
+  return messages.filter((message) => message.awaiting === "worker" && message.status === "acknowledged");
+}
+
+function inferMessageAwaiting(direction: MessageDirection, kind: MessageKind): MessageAwaiting {
+  if (kind === "acknowledgement" || kind === "resolution") {
+    return "none";
+  }
+  if (direction === "manager_to_worker" || direction === "broadcast") {
+    return "worker";
+  }
+  if (
+    kind === "escalation" ||
+    kind === "clarification" ||
+    kind === "checkpoint_notice" ||
+    kind === "completion_notice" ||
+    kind === "status_update"
+  ) {
+    return "manager";
+  }
+  return "none";
+}
+
+function inferMessageStatus(awaiting: MessageAwaiting): WorkerMessageRecord["status"] {
+  return awaiting === "none" ? "resolved" : "pending";
+}
+
+function markMessageAcknowledged(message: WorkerMessageRecord, at: string, by: string): WorkerMessageRecord {
+  return {
+    ...message,
+    status: message.status === "resolved" ? "resolved" : "acknowledged",
+    acknowledgedAt: message.acknowledgedAt ?? at,
+    acknowledgedBy: message.acknowledgedBy ?? by,
+  };
+}
+
+function markMessageResolved(message: WorkerMessageRecord, at: string, by: string): WorkerMessageRecord {
+  return {
+    ...message,
+    status: "resolved",
+    awaiting: "none",
+    acknowledgedAt: message.acknowledgedAt ?? at,
+    acknowledgedBy: message.acknowledgedBy ?? by,
+    resolvedAt: at,
+    resolvedBy: by,
+  };
 }
 
 function normalizeLinkedRefs(input: Partial<WorkerLinkedRefs> | undefined): WorkerLinkedRefs {
@@ -232,11 +304,32 @@ function buildSummary(cwd: string, state: WorkerState, artifactPath: string): Wo
     updatedAt: state.updatedAt,
     managerKind: state.managerRef.kind,
     ticketCount: state.linkedRefs.ticketIds.length,
+    runtimeKind: state.lastRuntimeKind,
     telemetryState: state.latestTelemetry.state,
     latestCheckpointSummary: summarizeText(state.latestCheckpointSummary, 160),
+    lastSchedulerSummary: summarizeText(state.lastSchedulerSummary, 160),
+    acknowledgedInboxCount: 0,
+    unresolvedInboxCount: state.latestTelemetry.pendingMessages,
+    pendingManagerActionCount: 0,
     pendingApproval: state.approval.status === "pending",
     path: relativePath(cwd, artifactPath),
   };
+}
+
+function syncDerivedViews(cwd: string, worker: WorkerReadResult): void {
+  worker.state.latestTelemetry = normalizeTelemetry({
+    ...worker.state.latestTelemetry,
+    pendingMessages: unresolvedInbox(worker.messages).length,
+  });
+  worker.packet = renderWorkerPacket(worker);
+  worker.state.packetSummary = summarizeText(worker.packet, 200);
+  worker.summary = {
+    ...buildSummary(cwd, worker.state, worker.artifacts.worker),
+    acknowledgedInboxCount: acknowledgedInbox(worker.messages).length,
+    unresolvedInboxCount: unresolvedInbox(worker.messages).length,
+    pendingManagerActionCount: pendingManagerActions(worker.messages).length,
+  };
+  worker.dashboard = buildWorkerDashboard(cwd, worker);
 }
 
 function renderWorkerMarkdown(result: WorkerReadResult): string {
@@ -331,10 +424,9 @@ export class WorkerStore {
     const messages = readJsonl<WorkerMessageRecord>(artifacts.messages);
     const checkpoints = readJsonl<WorkerCheckpointRecord>(artifacts.checkpoints);
     const launch = this.readLaunch(artifacts);
-    const summary = buildSummary(this.cwd, state, artifacts.worker);
     const worker: WorkerReadResult = {
       state,
-      summary,
+      summary: buildSummary(this.cwd, state, artifacts.worker),
       worker: existsSync(artifacts.worker) ? readFileSync(artifacts.worker, "utf-8") : "",
       messages,
       checkpoints,
@@ -343,8 +435,7 @@ export class WorkerStore {
       packet: "",
       artifacts,
     };
-    worker.packet = renderWorkerPacket(worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     return worker;
   }
 
@@ -392,6 +483,163 @@ export class WorkerStore {
     return this.readWorkerArtifacts(this.resolveWorkerRef(ref));
   }
 
+  managerOverview(): ManagerOverview {
+    const workers = this.listWorkers();
+    const unresolvedInboxWorkers = workers.filter((worker) => worker.unresolvedInboxCount > 0);
+    const pendingManagerActionWorkers = workers.filter((worker) => worker.pendingManagerActionCount > 0);
+    const pendingApprovalWorkers = workers.filter((worker) => worker.pendingApproval);
+    const resumeCandidates = workers.filter(
+      (worker) =>
+        worker.unresolvedInboxCount > 0 &&
+        (worker.status === "requested" ||
+          worker.status === "ready" ||
+          worker.status === "active" ||
+          worker.status === "blocked" ||
+          (worker.status === "waiting_for_review" && !worker.pendingApproval)),
+    );
+    return {
+      workers,
+      unresolvedInboxWorkers,
+      pendingManagerActionWorkers,
+      pendingApprovalWorkers,
+      resumeCandidates,
+    };
+  }
+
+  superviseWorkers(refs?: string[], apply = false): Array<{ ref: string; decision: WorkerSupervisionDecision }> {
+    const workerRefs =
+      refs && refs.length > 0
+        ? refs.map((ref) => this.resolveWorkerRef(ref))
+        : this.listWorkers().map((worker) => worker.id);
+    return workerRefs.map((ref) => ({ ref, decision: this.superviseWorker(ref, apply).decision }));
+  }
+
+  private recordSchedulerObservation(ref: string, summary: string): void {
+    const worker = this.readWorker(ref);
+    worker.state.lastSchedulerAt = currentTimestamp();
+    worker.state.lastSchedulerSummary = summary;
+    worker.state.updatedAt = currentTimestamp();
+    syncDerivedViews(this.cwd, worker);
+    this.persist(worker);
+  }
+
+  async runManagerSchedulerPass(
+    options: { refs?: string[]; apply?: boolean; executeResumes?: boolean; signal?: AbortSignal } = {},
+  ): Promise<ManagerSchedulerDecision[]> {
+    const workerRefs =
+      options.refs && options.refs.length > 0
+        ? options.refs.map((ref) => this.resolveWorkerRef(ref))
+        : this.listWorkers().map((worker) => worker.id);
+
+    const decisions: ManagerSchedulerDecision[] = [];
+
+    for (const ref of workerRefs) {
+      const worker = this.readWorker(ref);
+      const unresolvedCount = unresolvedInbox(worker.messages).length;
+      if (worker.state.status === "completion_requested" && worker.state.approval.status === "pending") {
+        const summary = "Pending manager approval requires explicit review.";
+        this.recordSchedulerObservation(ref, summary);
+        decisions.push({
+          workerId: ref,
+          action: "needs_approval",
+          applied: false,
+          summary,
+        });
+        continue;
+      }
+
+      if (worker.launch?.status === "running") {
+        const summary = "Worker already has a running launch; scheduler will not start a second concurrent run.";
+        this.recordSchedulerObservation(ref, summary);
+        decisions.push({
+          workerId: ref,
+          action: "wait",
+          applied: false,
+          summary,
+        });
+        continue;
+      }
+
+      if (
+        unresolvedCount > 0 &&
+        (worker.state.status === "requested" ||
+          worker.state.status === "ready" ||
+          worker.state.status === "active" ||
+          worker.state.status === "blocked" ||
+          (worker.state.status === "waiting_for_review" && !worker.summary.pendingApproval))
+      ) {
+        if (options.apply === true && options.executeResumes === true) {
+          this.prepareLaunch(
+            ref,
+            true,
+            "Prepared by manager scheduler.",
+            worker.launch?.runtime ?? worker.state.lastRuntimeKind ?? "subprocess",
+          );
+          const running = this.startLaunchExecution(ref);
+          if (!running.launch) {
+            decisions.push({
+              workerId: ref,
+              action: "blocked",
+              applied: false,
+              summary: "Scheduler could not start worker launch execution.",
+            });
+            continue;
+          }
+          const execution = await runWorkerLaunch(running.launch, options.signal);
+          this.finishLaunchExecution(ref, execution);
+          const summary = `Scheduler resumed worker because unresolved inbox backlog existed (${unresolvedCount}).`;
+          this.recordSchedulerObservation(ref, summary);
+          decisions.push({
+            workerId: ref,
+            action: "resume",
+            applied: true,
+            summary,
+          });
+        } else {
+          const summary = `Worker has unresolved inbox backlog (${unresolvedCount}) and is a resume candidate.`;
+          this.recordSchedulerObservation(ref, summary);
+          decisions.push({
+            workerId: ref,
+            action: "resume",
+            applied: false,
+            summary,
+          });
+        }
+        continue;
+      }
+
+      const supervision = this.superviseWorker(ref, options.apply === true);
+      if (supervision.decision.action === "steer" || supervision.decision.action === "escalate") {
+        const summary = supervision.decision.message ?? supervision.decision.reasoning;
+        this.recordSchedulerObservation(ref, summary);
+        decisions.push({
+          workerId: ref,
+          action: "message",
+          applied: options.apply === true,
+          summary,
+        });
+      } else if (worker.state.status === "blocked" || worker.state.status === "failed") {
+        this.recordSchedulerObservation(ref, supervision.decision.reasoning);
+        decisions.push({
+          workerId: ref,
+          action: "blocked",
+          applied: false,
+          summary: supervision.decision.reasoning,
+        });
+      } else {
+        this.recordSchedulerObservation(ref, supervision.decision.reasoning);
+        decisions.push({
+          workerId: ref,
+          action: "wait",
+          applied: false,
+          summary: supervision.decision.reasoning,
+        });
+      }
+    }
+
+    return decisions;
+  }
+
   createWorker(input: CreateWorkerInput): WorkerReadResult {
     this.initLedger();
     const workerId = input.workerId ? slugifyWorkerValue(input.workerId) : this.nextWorkerId(input.title);
@@ -420,7 +668,10 @@ export class WorkerStore {
       latestCheckpointSummary: "",
       lastMessageAt: null,
       lastLaunchAt: null,
+      lastSchedulerAt: null,
+      lastSchedulerSummary: "",
       launchCount: 0,
+      lastRuntimeKind: null,
       interventionCount: 0,
       completionRequest: {
         requestedAt: null,
@@ -447,9 +698,7 @@ export class WorkerStore {
       packet: "",
       artifacts,
     };
-    worker.packet = renderWorkerPacket(worker);
-    worker.state.packetSummary = summarizeText(worker.packet, 200);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
     this.linkWorkerIntoTickets(worker.state);
     return this.readWorker(workerId);
@@ -468,9 +717,7 @@ export class WorkerStore {
     if (input.workspace !== undefined)
       worker.state.workspace = normalizeWorkspaceDescriptor({ ...worker.state.workspace, ...input.workspace });
     worker.state.updatedAt = currentTimestamp();
-    worker.state.packetSummary = summarizeText(renderWorkerPacket(worker), 200);
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
     this.linkWorkerIntoTickets(worker.state);
     return this.readWorker(worker.state.workerId);
@@ -479,34 +726,118 @@ export class WorkerStore {
   appendMessage(ref: string, input: AppendWorkerMessageInput): WorkerReadResult {
     const worker = this.readWorker(ref);
     const createdAt = input.createdAt ?? currentTimestamp();
+    const direction = normalizeMessageDirection(input.direction);
+    const kind = normalizeMessageKind(input.kind);
+    const awaiting =
+      input.awaiting !== undefined ? normalizeMessageAwaiting(input.awaiting) : inferMessageAwaiting(direction, kind);
+    const status = input.status ? normalizeMessageStatus(input.status) : inferMessageStatus(awaiting);
     const record: WorkerMessageRecord = {
       id: input.id?.trim() || `${worker.state.workerId}-${nextSequenceId(worker.messages.length, "msg")}`,
       workerId: worker.state.workerId,
       createdAt,
-      direction: normalizeMessageDirection(input.direction),
-      kind: normalizeMessageKind(input.kind),
-      status: normalizeMessageStatus(input.status),
+      direction,
+      awaiting,
+      kind,
+      status,
       from:
         normalizeOptionalString(input.from) ??
-        (normalizeMessageDirection(input.direction) === "manager_to_worker" ? "manager" : "worker"),
+        (direction === "manager_to_worker" || direction === "broadcast" ? "manager" : "worker"),
       text: input.text.trim(),
       relatedRefs: normalizeStringList(input.relatedRefs),
       replyTo: normalizeOptionalString(input.replyTo),
+      acknowledgedAt: status === "acknowledged" || status === "resolved" ? createdAt : null,
+      acknowledgedBy:
+        status === "acknowledged" || status === "resolved"
+          ? (normalizeOptionalString(input.from) ??
+            (direction === "manager_to_worker" || direction === "broadcast" ? "manager" : "worker"))
+          : null,
+      resolvedAt: status === "resolved" ? createdAt : null,
+      resolvedBy:
+        status === "resolved"
+          ? (normalizeOptionalString(input.from) ??
+            (direction === "manager_to_worker" || direction === "broadcast" ? "manager" : "worker"))
+          : null,
     };
     worker.messages.push(record);
     if (record.direction === "manager_to_worker") {
       worker.state.interventionCount += 1;
     }
     worker.state.lastMessageAt = createdAt;
-    worker.state.latestTelemetry.pendingMessages = worker.messages.filter(
-      (message) => message.status !== "resolved",
-    ).length;
+    worker.state.latestTelemetry.pendingMessages = unresolvedInbox(worker.messages).length;
     worker.state.updatedAt = currentTimestamp();
-    worker.state.packetSummary = summarizeText(renderWorkerPacket(worker), 200);
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
     return this.readWorker(worker.state.workerId);
+  }
+
+  private updateMessageState(
+    ref: string,
+    messageId: string,
+    nextState: "acknowledged" | "resolved",
+    actor: string,
+    note?: string,
+  ): WorkerReadResult {
+    const worker = this.readWorker(ref);
+    const index = worker.messages.findIndex((message) => message.id === messageId);
+    if (index === -1) {
+      throw new Error(`Unknown worker message: ${messageId}`);
+    }
+    const message = worker.messages[index];
+    if (message.awaiting === "none") {
+      throw new Error(`Message ${messageId} does not require inbox action`);
+    }
+    const timestamp = currentTimestamp();
+    worker.messages[index] =
+      nextState === "acknowledged"
+        ? markMessageAcknowledged(message, timestamp, actor)
+        : markMessageResolved(message, timestamp, actor);
+
+    const followUpKind = nextState === "acknowledged" ? "acknowledgement" : "resolution";
+    worker.messages.push({
+      id: `${worker.state.workerId}-${nextSequenceId(worker.messages.length, "msg")}`,
+      workerId: worker.state.workerId,
+      createdAt: timestamp,
+      direction: message.awaiting === "worker" ? "worker_to_manager" : "manager_to_worker",
+      awaiting: "none",
+      kind: followUpKind,
+      status: "resolved",
+      from: actor,
+      text: note?.trim() || `${followUpKind} for ${messageId}`,
+      relatedRefs: [...message.relatedRefs],
+      replyTo: messageId,
+      acknowledgedAt: timestamp,
+      acknowledgedBy: actor,
+      resolvedAt: timestamp,
+      resolvedBy: actor,
+    });
+
+    worker.state.lastMessageAt = timestamp;
+    worker.state.latestTelemetry.pendingMessages = unresolvedInbox(worker.messages).length;
+    worker.state.updatedAt = timestamp;
+    syncDerivedViews(this.cwd, worker);
+    this.persist(worker);
+    return this.readWorker(worker.state.workerId);
+  }
+
+  acknowledgeMessage(ref: string, messageId: string, actor = "worker", note?: string): WorkerReadResult {
+    return this.updateMessageState(ref, messageId, "acknowledged", actor, note);
+  }
+
+  resolveMessage(ref: string, messageId: string, actor = "worker", note?: string): WorkerReadResult {
+    return this.updateMessageState(ref, messageId, "resolved", actor, note);
+  }
+
+  readInbox(ref: string): {
+    workerInbox: WorkerMessageRecord[];
+    managerInbox: WorkerMessageRecord[];
+    recentMessages: WorkerMessageRecord[];
+  } {
+    const worker = this.readWorker(ref);
+    return {
+      workerInbox: unresolvedInbox(worker.messages),
+      managerInbox: pendingManagerActions(worker.messages),
+      recentMessages: worker.messages.slice(-10),
+    };
   }
 
   appendCheckpoint(ref: string, input: AppendWorkerCheckpointInput): WorkerReadResult {
@@ -523,6 +854,14 @@ export class WorkerStore {
       validation: normalizeStringList(input.validation),
       blockers: normalizeStringList(input.blockers),
       nextAction: normalizeOptionalString(input.nextAction) ?? "Continue",
+      acknowledgedMessageIds: normalizeStringList(input.acknowledgedMessageIds),
+      resolvedMessageIds: normalizeStringList(input.resolvedMessageIds),
+      remainingInboxCount:
+        typeof input.remainingInboxCount === "number" &&
+        Number.isFinite(input.remainingInboxCount) &&
+        input.remainingInboxCount >= 0
+          ? Math.floor(input.remainingInboxCount)
+          : unresolvedInbox(worker.messages).length,
       managerInputRequired: input.managerInputRequired === true,
     };
     worker.checkpoints.push(checkpoint);
@@ -545,9 +884,7 @@ export class WorkerStore {
             ? "active"
             : worker.state.status;
     worker.state.updatedAt = currentTimestamp();
-    worker.state.packetSummary = summarizeText(renderWorkerPacket(worker), 200);
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
 
     const ticketStore = createTicketStore(this.cwd);
@@ -578,8 +915,7 @@ export class WorkerStore {
     if (telemetryState === "busy" && worker.state.status === "requested") worker.state.status = "active";
     if (telemetryState === "finished" && worker.state.status === "active") worker.state.status = "completion_requested";
     worker.state.updatedAt = currentTimestamp();
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
     return this.readWorker(worker.state.workerId);
   }
@@ -610,9 +946,7 @@ export class WorkerStore {
       summary: worker.state.completionRequest.summary,
     });
     worker.state.updatedAt = currentTimestamp();
-    worker.state.packetSummary = summarizeText(renderWorkerPacket(worker), 200);
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
 
     const ticketStore = createTicketStore(this.cwd);
@@ -658,9 +992,7 @@ export class WorkerStore {
       });
     }
     worker.state.updatedAt = currentTimestamp();
-    worker.state.packetSummary = summarizeText(renderWorkerPacket(worker), 200);
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
 
     const ticketStore = createTicketStore(this.cwd);
@@ -707,9 +1039,7 @@ export class WorkerStore {
       worker.state.status = "approved_for_consolidation";
     }
     worker.state.updatedAt = currentTimestamp();
-    worker.state.packetSummary = summarizeText(renderWorkerPacket(worker), 200);
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
 
     const ticketStore = createTicketStore(this.cwd);
@@ -822,16 +1152,19 @@ export class WorkerStore {
     return { worker, decision };
   }
 
-  prepareLaunch(ref: string, resume = false, note?: string): WorkerReadResult {
+  prepareLaunch(
+    ref: string,
+    resume = false,
+    note?: string,
+    runtime?: WorkerRuntimeDescriptor["runtime"],
+  ): WorkerReadResult {
     const worker = this.readWorker(ref);
-    const launch = prepareWorkerLaunchDescriptor(this.cwd, worker, { resume, note });
+    const launch = prepareWorkerLaunchDescriptor(this.cwd, worker, { resume, note, runtime });
     worker.launch = launch;
     worker.state.lastLaunchAt = launch.updatedAt;
     worker.state.launchCount += 1;
     worker.state.updatedAt = currentTimestamp();
-    worker.state.packetSummary = summarizeText(renderWorkerPacket(worker), 200);
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
     return this.readWorker(worker.state.workerId);
   }
@@ -851,6 +1184,7 @@ export class WorkerStore {
     };
     worker.state.status = "active";
     worker.state.lastLaunchAt = startedAt;
+    worker.state.lastRuntimeKind = normalizeRuntimeKind(worker.launch.runtime);
     worker.state.latestTelemetry = normalizeTelemetry({
       ...worker.state.latestTelemetry,
       state: "busy",
@@ -858,9 +1192,7 @@ export class WorkerStore {
       summary,
     });
     worker.state.updatedAt = startedAt;
-    worker.state.packetSummary = summarizeText(renderWorkerPacket(worker), 200);
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
     return this.readWorker(worker.state.workerId);
   }
@@ -910,9 +1242,7 @@ export class WorkerStore {
     }
 
     worker.state.updatedAt = finishedAt;
-    worker.state.packetSummary = summarizeText(renderWorkerPacket(worker), 200);
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
     return this.readWorker(worker.state.workerId);
   }
@@ -920,7 +1250,7 @@ export class WorkerStore {
   retireWorker(ref: string, note?: string): WorkerReadResult {
     const worker = this.readWorker(ref);
     if (worker.launch?.workspacePath) {
-      retireWorkerWorkspace(this.cwd, worker.launch.workspacePath);
+      retireWorkerWorkspace(this.cwd, worker.state.workerId, worker.launch.workspacePath);
     }
     worker.state.status = "retired";
     worker.state.latestTelemetry = normalizeTelemetry({
@@ -937,8 +1267,7 @@ export class WorkerStore {
         note: normalizeOptionalString(note) ?? "Worker retired",
       };
     }
-    worker.summary = buildSummary(this.cwd, worker.state, worker.artifacts.worker);
-    worker.dashboard = buildWorkerDashboard(this.cwd, worker);
+    syncDerivedViews(this.cwd, worker);
     this.persist(worker);
     return this.readWorker(worker.state.workerId);
   }

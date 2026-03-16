@@ -62,6 +62,81 @@ describe("WorkerStore", () => {
     }
   });
 
+  it("tracks unresolved inbox backlog and explicit acknowledgment/resolution transitions", () => {
+    const { cwd, cleanup } = createGitWorkspace();
+    try {
+      createWorkerTicket(cwd, "Inbox ticket");
+
+      const store = createWorkerStore(cwd);
+      store.createWorker({ title: "Inbox Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      const withInstruction = store.appendMessage("inbox-worker", {
+        direction: "manager_to_worker",
+        kind: "assignment",
+        text: "Process the queued work",
+      });
+
+      expect(withInstruction.summary.unresolvedInboxCount).toBe(1);
+      expect(withInstruction.dashboard.unresolvedInbox).toHaveLength(1);
+      expect(withInstruction.dashboard.unresolvedInbox[0]?.status).toBe("pending");
+
+      const instructionId = withInstruction.dashboard.unresolvedInbox[0]?.id;
+      expect(instructionId).toBeTruthy();
+      if (!instructionId) throw new Error("Expected unresolved instruction id");
+
+      const acknowledged = store.acknowledgeMessage(
+        "inbox-worker",
+        instructionId,
+        "worker",
+        "Acknowledged and starting work",
+      );
+      expect(acknowledged.dashboard.unresolvedInbox[0]?.status).toBe("acknowledged");
+      expect(acknowledged.messages.at(-1)?.kind).toBe("acknowledgement");
+
+      const resolved = store.resolveMessage("inbox-worker", instructionId, "worker", "Finished the assignment");
+      expect(resolved.summary.unresolvedInboxCount).toBe(0);
+      expect(resolved.dashboard.unresolvedInbox).toHaveLength(0);
+      expect(resolved.messages.at(-1)?.kind).toBe("resolution");
+
+      const inbox = store.readInbox("inbox-worker");
+      expect(inbox.workerInbox).toHaveLength(0);
+      expect(inbox.managerInbox).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("renders worker packets with unresolved inbox and explicit stop-condition contract", () => {
+    const { cwd, cleanup } = createGitWorkspace();
+    try {
+      createWorkerTicket(cwd, "Packet ticket");
+
+      const store = createWorkerStore(cwd);
+      store.createWorker({ title: "Packet Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      store.appendMessage("packet-worker", {
+        direction: "manager_to_worker",
+        kind: "assignment",
+        text: "Drain the inbox before stopping",
+      });
+
+      const prepared = store.prepareLaunch("packet-worker", false, "launch packet");
+      expect(prepared.packet).toContain("Run contract:");
+      expect(prepared.packet).toContain("Drain the inbox before stopping");
+
+      const checkpointed = store.appendCheckpoint("packet-worker", {
+        summary: "Inbox work processed",
+        understanding: "Handled the outstanding instruction",
+        acknowledgedMessageIds: [prepared.dashboard.unresolvedInbox[0]?.id ?? ""],
+        resolvedMessageIds: [prepared.dashboard.unresolvedInbox[0]?.id ?? ""],
+        remainingInboxCount: 0,
+        nextAction: "Stop because inbox is empty",
+      });
+      expect(checkpointed.checkpoints.at(-1)?.remainingInboxCount).toBe(0);
+      expect(checkpointed.packet).toContain("Remaining inbox count: 0");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("records messages checkpoints approvals and consolidation outcomes durably", () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {
@@ -177,7 +252,7 @@ describe("WorkerStore", () => {
     }
   });
 
-  it("refuses retirement cleanup outside the managed runtime root", () => {
+  it("refuses retirement cleanup for paths outside or different from the owning worker runtime", () => {
     const { cwd, cleanup } = createGitWorkspace();
     const outsideDir = mkdtempSync(join(tmpdir(), "pi-workers-outside-"));
     try {
@@ -185,6 +260,8 @@ describe("WorkerStore", () => {
 
       const store = createWorkerStore(cwd);
       const prepared = store.createWorker({ title: "Retire Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      store.createWorker({ title: "Sibling Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      const siblingLaunch = store.prepareLaunch("sibling-worker");
       writeFileSync(
         prepared.artifacts.launch,
         `${JSON.stringify(
@@ -201,9 +278,28 @@ describe("WorkerStore", () => {
       );
 
       expect(() => store.retireWorker("retire-worker", "retire requested")).toThrow(
-        "Refusing to retire unmanaged worker workspace",
+        "Refusing to retire workspace not owned by worker retire-worker",
       );
       expect(existsSync(outsideDir)).toBe(true);
+
+      writeFileSync(
+        prepared.artifacts.launch,
+        `${JSON.stringify(
+          {
+            ...prepared.launch,
+            workspacePath: siblingLaunch.launch?.workspacePath,
+            status: "prepared",
+            note: "sibling path injected for test",
+          },
+          null,
+          2,
+        )}\n`,
+        "utf-8",
+      );
+
+      expect(() => store.retireWorker("retire-worker", "retire requested")).toThrow(
+        "Refusing to retire workspace not owned by worker retire-worker",
+      );
     } finally {
       rmSync(outsideDir, { recursive: true, force: true });
       cleanup();
@@ -243,6 +339,84 @@ describe("WorkerStore", () => {
       expect(decision.decision.action).toBe("escalate");
       expect(decision.worker.state.interventionCount).toBe(1);
       expect(decision.worker.messages.at(-1)?.direction).toBe("manager_to_worker");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("runs a bounded manager scheduler pass over unresolved inbox and approval backlog", async () => {
+    const { cwd, cleanup } = createGitWorkspace();
+    try {
+      createWorkerTicket(cwd, "Scheduler worker ticket");
+
+      const store = createWorkerStore(cwd);
+      store.createWorker({ title: "Scheduler Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      store.appendMessage("scheduler-worker", {
+        direction: "manager_to_worker",
+        kind: "assignment",
+        text: "Process queued work",
+      });
+      store.createWorker({ title: "Approval Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      store.requestCompletion("approval-worker", {
+        summary: "Ready for approval",
+        validationEvidence: ["npm run typecheck"],
+      });
+
+      const decisions = await store.runManagerSchedulerPass();
+      expect(decisions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ workerId: "scheduler-worker", action: "resume", applied: false }),
+          expect.objectContaining({ workerId: "approval-worker", action: "needs_approval", applied: false }),
+        ]),
+      );
+      expect(store.readWorker("scheduler-worker").state.lastSchedulerSummary).toContain("resume candidate");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("treats blocked workers with new inbox instructions as resume candidates", async () => {
+    const { cwd, cleanup } = createGitWorkspace();
+    try {
+      createWorkerTicket(cwd, "Blocked worker ticket");
+
+      const store = createWorkerStore(cwd);
+      store.createWorker({ title: "Blocked Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      store.setTelemetry("blocked-worker", { state: "blocked", summary: "Waiting for manager input" });
+      store.appendMessage("blocked-worker", {
+        direction: "manager_to_worker",
+        kind: "unblock",
+        text: "Manager has provided the missing clarification",
+      });
+
+      const decisions = await store.runManagerSchedulerPass();
+      expect(decisions).toEqual(
+        expect.arrayContaining([expect.objectContaining({ workerId: "blocked-worker", action: "resume" })]),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not double-resume workers that already have a running launch", async () => {
+    const { cwd, cleanup } = createGitWorkspace();
+    try {
+      createWorkerTicket(cwd, "Running worker ticket");
+
+      const store = createWorkerStore(cwd);
+      store.createWorker({ title: "Running Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      store.appendMessage("running-worker", {
+        direction: "manager_to_worker",
+        kind: "assignment",
+        text: "Work is queued",
+      });
+      store.prepareLaunch("running-worker", true, "prepare run");
+      store.startLaunchExecution("running-worker");
+
+      const decisions = await store.runManagerSchedulerPass();
+      expect(decisions).toEqual(
+        expect.arrayContaining([expect.objectContaining({ workerId: "running-worker", action: "wait" })]),
+      );
     } finally {
       cleanup();
     }
