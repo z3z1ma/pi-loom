@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
@@ -203,6 +203,69 @@ describe("research tools", () => {
           }),
         },
       });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("preserves canonical artifact body when metadata is updated without a new body", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const mockPi = createMockPi();
+      const { registerResearchTools } = await import("../extensions/tools/research.js");
+      registerResearchTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const researchWrite = getTool(mockPi, "research_write");
+      const researchArtifact = getTool(mockPi, "research_artifact");
+
+      await researchWrite.execute(
+        "call-1",
+        {
+          action: "create",
+          title: "Evaluate theme architecture",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      await researchArtifact.execute(
+        "call-2",
+        {
+          ref: "evaluate-theme-architecture",
+          id: "artifact-001",
+          kind: "experiment",
+          title: "Prototype",
+          summary: "Centralized theme writes.",
+          body: "Original prototype notes",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      await researchArtifact.execute(
+        "call-3",
+        {
+          ref: "evaluate-theme-architecture",
+          id: "artifact-001",
+          kind: "experiment",
+          title: "Prototype",
+          summary: "Revised summary only.",
+          tags: ["updated"],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const artifactMarkdown = readFileSync(
+        join(cwd, ".loom", "research", "evaluate-theme-architecture", "experiments", "artifact-001.md"),
+        "utf-8",
+      );
+      expect(artifactMarkdown).toContain("## Summary\nRevised summary only.");
+      expect(artifactMarkdown).toContain("## Body\nOriginal prototype notes");
     } finally {
       cleanup();
     }

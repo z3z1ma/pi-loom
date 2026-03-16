@@ -116,5 +116,13 @@ describe("ConstitutionalStore durable memory", () => {
     expect(roadmapItem).toContain("status: active");
     expect(roadmapItem).toContain("Ship constitutional memory");
     expect(roadmapItem).toContain("constitutional-foundation");
+
+    expect(
+      store.readRoadmapItem(path.join(workspace, ".loom", "constitution", "roadmap", "item-001.md")),
+    ).toMatchObject({
+      id: "item-001",
+      title: "Ship constitutional memory",
+    });
+    expect(store.validateRoadmapRefs([path.join("nested", "item-001.md"), "item-001"])).toEqual(["item-001"]);
   });
 });

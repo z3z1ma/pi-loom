@@ -140,6 +140,13 @@ export function ensureWorkerWorkspace(cwd: string, worker: WorkerReadResult): st
     rmSync(runtimeRoot, { recursive: true, force: true });
   }
 
+  if (existsSync(runtimeRoot) && existsSync(path.join(runtimeRoot, ".git"))) {
+    const currentBranch = runGit(runtimeRoot, ["branch", "--show-current"]);
+    if (currentBranch !== worker.state.workspace.branch) {
+      retireWorkerWorkspace(cwd, runtimeRoot);
+    }
+  }
+
   if (!existsSync(runtimeRoot)) {
     const branchExists = gitBranchExists(cwd, worker.state.workspace.branch);
     if (branchExists) {

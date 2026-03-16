@@ -94,4 +94,62 @@ describe("spec to ticket projection", () => {
     );
     expect(projectionFile).toContain('"mode": "refresh"');
   });
+
+  it("refreshes projected tickets when capability details change after reprojection", () => {
+    const specStore = createSpecStore(workspace);
+    const ticketStore = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+    const planned = specStore.updatePlan("add-dark-mode", {
+      designNotes: "Use CSS variables and persistence.",
+      capabilities: [
+        {
+          id: "theme-toggling",
+          title: "Theme toggling",
+          summary: "Allow switching themes.",
+          requirements: ["Users can toggle dark mode."],
+          acceptance: ["Theme changes immediately."],
+          scenarios: ["User toggles the theme from settings."],
+        },
+      ],
+    });
+    const firstRequirement = planned.state.requirements[0];
+    expect(firstRequirement).toBeDefined();
+
+    vi.setSystemTime(new Date("2026-03-15T12:05:00.000Z"));
+    specStore.updateTasks("add-dark-mode", {
+      tasks: [
+        {
+          title: "Build theme foundation",
+          summary: "Add CSS variables and theme state.",
+          requirements: [firstRequirement?.id ?? "missing-requirement"],
+        },
+      ],
+    });
+    specStore.finalizeChange("add-dark-mode");
+
+    const firstProjection = projectSpecTickets(workspace, "add-dark-mode");
+    const projectedTicketId = firstProjection.projection?.tickets[0]?.ticketId;
+    expect(projectedTicketId).toBeTruthy();
+    expect(ticketStore.readTicket(projectedTicketId ?? "t-0001").ticket.body.context).toContain("Theme toggling");
+
+    vi.setSystemTime(new Date("2026-03-15T12:10:00.000Z"));
+    specStore.updatePlan("add-dark-mode", {
+      capabilities: [
+        {
+          id: "theme-toggling",
+          title: "Theme switching",
+          summary: "Allow switching themes.",
+          requirements: ["Users can toggle dark mode."],
+          acceptance: ["Theme changes immediately."],
+          scenarios: ["User toggles the theme from settings."],
+        },
+      ],
+    });
+    specStore.finalizeChange("add-dark-mode");
+
+    projectSpecTickets(workspace, "add-dark-mode");
+    expect(ticketStore.readTicket(projectedTicketId ?? "t-0001").ticket.body.context).toContain("Theme switching");
+  });
 });

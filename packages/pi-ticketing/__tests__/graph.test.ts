@@ -48,6 +48,29 @@ describe("ticket dependency graph", () => {
     );
   });
 
+  it("rejects moving blocked tickets into active statuses that would lie about the dependency graph", () => {
+    const store = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2024-05-01T01:00:00.000Z"));
+    const foundation = store.createTicket({ title: "Restore database" });
+    vi.setSystemTime(new Date("2024-05-01T01:00:01.000Z"));
+    const dependent = store.createTicket({ title: "Re-enable API", deps: [foundation.ticket.frontmatter.id] });
+
+    expect(() => store.startTicket(dependent.ticket.frontmatter.id)).toThrow(
+      "Ticket t-0002 cannot transition to in_progress while blocked by: t-0001",
+    );
+    expect(() => store.updateTicket(dependent.ticket.frontmatter.id, { status: "review" })).toThrow(
+      "Ticket t-0002 cannot transition to review while blocked by: t-0001",
+    );
+
+    const graph = store.graph();
+    expect(graph.ready).toEqual(["t-0001"]);
+    expect(graph.blocked).toEqual(["t-0002"]);
+    expect(graph.nodes["t-0002"]).toEqual(
+      expect.objectContaining({ status: "blocked", blockedBy: ["t-0001"], ready: false }),
+    );
+  });
+
   it("normalizes ticket references from ids, hashes, filenames, and paths", () => {
     const store = createTicketStore(workspace);
 

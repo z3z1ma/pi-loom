@@ -1,7 +1,10 @@
-import { dirname } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getPiSpawnCommand, resolveExtensionPackageRoot, resolvePiCliScript } from "../extensions/domain/runtime.js";
+import { createCritiqueStore } from "../extensions/domain/store.js";
 
 describe("critique runtime spawn resolution", () => {
   it("reuses the current script entrypoint when running under a JS runtime", () => {
@@ -54,5 +57,55 @@ describe("critique runtime spawn resolution", () => {
     expect(
       resolveExtensionPackageRoot(fileURLToPath(new URL("../extensions/domain/runtime.ts", import.meta.url))),
     ).toBe(dirname(fileURLToPath(new URL("../package.json", import.meta.url))));
+  });
+});
+
+describe("critique verdict derivation", () => {
+  let workspace: string;
+
+  beforeEach(() => {
+    workspace = mkdtempSync(join(tmpdir(), "pi-critique-runtime-"));
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it("does not keep a pass verdict once an active finding is recorded", () => {
+    const critiqueStore = createCritiqueStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
+    const critique = critiqueStore.createCritique({
+      title: "Workspace review",
+      target: {
+        kind: "workspace",
+        ref: "pi-critique",
+        path: "packages/pi-critique",
+      },
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T10:05:00.000Z"));
+    const withRun = critiqueStore.recordRun(critique.state.critiqueId, {
+      kind: "verification",
+      verdict: "pass",
+      summary: "Initial verification did not find issues.",
+    });
+    const firstRun = withRun.runs[0];
+    expect(firstRun).toBeDefined();
+
+    vi.setSystemTime(new Date("2026-03-15T10:10:00.000Z"));
+    const withFinding = critiqueStore.addFinding(critique.state.critiqueId, {
+      runId: firstRun?.id ?? "missing-run",
+      kind: "bug",
+      severity: "medium",
+      title: "Late finding",
+      summary: "A concrete issue was found after the initial pass verdict.",
+      recommendedAction: "Keep the critique verdict non-pass until the finding is resolved.",
+    });
+
+    expect(withFinding.state.openFindingIds).toEqual(["finding-001"]);
+    expect(withFinding.state.currentVerdict).toBe("concerns");
   });
 });

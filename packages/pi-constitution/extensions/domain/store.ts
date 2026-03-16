@@ -140,6 +140,12 @@ function computeQuestions(state: ConstitutionalState): string[] {
   return normalizeStringList([...carried, ...missing]);
 }
 
+function normalizeRoadmapRef(ref: string): string {
+  const basename = path.basename(ref.trim());
+  const itemId = basename.toLowerCase().endsWith(".md") ? basename.slice(0, -3) : basename;
+  return normalizeRoadmapItemId(itemId);
+}
+
 export class ConstitutionalStore {
   readonly cwd: string;
 
@@ -398,7 +404,7 @@ export class ConstitutionalStore {
   }
 
   readRoadmapItem(ref: string): RoadmapItem {
-    const itemId = normalizeRoadmapItemId(ref.split(/[\\/]/).pop() ?? ref);
+    const itemId = normalizeRoadmapRef(ref);
     const item = this.readState().roadmapItems.find((candidate) => candidate.id === itemId);
     if (!item) {
       throw new Error(`Unknown roadmap item: ${ref}`);
@@ -415,7 +421,7 @@ export class ConstitutionalStore {
   }
 
   validateRoadmapRefs(refs: string[]): string[] {
-    const normalized = normalizeStringList(refs.map((ref) => normalizeRoadmapItemId(ref)));
+    const normalized = normalizeStringList(refs.map((ref) => normalizeRoadmapRef(ref)));
     for (const ref of normalized) {
       if (!this.hasRoadmapItem(ref)) {
         throw new Error(`Unknown roadmap item: ${ref}`);

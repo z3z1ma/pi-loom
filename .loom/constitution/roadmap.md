@@ -1,7 +1,7 @@
 ---
 project: pi-loom
 items: 7
-updated-at: 2026-03-16T01:17:01Z
+updated-at: 2026-03-16T01:35:27.968Z
 ---
 
 ## Strategic Direction
@@ -19,6 +19,7 @@ Turn Pi Loom into a repo-truthful, composable, local operating system for long-h
 - item-002 [now/active] Harden cross-layer provenance, packets, dashboards, and queryability
   Summary: Make the graph linking constitution, research, initiatives, specs, plans, tickets, workers, critiques, Ralph runs, and docs easier to recover, inspect, and trust from durable artifacts.
   Rationale: The root constitution treats work as an observable graph, and Pi Loom’s value depends on recovering that graph without transcript archaeology.
+  Initiatives: workspace-package-reliability-scrub
 - item-003 [now/active] Mature bounded Ralph orchestration and verifier contracts
   Summary: Deepen Ralph’s bounded plan-execute-critique-revise loop with stronger verifier evidence, stop policies, and review integration while preserving layer boundaries.
   Rationale: The root constitution includes iterative looping and adversarial review, and the current Ralph package is explicitly the place where that narrower orchestration should mature.

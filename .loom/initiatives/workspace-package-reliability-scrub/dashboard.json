@@ -1,0 +1,214 @@
+{
+  "initiative": {
+    "id": "workspace-package-reliability-scrub",
+    "title": "Workspace package reliability scrub",
+    "status": "completed",
+    "objective": "Improve the correctness, robustness, and internal cohesion of all shipped Pi Loom packages through a manager-led cross-package audit and remediation pass.",
+    "statusSummary": "Completed manager-led scrub across all ten shipped packages. Ten latent issues were fixed, all cluster tickets closed, and workspace verification passed.",
+    "targetWindow": "current sprint",
+    "owners": [
+      "assistant"
+    ],
+    "tags": [
+      "quality",
+      "robustness",
+      "workspace"
+    ],
+    "capabilityIds": [],
+    "roadmapRefs": [
+      "item-002"
+    ],
+    "updatedAt": "2026-03-16T01:47:57.969Z"
+  },
+  "linkedRoadmap": {
+    "total": 1,
+    "items": [
+      {
+        "id": "item-002",
+        "title": "Harden cross-layer provenance, packets, dashboards, and queryability",
+        "status": "active",
+        "horizon": "now",
+        "summary": "Make the graph linking constitution, research, initiatives, specs, plans, tickets, workers, critiques, Ralph runs, and docs easier to recover, inspect, and trust from durable artifacts.",
+        "updatedAt": "2026-03-16T01:35:27.968Z"
+      }
+    ]
+  },
+  "linkedResearch": {
+    "total": 1,
+    "items": [
+      {
+        "id": "workspace-package-robustness-scrub-2026-03",
+        "title": "Workspace package robustness scrub 2026-03",
+        "status": "synthesized",
+        "updatedAt": "2026-03-16T01:47:57.187Z",
+        "path": ".loom/research/workspace-package-robustness-scrub-2026-03"
+      }
+    ]
+  },
+  "linkedSpecs": {
+    "total": 0,
+    "counts": {
+      "proposed": 0,
+      "clarifying": 0,
+      "planned": 0,
+      "tasked": 0,
+      "finalized": 0,
+      "archived": 0,
+      "superseded": 0
+    },
+    "items": []
+  },
+  "linkedTickets": {
+    "total": 4,
+    "counts": {
+      "open": 0,
+      "ready": 0,
+      "in_progress": 4,
+      "blocked": 0,
+      "review": 0,
+      "closed": 0
+    },
+    "ready": 0,
+    "blocked": 0,
+    "inProgress": 4,
+    "review": 0,
+    "closed": 0,
+    "items": [
+      {
+        "id": "t-0027",
+        "title": "Manage workspace package reliability scrub",
+        "status": "in_progress",
+        "storedStatus": "in_progress",
+        "priority": "high",
+        "type": "epic",
+        "createdAt": "2026-03-16T01:36:01.013Z",
+        "updatedAt": "2026-03-16T01:37:56.825Z",
+        "deps": [],
+        "links": [],
+        "initiativeIds": [
+          "workspace-package-reliability-scrub"
+        ],
+        "researchIds": [
+          "workspace-package-robustness-scrub-2026-03"
+        ],
+        "specChange": null,
+        "specCapabilities": [],
+        "specRequirements": [],
+        "tags": [
+          "coordination",
+          "quality",
+          "workspace"
+        ],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0027.md"
+      },
+      {
+        "id": "t-0028",
+        "title": "Scrub foundation memory packages for robustness issues",
+        "status": "in_progress",
+        "storedStatus": "in_progress",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T01:36:01.027Z",
+        "updatedAt": "2026-03-16T01:47:00.927Z",
+        "deps": [],
+        "links": [],
+        "initiativeIds": [
+          "workspace-package-reliability-scrub"
+        ],
+        "researchIds": [
+          "workspace-package-robustness-scrub-2026-03"
+        ],
+        "specChange": null,
+        "specCapabilities": [],
+        "specRequirements": [],
+        "tags": [
+          "foundation",
+          "quality"
+        ],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0028.md"
+      },
+      {
+        "id": "t-0029",
+        "title": "Scrub ticketing and worker execution packages",
+        "status": "in_progress",
+        "storedStatus": "in_progress",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T01:36:01.039Z",
+        "updatedAt": "2026-03-16T01:47:00.947Z",
+        "deps": [],
+        "links": [],
+        "initiativeIds": [
+          "workspace-package-reliability-scrub"
+        ],
+        "researchIds": [
+          "workspace-package-robustness-scrub-2026-03"
+        ],
+        "specChange": null,
+        "specCapabilities": [],
+        "specRequirements": [],
+        "tags": [
+          "execution",
+          "quality"
+        ],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0029.md"
+      },
+      {
+        "id": "t-0030",
+        "title": "Scrub critique Ralph and docs packages",
+        "status": "in_progress",
+        "storedStatus": "in_progress",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T01:36:01.050Z",
+        "updatedAt": "2026-03-16T01:47:00.966Z",
+        "deps": [],
+        "links": [],
+        "initiativeIds": [
+          "workspace-package-reliability-scrub"
+        ],
+        "researchIds": [
+          "workspace-package-robustness-scrub-2026-03"
+        ],
+        "specChange": null,
+        "specCapabilities": [],
+        "specRequirements": [],
+        "tags": [
+          "orchestration",
+          "quality"
+        ],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0030.md"
+      }
+    ]
+  },
+  "milestones": [
+    {
+      "id": "milestone-001",
+      "title": "",
+      "status": "planned",
+      "health": "pending",
+      "description": "",
+      "specChangeIds": [],
+      "ticketIds": [],
+      "linkedOpenTicketCount": 0,
+      "linkedCompletedTicketCount": 0
+    }
+  ],
+  "openRisks": [
+    "Cross-package fixes can accidentally blur layer boundaries if helpers are generalized carelessly.",
+    "Green baseline tests can hide latent defects, so follow-on scrubs should keep review-driven inspection in scope."
+  ],
+  "unlinkedReferences": {
+    "roadmapRefs": [],
+    "specChangeIds": [],
+    "ticketIds": []
+  }
+}

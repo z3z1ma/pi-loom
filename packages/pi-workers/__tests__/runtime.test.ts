@@ -38,4 +38,38 @@ describe("worker runtime", () => {
       cleanup();
     }
   });
+
+  it("recreates a prepared workspace when durable branch state changes", () => {
+    const { cwd, cleanup } = createWorkspace();
+    try {
+      const ticketStore = createTicketStore(cwd);
+      ticketStore.initLedger();
+      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      const store = createWorkerStore(cwd);
+      store.createWorker({ title: "Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+
+      const firstLaunch = store.prepareLaunch("runtime-worker", false, "initial launch");
+      expect(firstLaunch.launch?.workspacePath).toBeTruthy();
+      expect(
+        execFileSync("git", ["-C", firstLaunch.launch?.workspacePath ?? "", "branch", "--show-current"], {
+          encoding: "utf-8",
+        }).trim(),
+      ).toBe("runtime-worker");
+
+      store.updateWorker("runtime-worker", {
+        workspace: { branch: "runtime-worker-rebased", baseRef: "HEAD" },
+      });
+
+      const secondLaunch = store.prepareLaunch("runtime-worker", true, "resume on new branch");
+      expect(secondLaunch.launch?.workspacePath).toBe(firstLaunch.launch?.workspacePath);
+      expect(
+        execFileSync("git", ["-C", secondLaunch.launch?.workspacePath ?? "", "branch", "--show-current"], {
+          encoding: "utf-8",
+        }).trim(),
+      ).toBe("runtime-worker-rebased");
+      expect(secondLaunch.launch?.branch).toBe("runtime-worker-rebased");
+    } finally {
+      cleanup();
+    }
+  });
 });

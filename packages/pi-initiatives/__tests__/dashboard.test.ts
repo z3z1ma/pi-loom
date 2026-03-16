@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,5 +109,61 @@ describe("initiative dashboard", () => {
     expect(dashboardJson).toContain('"linkedResearch"');
     expect(dashboardJson).toContain('"ready": 1');
     expect(dashboardJson).toContain('"closed": 1');
+  });
+
+  it("surfaces stale linked references instead of crashing the dashboard", () => {
+    const constitutionalStore = createConstitutionalStore(workspace);
+    const specStore = createSpecStore(workspace);
+    const ticketStore = createTicketStore(workspace);
+    const initiativeStore = createInitiativeStore(workspace);
+
+    constitutionalStore.upsertRoadmapItem({
+      title: "Temporary roadmap item",
+      status: "active",
+      horizon: "next",
+      summary: "This link will go stale.",
+    });
+    const spec = specStore.createChange({ title: "Temporary spec", summary: "This link will go stale." });
+    const ticket = ticketStore.createTicket({ title: "Temporary ticket" });
+
+    initiativeStore.createInitiative({
+      title: "Roadmap resilience",
+      objective: "Keep dashboard reads truthful when linked artifacts disappear.",
+      specChangeIds: [spec.summary.id],
+      ticketIds: [ticket.summary.id],
+      roadmapRefs: ["item-001"],
+    });
+
+    const initiativeDir = join(workspace, ".loom", "initiatives", "roadmap-resilience");
+    const statePath = join(initiativeDir, "state.json");
+    const state = JSON.parse(readFileSync(statePath, "utf-8")) as {
+      specChangeIds: string[];
+      ticketIds: string[];
+      roadmapRefs: string[];
+    } & Record<string, unknown>;
+    state.specChangeIds = ["missing-spec"];
+    state.ticketIds = ["missing-ticket"];
+    state.roadmapRefs = ["item-404"];
+
+    const constitutionalDir = join(workspace, ".loom", "constitution");
+    const constitutionalStatePath = join(constitutionalDir, "state.json");
+    const constitutionalState = {
+      ...JSON.parse(readFileSync(constitutionalStatePath, "utf-8")),
+      roadmapItems: [],
+    };
+
+    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
+    writeFileSync(constitutionalStatePath, `${JSON.stringify(constitutionalState, null, 2)}\n`, "utf-8");
+
+    const initiative = initiativeStore.readInitiative("roadmap-resilience");
+
+    expect(initiative.dashboard.linkedRoadmap).toEqual({ total: 0, items: [] });
+    expect(initiative.dashboard.linkedSpecs.total).toBe(0);
+    expect(initiative.dashboard.linkedTickets.total).toBe(0);
+    expect(initiative.dashboard.unlinkedReferences).toEqual({
+      roadmapRefs: ["item-404"],
+      specChangeIds: ["missing-spec", spec.summary.id],
+      ticketIds: ["missing-ticket", ticket.summary.id],
+    });
   });
 });

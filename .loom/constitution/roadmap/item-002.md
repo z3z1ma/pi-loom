@@ -3,8 +3,9 @@ id: item-002
 project: "Pi Loom"
 status: active
 horizon: now
-updated-at: 2026-03-16T01:17:01Z
-initiatives: []
+updated-at: 2026-03-16T01:35:27.968Z
+initiatives:
+  - workspace-package-reliability-scrub
 research: []
 spec-changes: []
 ---
@@ -19,7 +20,7 @@ Make the graph linking constitution, research, initiatives, specs, plans, ticket
 The root constitution treats work as an observable graph, and Pi Loom’s value depends on recovering that graph without transcript archaeology.
 
 ## Linked Initiatives
-(none)
+- workspace-package-reliability-scrub
 
 ## Linked Research
 (none)

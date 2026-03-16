@@ -21,20 +21,32 @@ export function buildPlanDashboard(
   planPath: string,
   linkedTickets: PlanDashboardTicket[],
 ): PlanDashboard {
-  const byStatus = linkedTickets.reduce<Record<string, number>>((acc, ticket) => {
+  const linkedTicketSnapshot = linkedTickets.map((ticket) => ({ ...ticket }));
+  const byStatus = linkedTicketSnapshot.reduce<Record<string, number>>((acc, ticket) => {
     acc[ticket.status] = (acc[ticket.status] ?? 0) + 1;
     return acc;
   }, {});
   return {
-    plan: summarizePlan(state, path),
+    plan: {
+      ...summarizePlan(state, path),
+      linkedTicketCount: linkedTicketSnapshot.length,
+    },
     packetPath,
     planPath,
     sourceTarget: { ...state.sourceTarget },
-    contextRefs: { ...state.contextRefs },
+    contextRefs: {
+      roadmapItemIds: [...state.contextRefs.roadmapItemIds],
+      initiativeIds: [...state.contextRefs.initiativeIds],
+      researchIds: [...state.contextRefs.researchIds],
+      specChangeIds: [...state.contextRefs.specChangeIds],
+      ticketIds: [...state.contextRefs.ticketIds],
+      critiqueIds: [...state.contextRefs.critiqueIds],
+      docIds: [...state.contextRefs.docIds],
+    },
     scopePaths: [...state.scopePaths],
-    linkedTickets,
+    linkedTickets: linkedTicketSnapshot,
     counts: {
-      tickets: linkedTickets.length,
+      tickets: linkedTicketSnapshot.length,
       byStatus,
     },
   };

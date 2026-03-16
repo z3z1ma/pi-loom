@@ -28,11 +28,21 @@ function zeroCounts<T extends string>(values: readonly T[]): Record<T, number> {
   return Object.fromEntries(values.map((value) => [value, 0])) as Record<T, number>;
 }
 
-function readLinkedRoadmap(cwd: string, roadmapRefs: string[]): RoadmapItem[] {
+function readLinkedRoadmap(cwd: string, roadmapRefs: string[]): { items: RoadmapItem[]; missingRefs: string[] } {
   const constitutionalStore = createConstitutionalStore(cwd);
-  return roadmapRefs
-    .map((roadmapRef) => constitutionalStore.readRoadmapItem(roadmapRef))
-    .sort((left, right) => left.id.localeCompare(right.id));
+  const items: RoadmapItem[] = [];
+  const missingRefs: string[] = [];
+  for (const roadmapRef of roadmapRefs) {
+    if (!constitutionalStore.hasRoadmapItem(roadmapRef)) {
+      missingRefs.push(roadmapRef);
+      continue;
+    }
+    items.push(constitutionalStore.readRoadmapItem(roadmapRef));
+  }
+  return {
+    items: items.sort((left, right) => left.id.localeCompare(right.id)),
+    missingRefs: normalizeStringList(missingRefs),
+  };
 }
 
 function readLinkedResearch(cwd: string, researchIds: string[]) {
@@ -109,6 +119,7 @@ export function buildInitiativeDashboard(cwd: string, state: InitiativeState): I
 
   const allSpecs = specStore.listChanges({ includeArchived: true }) as InitiativeAwareSpecSummary[];
   const linkedSpecs = allSpecs.filter((summary) => state.specChangeIds.includes(summary.id));
+  const missingSpecIds = state.specChangeIds.filter((id) => !linkedSpecs.some((summary) => summary.id === id));
   const specCounts = zeroCounts(SPEC_STATUSES);
   for (const spec of linkedSpecs) {
     specCounts[spec.status] += 1;
@@ -116,31 +127,35 @@ export function buildInitiativeDashboard(cwd: string, state: InitiativeState): I
 
   const allTickets = ticketStore.listTickets({ includeClosed: true }) as InitiativeAwareTicketSummary[];
   const linkedTickets = allTickets.filter((summary) => state.ticketIds.includes(summary.id));
+  const missingTicketIds = state.ticketIds.filter((id) => !linkedTickets.some((summary) => summary.id === id));
   const ticketCounts = zeroCounts(TICKET_STATUSES);
   for (const ticket of linkedTickets) {
     ticketCounts[ticket.status] += 1;
   }
   const ticketsById = new Map(linkedTickets.map((ticket) => [ticket.id, ticket]));
 
-  const unlinkedSpecIds = normalizeStringList(
-    allSpecs
+  const unlinkedSpecIds = normalizeStringList([
+    ...allSpecs
       .filter((summary) => summary.initiativeIds?.includes(state.initiativeId))
       .map((summary) => summary.id)
       .filter((id) => !state.specChangeIds.includes(id)),
-  );
-  const unlinkedTicketIds = normalizeStringList(
-    allTickets
+    ...missingSpecIds,
+  ]);
+  const unlinkedTicketIds = normalizeStringList([
+    ...allTickets
       .filter((summary) => summary.initiativeIds?.includes(state.initiativeId))
       .map((summary) => summary.id)
       .filter((id) => !state.ticketIds.includes(id)),
-  );
-  const unlinkedRoadmapRefs = normalizeStringList(
-    constitutionalStore
+    ...missingTicketIds,
+  ]);
+  const unlinkedRoadmapRefs = normalizeStringList([
+    ...constitutionalStore
       .listRoadmapItems()
       .filter((item) => item.initiativeIds.includes(state.initiativeId))
       .map((item) => item.id)
       .filter((id) => !state.roadmapRefs.includes(id)),
-  );
+    ...linkedRoadmap.missingRefs,
+  ]);
 
   return {
     initiative: {
@@ -157,8 +172,8 @@ export function buildInitiativeDashboard(cwd: string, state: InitiativeState): I
       updatedAt: state.updatedAt,
     },
     linkedRoadmap: {
-      total: linkedRoadmap.length,
-      items: linkedRoadmap.map((item) => ({
+      total: linkedRoadmap.items.length,
+      items: linkedRoadmap.items.map((item) => ({
         id: item.id,
         title: item.title,
         status: item.status,

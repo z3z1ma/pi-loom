@@ -1,0 +1,89 @@
+{
+  "planId": "workspace-package-reliability-scrub-execution",
+  "title": "Workspace package reliability scrub execution",
+  "status": "completed",
+  "createdAt": "2026-03-16T01:35:03.391Z",
+  "updatedAt": "2026-03-16T01:47:57.625Z",
+  "summary": "Manager led execution strategy for auditing all Pi Loom packages and landing validated reliability, robustness, and cohesion fixes.",
+  "purpose": "Turn the broad package scrub into durable, reviewable execution slices so package-cluster work can proceed in parallel without losing layer context.",
+  "contextAndOrientation": "The workspace began with green diagnostics and tests plus a recently completed hygiene remediation plan. This scrub focused on latent correctness, robustness, and cohesion issues across all ten shipped packages.",
+  "planOfWork": "Split the scrub into foundation, execution, and review/orchestration clusters under manager supervision; inspect each package in its cluster; land targeted fixes with regression coverage; then run workspace verification.",
+  "concreteSteps": "Created initiative/research/plan/tickets/workers, launched package-level scrub tasks, applied ten package fixes, addressed post-merge lint/typecheck fallout, and re-ran workspace verification.",
+  "validation": "Targeted package tests landed for each fix, then `npm run check && npm test` passed from the repo root.",
+  "risksAndQuestions": "Remaining question: whether any unaudited package surfaces outside the inspected file set still need path/canonicalization hardening.",
+  "outcomesAndRetrospective": "The scrub found ten concrete latent issues across all ten packages. Worker records, tickets, research, and plan state now reflect a completed manager-led remediation pass with successful workspace verification.",
+  "scopePaths": [
+    "packages/pi-constitution",
+    "packages/pi-critique",
+    "packages/pi-docs",
+    "packages/pi-initiatives",
+    "packages/pi-plans",
+    "packages/pi-ralph",
+    "packages/pi-research",
+    "packages/pi-specs",
+    "packages/pi-ticketing",
+    "packages/pi-workers"
+  ],
+  "sourceTarget": {
+    "kind": "initiative",
+    "ref": "workspace-package-reliability-scrub"
+  },
+  "contextRefs": {
+    "roadmapItemIds": [
+      "item-002"
+    ],
+    "initiativeIds": [
+      "workspace-package-reliability-scrub"
+    ],
+    "researchIds": [
+      "repository-hygiene-and-artifact-robustness-audit",
+      "workspace-package-robustness-scrub-2026-03"
+    ],
+    "specChangeIds": [],
+    "ticketIds": [
+      "t-0027",
+      "t-0028",
+      "t-0029",
+      "t-0030"
+    ],
+    "critiqueIds": [],
+    "docIds": []
+  },
+  "linkedTickets": [
+    {
+      "ticketId": "t-0027",
+      "role": "manager",
+      "order": 1
+    },
+    {
+      "ticketId": "t-0028",
+      "role": "foundation-cluster",
+      "order": 2
+    },
+    {
+      "ticketId": "t-0029",
+      "role": "execution-cluster",
+      "order": 3
+    },
+    {
+      "ticketId": "t-0030",
+      "role": "orchestration-cluster",
+      "order": 4
+    }
+  ],
+  "discoveries": [
+    {
+      "note": "Every package task found at least one concrete latent issue despite a fully green baseline.",
+      "evidence": "The manager-led scrub landed ten fixes across constitution, research, initiatives, specs, plans, ticketing, workers, critique, Ralph, and docs after `lsp diagnostics` and baseline `npm test` were already green."
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "Use package-scoped scrub tasks under three durable worker clusters instead of one monolithic audit pass.",
+      "rationale": "The package files were independent enough to review and patch in parallel while still rolling up to manager-supervised cluster tickets and worker records.",
+      "date": "2026-03-16",
+      "author": "assistant"
+    }
+  ],
+  "packetSummary": "initiative:workspace-package-reliability-scrub; 4 linked ticket(s); 1 roadmap; 1 initiative; 2 research; 0 spec; 4 ticket; 0 critique; 0 doc"
+}

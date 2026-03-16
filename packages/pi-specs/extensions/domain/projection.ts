@@ -183,6 +183,7 @@ function projectedTicketMatches(
   cwd: string,
   ticketId: string,
   expectedDeps: string[],
+  change: SpecChangeRecord,
   task: SpecTaskRecord,
   capabilityIds: string[],
   initiativeIds: string[],
@@ -193,7 +194,15 @@ function projectedTicketMatches(
   return (
     result.ticket.frontmatter.title === task.title &&
     result.ticket.body.summary === task.summary &&
+    result.ticket.body.context === ticketContext(change, task, capabilityIds) &&
+    result.ticket.body.plan === ticketPlan(change, task) &&
     JSON.stringify(result.ticket.frontmatter.deps) === JSON.stringify(expectedDeps) &&
+    JSON.stringify(result.ticket.frontmatter.links) ===
+      JSON.stringify([`.loom/specs/changes/${changeId}/proposal.md`]) &&
+    JSON.stringify(result.ticket.frontmatter.labels) === JSON.stringify(["spec-projected"]) &&
+    JSON.stringify(result.ticket.frontmatter.acceptance) === JSON.stringify(ticketAcceptance(change, task)) &&
+    result.ticket.frontmatter.type === "task" &&
+    result.ticket.frontmatter.priority === "medium" &&
     JSON.stringify(result.ticket.frontmatter["initiative-ids"]) === JSON.stringify(initiativeIds) &&
     JSON.stringify(result.ticket.frontmatter["research-ids"]) === JSON.stringify(researchIds) &&
     result.ticket.frontmatter["spec-change"] === changeId &&
@@ -247,6 +256,7 @@ export function projectSpecTickets(cwd: string, ref: string): SpecChangeRecord {
         cwd,
         previousEntry.ticketId,
         dependencyTicketIds,
+        change,
         task,
         capabilityIds,
         change.state.initiativeIds,

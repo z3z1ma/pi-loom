@@ -658,10 +658,12 @@ export class CritiqueStore {
     ]);
     const latestRunVerdict = runs.at(-1)?.verdict ?? state.currentVerdict;
     const currentVerdict =
-      activeFindingIds.length === 0 && state.status === "resolved"
-        ? "pass"
-        : state.currentVerdict === "pass" && activeFindingIds.length === 0
+      activeFindingIds.length === 0
+        ? state.status === "resolved" || state.currentVerdict === "pass"
           ? "pass"
+          : latestRunVerdict
+        : latestRunVerdict === "pass"
+          ? "concerns"
           : latestRunVerdict;
     return {
       ...state,

@@ -181,7 +181,8 @@ export class InitiativeStore {
       ticketIds: normalizeStringList(state.ticketIds),
       capabilityIds: normalizeStringList(state.capabilityIds),
       supersedes: normalizeStringList(state.supersedes),
-      roadmapRefs: createConstitutionalStore(this.cwd).validateRoadmapRefs(state.roadmapRefs),
+      // Persisted initiatives may outlive linked roadmap items; preserve stale refs so the dashboard can report them.
+      roadmapRefs: normalizeStringList(state.roadmapRefs),
     };
   }
 

@@ -1,0 +1,74 @@
+{
+  "worker": {
+    "id": "orchestration-package-scrub-worker",
+    "title": "Orchestration package scrub worker",
+    "objectiveSummary": "Inspect and remediate latent robustness and cohesion issues across critique, Ralph, and docs packages.",
+    "status": "completed",
+    "updatedAt": "2026-03-16T01:47:00.962Z",
+    "managerKind": "plan",
+    "ticketCount": 1,
+    "telemetryState": "finished",
+    "latestCheckpointSummary": "Review/orchestration scrub completed with three concrete fixes.",
+    "pendingApproval": false,
+    "path": ".loom/workers/orchestration-package-scrub-worker/worker.md"
+  },
+  "workerPath": ".loom/workers/orchestration-package-scrub-worker/worker.md",
+  "launchPath": ".loom/workers/orchestration-package-scrub-worker/launch.json",
+  "latestTelemetry": {
+    "state": "finished",
+    "summary": "Review/orchestration worker changes were consolidated into the main workspace patch.",
+    "heartbeatAt": "2026-03-16T01:45:51.239Z",
+    "checkpointId": "orchestration-package-scrub-worker-cp-0001",
+    "pendingMessages": 0,
+    "notes": []
+  },
+  "latestCheckpoint": {
+    "id": "orchestration-package-scrub-worker-cp-0001",
+    "workerId": "orchestration-package-scrub-worker",
+    "createdAt": "2026-03-16T01:45:51.239Z",
+    "summary": "Review/orchestration scrub completed with three concrete fixes.",
+    "understanding": "The orchestration packages had latent truthfulness bugs around critique verdict drift, Ralph review gating, and docs runtime entrypoint resolution.",
+    "recentChanges": [
+      "Critique records now downgrade from pass when a new active finding is appended after a passing run.",
+      "Ralph waiting-state calculation keeps verifier blockers authoritative across iteration and critique updates.",
+      "Docs runtime resolution now accepts extensionless shebang entrypoints before falling back to pi."
+    ],
+    "validation": [
+      "npm test -- packages/pi-critique/__tests__/runtime.test.ts",
+      "npm test -- packages/pi-ralph/__tests__/runtime.test.ts",
+      "npm test -- packages/pi-docs/__tests__/runtime.test.ts"
+    ],
+    "blockers": [],
+    "nextAction": "Hand completed scope to manager for consolidation and closure.",
+    "managerInputRequired": false
+  },
+  "latestMessage": null,
+  "counts": {
+    "messages": 0,
+    "checkpoints": 1,
+    "unresolvedMessages": 0
+  },
+  "approval": {
+    "status": "approved",
+    "decidedAt": "2026-03-16T18:46:00.000Z",
+    "decidedBy": "assistant",
+    "summary": "Review/orchestration worker changes are approved for consolidation.",
+    "rationale": [
+      "Targeted package tests passed for critique, Ralph, and docs.",
+      "Workspace lint/typecheck/test passed after consolidation."
+    ]
+  },
+  "consolidation": {
+    "status": "patched",
+    "strategy": "patch",
+    "summary": "Review/orchestration worker changes were consolidated into the main workspace patch.",
+    "validation": [
+      "npm run check",
+      "npm test"
+    ],
+    "conflicts": [],
+    "followUps": [],
+    "decidedAt": "2026-03-16T18:46:30.000Z"
+  },
+  "stale": false
+}

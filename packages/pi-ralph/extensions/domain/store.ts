@@ -358,6 +358,13 @@ function waitingForFromCritiques(links: RalphCritiqueLink[]): RalphWaitingFor {
   return "none";
 }
 
+function waitingForFromReviewSignals(verifier: RalphVerifierSummary, links: RalphCritiqueLink[]): RalphWaitingFor {
+  if (verifier.blocker) {
+    return "operator";
+  }
+  return waitingForFromCritiques(links);
+}
+
 function createPacketSummary(state: RalphRunState): string {
   const refs = [
     ...state.linkedRefs.planIds,
@@ -1113,11 +1120,18 @@ export class RalphStore {
     };
     appendJsonl(current.artifacts.iterations, record);
 
+    const reviewWaitingFor = status === "reviewing" ? waitingForFromReviewSignals(verifier, critiqueLinks) : "none";
+
     const nextState: RalphRunState = {
       ...current.state,
-      status: status === "failed" ? "failed" : "active",
+      status:
+        status === "failed"
+          ? "failed"
+          : status === "reviewing" && reviewWaitingFor !== "none"
+            ? "waiting_for_review"
+            : "active",
       phase: status === "reviewing" ? "reviewing" : status === "accepted" ? "deciding" : "executing",
-      waitingFor: status === "reviewing" ? waitingForFromCritiques(critiqueLinks) : "none",
+      waitingFor: reviewWaitingFor,
       verifierSummary: verifier,
       critiqueLinks: mergeCritiqueLinks(current.state.critiqueLinks, critiqueLinks),
       latestDecision: decision ?? current.state.latestDecision,
@@ -1135,7 +1149,7 @@ export class RalphStore {
       ...input,
       checkedAt: input.checkedAt ?? currentTimestamp(),
     });
-    const waitingFor = verifierSummary.blocker ? "operator" : waitingForFromCritiques(current.state.critiqueLinks);
+    const waitingFor = waitingForFromReviewSignals(verifierSummary, current.state.critiqueLinks);
     const status = verifierSummary.blocker ? "waiting_for_review" : current.state.status;
     const phase = verifierSummary.blocker ? "reviewing" : current.state.phase;
     return this.writeArtifacts({
@@ -1161,7 +1175,7 @@ export class RalphStore {
       summary: input.summary?.trim() ?? "",
     });
     const critiqueLinks = mergeCritiqueLinks(current.state.critiqueLinks, [link]);
-    const waitingFor = waitingForFromCritiques(critiqueLinks);
+    const waitingFor = waitingForFromReviewSignals(current.state.verifierSummary, critiqueLinks);
     return this.writeArtifacts({
       ...current.state,
       linkedRefs: mergeLinkedRefs(current.state.linkedRefs, { critiqueIds: [link.critiqueId] }),

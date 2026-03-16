@@ -31,9 +31,23 @@ export interface DocsExecutionResult {
   stderr: string;
 }
 
-function isRunnableNodeScript(filePath: string, existsSync: (filePath: string) => boolean): boolean {
+function isRunnableNodeScript(
+  filePath: string,
+  existsSync: (filePath: string) => boolean,
+  readFileSync: (filePath: string, encoding: "utf-8") => string,
+): boolean {
   if (!existsSync(filePath)) return false;
-  return /\.(?:mjs|cjs|js)$/i.test(filePath);
+  if (/\.(?:mjs|cjs|js)$/i.test(filePath)) {
+    return true;
+  }
+  if (path.extname(filePath)) {
+    return false;
+  }
+  try {
+    return readFileSync(filePath, "utf-8").startsWith("#!");
+  } catch {
+    return false;
+  }
 }
 
 function isGenericJsRuntime(execPath: string): boolean {
@@ -89,7 +103,7 @@ export function resolvePiCliScript(deps: PiSpawnDeps = {}): string | undefined {
 
   if (argv1) {
     const argvPath = normalizePath(argv1);
-    if (isRunnableNodeScript(argvPath, existsSync)) {
+    if (isRunnableNodeScript(argvPath, existsSync, readFileSync)) {
       return argvPath;
     }
   }
@@ -110,7 +124,7 @@ export function resolvePiCliScript(deps: PiSpawnDeps = {}): string | undefined {
     const binPath = typeof binField === "string" ? binField : (binField?.pi ?? Object.values(binField ?? {})[0]);
     if (!binPath) return undefined;
     const candidate = normalizePath(path.resolve(path.dirname(packageJsonPath), binPath));
-    if (isRunnableNodeScript(candidate, existsSync)) {
+    if (isRunnableNodeScript(candidate, existsSync, readFileSync)) {
       return candidate;
     }
   } catch {
@@ -124,10 +138,11 @@ export function getPiSpawnCommand(args: string[], deps: PiSpawnDeps = {}): PiSpa
   const execPath = deps.execPath ?? process.execPath;
   const argv1 = deps.argv1 ?? process.argv[1];
   const existsSync = deps.existsSync ?? fs.existsSync;
+  const readFileSync = deps.readFileSync ?? ((filePath, encoding) => fs.readFileSync(filePath, encoding));
 
   if (argv1) {
     const argvPath = normalizePath(argv1);
-    if (isRunnableNodeScript(argvPath, existsSync)) {
+    if (isRunnableNodeScript(argvPath, existsSync, readFileSync)) {
       return {
         command: execPath,
         args: [argvPath, ...args],

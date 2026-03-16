@@ -1,0 +1,249 @@
+{
+  "research": {
+    "id": "workspace-package-robustness-scrub-2026-03",
+    "title": "Workspace package robustness scrub 2026-03",
+    "status": "synthesized",
+    "question": "What latent correctness, robustness, and cohesion issues remain across the Pi Loom packages after the recent path/artifact hygiene remediation, and how should they be fixed without eroding layer boundaries?",
+    "objective": "Run a manager-led cross-package scrub that identifies latent bugs, weak robustness edges, and cohesion problems across all shipped Pi Loom packages, then drive durable execution for the fixes.",
+    "statusSummary": "Manager-led scrub completed. Ten concrete package issues were fixed across all shipped packages, validated with targeted regressions and final workspace verification.",
+    "keywords": [
+      "audit",
+      "cohesion",
+      "correctness",
+      "packages",
+      "robustness",
+      "workspace"
+    ],
+    "tags": [
+      "quality",
+      "robustness",
+      "workspace"
+    ],
+    "updatedAt": "2026-03-16T01:47:57.187Z"
+  },
+  "hypotheses": {
+    "total": 0,
+    "counts": {
+      "open": 0,
+      "supported": 0,
+      "rejected": 0,
+      "superseded": 0
+    },
+    "confidence": {
+      "low": 0,
+      "medium": 0,
+      "high": 0
+    },
+    "items": []
+  },
+  "artifacts": {
+    "total": 1,
+    "counts": {
+      "note": 0,
+      "experiment": 0,
+      "source": 0,
+      "dataset": 0,
+      "log": 0,
+      "summary": 1
+    },
+    "items": [
+      {
+        "id": "artifact-001",
+        "researchId": "workspace-package-robustness-scrub-2026-03",
+        "kind": "summary",
+        "title": "Cross-package scrub findings and remediations",
+        "path": ".loom/research/workspace-package-robustness-scrub-2026-03/summaries/artifact-001.md",
+        "createdAt": "2026-03-16T01:47:57.146Z",
+        "summary": "Manager-led package scrub found ten latent issues across all shipped Pi Loom packages and fixed them with targeted regressions plus workspace-level verification.",
+        "sourceUri": null,
+        "tags": [
+          "quality",
+          "robustness",
+          "summary",
+          "workspace"
+        ],
+        "linkedHypothesisIds": []
+      }
+    ]
+  },
+  "linkedInitiatives": {
+    "total": 1,
+    "items": [
+      {
+        "id": "workspace-package-reliability-scrub",
+        "title": "Workspace package reliability scrub",
+        "status": "active",
+        "milestoneCount": 1,
+        "specChangeCount": 0,
+        "ticketCount": 4,
+        "updatedAt": "2026-03-16T01:37:56.798Z",
+        "tags": [
+          "quality",
+          "robustness",
+          "workspace"
+        ],
+        "path": ".loom/initiatives/workspace-package-reliability-scrub"
+      }
+    ]
+  },
+  "linkedSpecs": {
+    "total": 0,
+    "counts": {
+      "proposed": 0,
+      "clarifying": 0,
+      "planned": 0,
+      "tasked": 0,
+      "finalized": 0,
+      "archived": 0,
+      "superseded": 0
+    },
+    "items": []
+  },
+  "linkedTickets": {
+    "total": 4,
+    "counts": {
+      "open": 0,
+      "ready": 0,
+      "in_progress": 4,
+      "blocked": 0,
+      "review": 0,
+      "closed": 0
+    },
+    "ready": 0,
+    "blocked": 0,
+    "inProgress": 4,
+    "review": 0,
+    "closed": 0,
+    "items": [
+      {
+        "id": "t-0027",
+        "title": "Manage workspace package reliability scrub",
+        "status": "in_progress",
+        "storedStatus": "in_progress",
+        "priority": "high",
+        "type": "epic",
+        "createdAt": "2026-03-16T01:36:01.013Z",
+        "updatedAt": "2026-03-16T01:37:56.825Z",
+        "deps": [],
+        "links": [],
+        "initiativeIds": [
+          "workspace-package-reliability-scrub"
+        ],
+        "researchIds": [
+          "workspace-package-robustness-scrub-2026-03"
+        ],
+        "specChange": null,
+        "specCapabilities": [],
+        "specRequirements": [],
+        "tags": [
+          "coordination",
+          "quality",
+          "workspace"
+        ],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0027.md"
+      },
+      {
+        "id": "t-0028",
+        "title": "Scrub foundation memory packages for robustness issues",
+        "status": "in_progress",
+        "storedStatus": "in_progress",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T01:36:01.027Z",
+        "updatedAt": "2026-03-16T01:47:00.927Z",
+        "deps": [],
+        "links": [],
+        "initiativeIds": [
+          "workspace-package-reliability-scrub"
+        ],
+        "researchIds": [
+          "workspace-package-robustness-scrub-2026-03"
+        ],
+        "specChange": null,
+        "specCapabilities": [],
+        "specRequirements": [],
+        "tags": [
+          "foundation",
+          "quality"
+        ],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0028.md"
+      },
+      {
+        "id": "t-0029",
+        "title": "Scrub ticketing and worker execution packages",
+        "status": "in_progress",
+        "storedStatus": "in_progress",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T01:36:01.039Z",
+        "updatedAt": "2026-03-16T01:47:00.947Z",
+        "deps": [],
+        "links": [],
+        "initiativeIds": [
+          "workspace-package-reliability-scrub"
+        ],
+        "researchIds": [
+          "workspace-package-robustness-scrub-2026-03"
+        ],
+        "specChange": null,
+        "specCapabilities": [],
+        "specRequirements": [],
+        "tags": [
+          "execution",
+          "quality"
+        ],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0029.md"
+      },
+      {
+        "id": "t-0030",
+        "title": "Scrub critique Ralph and docs packages",
+        "status": "in_progress",
+        "storedStatus": "in_progress",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T01:36:01.050Z",
+        "updatedAt": "2026-03-16T01:47:00.966Z",
+        "deps": [],
+        "links": [],
+        "initiativeIds": [
+          "workspace-package-reliability-scrub"
+        ],
+        "researchIds": [
+          "workspace-package-robustness-scrub-2026-03"
+        ],
+        "specChange": null,
+        "specCapabilities": [],
+        "specRequirements": [],
+        "tags": [
+          "orchestration",
+          "quality"
+        ],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0030.md"
+      }
+    ]
+  },
+  "conclusions": [
+    "Dashboard and read surfaces must tolerate stale linked refs by surfacing discrepancies rather than throwing or under-reporting missing linked work.",
+    "Execution and review state machines must not let optimistic status transitions overrule unresolved blockers or newly introduced findings.",
+    "Metadata-only updates must preserve previously stored artifact content instead of rewriting durable truth with summaries.",
+    "Path-like durable references must normalize to canonical IDs before validation so artifact-path callers do not silently fail valid lookups.",
+    "Projection and orchestration layers must re-evaluate all fields they own when deciding whether existing durable artifacts remain current."
+  ],
+  "recommendations": [
+    "Keep transition/waiting-state helpers authoritative wherever dependency or verifier blockers exist.",
+    "Prefer canonical-ID normalization at store boundaries for path-bearing inputs.",
+    "Treat dashboards/packets as defensive snapshots: clone exposed data and report stale links explicitly.",
+    "When projection logic reuses existing execution artifacts, compare every field the projection contract owns."
+  ],
+  "openQuestions": [
+    "Do any remaining package surfaces outside the audited files still accept path-bearing refs without canonical normalization?"
+  ]
+}

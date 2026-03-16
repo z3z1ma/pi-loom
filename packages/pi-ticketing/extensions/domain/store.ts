@@ -349,6 +349,22 @@ export class TicketStore {
     }
   }
 
+  private assertTransitionAllowed(ticketId: string, deps: string[], status: "open" | "in_progress" | "review"): void {
+    if (status === "open") {
+      return;
+    }
+
+    const summaries = this.listTickets({ includeClosed: true });
+    const blockedBy = normalizeStringList(deps).filter((depId) => {
+      const dependency = summaries.find((summary) => summary.id === depId);
+      return dependency !== undefined && dependency.status !== "closed";
+    });
+
+    if (blockedBy.length > 0) {
+      throw new Error(`Ticket ${ticketId} cannot transition to ${status} while blocked by: ${blockedBy.join(", ")}`);
+    }
+  }
+
   updateTicket(ref: string, updates: UpdateTicketInput): TicketReadResult {
     const ticketId = this.resolveTicketRef(ref);
     const record = this.loadTicketById(ticketId);
@@ -388,6 +404,9 @@ export class TicketStore {
     if (updates.verification !== undefined) record.body.verification = updates.verification.trim();
     if (updates.journalSummary !== undefined) record.body.journalSummary = updates.journalSummary.trim();
     this.validateRelationships(ticketId, record.frontmatter.deps, record.frontmatter.parent);
+    if (record.frontmatter.status !== "closed") {
+      this.assertTransitionAllowed(ticketId, record.frontmatter.deps, record.frontmatter.status);
+    }
     record.frontmatter["updated-at"] = timestamp;
     this.writeTicket(record);
     this.appendJournal(ticketId, "state", "Updated ticket metadata", timestamp, { action: "update" });
@@ -444,6 +463,7 @@ export class TicketStore {
   private transitionTicket(ref: string, status: "in_progress" | "review", journalText: string): TicketReadResult {
     const ticketId = this.resolveTicketRef(ref);
     const record = this.loadTicketById(ticketId);
+    this.assertTransitionAllowed(ticketId, record.frontmatter.deps, status);
     const timestamp = currentTimestamp();
     record.frontmatter.status = status;
     record.frontmatter["updated-at"] = timestamp;

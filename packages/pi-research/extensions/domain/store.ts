@@ -13,6 +13,7 @@ import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildResearchDashboard } from "./dashboard.js";
+import { parseMarkdownArtifact } from "./frontmatter.js";
 import { buildResearchMap } from "./map.js";
 import type {
   CreateResearchInput,
@@ -72,6 +73,13 @@ function readJson<T>(path: string): T {
 
 function readText(path: string): string {
   return existsSync(path) ? readFileSync(path, "utf-8") : "";
+}
+
+function readArtifactBody(path: string): string | null {
+  if (!existsSync(path)) {
+    return null;
+  }
+  return parseMarkdownArtifact(readFileSync(path, "utf-8"), path).body;
 }
 
 function relativeOrAbsolute(cwd: string, path: string): string {
@@ -490,6 +498,7 @@ export class ResearchStore {
     const kind = normalizeArtifactKind(input.kind);
     const recordPath = relative(this.cwd, getResearchArtifactPath(this.cwd, state.researchId, kind, normalizedId));
     const existing = artifacts.find((artifact) => artifact.id === normalizedId) ?? null;
+    const preservedBody = existing ? readArtifactBody(resolve(this.cwd, existing.path)) : null;
     const artifact: ResearchArtifactRecord = {
       id: normalizedId,
       researchId: state.researchId,
@@ -504,7 +513,11 @@ export class ResearchStore {
     };
     writeFileAtomic(
       resolve(this.cwd, recordPath),
-      renderResearchArtifactMarkdown(state.researchId, artifact, input.body?.trim() ?? artifact.summary),
+      renderResearchArtifactMarkdown(
+        state.researchId,
+        artifact,
+        input.body?.trim() ?? preservedBody ?? artifact.summary,
+      ),
     );
     const nextArtifacts = [...artifacts.filter((entry) => entry.id !== artifact.id), artifact].sort((left, right) =>
       left.id.localeCompare(right.id),

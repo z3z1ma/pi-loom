@@ -1,0 +1,19 @@
+[
+  {
+    "id": "artifact-001",
+    "researchId": "workspace-package-robustness-scrub-2026-03",
+    "kind": "summary",
+    "title": "Cross-package scrub findings and remediations",
+    "path": ".loom/research/workspace-package-robustness-scrub-2026-03/summaries/artifact-001.md",
+    "createdAt": "2026-03-16T01:47:57.146Z",
+    "summary": "Manager-led package scrub found ten latent issues across all shipped Pi Loom packages and fixed them with targeted regressions plus workspace-level verification.",
+    "sourceUri": null,
+    "tags": [
+      "quality",
+      "robustness",
+      "summary",
+      "workspace"
+    ],
+    "linkedHypothesisIds": []
+  }
+]

@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRalphDashboard } from "../extensions/domain/dashboard.js";
 import type { RalphLaunchDescriptor, RalphRunState } from "../extensions/domain/models.js";
 import { renderLaunchDescriptor, renderLaunchPrompt } from "../extensions/domain/render.js";
 import { getPiSpawnCommand, resolvePiCliScript, resolveRalphExtensionRoot } from "../extensions/domain/runtime.js";
+import { createRalphStore } from "../extensions/domain/store.js";
 
 describe("ralph runtime spawn resolution", () => {
   it("resolves the Ralph extension root from the package, not the caller workspace", () => {
@@ -132,5 +136,54 @@ describe("ralph runtime spawn resolution", () => {
       command: "pi",
       args: ["--mode", "json", "--no-session"],
     });
+  });
+});
+
+describe("ralph review-state gating", () => {
+  let workspace: string;
+
+  beforeEach(() => {
+    workspace = mkdtempSync(join(tmpdir(), "pi-ralph-runtime-"));
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it("keeps reviewing runs gated when iteration verifier evidence is blocking", () => {
+    const store = createRalphStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-16T09:00:00.000Z"));
+    const created = store.createRun({
+      title: "Verifier-blocked review",
+      objective: "Keep launch safety truthful while a verifier blocker is active.",
+      policySnapshot: {
+        verifierRequired: true,
+        critiqueRequired: false,
+      },
+    });
+
+    vi.setSystemTime(new Date("2026-03-16T09:01:00.000Z"));
+    const reviewed = store.appendIteration(created.state.runId, {
+      status: "reviewing",
+      focus: "Record verifier evidence",
+      summary: "Verifier blocked launch pending operator review.",
+      verifier: {
+        sourceKind: "test",
+        sourceRef: "packages/pi-ralph/__tests__/runtime.test.ts",
+        verdict: "fail",
+        blocker: true,
+        summary: "Runtime safety checks failed.",
+      },
+    });
+
+    expect(reviewed.state.status).toBe("waiting_for_review");
+    expect(reviewed.state.phase).toBe("reviewing");
+    expect(reviewed.state.waitingFor).toBe("operator");
+    expect(() => store.prepareLaunch(created.state.runId)).toThrow(
+      "Ralph run verifier-blocked-review is waiting for operator and cannot launch until that gate is cleared.",
+    );
   });
 });

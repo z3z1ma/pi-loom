@@ -1,0 +1,92 @@
+{
+  "plan": {
+    "id": "workspace-package-reliability-scrub-execution",
+    "title": "Workspace package reliability scrub execution",
+    "status": "completed",
+    "updatedAt": "2026-03-16T01:47:57.625Z",
+    "sourceKind": "initiative",
+    "sourceRef": "workspace-package-reliability-scrub",
+    "linkedTicketCount": 4,
+    "summary": "Manager led execution strategy for auditing all Pi Loom packages and landing validated reliability, robustness, and cohesion fixes.",
+    "path": ".loom/plans/workspace-package-reliability-scrub-execution"
+  },
+  "packetPath": ".loom/plans/workspace-package-reliability-scrub-execution/packet.md",
+  "planPath": ".loom/plans/workspace-package-reliability-scrub-execution/plan.md",
+  "sourceTarget": {
+    "kind": "initiative",
+    "ref": "workspace-package-reliability-scrub"
+  },
+  "contextRefs": {
+    "roadmapItemIds": [
+      "item-002"
+    ],
+    "initiativeIds": [
+      "workspace-package-reliability-scrub"
+    ],
+    "researchIds": [
+      "repository-hygiene-and-artifact-robustness-audit",
+      "workspace-package-robustness-scrub-2026-03"
+    ],
+    "specChangeIds": [],
+    "ticketIds": [
+      "t-0027",
+      "t-0028",
+      "t-0029",
+      "t-0030"
+    ],
+    "critiqueIds": [],
+    "docIds": []
+  },
+  "scopePaths": [
+    "packages/pi-constitution",
+    "packages/pi-critique",
+    "packages/pi-docs",
+    "packages/pi-initiatives",
+    "packages/pi-plans",
+    "packages/pi-ralph",
+    "packages/pi-research",
+    "packages/pi-specs",
+    "packages/pi-ticketing",
+    "packages/pi-workers"
+  ],
+  "linkedTickets": [
+    {
+      "ticketId": "t-0027",
+      "role": "manager",
+      "order": 1,
+      "status": "in_progress",
+      "title": "Manage workspace package reliability scrub",
+      "path": ".loom/tickets/t-0027.md"
+    },
+    {
+      "ticketId": "t-0028",
+      "role": "foundation-cluster",
+      "order": 2,
+      "status": "in_progress",
+      "title": "Scrub foundation memory packages for robustness issues",
+      "path": ".loom/tickets/t-0028.md"
+    },
+    {
+      "ticketId": "t-0029",
+      "role": "execution-cluster",
+      "order": 3,
+      "status": "in_progress",
+      "title": "Scrub ticketing and worker execution packages",
+      "path": ".loom/tickets/t-0029.md"
+    },
+    {
+      "ticketId": "t-0030",
+      "role": "orchestration-cluster",
+      "order": 4,
+      "status": "in_progress",
+      "title": "Scrub critique Ralph and docs packages",
+      "path": ".loom/tickets/t-0030.md"
+    }
+  ],
+  "counts": {
+    "tickets": 4,
+    "byStatus": {
+      "in_progress": 4
+    }
+  }
+}

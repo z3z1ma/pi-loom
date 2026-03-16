@@ -83,6 +83,25 @@ describe("docs runtime spawn resolution", () => {
     });
   });
 
+  it("reuses an extensionless shebang script entrypoint when running under a JS runtime", () => {
+    const command = getPiSpawnCommand(["--mode", "json"], {
+      execPath: "/usr/local/bin/node",
+      argv1: "/custom-fork/bin/pi",
+      existsSync: (filePath) => filePath === "/custom-fork/bin/pi",
+      readFileSync: (filePath) => {
+        if (filePath !== "/custom-fork/bin/pi") {
+          throw new Error(`Unexpected path ${filePath}`);
+        }
+        return "#!/usr/bin/env node\nconsole.log('pi');\n";
+      },
+    });
+
+    expect(command).toEqual({
+      command: "/usr/local/bin/node",
+      args: ["/custom-fork/bin/pi", "--mode", "json"],
+    });
+  });
+
   it("reuses the current executable when running as a standalone binary", () => {
     const command = getPiSpawnCommand(["--mode", "json"], {
       execPath: "/opt/tools/omp",
@@ -114,6 +133,29 @@ describe("docs runtime spawn resolution", () => {
         resolvePackageJson: () => packageJsonPath,
       }),
     ).toBe("/pkg/dist/cli.js");
+  });
+
+  it("accepts an extensionless shebang package bin script", () => {
+    const packageJsonPath = "/pkg/package.json";
+    const packageJson = JSON.stringify({ bin: { pi: "dist/cli" } });
+
+    expect(
+      resolvePiCliScript({
+        execPath: "/usr/local/bin/node",
+        argv1: "user prompt",
+        existsSync: (filePath) => filePath === "/pkg/dist/cli",
+        readFileSync: (filePath) => {
+          if (filePath === packageJsonPath) {
+            return packageJson;
+          }
+          if (filePath === "/pkg/dist/cli") {
+            return "#!/usr/bin/env node\nconsole.log('pi');\n";
+          }
+          throw new Error(`Unexpected path ${filePath}`);
+        },
+        resolvePackageJson: () => packageJsonPath,
+      }),
+    ).toBe("/pkg/dist/cli");
   });
 });
 
