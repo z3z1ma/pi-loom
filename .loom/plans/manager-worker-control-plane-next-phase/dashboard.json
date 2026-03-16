@@ -1,0 +1,68 @@
+{
+  "plan": {
+    "id": "manager-worker-control-plane-next-phase",
+    "title": "Manager-worker control-plane next phase",
+    "status": "active",
+    "updatedAt": "2026-03-16T02:26:00.128Z",
+    "sourceKind": "initiative",
+    "sourceRef": "workspace-backed-manager-worker-coordination",
+    "linkedTicketCount": 0,
+    "summary": "Plan the next bounded change set for Pi Loom’s manager worker system after the initial subprocess backed worker substrate. The plan bundles inbox semantics, manager orchestration, runtime evolution, and recovery/observability into one cohe…",
+    "path": ".loom/plans/manager-worker-control-plane-next-phase"
+  },
+  "packetPath": ".loom/plans/manager-worker-control-plane-next-phase/packet.md",
+  "planPath": ".loom/plans/manager-worker-control-plane-next-phase/plan.md",
+  "sourceTarget": {
+    "kind": "initiative",
+    "ref": "workspace-backed-manager-worker-coordination"
+  },
+  "contextRefs": {
+    "roadmapItemIds": [
+      "item-007"
+    ],
+    "initiativeIds": [
+      "workspace-backed-manager-worker-coordination"
+    ],
+    "researchIds": [
+      "evaluate-pi-control-surfaces-for-long-lived-workers",
+      "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+    ],
+    "specChangeIds": [
+      "add-workspace-backed-manager-worker-substrate"
+    ],
+    "ticketIds": [
+      "t-0015",
+      "t-0016",
+      "t-0017",
+      "t-0018",
+      "t-0019",
+      "t-0020",
+      "t-0021",
+      "t-0022",
+      "t-0023",
+      "t-0024",
+      "t-0025",
+      "t-0026"
+    ],
+    "critiqueIds": [
+      "critique-workspace-backed-manager-worker-rollout"
+    ],
+    "docIds": [
+      "workspace-backed-manager-worker-execution-overview"
+    ]
+  },
+  "scopePaths": [
+    ".loom/research",
+    "AGENTS.md",
+    "packages/pi-plans",
+    "packages/pi-ralph",
+    "packages/pi-ticketing",
+    "packages/pi-workers",
+    "README.md"
+  ],
+  "linkedTickets": [],
+  "counts": {
+    "tickets": 0,
+    "byStatus": {}
+  }
+}
