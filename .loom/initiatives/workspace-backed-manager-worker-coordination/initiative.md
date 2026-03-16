@@ -1,9 +1,9 @@
 ---
 id: workspace-backed-manager-worker-coordination
 title: "Workspace-backed manager-worker coordination"
-status: completed
+status: active
 created-at: 2026-03-15T23:55:42.572Z
-updated-at: 2026-03-16T00:45:46.699Z
+updated-at: 2026-03-16T02:24:23.766Z
 owners: []
 tags:
   - architecture
@@ -11,6 +11,7 @@ tags:
   - orchestration
   - workspace
 research:
+  - evaluate-pi-control-surfaces-for-long-lived-workers
   - prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces
 spec-changes:
   - add-workspace-backed-manager-worker-substrate
@@ -38,6 +39,7 @@ Develop a truthful manager-worker operating model for Pi Loom in which workers a
 ## Outcomes
 - Broader coordination surfaces are introduced only through bounded, repo-truthful primitives that preserve tickets as the live execution ledger and keep Ralph bounded.
 - Future implementation work can proceed from a finalized spec rather than from chat-only reasoning or overloaded session/task abstractions.
+- Pi Loom evolves beyond one-shot subprocess workers toward a more useful manager-worker control plane informed by SDK/RPC runtime research without prematurely overcommitting to a full actor mesh.
 - Pi Loom has a durable architectural contract for workspace-backed workers, manager oversight, worker-manager messaging, checkpoints, and consolidation.
 
 ## Scope
@@ -45,6 +47,7 @@ Develop a truthful manager-worker operating model for Pi Loom in which workers a
 - Define manager responsibilities for assignment, supervision, unblock/escalation, approval, and fan-in/merge.
 - Define the durable records and layer boundaries needed to integrate manager-worker execution with tickets, plans, Ralph, critique, and docs.
 - Define workers as ephemeral workspace-backed execution units rather than as session branches or generic subagents.
+- Evaluate and plan the next runtime/control-plane evolution for inbox-driven, more autonomous manager-worker operation.
 
 ## Non-Goals
 - Claim multi-repository coordination, model-routing systems, or unrestricted peer meshes as current Pi Loom truth.
@@ -53,13 +56,15 @@ Develop a truthful manager-worker operating model for Pi Loom in which workers a
 
 ## Success Metrics
 - A comprehensive spec is finalized with detailed capabilities, requirements, tasks, and acceptance criteria for the manager-worker substrate.
+- A durable next-phase plan exists that sequences the move from one-shot workers toward a more useful inbox-aware manager-worker control plane, grounded in documented Pi SDK/RPC surfaces.
 - The initiative remains explicitly linked to constitutional roadmap item-007 so broader coordination stays framed as a later bounded expansion rather than current core truth.
 - The resulting bounded design is clear enough that future tickets can be projected without reopening first-principles architectural questions.
 
 ## Status Summary
-Completed. The workspace-backed worker substrate is now implemented through `@pi-loom/pi-workers`, linked back into the initiative’s finalized spec and research context, and verified under workspace lint, typecheck, and full tests.
+Active again for the next phase: the initial worker substrate is implemented, and new runtime/control-surface research now reopens the initiative for a broader control-plane evolution plan.
 
 ## Risks
+- Jumping to a sidecar/event mesh before the durable inbox protocol and manager loop are solid would add runtime complexity faster than it adds trustworthy behavior.
 - Letting Ralph absorb worker state or execution truth would violate existing package and constitutional boundaries.
 - Overloading session fork/tree or task spawning semantics instead of introducing a truthful workspace abstraction would bake in a false model.
 - Under-specifying manager oversight, worker telemetry, or consolidation contracts would produce a superficially parallel system that is difficult to supervise safely over long horizons.

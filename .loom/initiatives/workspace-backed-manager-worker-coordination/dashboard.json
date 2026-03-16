@@ -2,9 +2,9 @@
   "initiative": {
     "id": "workspace-backed-manager-worker-coordination",
     "title": "Workspace-backed manager-worker coordination",
-    "status": "completed",
+    "status": "active",
     "objective": "Develop a truthful manager-worker operating model for Pi Loom in which workers are ephemeral workspaces, managers supervise and consolidate bounded execution across those workspaces, and the resulting system composes cleanly with plans, tickets, Ralph, critique, and documentation.",
-    "statusSummary": "Completed. The workspace-backed worker substrate is now implemented through `@pi-loom/pi-workers`, linked back into the initiative’s finalized spec and research context, and verified under workspace lint, typecheck, and full tests.",
+    "statusSummary": "Active again for the next phase: the initial worker substrate is implemented, and new runtime/control-surface research now reopens the initiative for a broader control-plane evolution plan.",
     "targetWindow": "later",
     "owners": [],
     "tags": [
@@ -17,7 +17,7 @@
     "roadmapRefs": [
       "item-007"
     ],
-    "updatedAt": "2026-03-16T00:45:46.699Z"
+    "updatedAt": "2026-03-16T02:24:23.766Z"
   },
   "linkedRoadmap": {
     "total": 1,
@@ -33,8 +33,15 @@
     ]
   },
   "linkedResearch": {
-    "total": 1,
+    "total": 2,
     "items": [
+      {
+        "id": "evaluate-pi-control-surfaces-for-long-lived-workers",
+        "title": "Evaluate Pi control surfaces for long-lived workers",
+        "status": "synthesized",
+        "updatedAt": "2026-03-16T02:20:26.187Z",
+        "path": ".loom/research/evaluate-pi-control-surfaces-for-long-lived-workers"
+      },
       {
         "id": "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces",
         "title": "Prepare manager-worker architecture from pi-supervisor and Pi extension interfaces",
@@ -76,9 +83,10 @@
           "workspace-backed-manager-worker-coordination"
         ],
         "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
           "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
         ],
-        "updatedAt": "2026-03-16T00:03:16.511Z",
+        "updatedAt": "2026-03-16T02:19:49.118Z",
         "archived": false,
         "path": ".loom/specs/changes/add-workspace-backed-manager-worker-substrate"
       }
@@ -568,6 +576,7 @@
     }
   ],
   "openRisks": [
+    "Jumping to a sidecar/event mesh before the durable inbox protocol and manager loop are solid would add runtime complexity faster than it adds trustworthy behavior.",
     "Letting Ralph absorb worker state or execution truth would violate existing package and constitutional boundaries.",
     "Overloading session fork/tree or task spawning semantics instead of introducing a truthful workspace abstraction would bake in a false model.",
     "Under-specifying manager oversight, worker telemetry, or consolidation contracts would produce a superficially parallel system that is difficult to supervise safely over long horizons."
