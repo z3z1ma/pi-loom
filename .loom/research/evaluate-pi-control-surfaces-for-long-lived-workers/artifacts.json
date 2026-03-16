@@ -1,0 +1,19 @@
+[
+  {
+    "id": "artifact-001",
+    "researchId": "evaluate-pi-control-surfaces-for-long-lived-workers",
+    "kind": "summary",
+    "title": "Pi interaction surfaces for long-lived worker control",
+    "path": ".loom/research/evaluate-pi-control-surfaces-for-long-lived-workers/summaries/artifact-001.md",
+    "createdAt": "2026-03-16T02:19:49.147Z",
+    "summary": "Source-backed comparison of Pi's one-shot subprocess, stdio RPC, and SDK control surfaces for live worker management, with a provisional preference toward SDK embedding for Pi Loom.",
+    "sourceUri": null,
+    "tags": [
+      "rpc",
+      "runtime",
+      "sdk",
+      "workers"
+    ],
+    "linkedHypothesisIds": []
+  }
+]
