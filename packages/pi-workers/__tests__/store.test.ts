@@ -52,6 +52,7 @@ describe("WorkerStore", () => {
       expect(created.state.workerId).toBe("worker-foundation");
       expect(created.state.workspace.repositoryRoot).toBe(".");
       expect(created.state.workspace.logicalPath).toBe(".loom/runtime/workers/worker-foundation");
+      expect(created.launch?.runtime).toBe("sdk");
       expect(readFileSync(created.artifacts.state, "utf-8")).not.toContain(cwd);
       expect(created.summary.ticketCount).toBe(1);
 
@@ -242,6 +243,7 @@ describe("WorkerStore", () => {
       expect(prepared.launch).not.toBeNull();
       expect(prepared.state.status).toBe("requested");
       expect(prepared.state.latestTelemetry.state).toBe("unknown");
+      expect(prepared.launch?.runtime).toBe("sdk");
       expect(prepared.launch?.workspacePath).toContain(".loom/runtime/workers/runtime-worker");
       expect(existsSync(prepared.launch?.workspacePath ?? "")).toBe(true);
       expect(prepared.launch?.status).toBe("prepared");

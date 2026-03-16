@@ -1,0 +1,13 @@
+[
+  {
+    "id": "attachment-0001",
+    "ticketId": "t-0040",
+    "createdAt": "2026-03-16T16:31:36.860Z",
+    "label": "2026-03-16 package audit report",
+    "mediaType": "text/markdown",
+    "artifactPath": ".loom/artifacts/artifact-0001.md",
+    "sourcePath": ".loom/runtime/workers/workspace-package-audit-worker/audit/package-audit-2026-03-16.md",
+    "description": "Repo-wide audit report covering all ten shipped packages, the concrete timeout robustness finding, the narrow test-timeout fix, verification evidence, and the residual follow-up ticket.",
+    "metadata": {}
+  }
+]

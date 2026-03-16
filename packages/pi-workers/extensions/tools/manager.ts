@@ -2,7 +2,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { renderManagerOverview, renderWorkerDetail } from "../domain/render.js";
-import { runWorkerLaunch } from "../domain/runtime.js";
+import { buildInheritedWorkerSdkSessionConfig, runWorkerLaunch } from "../domain/runtime.js";
 import { createWorkerStore } from "../domain/store.js";
 
 const ManagerMessageKindEnum = StringEnum([
@@ -72,17 +72,24 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     label: "Manager Schedule",
     description:
       "Run a bounded manager scheduling pass over worker fleet state and optionally apply resume/message actions.",
+    promptSnippet:
+      "Use bounded scheduling to resume inbox-backed workers from durable state without guessing from chat residue.",
+    promptGuidelines: [
+      "When executeResumes is true, let the worker launch logic preserve the worker's intentional runtime choice and default to the SDK-backed runtime when no other runtime was chosen.",
+    ],
     parameters: Type.Object({
       refs: Type.Optional(Type.Array(Type.String())),
       apply: Type.Optional(Type.Boolean()),
       executeResumes: Type.Optional(Type.Boolean()),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
       const results = await getStore(ctx).runManagerSchedulerPass({
         refs: params.refs,
         apply: params.apply === true,
         executeResumes: params.executeResumes === true,
         signal,
+        sdkSessionConfig,
       });
       return machineResult(
         { results },
@@ -99,6 +106,12 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     name: "manager_write",
     label: "Manager Write",
     description: "Send manager messages, make approval decisions, or resume workers through the manager control plane.",
+    promptSnippet:
+      "Manager resume is the manager-side version of the basic ticket-linked worker flow: once the worker exists, resume it through the default SDK-backed runtime unless you intentionally override it.",
+    promptGuidelines: [
+      "Use message and approval actions to manage the inbox and review contract; use resume only when the worker already exists and should continue execution from durable state.",
+      "Leave runtime unset for the common case so resume defaults to the SDK-backed path instead of forcing subprocess unnecessarily.",
+    ],
     parameters: Type.Object({
       action: ManagerWriteActionEnum,
       ref: Type.String(),
@@ -113,6 +126,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
+      const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
       switch (params.action) {
         case "message": {
           if (!params.kind || !params.text?.trim()) {
@@ -165,7 +179,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
           if (!running.launch) {
             throw new Error("Worker launch descriptor was not created");
           }
-          const execution = await runWorkerLaunch(running.launch, signal);
+          const execution = await runWorkerLaunch(running.launch, signal, undefined, sdkSessionConfig);
           const finalized = store.finishLaunchExecution(params.ref, execution);
           return machineResult(
             { launch: finalized.launch, execution },

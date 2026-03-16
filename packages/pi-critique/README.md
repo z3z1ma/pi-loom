@@ -8,13 +8,19 @@ This package adds a first-class critique layer under `.loom/critiques/` so revie
 
 - `/critique` command surface for creating, reading, launching, and resolving critiques
 - `critique_*` tools for list/read/write/launch/run/finding/dashboard workflows
-- durable critique records with `state.json`, `packet.md`, `critique.md`, `runs.jsonl`, `findings.jsonl`, `dashboard.json`, and `launch.json`
+- durable critique records with canonical `state.json`, `packet.md`, `critique.md`, `runs.jsonl`, `findings.jsonl`, and `dashboard.json`, plus runtime-only `launch.json`
 - packet compilation that pulls linked constitution, initiative, research, spec, and ticket context into a fresh-review handoff
 - follow-up ticket creation for accepted findings
 
+## Artifact policy
+
+- commit `state.json`, `packet.md`, `critique.md`, `runs.jsonl`, `findings.jsonl`, and `dashboard.json`; they are the durable repo-visible critique record
+- do not commit `launch.json`; it is only a local handoff descriptor for launching or resuming a critique run in a fresh session or subprocess
+- generated packets and dashboards are still canonical when they capture critique state another clone needs to inspect or continue the review truthfully
+
 ## Launch semantics
 
-`pi-critique` owns both the durable launch contract and a default executable launch adapter.
+`pi-critique` owns both the launch contract and a default executable launch adapter.
 
 - `critique_launch` writes an explicit `launch.json` descriptor and packet path, then executes the critique synchronously in a separate fresh `pi` process; callers should allow a long timeout because the tool blocks until that critic exits
 - the interactive `/critique launch` command opens a fresh session via `ctx.newSession(...)` and prefills the reviewer prompt for a human-visible handoff
@@ -35,7 +41,7 @@ This package adds a first-class critique layer under `.loom/critiques/` so revie
       runs.jsonl
       findings.jsonl
       dashboard.json
-      launch.json
+      launch.json      # runtime-only; do not commit
 ```
 
 ## Local use

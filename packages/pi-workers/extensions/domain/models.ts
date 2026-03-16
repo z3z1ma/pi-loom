@@ -16,6 +16,7 @@ export const WORKER_STATUSES = [
 ] as const;
 export const WORKSPACE_STRATEGIES = ["git-worktree"] as const;
 export const WORKER_RUNTIME_KINDS = ["subprocess", "sdk", "rpc"] as const;
+export const DEFAULT_WORKER_RUNTIME_KIND = "sdk" as const;
 export const WORKER_TELEMETRY_STATES = [
   "unknown",
   "busy",

@@ -34,6 +34,7 @@ import type {
   WorkerTelemetry,
   WorkerWorkspaceDescriptor,
 } from "./models.js";
+import { DEFAULT_WORKER_RUNTIME_KIND } from "./models.js";
 import {
   currentTimestamp,
   ensureRelativeOrLogicalPath,
@@ -64,6 +65,7 @@ import {
   retireWorkerWorkspace,
   runWorkerLaunch,
   type WorkerExecutionResult,
+  type WorkerSdkSessionConfig,
   writeRuntimeDescriptor,
 } from "./runtime.js";
 
@@ -246,7 +248,7 @@ function initialLaunchDescriptor(workerId: string, branch: string, baseRef: stri
     workerId,
     createdAt: currentTimestamp(),
     updatedAt: currentTimestamp(),
-    runtime: "subprocess",
+    runtime: DEFAULT_WORKER_RUNTIME_KIND,
     resume: false,
     workspacePath: "",
     branch,
@@ -271,6 +273,87 @@ function executionSummary(execution: WorkerExecutionResult): string {
     return execution.output.trim();
   }
   return `Worker execution ${execution.status}`;
+}
+
+function timestampAtOrAfter(value: string | null | undefined, floor: string): boolean {
+  if (!value) {
+    return false;
+  }
+  return new Date(value).getTime() >= new Date(floor).getTime();
+}
+
+function isActionableManagerMessageAtLaunchStart(message: WorkerMessageRecord, startedAt: string): boolean {
+  if (message.direction === "worker_to_manager") {
+    return false;
+  }
+  if (!timestampAtOrAfter(startedAt, message.createdAt)) {
+    return false;
+  }
+  if (message.resolvedAt && new Date(message.resolvedAt).getTime() < new Date(startedAt).getTime()) {
+    return false;
+  }
+  return (
+    message.awaiting === "worker" ||
+    timestampAtOrAfter(message.acknowledgedAt, startedAt) ||
+    timestampAtOrAfter(message.resolvedAt, startedAt)
+  );
+}
+
+function assessCompletedLaunchProgress(
+  worker: WorkerReadResult,
+  startedAt: string,
+): {
+  durableProgress: boolean;
+  actionableInboxAtStart: number;
+  evidence: string[];
+} {
+  const actionableInboxAtStart = worker.messages.filter((message) =>
+    isActionableManagerMessageAtLaunchStart(message, startedAt),
+  ).length;
+  const evidence: string[] = [];
+
+  const touchedInboxCount = worker.messages.filter(
+    (message) =>
+      message.direction !== "worker_to_manager" &&
+      (timestampAtOrAfter(message.acknowledgedAt, startedAt) || timestampAtOrAfter(message.resolvedAt, startedAt)),
+  ).length;
+  if (touchedInboxCount > 0) {
+    evidence.push(`${touchedInboxCount} inbox item(s) acknowledged or resolved`);
+  }
+
+  const workerUpdatesCount = worker.messages.filter(
+    (message) => message.direction === "worker_to_manager" && timestampAtOrAfter(message.createdAt, startedAt),
+  ).length;
+  if (workerUpdatesCount > 0) {
+    evidence.push(`${workerUpdatesCount} worker-to-manager update(s)`);
+  }
+
+  const checkpointCount = worker.checkpoints.filter((checkpoint) =>
+    timestampAtOrAfter(checkpoint.createdAt, startedAt),
+  ).length;
+  if (checkpointCount > 0) {
+    evidence.push(`${checkpointCount} checkpoint(s)`);
+  }
+
+  if (timestampAtOrAfter(worker.state.completionRequest.requestedAt, startedAt)) {
+    evidence.push("completion request");
+  }
+
+  return {
+    durableProgress: evidence.length > 0,
+    actionableInboxAtStart,
+    evidence,
+  };
+}
+
+function noDurableProgressSummary(
+  execution: WorkerExecutionResult,
+  progress: { actionableInboxAtStart: number; evidence: string[] },
+): string {
+  const runtimeOutput = execution.output.trim();
+  const outputNote = runtimeOutput ? ` Runtime output was non-durable: ${summarizeText(runtimeOutput, 160)}` : "";
+  const evidenceNote = progress.evidence.length > 0 ? ` Evidence seen: ${progress.evidence.join(", ")}.` : "";
+  return `Launch reported completed but made no durable progress: ${progress.actionableInboxAtStart} actionable inbox item(s) were already pending at launch start, yet no acknowledgements, resolutions, checkpoints, escalations, status updates, or completion request were recorded.${evidenceNote}${outputNote}`;
 }
 
 function completedExecutionState(worker: WorkerReadResult): {
@@ -524,7 +607,13 @@ export class WorkerStore {
   }
 
   async runManagerSchedulerPass(
-    options: { refs?: string[]; apply?: boolean; executeResumes?: boolean; signal?: AbortSignal } = {},
+    options: {
+      refs?: string[];
+      apply?: boolean;
+      executeResumes?: boolean;
+      signal?: AbortSignal;
+      sdkSessionConfig?: WorkerSdkSessionConfig;
+    } = {},
   ): Promise<ManagerSchedulerDecision[]> {
     const workerRefs =
       options.refs && options.refs.length > 0
@@ -569,12 +658,7 @@ export class WorkerStore {
           (worker.state.status === "waiting_for_review" && !worker.summary.pendingApproval))
       ) {
         if (options.apply === true && options.executeResumes === true) {
-          this.prepareLaunch(
-            ref,
-            true,
-            "Prepared by manager scheduler.",
-            worker.launch?.runtime ?? worker.state.lastRuntimeKind ?? "subprocess",
-          );
+          this.prepareLaunch(ref, true, "Prepared by manager scheduler.");
           const running = this.startLaunchExecution(ref);
           if (!running.launch) {
             decisions.push({
@@ -585,7 +669,7 @@ export class WorkerStore {
             });
             continue;
           }
-          const execution = await runWorkerLaunch(running.launch, options.signal);
+          const execution = await runWorkerLaunch(running.launch, options.signal, undefined, options.sdkSessionConfig);
           this.finishLaunchExecution(ref, execution);
           const summary = `Scheduler resumed worker because unresolved inbox backlog existed (${unresolvedCount}).`;
           this.recordSchedulerObservation(ref, summary);
@@ -1203,8 +1287,18 @@ export class WorkerStore {
       throw new Error("Worker launch descriptor has not been prepared");
     }
     const finishedAt = currentTimestamp();
-    const summary = executionSummary(execution);
-    const launchStatus = execution.status === "cancelled" ? "failed" : execution.status;
+    const startedAt = worker.launch.updatedAt;
+    let summary = executionSummary(execution);
+    let launchStatus = execution.status === "cancelled" ? "failed" : execution.status;
+
+    if (execution.status === "completed") {
+      const progress = assessCompletedLaunchProgress(worker, startedAt);
+      if (!progress.durableProgress && progress.actionableInboxAtStart > 0) {
+        summary = noDurableProgressSummary(execution, progress);
+        launchStatus = "failed";
+      }
+    }
+
     worker.launch = {
       ...worker.launch,
       updatedAt: finishedAt,
@@ -1213,12 +1307,20 @@ export class WorkerStore {
       note: summary,
     };
 
-    if (execution.status === "completed") {
+    if (execution.status === "completed" && launchStatus === "completed") {
       const nextState = completedExecutionState(worker);
       worker.state.status = nextState.status;
       worker.state.latestTelemetry = normalizeTelemetry({
         ...worker.state.latestTelemetry,
         state: nextState.telemetryState,
+        heartbeatAt: finishedAt,
+        summary,
+      });
+    } else if (execution.status === "completed") {
+      worker.state.status = "failed";
+      worker.state.latestTelemetry = normalizeTelemetry({
+        ...worker.state.latestTelemetry,
+        state: "blocked",
         heartbeatAt: finishedAt,
         summary,
       });

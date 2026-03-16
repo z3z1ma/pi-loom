@@ -10,6 +10,8 @@ describe("worker prompt guidance", () => {
     expect(guidance).toContain("Manager instructions are durable inbox items");
     expect(guidance).toContain("Managers own completion approval and consolidation decisions.");
     expect(guidance).toContain("Prefer SDK-backed live workers");
+    expect(guidance).toContain("Workers execute ticket-linked work");
+    expect(guidance).toContain("ticket -> worker -> launch flow");
     expect(guidance).toContain("Tickets remain the live execution ledger.");
     expect(guidance).toContain("Do not invent unrestricted peer meshes in v1.");
   });

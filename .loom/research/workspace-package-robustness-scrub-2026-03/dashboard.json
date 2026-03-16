@@ -72,11 +72,11 @@
       {
         "id": "workspace-package-reliability-scrub",
         "title": "Workspace package reliability scrub",
-        "status": "active",
+        "status": "completed",
         "milestoneCount": 1,
         "specChangeCount": 0,
         "ticketCount": 4,
-        "updatedAt": "2026-03-16T01:37:56.798Z",
+        "updatedAt": "2026-03-16T01:47:57.969Z",
         "tags": [
           "quality",
           "robustness",
@@ -104,26 +104,26 @@
     "counts": {
       "open": 0,
       "ready": 0,
-      "in_progress": 4,
+      "in_progress": 0,
       "blocked": 0,
       "review": 0,
-      "closed": 0
+      "closed": 4
     },
     "ready": 0,
     "blocked": 0,
-    "inProgress": 4,
+    "inProgress": 0,
     "review": 0,
-    "closed": 0,
+    "closed": 4,
     "items": [
       {
         "id": "t-0027",
         "title": "Manage workspace package reliability scrub",
-        "status": "in_progress",
-        "storedStatus": "in_progress",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "epic",
         "createdAt": "2026-03-16T01:36:01.013Z",
-        "updatedAt": "2026-03-16T01:37:56.825Z",
+        "updatedAt": "2026-03-16T01:47:58.005Z",
         "deps": [],
         "links": [],
         "initiativeIds": [
@@ -141,18 +141,18 @@
           "workspace"
         ],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0027.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0027.md"
       },
       {
         "id": "t-0028",
         "title": "Scrub foundation memory packages for robustness issues",
-        "status": "in_progress",
-        "storedStatus": "in_progress",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "task",
         "createdAt": "2026-03-16T01:36:01.027Z",
-        "updatedAt": "2026-03-16T01:47:00.927Z",
+        "updatedAt": "2026-03-16T01:47:58.020Z",
         "deps": [],
         "links": [],
         "initiativeIds": [
@@ -169,18 +169,18 @@
           "quality"
         ],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0028.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0028.md"
       },
       {
         "id": "t-0029",
         "title": "Scrub ticketing and worker execution packages",
-        "status": "in_progress",
-        "storedStatus": "in_progress",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "task",
         "createdAt": "2026-03-16T01:36:01.039Z",
-        "updatedAt": "2026-03-16T01:47:00.947Z",
+        "updatedAt": "2026-03-16T01:47:58.039Z",
         "deps": [],
         "links": [],
         "initiativeIds": [
@@ -197,18 +197,18 @@
           "quality"
         ],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0029.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0029.md"
       },
       {
         "id": "t-0030",
         "title": "Scrub critique Ralph and docs packages",
-        "status": "in_progress",
-        "storedStatus": "in_progress",
+        "status": "closed",
+        "storedStatus": "closed",
         "priority": "high",
         "type": "task",
         "createdAt": "2026-03-16T01:36:01.050Z",
-        "updatedAt": "2026-03-16T01:47:00.966Z",
+        "updatedAt": "2026-03-16T01:47:58.051Z",
         "deps": [],
         "links": [],
         "initiativeIds": [
@@ -225,8 +225,8 @@
           "quality"
         ],
         "parent": null,
-        "closed": false,
-        "path": ".loom/tickets/t-0030.md"
+        "closed": true,
+        "path": ".loom/tickets/closed/t-0030.md"
       }
     ]
   },

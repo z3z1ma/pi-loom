@@ -1,15 +1,26 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs, { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createAgentSession, SessionManager } from "@mariozechner/pi-coding-agent";
+import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
+import type { Model } from "@mariozechner/pi-ai";
+import {
+  buildSessionContext,
+  createCodingTools,
+  createAgentSession,
+  DefaultResourceLoader,
+  SessionManager,
+  type ExtensionContext,
+  type ModelRegistry,
+} from "@mariozechner/pi-coding-agent";
 import type {
   PrepareWorkerLaunchInput,
   WorkerReadResult,
   WorkerRuntimeDescriptor,
   WorkerRuntimeKind,
 } from "./models.js";
+import { DEFAULT_WORKER_RUNTIME_KIND } from "./models.js";
 import { getWorkerRuntimeDir } from "./paths.js";
-import { renderWorkerPacket } from "./render.js";
+import { renderWorkerLaunchPrompt } from "./render.js";
 
 function writeFileAtomic(filePath: string, content: string): void {
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -49,6 +60,121 @@ export interface WorkerExecutionResult {
   status: "completed" | "failed" | "cancelled";
   output: string;
   error: string | null;
+}
+
+export interface WorkerSdkSessionConfig {
+  ledgerRoot?: string | undefined;
+  extensionRoot?: string | undefined;
+  cliExtensionPaths?: string[] | undefined;
+  agentDir?: string | undefined;
+  modelRegistry?: ModelRegistry | undefined;
+  model?: Model<any> | undefined;
+  thinkingLevel?: ThinkingLevel | undefined;
+}
+
+const SUPPORTED_THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
+
+interface PiWorkspaceManifest {
+  pi?: {
+    extensions?: unknown;
+  };
+}
+
+export function resolveWorkspaceExtensionPaths(workspacePath: string): string[] {
+  const manifestPath = path.join(workspacePath, "package.json");
+  if (!existsSync(manifestPath)) {
+    return [];
+  }
+
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as PiWorkspaceManifest;
+    const extensionEntries = manifest.pi?.extensions;
+    if (!Array.isArray(extensionEntries)) {
+      return [];
+    }
+
+    return extensionEntries
+      .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+      .map((entry) => path.resolve(path.dirname(manifestPath), entry))
+      .filter((entryPath) => existsSync(entryPath));
+  } catch {
+    return [];
+  }
+}
+
+export function resolveCliExtensionPathsFromArgv(baseDir: string, argv: string[] = process.argv): string[] {
+  const resolvedPaths: string[] = [];
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if ((arg === "--extension" || arg === "-e") && typeof argv[index + 1] === "string") {
+      const candidate = path.resolve(baseDir, argv[index + 1] ?? "");
+      if (existsSync(candidate)) {
+        resolvedPaths.push(candidate);
+      }
+      index += 1;
+    }
+  }
+
+  return [...new Set(resolvedPaths)];
+}
+
+function resolveAgentDirFromSessionPath(sessionPath: string | undefined): string | undefined {
+  if (!sessionPath) {
+    return undefined;
+  }
+
+  const normalizedPath = path.resolve(sessionPath);
+  const sessionsDir = path.dirname(normalizedPath);
+  if (path.basename(sessionsDir) !== "sessions") {
+    return undefined;
+  }
+
+  return path.dirname(sessionsDir);
+}
+
+function resolveAgentDirFromModelRegistry(modelRegistry: ModelRegistry | undefined): string | undefined {
+  const modelsJsonPath = (modelRegistry as { modelsJsonPath?: unknown } | undefined)?.modelsJsonPath;
+  if (typeof modelsJsonPath !== "string" || modelsJsonPath.length === 0) {
+    return undefined;
+  }
+  return path.dirname(modelsJsonPath);
+}
+
+function resolveInheritedThinkingLevel(
+  sessionManager: Partial<Pick<ExtensionContext, "sessionManager">>["sessionManager"],
+): ThinkingLevel | undefined {
+  if (!sessionManager) {
+    return undefined;
+  }
+
+  const current = buildSessionContext(sessionManager.getEntries(), sessionManager.getLeafId()).thinkingLevel;
+  if (!SUPPORTED_THINKING_LEVELS.has(current as ThinkingLevel)) {
+    return undefined;
+  }
+
+  return current as ThinkingLevel;
+}
+
+export function buildInheritedWorkerSdkSessionConfig(
+  ctx: Partial<Pick<ExtensionContext, "cwd" | "model" | "modelRegistry" | "sessionManager">>,
+): WorkerSdkSessionConfig {
+  const envAgentDir = process.env.PI_CODING_AGENT_DIR?.trim() || undefined;
+  const agentDir =
+    envAgentDir ??
+    resolveAgentDirFromSessionPath(ctx.sessionManager?.getSessionFile()) ??
+    resolveAgentDirFromSessionPath(ctx.sessionManager?.getSessionDir()) ??
+    resolveAgentDirFromModelRegistry(ctx.modelRegistry);
+
+  return {
+    ledgerRoot: ctx.cwd,
+    extensionRoot: ctx.cwd,
+    cliExtensionPaths: ctx.cwd ? resolveCliExtensionPathsFromArgv(ctx.cwd) : [],
+    agentDir,
+    modelRegistry: ctx.modelRegistry,
+    model: ctx.model,
+    thinkingLevel: resolveInheritedThinkingLevel(ctx.sessionManager),
+  };
 }
 
 export function resolvePiPackageRoot(): string | undefined {
@@ -202,7 +328,8 @@ function normalizeRuntimeKind(
   input: PrepareWorkerLaunchInput | undefined,
   worker: WorkerReadResult,
 ): WorkerRuntimeKind {
-  return input?.runtime ?? worker.state.lastRuntimeKind ?? "subprocess";
+  const preparedRuntime = worker.launch && worker.launch.status !== "retired" ? worker.launch.runtime : undefined;
+  return input?.runtime ?? worker.state.lastRuntimeKind ?? preparedRuntime ?? DEFAULT_WORKER_RUNTIME_KIND;
 }
 
 function runtimeCommandPlaceholder(runtime: WorkerRuntimeKind, prompt: string): string[] {
@@ -222,7 +349,7 @@ export function prepareWorkerLaunchDescriptor(
   input: PrepareWorkerLaunchInput = {},
 ): WorkerRuntimeDescriptor {
   const workspacePath = ensureWorkerWorkspace(cwd, worker);
-  const prompt = input.prompt?.trim() || renderWorkerPacket(worker);
+  const prompt = input.prompt?.trim() || renderWorkerLaunchPrompt(worker);
   const runtime = normalizeRuntimeKind(input, worker);
   return {
     workerId: worker.state.workerId,
@@ -320,14 +447,38 @@ async function runSdkWorkerLaunch(
   launch: WorkerRuntimeDescriptor,
   signal?: AbortSignal,
   onUpdate?: (text: string) => void,
+  sdkSessionConfig?: WorkerSdkSessionConfig,
 ): Promise<WorkerExecutionResult> {
   let output = "";
+  let terminalError: string | null = null;
+  let toolExecutionCount = 0;
+  let lastAssistantStopReason: string | null = null;
+  let lastAssistantContentCount = 0;
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
 
   try {
-    const created = await createAgentSession({
+    const ledgerRoot = sdkSessionConfig?.ledgerRoot ?? launch.workspacePath;
+    const extensionRoot = sdkSessionConfig?.extensionRoot ?? launch.workspacePath;
+    const additionalExtensionPaths = [
+      ...resolveWorkspaceExtensionPaths(extensionRoot),
+      ...(sdkSessionConfig?.cliExtensionPaths ?? []),
+    ];
+    const resourceLoader = new DefaultResourceLoader({
       cwd: launch.workspacePath,
-      sessionManager: SessionManager.inMemory(),
+      agentDir: sdkSessionConfig?.agentDir,
+      additionalExtensionPaths,
+    });
+    await resourceLoader.reload();
+
+    const created = await createAgentSession({
+      cwd: ledgerRoot,
+      agentDir: sdkSessionConfig?.agentDir,
+      modelRegistry: sdkSessionConfig?.modelRegistry,
+      model: sdkSessionConfig?.model,
+      thinkingLevel: sdkSessionConfig?.thinkingLevel,
+      tools: createCodingTools(launch.workspacePath),
+      resourceLoader,
+      sessionManager: SessionManager.inMemory(ledgerRoot),
     });
     session = created.session;
   } catch (error) {
@@ -346,10 +497,42 @@ async function runSdkWorkerLaunch(
     const messageEvent = event as {
       type?: string;
       assistantMessageEvent?: { type?: string; delta?: string };
+      toolName?: string;
+      message?: {
+        role?: string;
+        content?: Array<{ type?: string; text?: string }>;
+        stopReason?: string;
+        errorMessage?: string;
+      };
     };
     if (messageEvent.type === "message_update" && messageEvent.assistantMessageEvent?.type === "text_delta") {
       output += messageEvent.assistantMessageEvent.delta ?? "";
       onUpdate?.(output);
+      return;
+    }
+
+    if (messageEvent.type === "tool_execution_start") {
+      toolExecutionCount += 1;
+      return;
+    }
+
+    if (messageEvent.type === "message_end" && messageEvent.message?.role === "assistant") {
+      lastAssistantStopReason = messageEvent.message.stopReason ?? null;
+      lastAssistantContentCount = messageEvent.message.content?.length ?? 0;
+      if (!output.trim()) {
+        output = (messageEvent.message.content ?? [])
+          .filter((block) => block.type === "text")
+          .map((block) => block.text ?? "")
+          .join("\n")
+          .trim();
+        if (output) {
+          onUpdate?.(output);
+        }
+      }
+
+      if (messageEvent.message.stopReason === "error") {
+        terminalError = messageEvent.message.errorMessage?.trim() || "SDK worker session ended with an empty assistant error";
+      }
     }
   });
 
@@ -360,6 +543,16 @@ async function runSdkWorkerLaunch(
     await session.prompt(launch.launchPrompt);
     if (signal?.aborted) {
       return { status: "cancelled", output, error: "Cancelled" };
+    }
+    if (terminalError) {
+      return { status: "failed", output: output.trim(), error: terminalError };
+    }
+    if (!output.trim() && toolExecutionCount === 0 && lastAssistantContentCount === 0) {
+      return {
+        status: "failed",
+        output: "",
+        error: `SDK worker session ended with an empty assistant turn${lastAssistantStopReason ? ` (stopReason: ${lastAssistantStopReason})` : ""}`,
+      };
     }
     return { status: "completed", output: output.trim(), error: null };
   } catch (error) {
@@ -394,12 +587,13 @@ export async function runWorkerLaunch(
   launch: WorkerRuntimeDescriptor,
   signal?: AbortSignal,
   onUpdate?: (text: string) => void,
+  sdkSessionConfig?: WorkerSdkSessionConfig,
 ): Promise<WorkerExecutionResult> {
   switch (launch.runtime) {
     case "subprocess":
       return runSubprocessWorkerLaunch(launch, signal, onUpdate);
     case "sdk":
-      return runSdkWorkerLaunch(launch, signal, onUpdate);
+      return runSdkWorkerLaunch(launch, signal, onUpdate, sdkSessionConfig);
     case "rpc":
       return runRpcWorkerLaunch(launch, signal, onUpdate);
     default:

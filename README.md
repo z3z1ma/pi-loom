@@ -49,7 +49,7 @@ The current Loom stack is:
 - specs for durable bounded change contracts that bridge research into execution planning
 - plans for durable execution strategy and linked multi-ticket rollouts
 - tickets for durable execution state
-- workers for durable workspace-backed execution units, inbox-driven manager-worker messaging, explicit manager control surfaces, bounded manager scheduling, checkpoints, approvals, and consolidation records
+- workers for local durable workspace-backed execution units, inbox-driven manager-worker messaging, explicit manager control surfaces, bounded manager scheduling, checkpoints, approvals, and consolidation records that surround tickets without replacing them as shared repo truth
 - critique for durable adversarial review packets, verdicts, findings, and follow-up work
 - docs for durable high-level architecture, workflow, concept, and operations understanding after completed work changes the system narrative
 
@@ -73,15 +73,17 @@ The execution layer focuses on a local durable ticket ledger:
 
 Broader general-purpose worker coordination beyond the bounded local manager-worker substrate remains intentionally deferred. The current orchestration surface is still Ralph-specific and composes with plans, tickets, workers, critique, and related Loom artifacts rather than replacing them with a generic workflow engine.
 
+Workers are the local durable execution substrate around that ledger: they persist local control-plane and runtime-adjacent state under `.loom/workers/`, but they are not themselves the shared execution ledger. Tickets remain the repo-visible record another clone should read to understand live execution truth.
+
 ## Loom artifact commit policy
 
 Maintain Loom state as repo-relative workspace data.
 
 - Store durable paths as workspace-root-relative values such as `.loom/specs/changes/add-dark-mode/proposal.md`, never as absolute clone-local paths.
-- Commit canonical Loom records: primary markdown artifacts (`initiative.md`, `plan.md`, `packet.md`, `run.md`, `doc.md`, `critique.md`, proposal/design/task docs, canonical capabilities), machine state (`state.json`), stable inventories, and append-only histories such as `decisions.jsonl`, `hypotheses.jsonl`, `iterations.jsonl`, `revisions.jsonl`, `runs.jsonl`, `findings.jsonl`, and ticket journals.
-- Commit repo-visible summaries when a package treats them as durable state, including stable `dashboard.json` artifacts after volatile churn fields are removed.
-- Do not commit runtime-only handoff descriptors whose purpose is launching or resuming a fresh session or subprocess. Today that specifically includes `.loom/**/launch.json`.
-- Treat append-only history as canonical evidence, but treat launch descriptors as disposable runtime scaffolding.
+- Commit canonical Loom records even when they change often. Mutability is not the boundary; project truth is. In this repo that includes primary markdown artifacts (`initiative.md`, `plan.md`, `packet.md`, `run.md`, `doc.md`, `critique.md`, proposal/design/task docs, ticket markdown, checkpoint docs, copied artifacts under `.loom/artifacts/`, canonical capabilities), machine state (`state.json`), stable summaries (`dashboard.json`, `ticket-projection.json` when a package treats them as durable state), attachment/checkpoint indexes, and append-only histories such as `decisions.jsonl`, `hypotheses.jsonl`, `iterations.jsonl`, `revisions.jsonl`, `runs.jsonl`, `findings.jsonl`, ticket journals, and audit logs.
+- Do not commit local durable runtime/control-plane artifacts whose job is to attach execution to one clone instead of defining shared repo truth. Today that specifically includes everything under `.loom/workers/`, `.loom/**/launch.json`, and everything under `.loom/runtime/`.
+- Rule of thumb: if deleting the artifact would erase repo-visible project memory another clone needs in order to understand, audit, or resume the work truthfully, commit it. If the artifact only helps one local process supervise workers, attach to a workspace, hand off to a fresh session, or stage runtime files under `.loom/workers/` or `.loom/runtime/`, leave it ignored.
+- Generated does not mean ignorable. Commit generated artifacts when the package treats them as canonical state; ignore only clone-local runtime scaffolding.
 - If a package documents an artifact as durable and repo-visible, prefer committing it; do not hide canonical Loom state behind broad ignore rules.
 
 ## Planning layer
@@ -110,7 +112,7 @@ The critique layer provides durable adversarial review memory:
 The bounded Ralph loop layer provides durable orchestration over the lower Loom artifacts:
 
 - Ralph runs live under `.loom/ralph/`
-- each run keeps `state.json`, `packet.md`, `run.md`, `iterations.jsonl`, `dashboard.json`, and `launch.json`
+- each run keeps canonical `state.json`, `packet.md`, `run.md`, `iterations.jsonl`, and `dashboard.json`, plus runtime-only `launch.json`
 - Ralph orchestrates bounded plan → execute → critique → revise loops without replacing plans, tickets, critique, or docs as canonical records
 - fresh iterations are expected to rehydrate from durable Loom context rather than from one unbounded transcript
 - loop control is policy-driven and intended to expose explicit continuation, pause, escalation, and stop decisions

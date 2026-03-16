@@ -1,0 +1,108 @@
+{
+  "research": {
+    "id": "persistent-worker-direction-for-pi-workers",
+    "title": "Persistent worker direction for pi-workers",
+    "status": "synthesized",
+    "question": "How should `pi-workers` evolve from its current launch-oriented runtime into a persistently addressable worker system, and what useful ideas can be adapted from `.agents/resources/pi-subagents` without importing its one-shot limitations?",
+    "objective": "Produce source-grounded guidance for improving `pi-workers` toward persistent workers that managers and users can continue talking to over time, while preserving Loom's durable worker doctrine and local-first boundaries.",
+    "statusSummary": "Synthesis complete. The evidence supports an SDK-first persistent-worker direction, with `pi-subagents` treated as a source of observability and orchestration ideas rather than as a runtime model to copy.",
+    "keywords": [
+      "live worker sessions",
+      "manager-worker control plane",
+      "persistent workers",
+      "pi-subagents",
+      "pi-workers",
+      "rpc",
+      "sdk"
+    ],
+    "tags": [
+      "persistent-session",
+      "research",
+      "runtime",
+      "workers"
+    ],
+    "updatedAt": "2026-03-16T07:32:38.488Z"
+  },
+  "hypotheses": {
+    "total": 0,
+    "counts": {
+      "open": 0,
+      "supported": 0,
+      "rejected": 0,
+      "superseded": 0
+    },
+    "confidence": {
+      "low": 0,
+      "medium": 0,
+      "high": 0
+    },
+    "items": []
+  },
+  "artifacts": {
+    "total": 0,
+    "counts": {
+      "note": 0,
+      "experiment": 0,
+      "source": 0,
+      "dataset": 0,
+      "log": 0,
+      "summary": 0
+    },
+    "items": []
+  },
+  "linkedInitiatives": {
+    "total": 0,
+    "items": []
+  },
+  "linkedSpecs": {
+    "total": 0,
+    "counts": {
+      "proposed": 0,
+      "clarifying": 0,
+      "planned": 0,
+      "tasked": 0,
+      "finalized": 0,
+      "archived": 0,
+      "superseded": 0
+    },
+    "items": []
+  },
+  "linkedTickets": {
+    "total": 0,
+    "counts": {
+      "open": 0,
+      "ready": 0,
+      "in_progress": 0,
+      "blocked": 0,
+      "review": 0,
+      "closed": 0
+    },
+    "ready": 0,
+    "blocked": 0,
+    "inProgress": 0,
+    "review": 0,
+    "closed": 0,
+    "items": []
+  },
+  "conclusions": [
+    "`pi-subagents` is not a resident worker system. It is a capable orchestration layer for spawning, tracking, and reviewing one-shot or chained subprocess runs, with good observability but without durable worker identity, mailbox semantics, or live conversational re-entry.",
+    "An SDK-first live-worker path is the best near-term fit because it aligns with the package README, preserves existing worker boundaries, and can reuse official session persistence, resume, streaming input, interruption, and hook surfaces instead of inventing those semantics over RPC first.",
+    "Current `pi-workers` already has the correct high-level domain split for persistent workers: canonical worker truth lives under `.loom/workers`, runtime attachments are clone-local, and manager-mediated inbox/checkpoint semantics are durable and auditable.",
+    "RPC remains useful as a later transport boundary for remote or heterogeneous workers, but if adopted first it would force `pi-workers` to invent protocol, replay, approval, reconnection, and observability semantics at the same time that it is still proving its canonical worker lifecycle.",
+    "The main weakness is not the worker store; it is the runtime model. `runWorkerLaunch()` is still launch-and-finish across all implemented paths: subprocess is one-shot, SDK creates one fresh session and disposes it, and RPC is only a stub.",
+    "To become truthfully persistent, `pi-workers` needs runtime-attachment state and inbox-consumption state beyond today's `launch.json`, plus explicit recovery rules for stale attachments, resume attempts, and session lineage after failures."
+  ],
+  "recommendations": [
+    "Add a runtime-local attachment or lease record separate from canonical worker state. It should track transport kind, live session/runtime instance id, last heartbeat, connection status, resumable session id, and clone-local attachment details needed for reconnect and shutdown.",
+    "Add durable inbox cursor or watermark semantics so a live worker can consume new manager messages incrementally rather than receiving a single synthesized launch prompt each time. Preserve the existing pending/acknowledged/resolved lifecycle and durable progress requirements.",
+    "Build a first-class SDK live-session host for workers. Replace the one-shot SDK launch path with a persistent session registry keyed by `workerId` and a durable/resumable session identity, while keeping transport-local handles out of canonical state.",
+    "Persist structured runtime lifecycle events in addition to messages and checkpoints: launch, attach, resume, interrupt, permission request, reconnect, crash, timeout, stale-lease retirement, and terminal outcome. This is the piece of `pi-subagents` worth adapting most directly.",
+    "Route approval and clarification events through the manager-mediated inbox instead of burying them inside a live chat stream. SDK hook and `canUseTool` surfaces make this feasible while preserving Pi Loom's auditable control-plane model.",
+    "Treat RPC as phase two. Once the SDK path proves the worker contract, define an RPC transport that carries the same worker semantics across process or host boundaries without moving canonical truth out of `.loom/workers`."
+  ],
+  "openQuestions": [
+    "How should durable inbox cursors map onto SDK session resume/continue behavior so replay is deterministic after crashes?",
+    "Should persistent worker sessions be single-tenant per clone with explicit lease ownership, or should the first phase support manager handoff across local processes in one clone only?",
+    "What exact runtime-local attachment record should exist beyond today's `launch.json` to support reconnection without polluting canonical worker state?"
+  ]
+}

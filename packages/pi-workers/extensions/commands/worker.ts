@@ -21,7 +21,9 @@ function parseCreateArgs(args: string): { title: string; objective?: string; tic
   const [left, objective, ticketsPart] = parseDoubleColonArgs(args);
   const title = left?.trim();
   if (!title) {
-    throw new Error("Usage: /worker create <title> [:: <objective>] [:: <ticket1> | <ticket2>]");
+    throw new Error(
+      "Usage: /worker create <title> [:: <objective>] [:: <ticket1> | <ticket2>] (workers require linked tickets)",
+    );
   }
   const ticketIds = ticketsPart
     ? ticketsPart
@@ -264,14 +266,14 @@ export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandCo
     case "launch": {
       const ref = rest[0];
       const runtime = rest[1] as "subprocess" | "sdk" | "rpc" | undefined;
-      if (!ref) throw new Error("Usage: /worker launch <worker>");
+      if (!ref) throw new Error("Usage: /worker launch <worker> [subprocess|sdk|rpc] (default: sdk)");
       store.prepareLaunch(ref, false, "Interactive launch prepared via command surface.", runtime);
       return store.renderLaunch(ref);
     }
     case "resume": {
       const ref = rest[0];
       const runtime = rest[1] as "subprocess" | "sdk" | "rpc" | undefined;
-      if (!ref) throw new Error("Usage: /worker resume <worker>");
+      if (!ref) throw new Error("Usage: /worker resume <worker> [subprocess|sdk|rpc] (default: sdk)");
       store.prepareLaunch(ref, true, "Interactive resume prepared via command surface.", runtime);
       return store.renderLaunch(ref);
     }

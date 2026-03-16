@@ -19,6 +19,13 @@ Tickets are intended to be detail-first execution records and complete units of 
 - AI-facing `ticket_*` tools with built-in prompt guidance
 - system-prompt augmentation via `before_agent_start`
 
+## Artifact policy
+
+- commit ticket markdown, ticket journals, attachment indexes, checkpoint indexes, checkpoint docs under `.loom/checkpoints/`, audit logs under `.loom/tickets/.audit/`, and copied durable artifacts under `.loom/artifacts/`
+- treat those files as repo-visible ticket truth even when they are generated or updated frequently
+- store ticket-linked paths as workspace-relative references so another clone can read the same evidence without local rewrite
+- do not hide ticket state behind broad ignore rules; ticketing is a durable ledger, not runtime scaffolding
+
 ## Local layout
 
 ```text

@@ -117,6 +117,20 @@ export function renderWorkerPacket(result: WorkerReadResult): string {
   ].join("\n\n");
 }
 
+export function renderWorkerLaunchPrompt(result: WorkerReadResult): string {
+  return [
+    "Act as this Pi worker now. Process the worker inbox, execute the requested work, and leave durable state updates behind.",
+    [
+      "Before you stop:",
+      "1. Read unresolved inbox items and handle the actionable manager instructions.",
+      "2. Persist durable progress by acknowledging/resolving inbox items, recording a checkpoint, escalating blockers, or requesting completion/review.",
+      "3. Do not treat a chat-only response as success; if you are blocked, record that durably and state what manager input is required.",
+    ].join("\n"),
+    "Worker state packet:",
+    renderWorkerPacket(result),
+  ].join("\n\n");
+}
+
 export function renderLaunchDescriptor(launch: WorkerRuntimeDescriptor): string {
   return [
     `Worker ${launch.workerId} launch`,

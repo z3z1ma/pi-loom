@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Model } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
@@ -64,6 +65,20 @@ function createCtx(cwd: string): ExtensionContext {
   return { cwd } as ExtensionContext;
 }
 
+function createCtxWithRuntimeConfig(cwd: string): ExtensionContext {
+  return {
+    cwd,
+    model: { provider: "openai", id: "gpt-5.4" } as Model<any>,
+    modelRegistry: { modelsJsonPath: "/tmp/omp-agent/models.json" },
+    sessionManager: {
+      getEntries: () => [{ type: "thinking_level_change", thinkingLevel: "high" }],
+      getLeafId: () => "leaf-1",
+      getSessionFile: () => undefined,
+      getSessionDir: () => "/tmp/omp-agent/sessions/current-workspace",
+    },
+  } as unknown as ExtensionContext;
+}
+
 function createWorkerTicket(cwd: string): void {
   const ticketStore = createTicketStore(cwd);
   ticketStore.initLedger();
@@ -97,6 +112,13 @@ describe("worker tools", () => {
       const workerRead = mockPi.tools.get("worker_read");
       const workerList = mockPi.tools.get("worker_list");
       expect(workerWrite && workerRead && workerList).toBeTruthy();
+      expect(workerWrite?.promptGuidelines).toContain(
+        "Workers require at least one linked ticket id; do not create free-floating workers.",
+      );
+      expect(mockPi.tools.get("worker_launch")?.promptSnippet).toContain("default SDK-backed runtime");
+      expect(mockPi.tools.get("manager_write")?.promptGuidelines).toContain(
+        "Leave runtime unset for the common case so resume defaults to the SDK-backed path instead of forcing subprocess unnecessarily.",
+      );
 
       await workerWrite?.execute(
         "call-1",
@@ -283,6 +305,7 @@ describe("worker tools", () => {
       let worker = createWorkerStore(cwd).readWorker("runtime-tool-worker");
       expect(worker.state.status).toBe("requested");
       expect(worker.state.latestTelemetry.state).toBe("unknown");
+      expect(worker.launch?.runtime).toBe("sdk");
       expect(worker.launch?.status).toBe("prepared");
       expect(readFileSync(worker.artifacts.launch, "utf-8")).toContain('"status": "prepared"');
 
@@ -303,6 +326,46 @@ describe("worker tools", () => {
       expect(worker.launch?.note).toContain("Execution cancelled: Cancelled");
       expect(worker.state.status).toBe("blocked");
       expect(worker.state.latestTelemetry.summary).toContain("Execution cancelled: Cancelled");
+    } finally {
+      runWorkerLaunchMock.mockReset();
+      cleanup();
+    }
+  });
+
+  it("passes inherited sdk runtime config into worker launches", async () => {
+    const { cwd, cleanup } = createWorkspace();
+    const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
+    runWorkerLaunchMock.mockReset();
+    try {
+      createWorkerTicket(cwd);
+
+      const mockPi = createMockPi();
+      registerWorkerTools(mockPi as unknown as ExtensionAPI);
+      const workerWrite = mockPi.tools.get("worker_write");
+      const workerLaunch = mockPi.tools.get("worker_launch");
+      expect(workerWrite && workerLaunch).toBeTruthy();
+
+      await workerWrite?.execute(
+        "call-create",
+        { action: "create", title: "Inherited Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+
+      runWorkerLaunchMock.mockResolvedValueOnce({ status: "completed", output: "Execution finished", error: null });
+      await workerLaunch?.execute("call-run", { ref: "inherited-runtime-worker" }, undefined, undefined, createCtxWithRuntimeConfig(cwd));
+
+      const sdkSessionConfig = runWorkerLaunchMock.mock.calls[0]?.[3];
+      expect(sdkSessionConfig).toEqual(
+        expect.objectContaining({
+          ledgerRoot: cwd,
+          extensionRoot: cwd,
+          agentDir: "/tmp/omp-agent",
+          thinkingLevel: "high",
+          model: expect.objectContaining({ provider: "openai", id: "gpt-5.4" }),
+        }),
+      );
     } finally {
       runWorkerLaunchMock.mockReset();
       cleanup();
@@ -391,6 +454,61 @@ describe("worker tools", () => {
       const schedule = await managerSchedule?.execute("call-schedule", {}, undefined, undefined, createCtx(cwd));
       expect(JSON.stringify(schedule)).toContain("managed-tool-worker");
     } finally {
+      cleanup();
+    }
+  });
+
+  it("passes inherited sdk runtime config through manager scheduler resumes", async () => {
+    const { cwd, cleanup } = createWorkspace();
+    const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
+    runWorkerLaunchMock.mockReset();
+    try {
+      createWorkerTicket(cwd);
+
+      const mockPi = createMockPi();
+      registerManagerTools(mockPi as unknown as ExtensionAPI);
+      registerWorkerTools(mockPi as unknown as ExtensionAPI);
+      const workerWrite = mockPi.tools.get("worker_write");
+      const managerWrite = mockPi.tools.get("manager_write");
+      const managerSchedule = mockPi.tools.get("manager_schedule");
+      expect(workerWrite && managerWrite && managerSchedule).toBeTruthy();
+
+      await workerWrite?.execute(
+        "call-create",
+        { action: "create", title: "Scheduled Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      await managerWrite?.execute(
+        "call-message",
+        { action: "message", ref: "scheduled-runtime-worker", kind: "assignment", text: "Do the work" },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+
+      runWorkerLaunchMock.mockResolvedValueOnce({ status: "completed", output: "Execution finished", error: null });
+      await managerSchedule?.execute(
+        "call-schedule",
+        { refs: ["scheduled-runtime-worker"], apply: true, executeResumes: true },
+        undefined,
+        undefined,
+        createCtxWithRuntimeConfig(cwd),
+      );
+
+      const sdkSessionConfig = runWorkerLaunchMock.mock.calls[0]?.[3];
+      expect(sdkSessionConfig).toEqual(
+        expect.objectContaining({
+          ledgerRoot: cwd,
+          extensionRoot: cwd,
+          agentDir: "/tmp/omp-agent",
+          thinkingLevel: "high",
+          model: expect.objectContaining({ provider: "openai", id: "gpt-5.4" }),
+        }),
+      );
+    } finally {
+      runWorkerLaunchMock.mockReset();
       cleanup();
     }
   });

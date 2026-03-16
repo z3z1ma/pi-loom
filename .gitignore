@@ -28,5 +28,9 @@ todo.md
 resources/
 /.omx
 /.pi/loom/state.json
+# Loom keeps canonical project state under .loom/ and that state belongs in git.
+# Ignore only clone-local execution scaffolding and local durable control-plane state that does not define shared repo truth.
+# Worker records persist locally under .loom/workers/ but tickets remain the shared execution ledger.
+.loom/workers/
 .loom/**/launch.json
 .loom/runtime/

@@ -2,7 +2,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { renderWorkerDashboard, renderWorkerDetail, renderWorkerList } from "../domain/render.js";
-import { runWorkerLaunch } from "../domain/runtime.js";
+import { buildInheritedWorkerSdkSessionConfig, runWorkerLaunch } from "../domain/runtime.js";
 import { createWorkerStore } from "../domain/store.js";
 
 const WorkerStatusEnum = StringEnum([
@@ -212,6 +212,13 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     label: "Write Worker",
     description:
       "Create or update workers, messages, checkpoints, telemetry, approvals, consolidation, and retirement state.",
+    promptSnippet:
+      "Workers execute ticket-linked work. For the common case, create or read the ticket first, then create the worker with linkedRefs.ticketIds before launching it.",
+    promptGuidelines: [
+      "Workers require at least one linked ticket id; do not create free-floating workers.",
+      "When the task is straightforward execution, prefer the simple flow: ticket_read/ticket_write -> worker_write action=create with linkedRefs.ticketIds -> worker_launch. Keep the ticket as the live execution ledger while the worker carries workspace-backed execution state.",
+      "Use append_message, checkpoints, telemetry, completion, and approval updates to keep the worker record truthful after launch instead of narrating worker progress only in chat.",
+    ],
     parameters: Type.Object({
       action: WorkerWriteActionEnum,
       ref: Type.Optional(Type.String()),
@@ -331,7 +338,14 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     name: "worker_launch",
     label: "Launch Worker",
     description:
-      "Provision a worker workspace if needed, prepare launch state, and optionally run a subprocess-backed Pi worker.",
+      "Provision a worker workspace if needed, prepare launch state, and optionally run an SDK-backed Pi worker by default.",
+    promptSnippet:
+      "Launch the existing ticket-linked worker through the default SDK-backed runtime unless you intentionally need subprocess or RPC.",
+    promptGuidelines: [
+      "Use this after the worker already exists and is linked to at least one ticket; worker creation and worker launch are separate steps.",
+      "Omit the runtime override for the common path so launch defaults to the SDK-backed runtime. Override only when you deliberately need subprocess or RPC behavior.",
+      "Use prepareOnly when a manager or later step needs the prepared workspace and launch descriptor without immediately starting execution.",
+    ],
     parameters: Type.Object({
       ref: Type.String(),
       prepareOnly: Type.Optional(Type.Boolean()),
@@ -340,6 +354,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
+      const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
       const prepared = store.prepareLaunch(params.ref, false, params.note, params.runtime);
       if (params.prepareOnly === true) {
         return machineResult({ launch: prepared.launch }, store.renderLaunch(params.ref));
@@ -348,7 +363,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       if (!running.launch) {
         throw new Error("Worker launch descriptor was not created");
       }
-      const execution = await runWorkerLaunch(running.launch, signal);
+      const execution = await runWorkerLaunch(running.launch, signal, undefined, sdkSessionConfig);
       const finalized = store.finishLaunchExecution(params.ref, execution);
       return machineResult(
         { launch: finalized.launch, execution },
@@ -360,7 +375,14 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "worker_resume",
     label: "Resume Worker",
-    description: "Prepare and optionally run a resumed worker subprocess from durable state.",
+    description:
+      "Prepare and optionally run a resumed worker from durable state, defaulting to the SDK-backed runtime.",
+    promptSnippet:
+      "Resume the worker from durable state with the default SDK-backed runtime unless an explicit runtime override is truly needed.",
+    promptGuidelines: [
+      "Use resume for a worker that already exists and has durable state worth continuing; use worker_launch for the initial execution when no prior run exists.",
+      "Keep the runtime override optional. If omitted, resume should preserve the last intentional runtime choice or fall back to the default SDK-backed runtime.",
+    ],
     parameters: Type.Object({
       ref: Type.String(),
       prepareOnly: Type.Optional(Type.Boolean()),
@@ -369,6 +391,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
+      const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
       const prepared = store.prepareLaunch(params.ref, true, params.note ?? "Resume requested", params.runtime);
       if (params.prepareOnly === true) {
         return machineResult({ launch: prepared.launch }, store.renderLaunch(params.ref));
@@ -377,7 +400,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       if (!running.launch) {
         throw new Error("Worker launch descriptor was not created");
       }
-      const execution = await runWorkerLaunch(running.launch, signal);
+      const execution = await runWorkerLaunch(running.launch, signal, undefined, sdkSessionConfig);
       const finalized = store.finishLaunchExecution(params.ref, execution);
       return machineResult(
         { launch: finalized.launch, execution },

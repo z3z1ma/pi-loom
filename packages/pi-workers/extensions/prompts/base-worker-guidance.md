@@ -28,6 +28,12 @@ Runtime doctrine:
 - Treat RPC as a bounded fallback transport, not as the source of worker semantics.
 - Keep runtime-specific machine-local details out of canonical worker artifacts.
 
+Fundamental execution flow:
+- Workers execute ticket-linked work, not free-floating tasks.
+- For the common case: create or read the ticket first, create the worker with that ticket id in `linkedRefs.ticketIds`, then launch or resume the worker.
+- Launch and resume should use the default SDK-backed runtime unless there is a deliberate reason to force subprocess or RPC.
+- Do not launch orphan workers, skip the ticket link, or thrash between manager and worker surfaces when the straightforward ticket -> worker -> launch flow fits.
+
 Boundary doctrine:
 - Tickets remain the live execution ledger.
 - Plans remain execution strategy.

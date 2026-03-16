@@ -18,6 +18,7 @@ import {
   APPROVAL_STATUSES,
   CONSOLIDATION_STATUSES,
   CONSOLIDATION_STRATEGIES,
+  DEFAULT_WORKER_RUNTIME_KIND,
   MANAGER_REF_KINDS,
   MESSAGE_AWAITING,
   MESSAGE_DIRECTIONS,
@@ -109,7 +110,7 @@ export function normalizeTelemetryState(value: string | null | undefined): Worke
 }
 
 export function normalizeRuntimeKind(value: string | null | undefined): WorkerRuntimeKind {
-  return expectEnum("worker runtime kind", value, WORKER_RUNTIME_KINDS, "subprocess");
+  return expectEnum("worker runtime kind", value, WORKER_RUNTIME_KINDS, DEFAULT_WORKER_RUNTIME_KIND);
 }
 
 export function normalizeApprovalStatus(value: string | null | undefined): ApprovalStatus {

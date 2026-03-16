@@ -1,6 +1,6 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { renderManagerOverview } from "../domain/render.js";
-import { runWorkerLaunch } from "../domain/runtime.js";
+import { buildInheritedWorkerSdkSessionConfig, runWorkerLaunch } from "../domain/runtime.js";
 import { createWorkerStore } from "../domain/store.js";
 
 type ApprovalShortcut = "approve" | "reject" | "escalate";
@@ -66,7 +66,7 @@ function parseApprovalArgs(args: string): {
 function parseResumeArgs(args: string): { ref: string; mode: ResumeShortcut; runtime?: RuntimeShortcut } {
   const [ref, mode, runtime] = splitArgs(args);
   if (!ref) {
-    throw new Error("Usage: /manager resume <worker> [prepare|run] [subprocess|sdk|rpc]");
+    throw new Error("Usage: /manager resume <worker> [prepare|run] [subprocess|sdk|rpc] (default: sdk)");
   }
   return {
     ref,
@@ -77,6 +77,7 @@ function parseResumeArgs(args: string): { ref: string; mode: ResumeShortcut; run
 
 export async function handleManagerCommand(args: string, _ctx: ExtensionCommandContext): Promise<string> {
   const store = createWorkerStore(_ctx.cwd);
+  const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(_ctx);
   const [subcommand, ...rest] = splitArgs(args);
   if (!subcommand) {
     return "Usage: /manager <overview|supervise|message|ack|resolve|approve|resume|schedule>";
@@ -135,7 +136,7 @@ export async function handleManagerCommand(args: string, _ctx: ExtensionCommandC
         if (!running.launch) {
           throw new Error("Worker launch descriptor was not created");
         }
-        const execution = await runWorkerLaunch(running.launch);
+        const execution = await runWorkerLaunch(running.launch, undefined, undefined, sdkSessionConfig);
         store.finishLaunchExecution(parsed.ref, execution);
         return `${store.renderLaunch(parsed.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim();
       }
@@ -145,7 +146,7 @@ export async function handleManagerCommand(args: string, _ctx: ExtensionCommandC
       const apply = rest.includes("apply");
       const executeResumes = rest.includes("run");
       const refs = rest.filter((part) => part !== "apply" && part !== "run");
-      const results = await store.runManagerSchedulerPass({ refs, apply, executeResumes });
+      const results = await store.runManagerSchedulerPass({ refs, apply, executeResumes, sdkSessionConfig });
       return results
         .map(
           (result) => `${result.workerId}: ${result.action}${result.applied ? " [applied]" : ""} — ${result.summary}`,
