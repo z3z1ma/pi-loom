@@ -3,15 +3,15 @@
   "title": "Manager-worker control-plane next phase",
   "status": "active",
   "createdAt": "2026-03-16T02:26:00.128Z",
-  "updatedAt": "2026-03-16T02:26:00.128Z",
-  "summary": "Plan the next bounded change set for Pi Loom’s manager worker system after the initial subprocess backed worker substrate. The plan bundles inbox semantics, manager orchestration, runtime evolution, and recovery/observability into one cohe…",
-  "purpose": "Turn the newly accumulated manager-worker research into an actionable, bounded roadmap for making the worker substrate materially more useful without abandoning the simplicity and durable-truth principles that motivated the first implementation.",
-  "contextAndOrientation": "Pi Loom now has a working first-pass worker substrate: durable worker records under `.loom/workers/`, Git-worktree-backed runtime attachment helpers, message/checkpoint/telemetry records, supervision heuristics, completion approval, consolidation outcomes, `/worker` commands, and `worker_*` tools. That phase solved the foundational truth problem: workers are now real workspace-backed execution units rather than session branches or generic subagent metaphors.\n\nThe new research changes the next question, not the first implementation’s validity. `prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces` established the architectural doctrine: workers are workspace-backed, managers supervise from compact state, tickets remain execution truth, and Ralph must stay bounded. `evaluate-pi-control-surfaces-for-long-lived-workers` adds runtime guidance: Pi exposes one-shot CLI/JSON subprocesses, long-lived stdio RPC, and in-process SDK sessions; no first-class Pi worker daemon exists; SDK is the provisional favorite for same-runtime live workers; RPC is the strongest documented fallback for cross-process control; session fork/resume/branch are explicitly not worker lifecycle primitives.\n\nThe practical takeaway is that the current subprocess substrate is a good v1 foundation but not the last mile. It still behaves mostly like durable, workspace-backed, resumable subagent turns. The next phase should therefore improve usefulness before chasing maximal runtime sophistication. Specifically, the system needs a stronger inbox protocol, better worker turn semantics, a real manager control surface, and a runtime abstraction that can host longer-lived or more interactive workers without immediately forcing the project into a full actor-mesh or sidecar-driven system. This plan is structured around that incremental philosophy.",
-  "planOfWork": "The next phase should be organized into five workstreams.\n\nWorkstream 1 — Formalize the durable inbox protocol\nThe current worker substrate has durable messages, but it does not yet define the stronger contract needed for useful autonomous manager-worker loops. The first step is to specify and implement message lifecycle semantics (`pending`, `acknowledged`, `resolved`, potentially `superseded` later), causal expectations, and worker obligations when processing manager instructions. The key behavioral rule should be: workers consume unresolved inbox state as part of their turn and cannot silently ignore manager messages. This workstream should also define what counts as a worker acknowledgment versus a resolution versus an escalation back to the manager.\n\nWorkstream 2 — Make worker turns inbox-driven instead of single-shot by convention\nOnce message semantics are explicit, worker execution should become meaningfully inbox-aware. The practical v2 behavior should be: when a worker runs, it processes the accumulated inbox, acts on each unresolved instruction, records checkpoints/messages, then re-checks whether new unresolved messages arrived before deciding to stop. A worker should stop only when its inbox is empty, it is blocked on manager input, it is requesting approval, or policy says to pause. This can still be turn-based and bounded; it does not yet require an always-on daemon.\n\nWorkstream 3 — Add a real manager surface and scheduler loop\nThe current manager is implicit: the controlling session uses `worker_*` tools manually. The next useful step is to make that explicit. Add a `/manager` or `manager_*` surface that can list workers, inspect dashboards, supervise all active workers, drain pending approvals, send messages, and resume workers automatically based on worker state. Initially this can be polling-driven and bounded. The point is not to introduce magic but to give the AI manager a native control surface that reflects the actual worker protocol.\n\nWorkstream 4 — Introduce a runtime abstraction and explore SDK-first live workers\nThe new runtime research strongly suggests that the current one-shot subprocess runner should stop being the only runtime strategy. The next phase should introduce a worker runtime abstraction with at least:\n- current subprocess implementation as the existing baseline\n- SDK-backed runtime as the preferred next implementation\n- RPC-backed runtime as a documented fallback path for stronger process isolation or cross-process hosting\nThe goal here is not immediate generality for its own sake. The goal is to remove one-shot subprocess execution as a hard architectural assumption and make room for live, event-driven or longer-lived workers where they materially improve usefulness.\n\nWorkstream 5 — Delay actor mesh and sidecars until protocol pressure proves they are needed\nThe user’s instinct about a sidecar or actor-style event mesh is directionally correct, but the plan should not jump there first. Before adding a sidecar scheduler or event broker, Pi Loom should first prove that the simpler combination of durable inbox protocol, inbox-aware worker turns, manager scheduler loop, and SDK/RPC runtime abstraction is insufficient. If that proof appears later, a sidecar or actor-mesh layer can be added as an acceleration/runtime layer on top of the durable worker ledger rather than replacing it.\n\nThis sequencing keeps the system bounded and testable. It also ensures that runtime sophistication is driven by protocol pressure, not by architectural aspiration alone.",
-  "concreteSteps": "1. Open a new bounded spec revision or successor spec dedicated to the next-phase worker control plane. That spec should explicitly preserve the existing worker substrate while revising runtime assumptions beyond 'subprocess-only'.\n2. In that spec, define the message lifecycle contract and the worker turn contract before choosing a long-lived runtime architecture. This prevents runtime work from ossifying around ambiguous inbox semantics.\n3. Split manager responsibilities into two layers:\n   - durable worker state and policy, which already exists and should remain canonical\n   - manager orchestration surface, which should become a first-class command/tool family instead of remaining implicit chat behavior\n4. Introduce a worker runtime interface in code so the existing subprocess runner becomes one implementation rather than the architecture itself.\n5. Prototype SDK-backed worker hosting behind that interface first, because the research says SDK is the cleanest same-runtime surface and aligns best with direct event subscriptions and session control.\n6. Keep a clear RPC fallback design beside the SDK path, but do not let RPC drive the domain model. RPC is transport/control, not worker semantics.\n7. After the manager surface and runtime abstraction exist, add a bounded polling scheduler loop for the manager. Make it responsible for:\n   - scanning workers\n   - inspecting unresolved inbox state\n   - deciding whether to message/resume/escalate/approve\n   - avoiding idle-worker starvation\n8. Only after that loop is in place should Pi Loom assess whether it still needs a sidecar/event-broker layer for lower latency or truly long-lived workers.\n9. If sidecar/event mesh pressure remains high after the above steps, create a new dedicated research/spec cycle for that runtime layer rather than smuggling it into the manager-scheduler work.\n\nImplementation sequencing recommendation:\n- spec revision first\n- durable inbox protocol second\n- manager surface third\n- runtime abstraction and SDK worker host fourth\n- polling scheduler fifth\n- RPC fallback or sidecar exploration only if still justified",
-  "validation": "Validation for the next phase should explicitly prove behavioral usefulness, not just code existence.\n\nFor the inbox protocol work:\n- tests should prove workers cannot silently ignore unresolved manager messages\n- tests should prove acknowledgment/resolution state transitions are durable and queryable\n- tests should prove inbox-driven worker turns drain pending work until a legitimate stop condition is reached\n\nFor the manager surface:\n- tests should prove a manager can supervise multiple workers from the durable ledger without human intervention between every worker turn\n- tests should prove the manager responds correctly to blocked, idle, waiting-for-review, and completion-requesting workers\n- tests should prove manager actions are durable and auditable\n\nFor the runtime abstraction:\n- tests should prove the same worker contract can be exercised through at least the existing subprocess runtime and one additional runtime implementation\n- if SDK-backed workers are added, tests should prove recovery semantics and event-driven steering behavior are truthful\n- if RPC is added later, tests should prove parity with the worker contract rather than transport-specific drift\n\nFor the scheduler loop:\n- tests should prove repeated polling results in useful autonomous progress rather than infinite no-op loops\n- tests should prove anti-stagnation escalation still works under the new runtime model\n- tests should prove manager-driven approval and consolidation remain the non-parallelizable boundary\n\nPlan-level success looks like this: the AI manager can use a first-class manager surface to keep several workers moving through inbox-driven turns with materially less manual babysitting, while ticket primacy, worker portability, and bounded architecture all remain intact.",
-  "risksAndQuestions": "Primary risks:\n- Runtime overreach: adding SDK/RPC plumbing before the inbox protocol is explicit could make the system more complex without making it more understandable.\n- Control-plane drift: a manager scheduler might accidentally become a new hidden execution ledger if its decisions are not persisted back into worker/ticket state.\n- Actor-mesh temptation: the desire for real-time concurrency could lead to a sidecar/event-broker layer before the simpler polling/inbox model has actually failed.\n- Boundary erosion: the more interactive the worker runtime becomes, the easier it is to blur the distinction between workers, tickets, and Ralph.\n\nOpen questions to keep visible:\n- Should the next spec revise the existing worker spec or introduce a successor control-plane spec that treats the current substrate as a completed foundation?\n- Is SDK-backed worker hosting acceptable from an isolation perspective for the first live-worker iteration, or is RPC needed earlier for practical containment?\n- What exact worker stop condition is right for an inbox-draining turn: inbox empty only, or also a bounded max-turn/max-tool-cycle policy?\n- How much manager automation is enough before a sidecar/event broker becomes warranted?\n\nDefault posture for now:\n- prefer SDK first\n- keep RPC as fallback\n- prefer inbox-draining turn semantics over always-on daemons\n- add manager polling before sidecars",
-  "outcomesAndRetrospective": "Desired outcome: a clearly sequenced second phase that makes the worker substrate feel materially more like a manager-worker system without sacrificing the bounded, durable, repo-truthful architecture already achieved. Success means the next implementation wave will improve usefulness — inbox handling, manager orchestration, and live-worker control — rather than merely increasing runtime cleverness.\n\nRetrospective criteria for the future:\n- Did the next phase reduce the amount of manual operator choreography required to keep workers moving?\n- Did the manager surface become explicit enough that an AI session can actually orchestrate workers intentionally rather than improvisationally?\n- Did runtime changes preserve ticket primacy and worker portability?\n- Did the project avoid building a sidecar/event-mesh layer before it had real evidence that the simpler control plane was insufficient?",
+  "updatedAt": "2026-03-16T02:44:53.593Z",
+  "summary": "Sequence the successor implementation phase for Pi Loom’s manager worker system now that the foundation worker substrate exists and the new inbox driven control plane spec is finalized. This plan bridges the finalized next phase spec into …",
+  "purpose": "Turn the finalized inbox-driven manager-worker control-plane spec into a dependency-aware execution program that keeps the architecture bounded, preserves ticket primacy, and makes the worker system materially more useful before any later actor-mesh exploration.",
+  "contextAndOrientation": "The planning context has now tightened. When this plan was first opened, it existed to bundle the broader idea space and decide whether the next move should be protocol-first, runtime-first, or sidecar-first. That question is now answered. The finalized successor spec `add-inbox-driven-manager-worker-control-plane` locks in the next bounded change set: durable inbox protocol, inbox-driven worker turns, explicit manager commands/tools, runtime abstraction, SDK-first live workers with RPC fallback, bounded manager scheduling, and stronger recovery/observability. This plan therefore stops being a pure exploration roadmap and becomes the execution bridge for that spec.\n\nThe first worker rollout remains important context rather than discarded history. The initial `pi-workers` implementation delivered durable worker records, Git-worktree-backed subprocess launches, messaging, checkpoints, telemetry, supervision heuristics, approvals, consolidation, and a headless-safe operator surface. That completed foundation work proved the worker abstraction and surfaced the current limitations honestly: durable messages exist but inbox semantics are too weak, workers still behave like resumable one-shot turns, the manager lacks a first-class fleet surface, and subprocess execution remains the dominant runtime assumption. The new control-surface research then clarified the runtime options and recorded the current preference: SDK first, RPC fallback, session branch/fork/resume explicitly not worker lifecycle.\n\nThis plan is therefore about disciplined evolution, not a reset. It sequences the next tickets so protocol truth lands before runtime cleverness, manager control lands before scheduler autonomy, and runtime abstraction lands before SDK/RPC specialization. Sidecar and actor-mesh ideas remain intentionally out of scope for this rollout unless new evidence appears later.",
+  "planOfWork": "Execution is organized into five waves.\n\nWave 1 — Inbox truth first:\n- `t-0031` formalizes the durable inbox protocol.\n- `t-0032` makes worker runs inbox-driven and stop-condition aware.\nThese two tickets establish the worker-turn contract and should land before any manager or runtime sophistication is added.\n\nWave 2 — Explicit manager control:\n- `t-0033` adds the first-class manager command/tool surface.\nThis makes the manager role operable and intentional before adding scheduler automation.\n\nWave 3 — Runtime decoupling and live-worker direction:\n- `t-0034` introduces the runtime abstraction.\n- `t-0035` adds the SDK-backed live worker runtime.\n- `t-0036` adds the RPC fallback seam.\nThis wave prevents the current subprocess runner from hard-coding the architecture and creates room for stronger live-worker behavior while preserving boundedness.\n\nWave 4 — Bounded automation and recovery:\n- `t-0037` builds the bounded manager scheduler loop.\n- `t-0038` extends recovery and observability for the stronger control plane.\nThis wave is where the system starts reducing manual babysitting meaningfully, but still without a sidecar/event broker.\n\nWave 5 — Contract hardening:\n- `t-0039` closes the phase with docs, prompt guidance, tests, and neighboring integrations.\nThis last ticket ensures the new control-plane semantics become durable repository truth rather than implementation residue.\n\nParallelism guidance:\n- `t-0035` and `t-0036` can proceed in parallel after `t-0034` if the runtime abstraction contract is stable.\n- `t-0038` must remain after scheduler work begins because its observability/recovery layer should reflect real scheduler/runtime state.\n- `t-0039` is the final gate and should stay late so tests/docs bind to the integrated result, not placeholders.",
+  "concreteSteps": "1. Start `t-0031` and lock down the durable inbox protocol before changing worker turn behavior.\n2. Use `t-0032` to make worker runs truly inbox-driven and explicitly bounded by stop conditions.\n3. Land `t-0033` so the manager role gains a truthful command/tool surface before any scheduler logic is introduced.\n4. Refactor the current worker execution path behind a runtime abstraction in `t-0034`.\n5. Implement SDK-backed live workers in `t-0035` as the preferred next runtime path; treat `t-0036` as a bounded RPC fallback track rather than as the semantic center.\n6. Build the bounded manager scheduler in `t-0037` only after the manager surface and preferred live runtime path exist.\n7. Extend dashboards, packets, queue visibility, and recovery semantics through `t-0038`.\n8. Finish with `t-0039`, ensuring tests, README, prompt guidance, and neighboring integrations explain and defend the completed phase.\n\nExecution guidance for contributors:\n- If runtime work starts forcing unresolved protocol decisions, stop and revise the spec rather than guessing in code.\n- If manager automation starts to accumulate hidden queue state outside durable worker/ticket records, treat that as a design regression.\n- If SDK/RPC work starts to diverge the worker contract by runtime kind, fix the abstraction rather than adding transport-specific exceptions.",
+  "validation": "Validation should prove improved usefulness, not just more code.\n\nPer-wave expectations:\n- Wave 1 must prove unresolved inbox state is durable, queryable, and impossible to ignore silently.\n- Wave 2 must prove managers can orchestrate many workers through a native surface without low-level choreography.\n- Wave 3 must prove runtime abstraction and at least one non-subprocess live-worker path preserve the same worker contract.\n- Wave 4 must prove bounded polling actually makes progress across multiple workers and remains restart-safe.\n- Wave 5 must prove docs and tests encode the same bounded architecture the spec requires.\n\nPlan-level acceptance:\n- The finalized package exposes `/manager` and `manager_*` in addition to the worker surface.\n- Workers process inbox backlog durably and visibly before stopping.\n- The worker package supports the existing subprocess runtime plus an SDK-backed path behind one contract, with RPC clearly bounded as fallback.\n- The manager scheduler can reduce manual babysitting without becoming a hidden execution ledger or sidecar mesh.\n- Ticket primacy, worker portability, and Ralph boundedness all remain intact.\n\nRecommended final verification envelope once this rollout is complete:\n- targeted `vitest` runs for `packages/pi-workers/__tests__/**/*.test.ts`\n- workspace `npm run typecheck`\n- targeted `biome` checks for touched package/docs files\n- focused neighboring-package tests when integrations are touched",
+  "risksAndQuestions": "Primary risks:\n- protocol/runtimes inverted: implementing live runtimes before inbox semantics are fully explicit could bake ambiguity into every later layer\n- hidden scheduler truth: a manager loop that keeps meaningful queue state only in memory would undermine durable recovery\n- runtime divergence: SDK, RPC, and subprocess implementations could accidentally produce different worker semantics unless the abstraction is enforced tightly\n- actor-mesh creep: once manager scheduling works, there may be pressure to jump straight to sidecars before validating that bounded polling is insufficient\n\nOpen questions still worth preserving:\n- whether RPC should land as a real implementation in this phase or as a seam/documented fallback stub\n- what bounded max-turn/max-budget policy best complements inbox-draining runs\n- whether the manager scheduler should live entirely inside `pi-workers` or share some orchestration helper surface with adjacent packages later\n\nDefault posture for this rollout:\n- protocol first\n- manager surface second\n- runtime abstraction before transport specialization\n- SDK first, RPC fallback\n- scheduler before sidecar",
+  "outcomesAndRetrospective": "Desired outcome: a worker control plane that feels substantially more like a real manager-worker system while still remaining bounded, durable, and understandable. Success means the AI manager can intentionally drive a fleet of workers through inbox semantics, live-worker runtimes, and bounded scheduling with materially less human choreography, yet the system still tells the truth about its durable records and boundaries.\n\nRetrospective criteria for later assessment:\n- Did workers become inbox-driven in a way that actually reduced coordination ambiguity?\n- Did the manager surface make orchestration simpler and more intentional?\n- Did the SDK-backed worker path improve usefulness without breaking recovery or portability?\n- Did the scheduler add value without becoming an opaque runtime blob?\n- Did the phase avoid prematurely hard-committing the architecture to a sidecar/event mesh?",
   "scopePaths": [
     ".loom/research",
     "AGENTS.md",
@@ -22,8 +22,8 @@
     "README.md"
   ],
   "sourceTarget": {
-    "kind": "initiative",
-    "ref": "workspace-backed-manager-worker-coordination"
+    "kind": "spec",
+    "ref": "add-inbox-driven-manager-worker-control-plane"
   },
   "contextRefs": {
     "roadmapItemIds": [
@@ -37,6 +37,7 @@
       "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
     ],
     "specChangeIds": [
+      "add-inbox-driven-manager-worker-control-plane",
       "add-workspace-backed-manager-worker-substrate"
     ],
     "ticketIds": [
@@ -51,7 +52,16 @@
       "t-0023",
       "t-0024",
       "t-0025",
-      "t-0026"
+      "t-0026",
+      "t-0031",
+      "t-0032",
+      "t-0033",
+      "t-0034",
+      "t-0035",
+      "t-0036",
+      "t-0037",
+      "t-0038",
+      "t-0039"
     ],
     "critiqueIds": [
       "critique-workspace-backed-manager-worker-rollout"
@@ -60,40 +70,86 @@
       "workspace-backed-manager-worker-execution-overview"
     ]
   },
-  "linkedTickets": [],
+  "linkedTickets": [
+    {
+      "ticketId": "t-0031",
+      "role": "inbox-protocol",
+      "order": 1
+    },
+    {
+      "ticketId": "t-0032",
+      "role": "inbox-driven-runs",
+      "order": 2
+    },
+    {
+      "ticketId": "t-0033",
+      "role": "manager-surface",
+      "order": 3
+    },
+    {
+      "ticketId": "t-0034",
+      "role": "runtime-abstraction",
+      "order": 4
+    },
+    {
+      "ticketId": "t-0035",
+      "role": "sdk-runtime",
+      "order": 5
+    },
+    {
+      "ticketId": "t-0036",
+      "role": "rpc-fallback",
+      "order": 6
+    },
+    {
+      "ticketId": "t-0037",
+      "role": "scheduler",
+      "order": 7
+    },
+    {
+      "ticketId": "t-0038",
+      "role": "recovery-observability",
+      "order": 8
+    },
+    {
+      "ticketId": "t-0039",
+      "role": "verification-docs",
+      "order": 9
+    }
+  ],
   "discoveries": [
     {
-      "note": "The worker substrate solved the foundational truth problem, but usefulness now depends more on protocol and control-loop design than on another raw persistence layer.",
-      "evidence": "Current `pi-workers` package already persists workers, messages, checkpoints, approvals, and consolidation; the next research is about control surfaces and live-worker behavior."
+      "note": "The right next unit of progress is protocol and control-plane quality, not yet a full actor mesh.",
+      "evidence": "The current worker package already solves the foundational worker-truth problem; the new research and user feedback both point at inbox semantics and manager usefulness as the real next gap."
     },
     {
-      "note": "Pi’s SDK and RPC surfaces are materially stronger long-lived control options than session fork/resume/branch, which remain session-history primitives rather than worker lifecycle primitives.",
-      "evidence": "Research record `evaluate-pi-control-surfaces-for-long-lived-workers`."
+      "note": "SDK-backed live workers are the best currently researched same-runtime next step, but only after the runtime abstraction exists.",
+      "evidence": "Research record `evaluate-pi-control-surfaces-for-long-lived-workers` plus the finalized successor spec."
     },
     {
-      "note": "A true actor/event mesh is an acceleration layer idea, not the first missing foundation.",
-      "evidence": "The current system still lacks explicit inbox-draining worker turns and a first-class manager control surface, both of which can be added without sidecar/event-broker complexity."
+      "note": "The manager needs an explicit surface before a scheduler can be responsibly added.",
+      "evidence": "Without `/manager` or `manager_*`, the current manager behavior remains implicit low-level orchestration over `worker_*`, which is exactly the usability gap this next phase is meant to fix."
     }
   ],
   "decisions": [
     {
-      "decision": "Treat inbox protocol and worker-turn semantics as the next design anchor before selecting a long-lived runtime architecture.",
-      "rationale": "Runtime complexity without a clear durable protocol will only make worker behavior harder to reason about and recover.",
+      "decision": "Promote the active next-phase plan from a generic initiative roadmap into the rollout bridge for the new finalized control-plane spec.",
+      "rationale": "The successor spec now exists, so the plan should guide execution rather than remain purely exploratory.",
       "date": "2026-03-16",
       "author": "ChatGPT"
     },
     {
-      "decision": "Prefer SDK-backed workers as the first live-worker direction, with RPC as fallback rather than as the domain model.",
-      "rationale": "The new research shows SDK is the cleanest same-runtime control surface and RPC is strongest when process separation is required.",
+      "decision": "Sequence inbox protocol and inbox-driven turns before manager surface, runtime abstraction, and scheduler work.",
+      "rationale": "Worker-turn semantics are the controlling contract that later manager/runtime behavior must respect.",
       "date": "2026-03-16",
       "author": "ChatGPT"
     },
     {
-      "decision": "Delay sidecar/event-mesh work until the simpler combination of durable inbox semantics, manager polling, and runtime abstraction has been tried.",
-      "rationale": "This preserves simplicity and keeps the architecture bounded while still leaving room for a future acceleration layer if evidence demands it.",
+      "decision": "Keep RPC as a fallback track parallel to SDK work rather than the primary runtime path.",
+      "rationale": "The new research and bounded-architecture posture both support SDK-first live workers for same-runtime use while keeping RPC available for stronger separation needs.",
       "date": "2026-03-16",
       "author": "ChatGPT"
     }
   ],
-  "packetSummary": "initiative:workspace-backed-manager-worker-coordination; 0 linked ticket(s); 1 roadmap; 1 initiative; 2 research; 1 spec; 12 ticket; 1 critique; 1 doc"
+  "packetSummary": "spec:add-inbox-driven-manager-worker-control-plane; 9 linked ticket(s); 1 roadmap; 1 initiative; 2 research; 2 spec; 21 ticket; 1 critique; 1 doc"
 }

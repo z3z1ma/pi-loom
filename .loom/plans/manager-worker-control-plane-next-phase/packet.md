@@ -4,14 +4,14 @@
 
 ## Planning Target
 
-workspace-backed-manager-worker-coordination [active] Workspace-backed manager-worker coordination
-Objective: Develop a truthful manager-worker operating model for Pi Loom in which workers are ephemeral workspaces, managers supervise and consolidate bounded execution across those workspaces, and the resulting system composes cleanly with plans, tickets, Ralph, critique, and documentatio…
-Status summary: Active again for the next phase: the initial worker substrate is implemented, and new runtime/control-surface research now reopens the initiative for a broader control-plane evolution plan.
-Milestones: 1
+add-inbox-driven-manager-worker-control-plane [finalized] Add inbox-driven manager-worker control plane
+Proposal: Evolve the implemented worker substrate from a durable, subprocess-backed foundation into a more useful manager-worker control plane centered on durable inbox semantics, inbox-driven worker turns, an explicit manager orchestration surface, and a worker runtime abstraction that c…
+Requirements: 21
+Tasks: 9
 
 ## Current Plan Summary
 
-Plan the next bounded change set for Pi Loom’s manager worker system after the initial subprocess backed worker substrate. The plan bundles inbox semantics, manager orchestration, runtime evolution, and recovery/observability into one cohe…
+Sequence the successor implementation phase for Pi Loom’s manager worker system now that the foundation worker substrate exists and the new inbox driven control plane spec is finalized. This plan bridges the finalized next phase spec into …
 
 ## Planning Boundaries
 
@@ -22,7 +22,15 @@ Plan the next bounded change set for Pi Loom’s manager worker system after the
 
 ## Linked Tickets
 
-- (none linked yet)
+- t-0031 [ready] Refactor worker messages into a durable inbox protocol — inbox-protocol
+- t-0032 [blocked] Make worker runs inbox-driven and stop-condition aware — inbox-driven-runs
+- t-0033 [blocked] Add first-class manager commands and tools — manager-surface
+- t-0034 [blocked] Introduce runtime abstraction for worker execution — runtime-abstraction
+- t-0035 [blocked] Implement SDK-backed live worker runtime — sdk-runtime
+- t-0036 [blocked] Add RPC fallback seam for live workers — rpc-fallback
+- t-0037 [blocked] Build bounded manager scheduler loop — scheduler
+- t-0038 [blocked] Extend recovery and observability for the new control plane — recovery-observability
+- t-0039 [blocked] Harden docs tests and neighboring integrations — verification-docs
 
 ## Scope Paths
 
@@ -56,6 +64,7 @@ Open constitutional questions: How much explicit hypothesis and rejected-path st
 
 ## Specs
 
+- add-inbox-driven-manager-worker-control-plane [finalized] Add inbox-driven manager-worker control plane — reqs=21 tasks=9
 - add-workspace-backed-manager-worker-substrate [finalized] Add workspace-backed manager-worker substrate — reqs=24 tasks=12
 
 ## Tickets
@@ -72,6 +81,15 @@ Open constitutional questions: How much explicit hypothesis and rejected-path st
 - t-0024 [closed] Expose worker commands tools and prompt guidance — Provide the first-class operator and agent surface for the worker substrate through `/worker` commands, `worker_*` tools, and prompt guidance that teaches the right architecture and keeps the feature usable in both interactive and headless environments.
 - t-0025 [closed] Harden recovery resume and retirement flows — Implement deterministic recovery, resume, reprovision, and retirement behavior so managers can safely recover from crashes, stale attachments, or abandoned workers without relying on the original live process or transcript.
 - t-0026 [closed] Cover worker substrate with tests and operator documentation — Close the implementation slice with comprehensive failure-aware tests and package/operator documentation so the new worker substrate is both defended by automation and understandable to future maintainers with minimal prior context.
+- t-0031 [ready] Refactor worker messages into a durable inbox protocol — Turn the existing worker message stream into a real durable inbox contract so manager instructions, worker acknowledgments, resolutions, escalations, and bounded broadcast state are all queryable, actionable, and impossible to silently ignore.
+- t-0032 [blocked] Make worker runs inbox-driven and stop-condition aware — Change worker run semantics so each run consumes unresolved inbox state, records message-handling progress durably, re-checks the inbox before stopping, and exits only at explicit bounded stop conditions.
+- t-0033 [blocked] Add first-class manager commands and tools — Introduce `/manager` and `manager_*` surfaces so a manager can supervise many workers intentionally through a native control plane instead of stitching together raw `worker_*` operations ad hoc.
+- t-0034 [blocked] Introduce runtime abstraction for worker execution — Refactor worker execution behind a runtime abstraction so the current subprocess runner becomes one strategy rather than the architecture itself, making room for SDK-backed and RPC-backed live workers without duplicating worker domain semantics.
+- t-0035 [blocked] Implement SDK-backed live worker runtime — Add a same-process SDK-backed worker host that can execute inbox-driven worker turns with direct Pi session control while persisting all important state transitions back into the durable worker ledger.
+- t-0036 [blocked] Add RPC fallback seam for live workers — Add a bounded RPC-backed runtime seam or implementation so process-separated live workers remain possible without letting RPC redefine the worker contract or become the semantic center of the package.
+- t-0037 [blocked] Build bounded manager scheduler loop — Implement the manager polling loop that scans worker state, unresolved inbox backlog, telemetry, and approvals, then makes durable bounded decisions to message, resume, escalate, or surface approvals without requiring a human between every worker turn.
+- t-0038 [blocked] Extend recovery and observability for the new control plane — Expand worker dashboards, packets, queue summaries, and recovery behavior so unresolved inbox state, runtime kind, scheduler visibility, and restart-safe reconstruction remain obvious across the stronger control plane.
+- t-0039 [blocked] Harden docs tests and neighboring integrations — Close the control-plane phase with comprehensive tests, prompt guidance, README updates, and neighboring package integration checks so the stronger inbox protocol, manager surface, runtime abstraction, and scheduler behavior are all documented and defended by automation.
 
 ## Critiques
 

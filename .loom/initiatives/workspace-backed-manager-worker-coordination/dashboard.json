@@ -4,7 +4,7 @@
     "title": "Workspace-backed manager-worker coordination",
     "status": "active",
     "objective": "Develop a truthful manager-worker operating model for Pi Loom in which workers are ephemeral workspaces, managers supervise and consolidate bounded execution across those workspaces, and the resulting system composes cleanly with plans, tickets, Ralph, critique, and documentation.",
-    "statusSummary": "Active again for the next phase: the initial worker substrate is implemented, and new runtime/control-surface research now reopens the initiative for a broader control-plane evolution plan.",
+    "statusSummary": "Active for the next phase with a finalized inbox-driven control-plane spec and a linked nine-ticket rollout covering inbox semantics, manager surface, runtime abstraction, SDK-first workers, bounded scheduling, and recovery/observability.",
     "targetWindow": "later",
     "owners": [],
     "tags": [
@@ -17,7 +17,7 @@
     "roadmapRefs": [
       "item-007"
     ],
-    "updatedAt": "2026-03-16T02:24:23.766Z"
+    "updatedAt": "2026-03-16T02:45:20.878Z"
   },
   "linkedRoadmap": {
     "total": 1,
@@ -39,30 +39,56 @@
         "id": "evaluate-pi-control-surfaces-for-long-lived-workers",
         "title": "Evaluate Pi control surfaces for long-lived workers",
         "status": "synthesized",
-        "updatedAt": "2026-03-16T02:20:26.187Z",
+        "updatedAt": "2026-03-16T02:37:06.151Z",
         "path": ".loom/research/evaluate-pi-control-surfaces-for-long-lived-workers"
       },
       {
         "id": "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces",
         "title": "Prepare manager-worker architecture from pi-supervisor and Pi extension interfaces",
         "status": "synthesized",
-        "updatedAt": "2026-03-16T00:03:16.510Z",
+        "updatedAt": "2026-03-16T02:37:06.183Z",
         "path": ".loom/research/prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
       }
     ]
   },
   "linkedSpecs": {
-    "total": 1,
+    "total": 2,
     "counts": {
       "proposed": 0,
       "clarifying": 0,
       "planned": 0,
       "tasked": 0,
-      "finalized": 1,
+      "finalized": 2,
       "archived": 0,
       "superseded": 0
     },
     "items": [
+      {
+        "id": "add-inbox-driven-manager-worker-control-plane",
+        "title": "Add inbox-driven manager-worker control plane",
+        "status": "finalized",
+        "requirementCount": 21,
+        "taskCount": 9,
+        "capabilityIds": [
+          "bounded-manager-scheduler",
+          "durable-inbox-protocol",
+          "inbox-driven-worker-turns",
+          "manager-control-surface",
+          "recovery-and-observability-alignment",
+          "runtime-abstraction",
+          "sdk-first-live-workers"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "updatedAt": "2026-03-16T02:39:16.175Z",
+        "archived": false,
+        "path": ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane"
+      },
       {
         "id": "add-workspace-backed-manager-worker-substrate",
         "title": "Add workspace-backed manager-worker substrate",
@@ -93,17 +119,17 @@
     ]
   },
   "linkedTickets": {
-    "total": 12,
+    "total": 21,
     "counts": {
       "open": 0,
-      "ready": 0,
+      "ready": 1,
       "in_progress": 0,
-      "blocked": 0,
+      "blocked": 8,
       "review": 0,
       "closed": 12
     },
-    "ready": 0,
-    "blocked": 0,
+    "ready": 1,
+    "blocked": 8,
     "inProgress": 0,
     "review": 0,
     "closed": 12,
@@ -559,6 +585,345 @@
         "parent": null,
         "closed": true,
         "path": ".loom/tickets/closed/t-0026.md"
+      },
+      {
+        "id": "t-0031",
+        "title": "Refactor worker messages into a durable inbox protocol",
+        "status": "ready",
+        "storedStatus": "open",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T02:39:44.427Z",
+        "updatedAt": "2026-03-16T02:44:33.813Z",
+        "deps": [],
+        "links": [
+          ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-inbox-driven-manager-worker-control-plane",
+        "specCapabilities": [
+          "durable-inbox-protocol"
+        ],
+        "specRequirements": [
+          "req-001",
+          "req-002",
+          "req-003"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0031.md"
+      },
+      {
+        "id": "t-0032",
+        "title": "Make worker runs inbox-driven and stop-condition aware",
+        "status": "blocked",
+        "storedStatus": "open",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T02:39:44.446Z",
+        "updatedAt": "2026-03-16T02:44:36.097Z",
+        "deps": [
+          "t-0031"
+        ],
+        "links": [
+          ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-inbox-driven-manager-worker-control-plane",
+        "specCapabilities": [
+          "inbox-driven-worker-turns"
+        ],
+        "specRequirements": [
+          "req-004",
+          "req-005",
+          "req-006"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0032.md"
+      },
+      {
+        "id": "t-0033",
+        "title": "Add first-class manager commands and tools",
+        "status": "blocked",
+        "storedStatus": "open",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T02:39:44.463Z",
+        "updatedAt": "2026-03-16T02:44:38.405Z",
+        "deps": [
+          "t-0031"
+        ],
+        "links": [
+          ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-inbox-driven-manager-worker-control-plane",
+        "specCapabilities": [
+          "manager-control-surface"
+        ],
+        "specRequirements": [
+          "req-007",
+          "req-008",
+          "req-009"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0033.md"
+      },
+      {
+        "id": "t-0034",
+        "title": "Introduce runtime abstraction for worker execution",
+        "status": "blocked",
+        "storedStatus": "open",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T02:39:44.478Z",
+        "updatedAt": "2026-03-16T02:44:40.790Z",
+        "deps": [
+          "t-0032"
+        ],
+        "links": [
+          ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-inbox-driven-manager-worker-control-plane",
+        "specCapabilities": [
+          "runtime-abstraction"
+        ],
+        "specRequirements": [
+          "req-010",
+          "req-011",
+          "req-012"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0034.md"
+      },
+      {
+        "id": "t-0035",
+        "title": "Implement SDK-backed live worker runtime",
+        "status": "blocked",
+        "storedStatus": "open",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T02:39:44.496Z",
+        "updatedAt": "2026-03-16T02:44:43.307Z",
+        "deps": [
+          "t-0034"
+        ],
+        "links": [
+          ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-inbox-driven-manager-worker-control-plane",
+        "specCapabilities": [
+          "runtime-abstraction",
+          "sdk-first-live-workers"
+        ],
+        "specRequirements": [
+          "req-014",
+          "req-015"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0035.md"
+      },
+      {
+        "id": "t-0036",
+        "title": "Add RPC fallback seam for live workers",
+        "status": "blocked",
+        "storedStatus": "open",
+        "priority": "medium",
+        "type": "task",
+        "createdAt": "2026-03-16T02:39:44.511Z",
+        "updatedAt": "2026-03-16T02:44:45.823Z",
+        "deps": [
+          "t-0034"
+        ],
+        "links": [
+          ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-inbox-driven-manager-worker-control-plane",
+        "specCapabilities": [
+          "runtime-abstraction",
+          "sdk-first-live-workers"
+        ],
+        "specRequirements": [
+          "req-013",
+          "req-014"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0036.md"
+      },
+      {
+        "id": "t-0037",
+        "title": "Build bounded manager scheduler loop",
+        "status": "blocked",
+        "storedStatus": "open",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2026-03-16T02:39:44.526Z",
+        "updatedAt": "2026-03-16T02:44:48.320Z",
+        "deps": [
+          "t-0033",
+          "t-0035"
+        ],
+        "links": [
+          ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-inbox-driven-manager-worker-control-plane",
+        "specCapabilities": [
+          "bounded-manager-scheduler",
+          "manager-control-surface"
+        ],
+        "specRequirements": [
+          "req-016",
+          "req-017",
+          "req-018"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0037.md"
+      },
+      {
+        "id": "t-0038",
+        "title": "Extend recovery and observability for the new control plane",
+        "status": "blocked",
+        "storedStatus": "open",
+        "priority": "medium",
+        "type": "task",
+        "createdAt": "2026-03-16T02:39:44.544Z",
+        "updatedAt": "2026-03-16T02:44:50.909Z",
+        "deps": [
+          "t-0031",
+          "t-0034",
+          "t-0037"
+        ],
+        "links": [
+          ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-inbox-driven-manager-worker-control-plane",
+        "specCapabilities": [
+          "recovery-and-observability-alignment"
+        ],
+        "specRequirements": [
+          "req-019",
+          "req-020",
+          "req-021"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0038.md"
+      },
+      {
+        "id": "t-0039",
+        "title": "Harden docs tests and neighboring integrations",
+        "status": "blocked",
+        "storedStatus": "open",
+        "priority": "medium",
+        "type": "task",
+        "createdAt": "2026-03-16T02:39:44.564Z",
+        "updatedAt": "2026-03-16T02:44:53.585Z",
+        "deps": [
+          "t-0032",
+          "t-0033",
+          "t-0035",
+          "t-0037",
+          "t-0038"
+        ],
+        "links": [
+          ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane/proposal.md"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "specChange": "add-inbox-driven-manager-worker-control-plane",
+        "specCapabilities": [
+          "bounded-manager-scheduler",
+          "durable-inbox-protocol",
+          "inbox-driven-worker-turns",
+          "manager-control-surface",
+          "recovery-and-observability-alignment",
+          "runtime-abstraction",
+          "sdk-first-live-workers"
+        ],
+        "specRequirements": [
+          "req-001",
+          "req-009",
+          "req-011",
+          "req-015",
+          "req-017",
+          "req-021"
+        ],
+        "tags": [],
+        "parent": null,
+        "closed": false,
+        "path": ".loom/tickets/t-0039.md"
       }
     ]
   },

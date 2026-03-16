@@ -3,7 +3,7 @@
   "title": "Evaluate Pi control surfaces for long-lived workers",
   "status": "synthesized",
   "createdAt": "2026-03-16T02:19:49.094Z",
-  "updatedAt": "2026-03-16T02:20:26.187Z",
+  "updatedAt": "2026-03-16T02:37:06.151Z",
   "archivedAt": null,
   "synthesizedAt": "2026-03-16T02:20:26.187Z",
   "question": "What Pi runtime/control surfaces are available for live, long-lived worker processes, and which direction best fits Pi Loom's manager-worker model without falling back to TUI/tmux automation?",
@@ -60,6 +60,7 @@
     "workspace-backed-manager-worker-coordination"
   ],
   "specChangeIds": [
+    "add-inbox-driven-manager-worker-control-plane",
     "add-workspace-backed-manager-worker-substrate"
   ],
   "ticketIds": [],

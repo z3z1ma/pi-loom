@@ -1,0 +1,3 @@
+{"id":"t-0034-journal-0001","ticketId":"t-0034","createdAt":"2026-03-16T02:39:44.478Z","kind":"state","text":"Created ticket Introduce runtime abstraction for worker execution","metadata":{"action":"create"}}
+{"id":"t-0034-journal-0002","ticketId":"t-0034","createdAt":"2026-03-16T02:42:11.314Z","kind":"state","text":"Updated ticket metadata","metadata":{"action":"update"}}
+{"id":"t-0034-journal-0003","ticketId":"t-0034","createdAt":"2026-03-16T02:44:40.790Z","kind":"state","text":"Added external reference plan:manager-worker-control-plane-next-phase","metadata":{"externalRef":"plan:manager-worker-control-plane-next-phase"}}

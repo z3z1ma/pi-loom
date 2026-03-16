@@ -3,18 +3,18 @@
     "id": "manager-worker-control-plane-next-phase",
     "title": "Manager-worker control-plane next phase",
     "status": "active",
-    "updatedAt": "2026-03-16T02:26:00.128Z",
-    "sourceKind": "initiative",
-    "sourceRef": "workspace-backed-manager-worker-coordination",
-    "linkedTicketCount": 0,
-    "summary": "Plan the next bounded change set for Pi Loom’s manager worker system after the initial subprocess backed worker substrate. The plan bundles inbox semantics, manager orchestration, runtime evolution, and recovery/observability into one cohe…",
+    "updatedAt": "2026-03-16T02:44:53.593Z",
+    "sourceKind": "spec",
+    "sourceRef": "add-inbox-driven-manager-worker-control-plane",
+    "linkedTicketCount": 9,
+    "summary": "Sequence the successor implementation phase for Pi Loom’s manager worker system now that the foundation worker substrate exists and the new inbox driven control plane spec is finalized. This plan bridges the finalized next phase spec into …",
     "path": ".loom/plans/manager-worker-control-plane-next-phase"
   },
   "packetPath": ".loom/plans/manager-worker-control-plane-next-phase/packet.md",
   "planPath": ".loom/plans/manager-worker-control-plane-next-phase/plan.md",
   "sourceTarget": {
-    "kind": "initiative",
-    "ref": "workspace-backed-manager-worker-coordination"
+    "kind": "spec",
+    "ref": "add-inbox-driven-manager-worker-control-plane"
   },
   "contextRefs": {
     "roadmapItemIds": [
@@ -28,6 +28,7 @@
       "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
     ],
     "specChangeIds": [
+      "add-inbox-driven-manager-worker-control-plane",
       "add-workspace-backed-manager-worker-substrate"
     ],
     "ticketIds": [
@@ -42,7 +43,16 @@
       "t-0023",
       "t-0024",
       "t-0025",
-      "t-0026"
+      "t-0026",
+      "t-0031",
+      "t-0032",
+      "t-0033",
+      "t-0034",
+      "t-0035",
+      "t-0036",
+      "t-0037",
+      "t-0038",
+      "t-0039"
     ],
     "critiqueIds": [
       "critique-workspace-backed-manager-worker-rollout"
@@ -60,9 +70,85 @@
     "packages/pi-workers",
     "README.md"
   ],
-  "linkedTickets": [],
+  "linkedTickets": [
+    {
+      "ticketId": "t-0031",
+      "role": "inbox-protocol",
+      "order": 1,
+      "status": "ready",
+      "title": "Refactor worker messages into a durable inbox protocol",
+      "path": ".loom/tickets/t-0031.md"
+    },
+    {
+      "ticketId": "t-0032",
+      "role": "inbox-driven-runs",
+      "order": 2,
+      "status": "blocked",
+      "title": "Make worker runs inbox-driven and stop-condition aware",
+      "path": ".loom/tickets/t-0032.md"
+    },
+    {
+      "ticketId": "t-0033",
+      "role": "manager-surface",
+      "order": 3,
+      "status": "blocked",
+      "title": "Add first-class manager commands and tools",
+      "path": ".loom/tickets/t-0033.md"
+    },
+    {
+      "ticketId": "t-0034",
+      "role": "runtime-abstraction",
+      "order": 4,
+      "status": "blocked",
+      "title": "Introduce runtime abstraction for worker execution",
+      "path": ".loom/tickets/t-0034.md"
+    },
+    {
+      "ticketId": "t-0035",
+      "role": "sdk-runtime",
+      "order": 5,
+      "status": "blocked",
+      "title": "Implement SDK-backed live worker runtime",
+      "path": ".loom/tickets/t-0035.md"
+    },
+    {
+      "ticketId": "t-0036",
+      "role": "rpc-fallback",
+      "order": 6,
+      "status": "blocked",
+      "title": "Add RPC fallback seam for live workers",
+      "path": ".loom/tickets/t-0036.md"
+    },
+    {
+      "ticketId": "t-0037",
+      "role": "scheduler",
+      "order": 7,
+      "status": "blocked",
+      "title": "Build bounded manager scheduler loop",
+      "path": ".loom/tickets/t-0037.md"
+    },
+    {
+      "ticketId": "t-0038",
+      "role": "recovery-observability",
+      "order": 8,
+      "status": "blocked",
+      "title": "Extend recovery and observability for the new control plane",
+      "path": ".loom/tickets/t-0038.md"
+    },
+    {
+      "ticketId": "t-0039",
+      "role": "verification-docs",
+      "order": 9,
+      "status": "blocked",
+      "title": "Harden docs tests and neighboring integrations",
+      "path": ".loom/tickets/t-0039.md"
+    }
+  ],
   "counts": {
-    "tickets": 0,
-    "byStatus": {}
+    "tickets": 9,
+    "byStatus": {
+      "ready": 1,
+      "blocked": 8
+    }
   }
 }

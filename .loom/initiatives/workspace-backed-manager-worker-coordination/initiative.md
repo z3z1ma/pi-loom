@@ -3,7 +3,7 @@ id: workspace-backed-manager-worker-coordination
 title: "Workspace-backed manager-worker coordination"
 status: active
 created-at: 2026-03-15T23:55:42.572Z
-updated-at: 2026-03-16T02:24:23.766Z
+updated-at: 2026-03-16T02:45:20.878Z
 owners: []
 tags:
   - architecture
@@ -14,6 +14,7 @@ research:
   - evaluate-pi-control-surfaces-for-long-lived-workers
   - prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces
 spec-changes:
+  - add-inbox-driven-manager-worker-control-plane
   - add-workspace-backed-manager-worker-substrate
 tickets:
   - t-0015
@@ -28,6 +29,15 @@ tickets:
   - t-0024
   - t-0025
   - t-0026
+  - t-0031
+  - t-0032
+  - t-0033
+  - t-0034
+  - t-0035
+  - t-0036
+  - t-0037
+  - t-0038
+  - t-0039
 capabilities: []
 roadmap-refs:
   - item-007
@@ -61,7 +71,7 @@ Develop a truthful manager-worker operating model for Pi Loom in which workers a
 - The resulting bounded design is clear enough that future tickets can be projected without reopening first-principles architectural questions.
 
 ## Status Summary
-Active again for the next phase: the initial worker substrate is implemented, and new runtime/control-surface research now reopens the initiative for a broader control-plane evolution plan.
+Active for the next phase with a finalized inbox-driven control-plane spec and a linked nine-ticket rollout covering inbox semantics, manager surface, runtime abstraction, SDK-first workers, bounded scheduling, and recovery/observability.
 
 ## Risks
 - Jumping to a sidecar/event mesh before the durable inbox protocol and manager loop are solid would add runtime complexity faster than it adds trustworthy behavior.

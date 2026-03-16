@@ -3,10 +3,11 @@ id: evaluate-pi-control-surfaces-for-long-lived-workers
 title: "Evaluate Pi control surfaces for long-lived workers"
 status: synthesized
 created-at: 2026-03-16T02:19:49.094Z
-updated-at: 2026-03-16T02:20:26.187Z
+updated-at: 2026-03-16T02:37:06.151Z
 initiatives:
   - workspace-backed-manager-worker-coordination
 specs:
+  - add-inbox-driven-manager-worker-control-plane
   - add-workspace-backed-manager-worker-substrate
 tickets: []
 capabilities: []
@@ -83,6 +84,7 @@ Research synthesized. Pi clearly exposes one-shot CLI/JSON, long-lived stdio RPC
 
 ## Linked Work
 - initiative:workspace-backed-manager-worker-coordination
+- spec:add-inbox-driven-manager-worker-control-plane
 - spec:add-workspace-backed-manager-worker-substrate
 
 ## Artifacts

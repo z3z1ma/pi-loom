@@ -3,10 +3,11 @@ id: prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-inte
 title: "Prepare manager-worker architecture from pi-supervisor and Pi extension interfaces"
 status: synthesized
 created-at: 2026-03-15T23:44:27.983Z
-updated-at: 2026-03-16T00:03:16.510Z
+updated-at: 2026-03-16T02:37:06.183Z
 initiatives:
   - workspace-backed-manager-worker-coordination
 specs:
+  - add-inbox-driven-manager-worker-control-plane
   - add-workspace-backed-manager-worker-substrate
 tickets: []
 capabilities: []
@@ -79,6 +80,7 @@ Research synthesized. pi-supervisor, Pi runtime surfaces, and pi-loom Ralph boun
 
 ## Linked Work
 - initiative:workspace-backed-manager-worker-coordination
+- spec:add-inbox-driven-manager-worker-control-plane
 - spec:add-workspace-backed-manager-worker-substrate
 
 ## Artifacts

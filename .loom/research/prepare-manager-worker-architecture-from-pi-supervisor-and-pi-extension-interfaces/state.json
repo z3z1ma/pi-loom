@@ -3,7 +3,7 @@
   "title": "Prepare manager-worker architecture from pi-supervisor and Pi extension interfaces",
   "status": "synthesized",
   "createdAt": "2026-03-15T23:44:27.983Z",
-  "updatedAt": "2026-03-16T00:03:16.510Z",
+  "updatedAt": "2026-03-16T02:37:06.183Z",
   "archivedAt": null,
   "synthesizedAt": "2026-03-15T23:49:50.175Z",
   "question": "How should Pi Loom evolve toward a manager-worker architecture grounded in ephemeral workspaces while borrowing the strongest ideas from pi-supervisor's lightweight supervision model?",
@@ -56,6 +56,7 @@
     "workspace-backed-manager-worker-coordination"
   ],
   "specChangeIds": [
+    "add-inbox-driven-manager-worker-control-plane",
     "add-workspace-backed-manager-worker-substrate"
   ],
   "ticketIds": [],

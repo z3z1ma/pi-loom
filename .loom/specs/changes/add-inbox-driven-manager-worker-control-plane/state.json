@@ -1,0 +1,589 @@
+{
+  "changeId": "add-inbox-driven-manager-worker-control-plane",
+  "title": "Add inbox-driven manager-worker control plane",
+  "status": "finalized",
+  "createdAt": "2026-03-16T02:32:10.521Z",
+  "updatedAt": "2026-03-16T02:39:16.175Z",
+  "finalizedAt": "2026-03-16T02:39:16.175Z",
+  "archivedAt": null,
+  "archivedPath": null,
+  "initiativeIds": [
+    "workspace-backed-manager-worker-coordination"
+  ],
+  "researchIds": [
+    "evaluate-pi-control-surfaces-for-long-lived-workers",
+    "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+  ],
+  "supersedes": [
+    "add-workspace-backed-manager-worker-substrate"
+  ],
+  "proposalSummary": "Evolve the implemented worker substrate from a durable, subprocess-backed foundation into a more useful manager-worker control plane centered on durable inbox semantics, inbox-driven worker turns, an explicit manager orchestration surface, and a worker runtime abstraction that can support SDK-backed live workers while preserving RPC as a fallback. The change is intentionally bounded: it extends the existing `pi-workers` package and surrounding Loom integrations without replacing tickets as the live execution ledger, without turning Ralph into a worker graph, and without prematurely committing the system to a full sidecar/event-mesh architecture.\n\nThe problem this spec addresses is practical rather than purely architectural. The current worker substrate solved the truth problem: workers are now real workspace-backed execution units with durable messages, checkpoints, telemetry, approval, and consolidation records. But operationally, workers still behave mostly like resumable subprocess turns. Durable messages exist, yet the system does not define a strong inbox contract, workers are not obligated to drain unresolved manager messages before stopping, the manager remains mostly an implicit role using `worker_*` directly, and one-shot subprocess execution is still embedded as the dominant runtime assumption. This leaves the system useful but still too manual and too close to 'durable subagent turns' for the intended long-horizon manager-worker operating model.\n\nThe new research establishes the boundary for a better next phase. Pi exposes three relevant control surfaces: one-shot CLI/JSON subprocesses, long-lived stdio RPC, and in-process SDK sessions. No first-class workspace-aware worker daemon or network RPC worker service was found. That means Pi Loom still owns worker semantics, inbox policy, approvals, and worktree lifecycle. Pi itself remains the agent engine. The main strategic implication is that Pi Loom should not race toward a custom actor mesh before its durable message protocol and manager loop are explicit. Instead, it should first strengthen the control plane around the existing worker substrate, then add a runtime abstraction in which SDK-backed workers become the preferred next implementation for same-runtime live control, with RPC preserved as the strongest documented cross-process fallback.\n\nThis spec therefore formalizes five closely related evolutions as one bounded change set. First, it defines a durable inbox protocol with explicit message lifecycle, acknowledgment, and resolution semantics so workers cannot silently ignore manager instructions. Second, it makes worker turns inbox-driven: a worker run must consume unresolved inbox state, act on it, checkpoint its work, and only stop at an explicit stop condition. Third, it introduces a first-class manager command/tool surface so the AI manager can supervise multiple workers intentionally rather than improvisationally through raw worker CRUD. Fourth, it introduces a worker runtime abstraction that preserves the current subprocess runner while adding a same-process SDK-backed live worker implementation and leaving room for RPC-backed live workers where stronger process separation is needed. Fifth, it adds a bounded manager scheduler loop that can poll durable worker state, route interventions, resume inbox-backed workers, and drain pending approvals without requiring a human between every turn.\n\nJust as important as what this spec adds is what it defers. It does not claim unrestricted worker-to-worker chat, multi-repo orchestration, a mandatory sidecar daemon, WebSocket-based event transport, or a general workflow engine. Sidecars and actor-style meshes remain explicitly later-horizon acceleration ideas to consider only if the simpler combination of durable inbox semantics, manager polling, and runtime abstraction proves insufficient. The design remains guided by the same principles that shaped the first substrate: tickets remain the live execution ledger, plans remain execution strategy, Ralph remains bounded orchestration, worker canonical state stays portable and repo-visible, and runtime-only attachments or live transport details do not become canonical Loom truth.",
+  "designNotes": "## Architectural intent\nThis change is a successor phase on top of the implemented `pi-workers` package. It does not replace the existing worker ledger or re-open the core question of whether workers should exist. Instead, it revises the worker control plane so that manager-worker coordination becomes more useful and less manual. The current substrate already persists workers, messages, checkpoints, telemetry, approval, and consolidation. This phase upgrades the protocol and runtime assumptions around those records.\n\n## Core design stance\nThe next phase should optimize for usefulness before transport sophistication. That means the first hardening steps are durable inbox semantics, inbox-driven worker turns, and an explicit manager control surface. The runtime abstraction and SDK-backed live workers should be introduced in service of that protocol. A sidecar event broker or actor mesh is not the starting point; it is a later acceleration option if the simpler architecture proves insufficient.\n\n## Durable inbox protocol\nWorker messages need stronger semantics than today’s mostly append-only note stream. The durable message plane should explicitly model:\n- manager instruction messages\n- worker acknowledgments\n- worker resolutions\n- worker escalations\n- worker completion notices\n- bounded broadcast where applicable\nEach message should have lifecycle semantics such as `pending`, `acknowledged`, `resolved`, and optionally a later `superseded` state. The important invariant is that manager-originated instructions must not remain silently ignored. Workers should either acknowledge them, resolve them, or respond with a blocker/escalation.\n\n## Inbox-driven worker turn semantics\nA worker run should become inbox-aware. When a worker is launched or resumed, it should consume unresolved inbox state as part of the turn contract. The run should:\n1. load unresolved manager messages and any relevant broadcast backlog\n2. act on them in causal order\n3. write acknowledgments, resolutions, escalations, and checkpoints as needed\n4. re-check inbox state before stopping\nA worker may stop only when a legitimate bounded stop condition is reached: inbox empty, blocked on manager input, requesting review/approval, or explicit policy budget reached. This still permits bounded turns and does not require an always-on daemon.\n\n## Manager orchestration surface\nThe manager should stop being only an implicit chat behavior. A dedicated `/manager` command family and `manager_*` tools should expose operations such as:\n- list workers and summarize queue state\n- inspect unresolved inbox and pending approvals across workers\n- supervise one or many workers from compact state\n- send instructions or unblock messages\n- resume workers whose inbox or telemetry says they need another run\n- process completion approvals and consolidation readiness\nThe manager remains a role, not a memory layer. The manager surface is a control plane over durable worker state.\n\n## Runtime abstraction\nThe worker runtime should be abstracted so that subprocess execution is one implementation rather than the architecture itself. The runtime interface should be able to support:\n- subprocess worker runtime (existing baseline)\n- SDK-backed worker runtime (preferred next implementation)\n- RPC-backed worker runtime (fallback where process separation is needed)\nThis change should isolate runtime concerns from worker domain state so the rest of the manager-worker protocol does not depend on whether the worker turn was executed through a subprocess, SDK session, or RPC session.\n\n## SDK-backed workers\nThe provisional preferred live-worker direction is SDK-backed runtime. The Pi SDK offers direct session control and event subscriptions without RPC framing overhead. If used, the SDK-backed runtime should still preserve worker portability and durable truth by persisting important state transitions, messages, and checkpoints back into the worker ledger. An SDK worker host should not become a hidden in-memory truth silo.\n\n## RPC fallback\nRPC remains a supported fallback path rather than the default semantic center. It is appropriate when stronger process separation or external hosting is required. The spec should ensure that RPC-backed workers still satisfy the same worker contract: inbox semantics, acknowledgment rules, checkpoints, telemetry, approvals, and durable launch/recovery state must remain consistent with SDK-backed and subprocess-backed workers.\n\n## Scheduler loop\nThe manager scheduler loop should be bounded and polling-driven in this phase. Its job is to make the AI manager materially more useful without requiring a live event broker. It should periodically scan workers, inspect inbox and telemetry state, apply supervision policy, resume workers that have actionable inbox state, and drain pending approvals. The loop should remain durable and auditable: important scheduling decisions and manager actions must still become worker/ticket-visible state, not hidden scheduler memory.\n\n## Recovery and observability\nThe current worker dashboard and telemetry surface should be extended to represent inbox backlog, acknowledgment lag, active runtime kind, scheduler visibility, and manager queue summaries. Recovery semantics must stay truthful across runtime kinds: after interruption, a manager or replacement host should reconstruct worker truth from durable records plus runtime descriptors, not from opaque transport state.\n\n## Deferred scope\nThe following remain out of scope for this spec:\n- unrestricted worker-to-worker chat\n- mandatory long-lived daemon workers\n- multi-repository coordination\n- networked event buses or WebSocket fabrics\n- turning Ralph into a control-plane scheduler\n- replacing tickets with worker state\nThese may become later research/spec topics if the inbox-driven manager surface still proves inadequate.",
+  "requirements": [
+    {
+      "id": "req-001",
+      "text": "Each manager-originated actionable message SHALL move through explicit durable lifecycle states such as `pending`, `acknowledged`, and `resolved`, with durable evidence of who changed the state and when.",
+      "acceptance": [
+        "A worker with unresolved manager instructions is visibly distinguishable from a worker whose inbox is already drained.",
+        "Tests prove manager messages cannot be left in an ambiguous consumed-but-unrecorded state.",
+        "Tool and command surfaces can query unresolved inbox state directly rather than forcing transcript archaeology."
+      ],
+      "capabilities": [
+        "durable-inbox-protocol"
+      ]
+    },
+    {
+      "id": "req-002",
+      "text": "The worker message model SHALL distinguish manager instructions, worker acknowledgments, worker resolutions, worker escalations, and bounded broadcast notices through explicit durable message kinds rather than generic note-like prose alone.",
+      "acceptance": [
+        "A worker with unresolved manager instructions is visibly distinguishable from a worker whose inbox is already drained.",
+        "Tests prove manager messages cannot be left in an ambiguous consumed-but-unrecorded state.",
+        "Tool and command surfaces can query unresolved inbox state directly rather than forcing transcript archaeology."
+      ],
+      "capabilities": [
+        "durable-inbox-protocol"
+      ]
+    },
+    {
+      "id": "req-003",
+      "text": "Worker summaries, dashboards, and read surfaces SHALL expose unresolved inbox backlog clearly enough that a manager can identify which workers still owe action on manager messages without transcript reconstruction.",
+      "acceptance": [
+        "A worker with unresolved manager instructions is visibly distinguishable from a worker whose inbox is already drained.",
+        "Tests prove manager messages cannot be left in an ambiguous consumed-but-unrecorded state.",
+        "Tool and command surfaces can query unresolved inbox state directly rather than forcing transcript archaeology."
+      ],
+      "capabilities": [
+        "durable-inbox-protocol"
+      ]
+    },
+    {
+      "id": "req-004",
+      "text": "A worker run SHALL load unresolved manager messages and relevant broadcast backlog before beginning substantive work, and SHALL record acknowledgment, resolution, or escalation outcomes before stopping.",
+      "acceptance": [
+        "A test worker run with multiple pending manager instructions drains them durably until a legitimate stop condition is reached.",
+        "Completion-requesting workers show both implementation progress and inbox state clearly.",
+        "Workers that stop because of a policy budget still leave durable evidence of what remains unresolved in the inbox."
+      ],
+      "capabilities": [
+        "inbox-driven-worker-turns"
+      ]
+    },
+    {
+      "id": "req-005",
+      "text": "A worker run SHALL re-check durable inbox state before ending and SHALL only stop when the inbox is empty, the worker is blocked on manager input, the worker is explicitly requesting review/approval, or an explicit bounded policy budget has been reached.",
+      "acceptance": [
+        "A test worker run with multiple pending manager instructions drains them durably until a legitimate stop condition is reached.",
+        "Completion-requesting workers show both implementation progress and inbox state clearly.",
+        "Workers that stop because of a policy budget still leave durable evidence of what remains unresolved in the inbox."
+      ],
+      "capabilities": [
+        "inbox-driven-worker-turns"
+      ]
+    },
+    {
+      "id": "req-006",
+      "text": "Worker checkpoint records SHALL reflect inbox-processing progress in addition to implementation progress so the manager can tell whether messages were acted on during the run.",
+      "acceptance": [
+        "A test worker run with multiple pending manager instructions drains them durably until a legitimate stop condition is reached.",
+        "Completion-requesting workers show both implementation progress and inbox state clearly.",
+        "Workers that stop because of a policy budget still leave durable evidence of what remains unresolved in the inbox."
+      ],
+      "capabilities": [
+        "inbox-driven-worker-turns"
+      ]
+    },
+    {
+      "id": "req-007",
+      "text": "Manager actions that materially change worker state or routing SHALL remain durable and auditable through worker or ticket-visible records rather than hidden command-only state.",
+      "acceptance": [
+        "An AI or human manager can supervise multiple workers without manually stitching together low-level `worker_*` calls for every state inspection.",
+        "Tests prove manager actions persist durable evidence and do not bypass worker/ticket truth.",
+        "The manager surface remains headless-safe and useful in non-interactive contexts."
+      ],
+      "capabilities": [
+        "manager-control-surface"
+      ]
+    },
+    {
+      "id": "req-008",
+      "text": "Manager surfaces SHALL support manager-to-worker messaging, worker supervision over compact state, approval processing, and bounded resume/escalation operations without hand-editing worker artifacts.",
+      "acceptance": [
+        "An AI or human manager can supervise multiple workers without manually stitching together low-level `worker_*` calls for every state inspection.",
+        "Tests prove manager actions persist durable evidence and do not bypass worker/ticket truth.",
+        "The manager surface remains headless-safe and useful in non-interactive contexts."
+      ],
+      "capabilities": [
+        "manager-control-surface"
+      ]
+    },
+    {
+      "id": "req-009",
+      "text": "The package SHALL expose a `/manager` command family and `manager_*` tools for inspecting worker fleets, unresolved inbox state, pending approvals, supervision outputs, and resume candidates.",
+      "acceptance": [
+        "An AI or human manager can supervise multiple workers without manually stitching together low-level `worker_*` calls for every state inspection.",
+        "Tests prove manager actions persist durable evidence and do not bypass worker/ticket truth.",
+        "The manager surface remains headless-safe and useful in non-interactive contexts."
+      ],
+      "capabilities": [
+        "manager-control-surface"
+      ]
+    },
+    {
+      "id": "req-010",
+      "text": "Runtime descriptors and durable worker state SHALL record which runtime kind executed the worker so debugging and recovery remain truthful.",
+      "acceptance": [
+        "Tests show runtime-specific metadata is visible without changing worker canonical semantics.",
+        "The package does not need to duplicate manager/worker domain logic per runtime kind.",
+        "The worker package can execute the same worker contract through the existing subprocess runtime and at least one additional runtime implementation."
+      ],
+      "capabilities": [
+        "runtime-abstraction"
+      ]
+    },
+    {
+      "id": "req-011",
+      "text": "The runtime abstraction SHALL preserve the same worker contract across runtime kinds: durable inbox processing, checkpoints, telemetry, approval requests, and recovery semantics must not drift by runtime implementation.",
+      "acceptance": [
+        "Tests show runtime-specific metadata is visible without changing worker canonical semantics.",
+        "The package does not need to duplicate manager/worker domain logic per runtime kind.",
+        "The worker package can execute the same worker contract through the existing subprocess runtime and at least one additional runtime implementation."
+      ],
+      "capabilities": [
+        "runtime-abstraction"
+      ]
+    },
+    {
+      "id": "req-012",
+      "text": "Worker execution SHALL be driven through a runtime abstraction that treats the current subprocess implementation as one runtime strategy rather than the architecture itself.",
+      "acceptance": [
+        "Tests show runtime-specific metadata is visible without changing worker canonical semantics.",
+        "The package does not need to duplicate manager/worker domain logic per runtime kind.",
+        "The worker package can execute the same worker contract through the existing subprocess runtime and at least one additional runtime implementation."
+      ],
+      "capabilities": [
+        "runtime-abstraction"
+      ]
+    },
+    {
+      "id": "req-013",
+      "text": "If an RPC-backed worker runtime is introduced in this phase, it SHALL satisfy the same durable worker contract and be clearly documented as a fallback transport path rather than the primary domain model.",
+      "acceptance": [
+        "At least one SDK-backed live-worker path exists and is exercised by tests or equivalent runtime validation.",
+        "If RPC support lands in this phase, tests or fixtures show contract parity with the other runtime paths.",
+        "SDK-backed worker execution persists the same durable state transitions required by the worker contract."
+      ],
+      "capabilities": [
+        "sdk-first-live-workers"
+      ]
+    },
+    {
+      "id": "req-014",
+      "text": "The package SHALL keep the current subprocess runtime available as a baseline or compatibility path while SDK-backed workers are introduced incrementally.",
+      "acceptance": [
+        "At least one SDK-backed live-worker path exists and is exercised by tests or equivalent runtime validation.",
+        "If RPC support lands in this phase, tests or fixtures show contract parity with the other runtime paths.",
+        "SDK-backed worker execution persists the same durable state transitions required by the worker contract."
+      ],
+      "capabilities": [
+        "sdk-first-live-workers"
+      ]
+    },
+    {
+      "id": "req-015",
+      "text": "The worker package SHALL add an SDK-backed worker runtime implementation that can host a live worker session while preserving durable worker truth outside the session.",
+      "acceptance": [
+        "At least one SDK-backed live-worker path exists and is exercised by tests or equivalent runtime validation.",
+        "If RPC support lands in this phase, tests or fixtures show contract parity with the other runtime paths.",
+        "SDK-backed worker execution persists the same durable state transitions required by the worker contract."
+      ],
+      "capabilities": [
+        "sdk-first-live-workers"
+      ]
+    },
+    {
+      "id": "req-016",
+      "text": "Scheduler decisions that materially affect worker progress SHALL remain durable and auditable rather than hidden in ephemeral scheduler memory.",
+      "acceptance": [
+        "Approval and consolidation decisions remain manager-owned even when the scheduler is driving the loop.",
+        "Repeated unresolved backlog or stagnation still triggers explicit escalation instead of silent churn.",
+        "Tests prove the scheduler can make useful progress across multiple workers without devolving into infinite no-op polling."
+      ],
+      "capabilities": [
+        "bounded-manager-scheduler"
+      ]
+    },
+    {
+      "id": "req-017",
+      "text": "The manager control plane SHALL support a bounded scheduler loop that scans workers, evaluates unresolved inbox state and telemetry, and decides whether to message, resume, escalate, or process approval for each worker.",
+      "acceptance": [
+        "Approval and consolidation decisions remain manager-owned even when the scheduler is driving the loop.",
+        "Repeated unresolved backlog or stagnation still triggers explicit escalation instead of silent churn.",
+        "Tests prove the scheduler can make useful progress across multiple workers without devolving into infinite no-op polling."
+      ],
+      "capabilities": [
+        "bounded-manager-scheduler"
+      ]
+    },
+    {
+      "id": "req-018",
+      "text": "The scheduler SHALL respect worker busy/idle/blocked/review states and SHALL preserve the manager as the authority for approval and consolidation boundaries.",
+      "acceptance": [
+        "Approval and consolidation decisions remain manager-owned even when the scheduler is driving the loop.",
+        "Repeated unresolved backlog or stagnation still triggers explicit escalation instead of silent churn.",
+        "Tests prove the scheduler can make useful progress across multiple workers without devolving into infinite no-op polling."
+      ],
+      "capabilities": [
+        "bounded-manager-scheduler"
+      ]
+    },
+    {
+      "id": "req-019",
+      "text": "Recovery flows SHALL reconstruct worker truth across runtime kinds from durable records plus runtime descriptors without depending on hidden in-memory scheduler or session state.",
+      "acceptance": [
+        "A replacement manager session can recover queue state and decide what to do next without access to prior in-memory scheduler state.",
+        "Dashboards make it obvious which workers need attention because of unresolved inbox or scheduler-visible backlog.",
+        "Tests prove runtime-specific details do not leak into canonical committed worker state."
+      ],
+      "capabilities": [
+        "recovery-and-observability-alignment"
+      ]
+    },
+    {
+      "id": "req-020",
+      "text": "The package SHALL preserve portable canonical worker state even as richer runtime details are added, keeping machine-local runtime specifics out of committed canonical artifacts.",
+      "acceptance": [
+        "A replacement manager session can recover queue state and decide what to do next without access to prior in-memory scheduler state.",
+        "Dashboards make it obvious which workers need attention because of unresolved inbox or scheduler-visible backlog.",
+        "Tests prove runtime-specific details do not leak into canonical committed worker state."
+      ],
+      "capabilities": [
+        "recovery-and-observability-alignment"
+      ]
+    },
+    {
+      "id": "req-021",
+      "text": "Worker dashboards and packets SHALL expose unresolved inbox counts, acknowledgment lag, active runtime kind, scheduler visibility, and review backlog in addition to existing telemetry and checkpoint summaries.",
+      "acceptance": [
+        "A replacement manager session can recover queue state and decide what to do next without access to prior in-memory scheduler state.",
+        "Dashboards make it obvious which workers need attention because of unresolved inbox or scheduler-visible backlog.",
+        "Tests prove runtime-specific details do not leak into canonical committed worker state."
+      ],
+      "capabilities": [
+        "recovery-and-observability-alignment"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "durable-inbox-protocol",
+      "title": "Durable inbox protocol",
+      "summary": "Strengthen the worker message plane into an explicit inbox protocol with required acknowledgment and resolution semantics so manager instructions cannot be silently ignored.",
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003"
+      ],
+      "scenarios": [
+        "A manager sends two instructions and later sees one acknowledged, one resolved, and no ambiguity about what still needs action.",
+        "A worker receives a clarification request, responds with a blocker/escalation, and the inbox state shows why the manager still needs to act."
+      ]
+    },
+    {
+      "id": "inbox-driven-worker-turns",
+      "title": "Inbox-driven worker turns",
+      "summary": "Require workers to consume unresolved inbox state as part of each run so worker turns are driven by durable coordination state instead of arbitrary one-shot prompts.",
+      "requirements": [
+        "req-004",
+        "req-005",
+        "req-006"
+      ],
+      "scenarios": [
+        "A worker receives a new manager message during a run and records that it re-checked inbox state before stopping.",
+        "A worker wakes up with three pending instructions, processes them in order, emits a checkpoint, and exits only after the inbox is clean."
+      ]
+    },
+    {
+      "id": "manager-control-surface",
+      "title": "Manager control surface",
+      "summary": "Expose a first-class manager orchestration surface so managers can intentionally supervise and drive many workers without raw worker CRUD choreography.",
+      "requirements": [
+        "req-007",
+        "req-008",
+        "req-009"
+      ],
+      "scenarios": [
+        "A headless manager run can summarize queue state and act on it without interactive UI.",
+        "A manager inspects all active workers, sees two blocked workers and one pending approval, sends one unblock message, approves one completion request, and resumes another worker in one orchestration pass."
+      ]
+    },
+    {
+      "id": "runtime-abstraction",
+      "title": "Worker runtime abstraction",
+      "summary": "Decouple worker domain semantics from the current subprocess-only execution path so multiple runtime implementations can satisfy the same worker contract.",
+      "requirements": [
+        "req-010",
+        "req-011",
+        "req-012"
+      ],
+      "scenarios": [
+        "A worker launched via subprocess and a worker launched via SDK both produce the same durable message/checkpoint/approval semantics.",
+        "An operator can tell from durable state which runtime hosted the last worker execution."
+      ]
+    },
+    {
+      "id": "sdk-first-live-workers",
+      "title": "SDK-first live workers with RPC fallback",
+      "summary": "Add a same-runtime SDK-backed worker host as the preferred next live-worker direction while preserving RPC as a transport fallback when stronger process isolation is needed.",
+      "requirements": [
+        "req-013",
+        "req-014",
+        "req-015"
+      ],
+      "scenarios": [
+        "A deployment that prefers process isolation uses an RPC-backed worker path without changing worker semantics.",
+        "A manager resumes a worker through an SDK-backed live session and still sees durable inbox/checkpoint state update correctly."
+      ]
+    },
+    {
+      "id": "bounded-manager-scheduler",
+      "title": "Bounded manager scheduler",
+      "summary": "Automate the manager’s polling and orchestration loop enough to reduce manual babysitting without introducing a mandatory sidecar or full actor mesh.",
+      "requirements": [
+        "req-016",
+        "req-017",
+        "req-018"
+      ],
+      "scenarios": [
+        "A bounded manager pass scans five workers, resumes two, escalates one repeated blocker, and surfaces one pending approval for explicit manager action.",
+        "A scheduler loop continues making progress for several passes without requiring a human between every worker turn."
+      ]
+    },
+    {
+      "id": "recovery-and-observability-alignment",
+      "title": "Recovery and observability alignment",
+      "summary": "Extend worker dashboards, packets, and recovery semantics so the more interactive control plane remains understandable and restart-safe.",
+      "requirements": [
+        "req-019",
+        "req-020",
+        "req-021"
+      ],
+      "scenarios": [
+        "A manager process restarts and immediately rebuilds a usable picture of which workers have pending inbox work and which runtime kind was active last.",
+        "An operator can distinguish a worker that is blocked on inbox backlog from one that is merely idle with no pending work."
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Refactor worker messages into a durable inbox protocol",
+      "summary": "Redesign worker message records, status transitions, and read surfaces so manager instructions, acknowledgments, resolutions, escalations, and bounded broadcast state form a real durable inbox rather than a generic append-only note stream.",
+      "deps": [],
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003"
+      ],
+      "capabilities": [
+        "durable-inbox-protocol"
+      ],
+      "acceptance": [
+        "Manager instruction messages can be acknowledged or resolved explicitly and show those transitions in worker reads/dashboards.",
+        "Message/query tests prove unresolved inbox state is durable and directly inspectable.",
+        "No raw transcript scraping is needed to know whether a worker still owes action on manager messages."
+      ]
+    },
+    {
+      "id": "task-002",
+      "title": "Make worker runs inbox-driven and stop-condition aware",
+      "summary": "Change worker run semantics so launches/resumes consume unresolved inbox state, write acknowledgments and checkpoints as they work, re-check the inbox before stopping, and only exit at explicit bounded stop conditions.",
+      "deps": [
+        "task-001"
+      ],
+      "requirements": [
+        "req-004",
+        "req-005",
+        "req-006"
+      ],
+      "capabilities": [
+        "inbox-driven-worker-turns"
+      ],
+      "acceptance": [
+        "Checkpoint rendering shows inbox-processing state alongside implementation state.",
+        "Stop-condition tests prove workers do not silently exit with unresolved manager instructions.",
+        "Worker runs leave durable inbox-processing evidence rather than acting like arbitrary one-shot prompts."
+      ]
+    },
+    {
+      "id": "task-003",
+      "title": "Add first-class manager commands and tools",
+      "summary": "Introduce `/manager` and `manager_*` surfaces so managers can inspect fleets, supervise workers, send messages, process approvals, and decide resume/escalation operations intentionally instead of stitching together raw worker operations ad hoc.",
+      "deps": [
+        "task-001"
+      ],
+      "requirements": [
+        "req-007",
+        "req-008",
+        "req-009"
+      ],
+      "capabilities": [
+        "manager-control-surface"
+      ],
+      "acceptance": [
+        "A manager can perform common multi-worker orchestration operations from the new surface rather than stitching together many low-level worker commands manually.",
+        "Command/tool tests prove durability and headless-safe usage.",
+        "Manager actions remain visible in worker/ticket state."
+      ]
+    },
+    {
+      "id": "task-004",
+      "title": "Introduce runtime abstraction for worker execution",
+      "summary": "Refactor the current execution path behind a runtime abstraction so subprocess workers remain supported while the package gains room for additional live runtimes without rewriting worker domain semantics.",
+      "deps": [
+        "task-002"
+      ],
+      "requirements": [
+        "req-010",
+        "req-011",
+        "req-012"
+      ],
+      "capabilities": [
+        "runtime-abstraction"
+      ],
+      "acceptance": [
+        "Runtime kind is durably visible without changing worker semantics.",
+        "Tests prove the worker contract is not duplicated or transport-specific.",
+        "The existing subprocess path still works behind the new runtime abstraction."
+      ]
+    },
+    {
+      "id": "task-005",
+      "title": "Implement SDK-backed live worker runtime",
+      "summary": "Add a same-process SDK-backed worker host that can run inbox-driven worker turns with direct session control while persisting all important worker-state transitions back into the durable ledger.",
+      "deps": [
+        "task-004"
+      ],
+      "requirements": [
+        "req-014",
+        "req-015"
+      ],
+      "capabilities": [
+        "runtime-abstraction",
+        "sdk-first-live-workers"
+      ],
+      "acceptance": [
+        "SDK-backed runtime can launch/resume a worker while preserving durable worker semantics.",
+        "Tests or runtime validation prove parity with subprocess behavior where the worker contract overlaps.",
+        "The SDK path does not become a hidden truth silo."
+      ]
+    },
+    {
+      "id": "task-006",
+      "title": "Add RPC fallback seam for live workers",
+      "summary": "Add a bounded RPC-backed runtime seam or implementation so stronger process separation remains possible without letting RPC redefine the worker domain model.",
+      "deps": [
+        "task-004"
+      ],
+      "requirements": [
+        "req-013",
+        "req-014"
+      ],
+      "capabilities": [
+        "runtime-abstraction",
+        "sdk-first-live-workers"
+      ],
+      "acceptance": [
+        "Documentation and tests, where applicable, preserve transport neutrality at the worker-contract layer.",
+        "Either a concrete RPC runtime or a clearly bounded fallback seam/documented stub exists without distorting the worker domain model.",
+        "RPC support does not become the default semantic center of the package."
+      ]
+    },
+    {
+      "id": "task-007",
+      "title": "Build bounded manager scheduler loop",
+      "summary": "Implement the manager polling loop that scans worker state, inbox backlog, telemetry, and approvals, then makes durable bounded decisions to message, resume, escalate, or surface approvals without requiring a human every turn.",
+      "deps": [
+        "task-003",
+        "task-005"
+      ],
+      "requirements": [
+        "req-016",
+        "req-017",
+        "req-018"
+      ],
+      "capabilities": [
+        "bounded-manager-scheduler",
+        "manager-control-surface"
+      ],
+      "acceptance": [
+        "Manager authority over approvals and consolidation remains intact.",
+        "Scheduler tests prove bounded useful progress across multiple workers.",
+        "Stagnation and unresolved backlog still produce explicit escalation instead of silent churn."
+      ]
+    },
+    {
+      "id": "task-008",
+      "title": "Extend recovery and observability for the new control plane",
+      "summary": "Expand dashboards, packets, queue summaries, and recovery behavior so unresolved inbox state, runtime kind, scheduler visibility, and restart-safe reconstruction remain obvious across runtime implementations.",
+      "deps": [
+        "task-001",
+        "task-004",
+        "task-007"
+      ],
+      "requirements": [
+        "req-019",
+        "req-020",
+        "req-021"
+      ],
+      "capabilities": [
+        "recovery-and-observability-alignment"
+      ],
+      "acceptance": [
+        "Dashboards and packets surface the new control-plane state clearly.",
+        "No runtime-specific machine-local leakage reaches canonical committed worker state.",
+        "Recovery tests prove restart-safe reconstruction across runtime kinds."
+      ]
+    },
+    {
+      "id": "task-009",
+      "title": "Harden docs tests and neighboring integrations",
+      "summary": "Update README, prompt guidance, manager/worker tests, and any affected neighboring package integrations so the stronger inbox protocol, manager surface, runtime abstraction, and scheduler behavior are documented and defended by automation.",
+      "deps": [
+        "task-002",
+        "task-003",
+        "task-005",
+        "task-007",
+        "task-008"
+      ],
+      "requirements": [
+        "req-001",
+        "req-009",
+        "req-011",
+        "req-015",
+        "req-017",
+        "req-021"
+      ],
+      "capabilities": [
+        "bounded-manager-scheduler",
+        "durable-inbox-protocol",
+        "inbox-driven-worker-turns",
+        "manager-control-surface",
+        "recovery-and-observability-alignment",
+        "runtime-abstraction",
+        "sdk-first-live-workers"
+      ],
+      "acceptance": [
+        "Comprehensive tests cover inbox semantics, manager surfaces, runtime abstraction, scheduler behavior, and recovery.",
+        "Neighboring integrations remain truthful about ticket/Ralph/worker boundaries.",
+        "README and prompt guidance teach the new phase clearly without overstating actor-mesh capabilities."
+      ]
+    }
+  ],
+  "artifactVersions": {
+    "proposal": "2026-03-16T02:39:16.175Z",
+    "design": "2026-03-16T02:39:16.176Z",
+    "tasks": "2026-03-16T02:39:16.176Z",
+    "analysis": "2026-03-16T02:39:16.165Z",
+    "checklist": "2026-03-16T02:39:16.170Z"
+  }
+}

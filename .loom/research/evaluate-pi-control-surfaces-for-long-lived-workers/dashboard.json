@@ -22,7 +22,7 @@
       "sdk",
       "workers"
     ],
-    "updatedAt": "2026-03-16T02:20:26.187Z"
+    "updatedAt": "2026-03-16T02:37:06.151Z"
   },
   "hypotheses": {
     "total": 3,
@@ -126,9 +126,9 @@
         "title": "Workspace-backed manager-worker coordination",
         "status": "active",
         "milestoneCount": 1,
-        "specChangeCount": 1,
-        "ticketCount": 12,
-        "updatedAt": "2026-03-16T02:24:23.766Z",
+        "specChangeCount": 2,
+        "ticketCount": 21,
+        "updatedAt": "2026-03-16T02:45:20.878Z",
         "tags": [
           "architecture",
           "manager-worker",
@@ -140,17 +140,43 @@
     ]
   },
   "linkedSpecs": {
-    "total": 1,
+    "total": 2,
     "counts": {
       "proposed": 0,
       "clarifying": 0,
       "planned": 0,
       "tasked": 0,
-      "finalized": 1,
+      "finalized": 2,
       "archived": 0,
       "superseded": 0
     },
     "items": [
+      {
+        "id": "add-inbox-driven-manager-worker-control-plane",
+        "title": "Add inbox-driven manager-worker control plane",
+        "status": "finalized",
+        "requirementCount": 21,
+        "taskCount": 9,
+        "capabilityIds": [
+          "bounded-manager-scheduler",
+          "durable-inbox-protocol",
+          "inbox-driven-worker-turns",
+          "manager-control-surface",
+          "recovery-and-observability-alignment",
+          "runtime-abstraction",
+          "sdk-first-live-workers"
+        ],
+        "initiativeIds": [
+          "workspace-backed-manager-worker-coordination"
+        ],
+        "researchIds": [
+          "evaluate-pi-control-surfaces-for-long-lived-workers",
+          "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
+        ],
+        "updatedAt": "2026-03-16T02:39:16.175Z",
+        "archived": false,
+        "path": ".loom/specs/changes/add-inbox-driven-manager-worker-control-plane"
+      },
       {
         "id": "add-workspace-backed-manager-worker-substrate",
         "title": "Add workspace-backed manager-worker substrate",

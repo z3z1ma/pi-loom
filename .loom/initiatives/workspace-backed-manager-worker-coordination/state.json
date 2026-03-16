@@ -3,7 +3,7 @@
   "title": "Workspace-backed manager-worker coordination",
   "status": "active",
   "createdAt": "2026-03-15T23:55:42.572Z",
-  "updatedAt": "2026-03-16T02:24:23.766Z",
+  "updatedAt": "2026-03-16T02:45:20.878Z",
   "completedAt": "2026-03-16T00:45:46.699Z",
   "archivedAt": null,
   "objective": "Develop a truthful manager-worker operating model for Pi Loom in which workers are ephemeral workspaces, managers supervise and consolidate bounded execution across those workspaces, and the resulting system composes cleanly with plans, tickets, Ralph, critique, and documentation.",
@@ -47,7 +47,7 @@
     "Overloading session fork/tree or task spawning semantics instead of introducing a truthful workspace abstraction would bake in a false model.",
     "Under-specifying manager oversight, worker telemetry, or consolidation contracts would produce a superficially parallel system that is difficult to supervise safely over long horizons."
   ],
-  "statusSummary": "Active again for the next phase: the initial worker substrate is implemented, and new runtime/control-surface research now reopens the initiative for a broader control-plane evolution plan.",
+  "statusSummary": "Active for the next phase with a finalized inbox-driven control-plane spec and a linked nine-ticket rollout covering inbox semantics, manager surface, runtime abstraction, SDK-first workers, bounded scheduling, and recovery/observability.",
   "targetWindow": "later",
   "owners": [],
   "tags": [
@@ -61,6 +61,7 @@
     "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces"
   ],
   "specChangeIds": [
+    "add-inbox-driven-manager-worker-control-plane",
     "add-workspace-backed-manager-worker-substrate"
   ],
   "ticketIds": [
@@ -75,7 +76,16 @@
     "t-0023",
     "t-0024",
     "t-0025",
-    "t-0026"
+    "t-0026",
+    "t-0031",
+    "t-0032",
+    "t-0033",
+    "t-0034",
+    "t-0035",
+    "t-0036",
+    "t-0037",
+    "t-0038",
+    "t-0039"
   ],
   "capabilityIds": [],
   "supersedes": [],
