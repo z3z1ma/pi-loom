@@ -124,6 +124,10 @@ export function renderResearchDetail(record: ResearchRecord): string {
 }
 
 export function renderResearchDashboard(dashboard: ResearchDashboard): string {
+  const unresolvedTotal =
+    dashboard.unresolvedReferences.initiativeIds.length +
+    dashboard.unresolvedReferences.specChangeIds.length +
+    dashboard.unresolvedReferences.ticketIds.length;
   return [
     `${dashboard.research.id} [${dashboard.research.status}] ${dashboard.research.title}`,
     `Hypotheses: ${dashboard.hypotheses.total}`,
@@ -134,6 +138,7 @@ export function renderResearchDashboard(dashboard: ResearchDashboard): string {
     `Open hypotheses: ${dashboard.hypotheses.counts.open}`,
     `Rejected hypotheses: ${dashboard.hypotheses.counts.rejected}`,
     `Blocked tickets: ${dashboard.linkedTickets.blocked}`,
+    `Unresolved links: ${unresolvedTotal}`,
     `Open questions: ${dashboard.openQuestions.length}`,
   ].join("\n");
 }
@@ -146,7 +151,10 @@ export function renderResearchMap(map: ResearchMap): string {
   return [
     `Research: ${map.researchId}`,
     `Nodes: ${nodes.length}`,
-    ...nodes.map((node) => `- ${node.id} [${node.kind}${node.status ? `/${node.status}` : ""}] ${node.title}`),
+    ...nodes.map(
+      (node) =>
+        `- ${node.id} [${node.kind}${node.status ? `/${node.status}` : ""}${node.missing ? "/missing" : ""}] ${node.title}`,
+    ),
     `Edges: ${edges.length}`,
     ...edges.map((edge) => `- ${edge.from} -> ${edge.relation} -> ${edge.to}`),
   ].join("\n");

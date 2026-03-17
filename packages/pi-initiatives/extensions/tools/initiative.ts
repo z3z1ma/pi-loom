@@ -160,7 +160,7 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
     ],
     parameters: InitiativeListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const initiatives = getStore(ctx).listInitiatives({
+      const initiatives = await getStore(ctx).listInitiatives({
         status: params.status,
         includeArchived: params.includeArchived,
         text: params.text,

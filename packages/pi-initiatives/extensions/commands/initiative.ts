@@ -148,7 +148,7 @@ export async function handleInitiativeCommand(args: string, ctx: ExtensionComman
     }
     case "list": {
       const status = rest[0] as UpdateInitiativeInput["status"] | undefined;
-      const initiatives = store.listInitiatives({ includeArchived: true, status });
+      const initiatives = await store.listInitiatives({ includeArchived: true, status });
       return initiatives.length > 0 ? initiatives.map(renderInitiativeSummary).join("\n") : "No initiatives.";
     }
     case "show": {

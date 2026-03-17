@@ -1,8 +1,17 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { describe, expect, it, vi } from "vitest";
+import {
+  getAttachmentsIndexPath,
+  getCheckpointIndexPath,
+  getCheckpointPath,
+  getJournalPath,
+  getTicketPath,
+} from "../extensions/domain/paths.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -68,7 +77,7 @@ function firstText(value: unknown): string {
 }
 
 describe("ticket tools", () => {
-  it("register tool definitions with prompt snippets and prompt guidelines", async () => {
+  it("register tool definitions with prompt snippets, prompt guidelines, and reopen support", async () => {
     const mockPi = createMockPi();
     const { registerTicketTools } = await import("../extensions/tools/ticket.js");
     registerTicketTools(mockPi as unknown as ExtensionAPI);
@@ -87,10 +96,14 @@ describe("ticket tools", () => {
       expect(tool.promptGuidelines).toEqual(expect.arrayContaining([expect.any(String)]));
     }
 
-    expect(getTool(mockPi, "ticket_write").promptSnippet).toContain("Persist substantial work intent");
-    expect(getTool(mockPi, "ticket_write").promptGuidelines).toContain(
+    const writeTool = getTool(mockPi, "ticket_write");
+    expect(writeTool.promptSnippet).toContain("Persist substantial work intent");
+    expect(writeTool.promptGuidelines).toContain(
       "Create ticket bodies as complete, self-contained units of work with concrete context, acceptance criteria, plan, dependencies, risks, provenance, and verification expectations rather than minimal blurbs; a capable newcomer should be able to understand why the task exists, what generally needs to happen, and what done looks like.",
     );
+    expect(
+      (writeTool.parameters as unknown as { properties: { action: { enum: string[] } } }).properties.action.enum,
+    ).toContain("reopen");
     expect(getTool(mockPi, "ticket_checkpoint").promptGuidelines).toContain(
       "Use checkpoints for reusable durable handoff records, not ephemeral chat summaries.",
     );
@@ -227,7 +240,7 @@ describe("ticket tools", () => {
     }
   }, 30000);
 
-  it("returns machine-usable details for journal, attachment, and close mutations", async () => {
+  it("returns machine-usable details for journal, attachment, close, and reopen mutations", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       writeFileSync(join(cwd, "evidence.txt"), "captured evidence\n", "utf-8");
@@ -236,6 +249,7 @@ describe("ticket tools", () => {
       registerTicketTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
       const ticketWrite = getTool(mockPi, "ticket_write");
+      const ticketList = getTool(mockPi, "ticket_list");
 
       const created = await ticketWrite.execute(
         "call-1",
@@ -298,8 +312,148 @@ describe("ticket tools", () => {
           ]),
         },
       });
+
+      const reopenResult = await ticketWrite.execute(
+        "call-5",
+        { action: "reopen", ref: ticketId },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(reopenResult.details).toMatchObject({
+        action: "reopen",
+        ticket: {
+          summary: { id: ticketId, status: "ready", closed: false },
+        },
+      });
+      expect(firstText(reopenResult.content)).toContain("Stored status: open");
+
+      const reopenedList = await ticketList.execute(
+        "call-6",
+        { includeClosed: false, status: "ready" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(reopenedList.details).toMatchObject({
+        tickets: expect.arrayContaining([expect.objectContaining({ id: ticketId, status: "ready", closed: false })]),
+      });
     } finally {
       cleanup();
     }
   }, 15000);
+
+  it("repairs filesystem-imported ticket entities during canonical list and read flows", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      writeFileSync(join(cwd, "evidence.txt"), "captured evidence\n", "utf-8");
+      const mockPi = createMockPi();
+      const { registerTicketTools } = await import("../extensions/tools/ticket.js");
+      registerTicketTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+      const ticketWrite = getTool(mockPi, "ticket_write");
+      const ticketList = getTool(mockPi, "ticket_list");
+      const ticketRead = getTool(mockPi, "ticket_read");
+      const ticketCheckpoint = getTool(mockPi, "ticket_checkpoint");
+
+      const created = await ticketWrite.execute(
+        "call-1",
+        { action: "create", title: "Filesystem imported ticket", summary: "Repair imported canonical state." },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const importedTicketId = resultDetails<{ ticket: { summary: { id: string } } }>(created.details).ticket.summary.id;
+      await ticketWrite.execute(
+        "call-2",
+        { action: "add_journal_entry", ref: importedTicketId, journalKind: "progress", text: "Recovered journal entry" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await ticketWrite.execute(
+        "call-3",
+        { action: "attach_artifact", ref: importedTicketId, artifact: { label: "evidence", path: "evidence.txt" } },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await ticketCheckpoint.execute(
+        "call-4",
+        { action: "create", ref: importedTicketId, title: "handoff", body: "preserve this checkpoint" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await ticketWrite.execute(
+        "call-5",
+        { action: "create", title: "Still structured ticket", summary: "Mixed canonical listing should survive." },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const entity = await findEntityByDisplayId(storage, identity.space.id, "ticket", importedTicketId);
+      expect(entity).toBeTruthy();
+      if (!entity) {
+        throw new Error("Expected ticket entity to exist");
+      }
+
+      const filesByPath = {
+        [`.loom/tickets/${importedTicketId}.md`]: readFileSync(getTicketPath(cwd, importedTicketId, false), "utf-8"),
+        [`.loom/tickets/${importedTicketId}.journal.jsonl`]: readFileSync(getJournalPath(cwd, importedTicketId), "utf-8"),
+        [`.loom/tickets/${importedTicketId}.attachments.json`]: readFileSync(
+          getAttachmentsIndexPath(cwd, importedTicketId),
+          "utf-8",
+        ),
+        [`.loom/tickets/${importedTicketId}.checkpoints.json`]: readFileSync(getCheckpointIndexPath(cwd, importedTicketId), "utf-8"),
+        ".loom/checkpoints/cp-0001.md": readFileSync(getCheckpointPath(cwd, "cp-0001"), "utf-8"),
+      };
+      await upsertEntityByDisplayId(storage, {
+        kind: entity.kind,
+        spaceId: entity.spaceId,
+        owningRepositoryId: entity.owningRepositoryId,
+        displayId: entity.displayId,
+        title: entity.title,
+        summary: entity.summary,
+        status: entity.status,
+        version: entity.version + 1,
+        tags: entity.tags,
+        pathScopes: entity.pathScopes,
+        attributes: { importedFrom: "filesystem", filesByPath },
+        createdAt: entity.createdAt,
+        updatedAt: new Date("2026-03-17T00:00:00.000Z").toISOString(),
+      });
+
+      const listed = await ticketList.execute("call-6", { includeClosed: true }, undefined, undefined, ctx);
+      expect(listed.details).toMatchObject({
+        tickets: expect.arrayContaining([
+          expect.objectContaining({ id: importedTicketId }),
+          expect.objectContaining({ id: "t-0002" }),
+        ]),
+      });
+
+      const read = await ticketRead.execute("call-7", { ref: importedTicketId }, undefined, undefined, ctx);
+      expect(read.details).toMatchObject({
+        ticket: {
+          summary: { id: importedTicketId },
+          journal: expect.arrayContaining([expect.objectContaining({ kind: "progress", text: "Recovered journal entry" })]),
+          attachments: [expect.objectContaining({ label: "evidence" })],
+          checkpoints: [expect.objectContaining({ title: "handoff", body: "preserve this checkpoint" })],
+        },
+      });
+
+      const repaired = await findEntityByDisplayId(storage, identity.space.id, "ticket", importedTicketId);
+      expect(repaired?.attributes).toMatchObject({
+        record: {
+          summary: expect.objectContaining({ id: importedTicketId }),
+          attachments: [expect.objectContaining({ label: "evidence" })],
+          checkpoints: [expect.objectContaining({ title: "handoff" })],
+        },
+      });
+    } finally {
+      cleanup();
+    }
+  }, 30000);
 });

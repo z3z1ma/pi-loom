@@ -79,6 +79,12 @@ export interface ResearchSummary {
   path: string;
 }
 
+export interface ResearchUnresolvedReferences {
+  initiativeIds: string[];
+  specChangeIds: string[];
+  ticketIds: string[];
+}
+
 export interface ResearchDashboard {
   research: {
     id: string;
@@ -124,6 +130,7 @@ export interface ResearchDashboard {
   conclusions: string[];
   recommendations: string[];
   openQuestions: string[];
+  unresolvedReferences: ResearchUnresolvedReferences;
 }
 
 export interface ResearchMapNode {
@@ -132,6 +139,7 @@ export interface ResearchMapNode {
   title: string;
   status: string | null;
   path: string | null;
+  missing: boolean;
 }
 
 export interface ResearchMapEdge {

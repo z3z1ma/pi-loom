@@ -1,0 +1,104 @@
+{
+  "changeId": "design-widget-first-specs-ux",
+  "title": "Design widget-first specs UX",
+  "status": "planned",
+  "createdAt": "2026-03-17T05:56:14.424Z",
+  "updatedAt": "2026-03-17T05:58:07.061Z",
+  "finalizedAt": null,
+  "archivedAt": null,
+  "archivedPath": null,
+  "initiativeIds": [],
+  "researchIds": [],
+  "supersedes": [],
+  "proposalSummary": "Define the human-facing specification experience around a persistent change-overview widget, focused proposal/design/tasks views, and direct workflows for shaping and reviewing bounded change contracts without tool-mirroring commands.",
+  "designNotes": "Specifications are Loom's bounded change contracts. Their human-facing UX should feel like shaping a change from proposal through design and implementation planning, not like issuing low-level spec memory commands. The home widget should show active spec changes, blocked clarifications, analysis/checklist status, and the most important next contract-shaping actions.\n\nFocused interaction should support change lists, proposal/detail views, design and tasks views, capability inspection, and ticket-projection review when a spec is mature enough. The subsystem must make it obvious where ambiguity still exists, what design has been captured, and what remains before implementation is responsibly unlocked.\n\nThe surviving human verbs should focus on opening the spec workspace, proposing a change, clarifying or planning a change, and reviewing readiness. Tool-mirroring verbs for read/write/analyze/project should become unnecessary once the UX makes those workflows direct.",
+  "requirements": [
+    {
+      "id": "req-001",
+      "text": "Focused views must support a list of changes plus drill-down into proposal, design notes, tasks, capabilities, analysis/checklist state, and ticket-projection readiness.",
+      "acceptance": [
+        "A reviewer can identify how a user would propose a spec, resolve clarifications, shape design/tasks, and judge readiness from the subsystem UX alone.",
+        "The persistent widget and focused views separate overview, contract authoring, and readiness review clearly.",
+        "The spec UX makes bounded change quality legible instead of flattening everything into generic text editing."
+      ],
+      "capabilities": [
+        "capability-spec-change-workspace"
+      ]
+    },
+    {
+      "id": "req-002",
+      "text": "The design must preserve the spec layer boundary by keeping strategic context above and live execution details below.",
+      "acceptance": [
+        "A reviewer can identify how a user would propose a spec, resolve clarifications, shape design/tasks, and judge readiness from the subsystem UX alone.",
+        "The persistent widget and focused views separate overview, contract authoring, and readiness review clearly.",
+        "The spec UX makes bounded change quality legible instead of flattening everything into generic text editing."
+      ],
+      "capabilities": [
+        "capability-spec-change-workspace"
+      ]
+    },
+    {
+      "id": "req-003",
+      "text": "The home widget must summarize active spec changes, clarifications waiting on answers, readiness blockers, and the next highest-value spec actions.",
+      "acceptance": [
+        "A reviewer can identify how a user would propose a spec, resolve clarifications, shape design/tasks, and judge readiness from the subsystem UX alone.",
+        "The persistent widget and focused views separate overview, contract authoring, and readiness review clearly.",
+        "The spec UX makes bounded change quality legible instead of flattening everything into generic text editing."
+      ],
+      "capabilities": [
+        "capability-spec-change-workspace"
+      ]
+    },
+    {
+      "id": "req-004",
+      "text": "The UI must support proposing a change, recording clarifications, shaping design and tasks, and reviewing whether the spec is ready for downstream execution without relying on tool-mirroring slash commands.",
+      "acceptance": [
+        "A reviewer can identify how a user would propose a spec, resolve clarifications, shape design/tasks, and judge readiness from the subsystem UX alone.",
+        "The persistent widget and focused views separate overview, contract authoring, and readiness review clearly.",
+        "The spec UX makes bounded change quality legible instead of flattening everything into generic text editing."
+      ],
+      "capabilities": [
+        "capability-spec-change-workspace"
+      ]
+    },
+    {
+      "id": "req-005",
+      "text": "The workspace must make ambiguity, dependencies, and acceptance expectations visible enough that a human can judge whether a spec is truly ready.",
+      "acceptance": [
+        "A reviewer can identify how a user would propose a spec, resolve clarifications, shape design/tasks, and judge readiness from the subsystem UX alone.",
+        "The persistent widget and focused views separate overview, contract authoring, and readiness review clearly.",
+        "The spec UX makes bounded change quality legible instead of flattening everything into generic text editing."
+      ],
+      "capabilities": [
+        "capability-spec-change-workspace"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "capability-spec-change-workspace",
+      "title": "Spec change workspace from proposal to readiness",
+      "summary": "The specs subsystem provides a persistent change-overview widget plus focused proposal, design, tasks, capability, and readiness views for managing bounded change contracts.",
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003",
+        "req-004",
+        "req-005"
+      ],
+      "scenarios": [
+        "A user compares two spec changes and can tell which one is still ambiguous and which one is ready for downstream planning without calling raw slash commands.",
+        "A user edits proposal and design sections, reviews checklist and analysis state, and decides whether the change is mature enough to proceed.",
+        "A user opens specs and sees two changes awaiting clarification, one planned change ready for ticket projection, and one stale proposal, then drills into the blocked change."
+      ]
+    }
+  ],
+  "tasks": [],
+  "artifactVersions": {
+    "proposal": "2026-03-17T05:58:07.446Z",
+    "design": "2026-03-17T05:58:07.447Z",
+    "tasks": null,
+    "analysis": null,
+    "checklist": null
+  }
+}

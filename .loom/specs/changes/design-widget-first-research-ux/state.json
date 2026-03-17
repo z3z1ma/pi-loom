@@ -1,0 +1,104 @@
+{
+  "changeId": "design-widget-first-research-ux",
+  "title": "Design widget-first research UX",
+  "status": "planned",
+  "createdAt": "2026-03-17T05:56:14.169Z",
+  "updatedAt": "2026-03-17T05:57:17.541Z",
+  "finalizedAt": null,
+  "archivedAt": null,
+  "archivedPath": null,
+  "initiativeIds": [],
+  "researchIds": [],
+  "supersedes": [],
+  "proposalSummary": "Define the human-facing research experience around a persistent discovery widget, focused list/detail and hypothesis/artifact views, and direct workflows for creating, updating, and synthesizing research without relying on tool-mirroring slash commands.",
+  "designNotes": "Research is Loom's discovery and evidence layer. Its human-facing UX should feel like managing lines of inquiry, evidence, and synthesis quality rather than issuing storage commands. The persistent home widget should surface active investigations, stale or blocked research, high-signal open questions, and the most useful next research actions.\n\nFocused interaction should support browsing research records, drilling into hypotheses and artifacts, comparing evidence, and moving a record from exploratory work toward synthesis. Research also benefits from a strong master-detail model: the user should be able to scan multiple investigations while seeing one record's question, objective, hypotheses, artifacts, conclusions, and open questions in context.\n\nThe surviving human verbs should focus on opening the research workspace, starting a new investigation, and synthesizing or linking validated research. Tool-mirroring verbs for artifacts, hypotheses, and status updates should become unnecessary once the UI makes those flows direct.",
+  "requirements": [
+    {
+      "id": "req-001",
+      "text": "Focused views must support scanning a list of investigations, opening one record in detail, and drilling into hypotheses, artifacts, conclusions, and open questions without losing overall portfolio context.",
+      "acceptance": [
+        "A reviewer can identify how a user would start a research effort, inspect evidence, revise a hypothesis, and synthesize conclusions from the subsystem UX alone.",
+        "The persistent widget and focused views together expose both portfolio-level and record-level research state.",
+        "The research spec keeps investigations legible as discovery records rather than generic notes or tickets."
+      ],
+      "capabilities": [
+        "capability-research-workspace"
+      ]
+    },
+    {
+      "id": "req-002",
+      "text": "The design must preserve the research layer's role as evidence and discovery rather than letting execution details overwhelm the workspace.",
+      "acceptance": [
+        "A reviewer can identify how a user would start a research effort, inspect evidence, revise a hypothesis, and synthesize conclusions from the subsystem UX alone.",
+        "The persistent widget and focused views together expose both portfolio-level and record-level research state.",
+        "The research spec keeps investigations legible as discovery records rather than generic notes or tickets."
+      ],
+      "capabilities": [
+        "capability-research-workspace"
+      ]
+    },
+    {
+      "id": "req-003",
+      "text": "The home widget must highlight active research, stale or blocked investigations, unresolved high-signal questions, and suggested next research actions.",
+      "acceptance": [
+        "A reviewer can identify how a user would start a research effort, inspect evidence, revise a hypothesis, and synthesize conclusions from the subsystem UX alone.",
+        "The persistent widget and focused views together expose both portfolio-level and record-level research state.",
+        "The research spec keeps investigations legible as discovery records rather than generic notes or tickets."
+      ],
+      "capabilities": [
+        "capability-research-workspace"
+      ]
+    },
+    {
+      "id": "req-004",
+      "text": "The research UX must make it easy to see what evidence changed confidence in a hypothesis and what remains unresolved.",
+      "acceptance": [
+        "A reviewer can identify how a user would start a research effort, inspect evidence, revise a hypothesis, and synthesize conclusions from the subsystem UX alone.",
+        "The persistent widget and focused views together expose both portfolio-level and record-level research state.",
+        "The research spec keeps investigations legible as discovery records rather than generic notes or tickets."
+      ],
+      "capabilities": [
+        "capability-research-workspace"
+      ]
+    },
+    {
+      "id": "req-005",
+      "text": "The UI must support creating a new research record, updating status, adding or revising hypotheses, attaching artifacts, and progressing work toward synthesis.",
+      "acceptance": [
+        "A reviewer can identify how a user would start a research effort, inspect evidence, revise a hypothesis, and synthesize conclusions from the subsystem UX alone.",
+        "The persistent widget and focused views together expose both portfolio-level and record-level research state.",
+        "The research spec keeps investigations legible as discovery records rather than generic notes or tickets."
+      ],
+      "capabilities": [
+        "capability-research-workspace"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "capability-research-workspace",
+      "title": "Research workspace for investigations, hypotheses, and evidence",
+      "summary": "The research subsystem provides a persistent discovery widget plus focused list/detail and evidence views for managing investigations from opening question through synthesis.",
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003",
+        "req-004",
+        "req-005"
+      ],
+      "scenarios": [
+        "A user compares hypotheses and artifacts inside one research record, adds new evidence, and updates the record's confidence and conclusions without using separate slash commands.",
+        "A user opens research and sees two active investigations, one stale record, and one synthesized record needing downstream linkage, then drills into the active investigation with the highest-impact open question.",
+        "A user synthesizes a completed investigation and returns to the home widget where the record now appears as reusable evidence rather than active exploration."
+      ]
+    }
+  ],
+  "tasks": [],
+  "artifactVersions": {
+    "proposal": "2026-03-17T05:57:17.877Z",
+    "design": "2026-03-17T05:57:17.878Z",
+    "tasks": null,
+    "analysis": null,
+    "checklist": null
+  }
+}

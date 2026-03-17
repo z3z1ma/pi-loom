@@ -1,7 +1,9 @@
-import type { InitiativeSummary } from "@pi-loom/pi-initiatives/extensions/domain/models.js";
+import type { InitiativeState, InitiativeSummary } from "@pi-loom/pi-initiatives/extensions/domain/models.js";
 import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { SPEC_STATUSES, type SpecChangeSummary } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { TICKET_STATUSES, type TicketSummary } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import type {
@@ -13,31 +15,95 @@ import type {
   ResearchHypothesisStatus,
   ResearchState,
 } from "./models.js";
+import { normalizeStringList } from "./normalize.js";
 
 function zeroCounts<T extends string>(values: readonly T[]): Record<T, number> {
   return Object.fromEntries(values.map((value) => [value, 0])) as Record<T, number>;
 }
 
-export function buildResearchDashboard(
-  cwd: string,
+function resolveLinkedSummaries<T extends { id: string }>(
+  ids: string[],
+  summaries: T[],
+): { items: T[]; missingIds: string[] } {
+  const summariesById = new Map(summaries.map((summary) => [summary.id, summary]));
+  const items: T[] = [];
+  const missingIds: string[] = [];
+  for (const id of normalizeStringList(ids)) {
+    const summary = summariesById.get(id);
+    if (summary) {
+      items.push(summary);
+      continue;
+    }
+    missingIds.push(id);
+  }
+  return { items, missingIds: normalizeStringList(missingIds) };
+}
+
+function isMissingLinkedRecord(error: unknown, kind: "initiative" | "spec" | "ticket"): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const prefixes =
+    kind === "spec" ? [`Unknown ${kind}`, "Invalid change id"] : [`Unknown ${kind}`, `Invalid ${kind} id`];
+  return prefixes.some((prefix) => error.message.startsWith(prefix));
+}
+
+async function resolveLinkedSummariesAsync<T extends { id: string }>(
+  ids: string[],
+  load: (id: string) => Promise<T>,
+  kind: "initiative" | "spec" | "ticket",
+): Promise<{ items: T[]; missingIds: string[] }> {
+  const items: T[] = [];
+  const missingIds: string[] = [];
+  for (const id of normalizeStringList(ids)) {
+    try {
+      items.push(await load(id));
+    } catch (error) {
+      if (isMissingLinkedRecord(error, kind)) {
+        missingIds.push(id);
+        continue;
+      }
+      throw error;
+    }
+  }
+  return { items, missingIds: normalizeStringList(missingIds) };
+}
+
+async function resolveInitiativeSummary(cwd: string, initiativeId: string): Promise<InitiativeSummary> {
+  const { storage, identity } = await openWorkspaceStorage(cwd);
+  const entity = await findEntityByDisplayId(storage, identity.space.id, "initiative", initiativeId);
+  if (entity?.attributes && typeof entity.attributes === "object" && "state" in entity.attributes) {
+    const state = (entity.attributes as { state: InitiativeState }).state;
+    return {
+      id: state.initiativeId,
+      title: state.title,
+      status: state.status,
+      milestoneCount: state.milestones.length,
+      specChangeCount: state.specChangeIds.length,
+      ticketCount: state.ticketIds.length,
+      updatedAt: state.updatedAt,
+      tags: [...state.tags],
+      path: `.loom/initiatives/${state.initiativeId}`,
+    };
+  }
+
+  const projection = createInitiativeStore(cwd)
+    .listInitiativesProjection({ includeArchived: true })
+    .find((summary) => summary.id === initiativeId);
+  if (projection) {
+    return projection as InitiativeSummary;
+  }
+  throw new Error(`Unknown initiative: ${initiativeId}`);
+}
+
+function buildDashboard(
   state: ResearchState,
   hypotheses: ResearchHypothesisRecord[],
   artifacts: ResearchArtifactRecord[],
+  linkedInitiatives: { items: InitiativeSummary[]; missingIds: string[] },
+  linkedSpecs: { items: SpecChangeSummary[]; missingIds: string[] },
+  linkedTickets: { items: TicketSummary[]; missingIds: string[] },
 ): ResearchDashboard {
-  const initiativeStore = createInitiativeStore(cwd);
-  const specStore = createSpecStore(cwd);
-  const ticketStore = createTicketStore(cwd);
-
-  const linkedInitiatives = initiativeStore
-    .listInitiatives({ includeArchived: true })
-    .filter((summary: InitiativeSummary) => state.initiativeIds.includes(summary.id));
-  const linkedSpecs = specStore
-    .listChangesProjection({ includeArchived: true })
-    .filter((summary: SpecChangeSummary) => state.specChangeIds.includes(summary.id));
-  const linkedTickets = ticketStore
-    .listTickets({ includeClosed: true })
-    .filter((summary: TicketSummary) => state.ticketIds.includes(summary.id));
-
   const hypothesisCounts = zeroCounts<ResearchHypothesisStatus>(["open", "supported", "rejected", "superseded"]);
   const confidenceCounts = zeroCounts<HypothesisConfidence>(["low", "medium", "high"]);
   for (const hypothesis of hypotheses) {
@@ -58,12 +124,12 @@ export function buildResearchDashboard(
   }
 
   const specCounts = zeroCounts(SPEC_STATUSES);
-  for (const spec of linkedSpecs) {
+  for (const spec of linkedSpecs.items) {
     specCounts[spec.status] += 1;
   }
 
   const ticketCounts = zeroCounts(TICKET_STATUSES);
-  for (const ticket of linkedTickets) {
+  for (const ticket of linkedTickets.items) {
     ticketCounts[ticket.status] += 1;
   }
 
@@ -91,26 +157,88 @@ export function buildResearchDashboard(
       items: artifacts,
     },
     linkedInitiatives: {
-      total: linkedInitiatives.length,
-      items: linkedInitiatives,
+      total: linkedInitiatives.items.length,
+      items: linkedInitiatives.items,
     },
     linkedSpecs: {
-      total: linkedSpecs.length,
+      total: linkedSpecs.items.length,
       counts: specCounts,
-      items: linkedSpecs,
+      items: linkedSpecs.items,
     },
     linkedTickets: {
-      total: linkedTickets.length,
+      total: linkedTickets.items.length,
       counts: ticketCounts,
       ready: ticketCounts.ready,
       blocked: ticketCounts.blocked,
       inProgress: ticketCounts.in_progress,
       review: ticketCounts.review,
       closed: ticketCounts.closed,
-      items: linkedTickets,
+      items: linkedTickets.items,
     },
     conclusions: [...state.conclusions],
     recommendations: [...state.recommendations],
     openQuestions: [...state.openQuestions],
+    unresolvedReferences: {
+      initiativeIds: linkedInitiatives.missingIds,
+      specChangeIds: linkedSpecs.missingIds,
+      ticketIds: linkedTickets.missingIds,
+    },
   };
+}
+
+export function buildResearchDashboardProjection(
+  cwd: string,
+  state: ResearchState,
+  hypotheses: ResearchHypothesisRecord[],
+  artifacts: ResearchArtifactRecord[],
+): ResearchDashboard {
+  const initiativeStore = createInitiativeStore(cwd);
+  const specStore = createSpecStore(cwd);
+  const ticketStore = createTicketStore(cwd);
+
+  return buildDashboard(
+    state,
+    hypotheses,
+    artifacts,
+    resolveLinkedSummaries(
+      state.initiativeIds,
+      initiativeStore.listInitiativesProjection({ includeArchived: true }) as InitiativeSummary[],
+    ),
+    resolveLinkedSummaries(
+      state.specChangeIds,
+      specStore.listChangesProjection({ includeArchived: true }) as SpecChangeSummary[],
+    ),
+    resolveLinkedSummaries(state.ticketIds, ticketStore.listTickets({ includeClosed: true }) as TicketSummary[]),
+  );
+}
+
+export async function buildResearchDashboard(
+  cwd: string,
+  state: ResearchState,
+  hypotheses: ResearchHypothesisRecord[],
+  artifacts: ResearchArtifactRecord[],
+): Promise<ResearchDashboard> {
+  const specStore = createSpecStore(cwd);
+  const ticketStore = createTicketStore(cwd);
+
+  return buildDashboard(
+    state,
+    hypotheses,
+    artifacts,
+    await resolveLinkedSummariesAsync(
+      state.initiativeIds,
+      async (initiativeId) => resolveInitiativeSummary(cwd, initiativeId),
+      "initiative",
+    ),
+    await resolveLinkedSummariesAsync(
+      state.specChangeIds,
+      async (changeId) => (await specStore.readChange(changeId)).summary,
+      "spec",
+    ),
+    await resolveLinkedSummariesAsync(
+      state.ticketIds,
+      async (ticketId) => (await ticketStore.readTicketAsync(ticketId)).summary,
+      "ticket",
+    ),
+  );
 }

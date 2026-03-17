@@ -1,6 +1,7 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
+import { TICKET_WRITE_ACTIONS } from "../domain/models.js";
 import type {
   AttachArtifactInput,
   CreateCheckpointInput,
@@ -10,6 +11,7 @@ import type {
 } from "../domain/models.js";
 import { renderGraph, renderTicketDetail, renderTicketSummary } from "../domain/render.js";
 import { createTicketStore } from "../domain/store.js";
+import { syncTicketHomeWidget } from "../ui/ticket-workspace.js";
 
 const TicketStatusEnum = StringEnum(["open", "ready", "in_progress", "blocked", "review", "closed"] as const);
 const TicketTypeEnum = StringEnum(["task", "bug", "feature", "epic", "chore", "review", "security"] as const);
@@ -25,17 +27,7 @@ const JournalKindEnum = StringEnum([
   "attachment",
   "state",
 ] as const);
-const TicketWriteActionEnum = StringEnum([
-  "create",
-  "update",
-  "start",
-  "close",
-  "add_note",
-  "add_journal_entry",
-  "attach_artifact",
-  "add_dependency",
-  "remove_dependency",
-] as const);
+const TicketWriteActionEnum = StringEnum(TICKET_WRITE_ACTIONS);
 const TicketCheckpointActionEnum = StringEnum(["create", "read"] as const);
 
 const TicketListParams = Type.Object({
@@ -183,6 +175,16 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
+async function runMutation<T>(ctx: ExtensionContext, action: () => Promise<T>): Promise<T> {
+  const result = await action();
+  try {
+    await syncTicketHomeWidget(ctx);
+  } catch {
+    // Widget refresh is advisory; durable tool writes must not fail outward after they committed.
+  }
+  return result;
+}
+
 export function registerTicketTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "ticket_list",
@@ -242,44 +244,56 @@ export function registerTicketTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "create": {
-          const result = await store.createTicketAsync(toCreateInput(params));
+          const result = await runMutation(ctx, () => store.createTicketAsync(toCreateInput(params)));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "update": {
-          const result = await store.updateTicketAsync(requireRef(params.ref), toUpdateInput(params));
+          const result = await runMutation(ctx, () => store.updateTicketAsync(requireRef(params.ref), toUpdateInput(params)));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "start": {
-          const result = await store.startTicketAsync(requireRef(params.ref));
+          const result = await runMutation(ctx, () => store.startTicketAsync(requireRef(params.ref)));
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "reopen": {
+          const result = await runMutation(ctx, () => store.reopenTicketAsync(requireRef(params.ref)));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "close": {
-          const result = await store.closeTicketAsync(requireRef(params.ref), params.verification);
+          const result = await runMutation(ctx, () => store.closeTicketAsync(requireRef(params.ref), params.verification));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "add_note": {
           if (!params.text?.trim()) throw new Error("text is required for add_note");
-          const result = await store.addNoteAsync(requireRef(params.ref), params.text);
+          const text = params.text;
+          const result = await runMutation(ctx, () => store.addNoteAsync(requireRef(params.ref), text));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "add_journal_entry": {
           if (!params.text?.trim()) throw new Error("text is required for add_journal_entry");
-          const result = await store.addJournalEntryAsync(requireRef(params.ref), params.journalKind ?? "progress", params.text);
+          const text = params.text;
+          const result = await runMutation(ctx, () =>
+            store.addJournalEntryAsync(requireRef(params.ref), params.journalKind ?? "progress", text),
+          );
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "attach_artifact": {
           if (!params.artifact) throw new Error("artifact is required for attach_artifact");
-          const result = await store.attachArtifactAsync(requireRef(params.ref), params.artifact as AttachArtifactInput);
+          const result = await runMutation(ctx, () =>
+            store.attachArtifactAsync(requireRef(params.ref), params.artifact as AttachArtifactInput),
+          );
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "add_dependency": {
           if (!params.dependency) throw new Error("dependency is required for add_dependency");
-          const result = await store.addDependencyAsync(requireRef(params.ref), params.dependency);
+          const dependency = params.dependency;
+          const result = await runMutation(ctx, () => store.addDependencyAsync(requireRef(params.ref), dependency));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "remove_dependency": {
           if (!params.dependency) throw new Error("dependency is required for remove_dependency");
-          const result = await store.removeDependencyAsync(requireRef(params.ref), params.dependency);
+          const dependency = params.dependency;
+          const result = await runMutation(ctx, () => store.removeDependencyAsync(requireRef(params.ref), dependency));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
       }
@@ -344,6 +358,11 @@ export function registerTicketTools(pi: ExtensionAPI): void {
         body: params.body,
         supersedes: params.supersedes,
       } as CreateCheckpointInput);
+      try {
+        await syncTicketHomeWidget(ctx);
+      } catch {
+        // Widget refresh is advisory; durable checkpoint writes must not fail outward after they committed.
+      }
       return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
     },
   });

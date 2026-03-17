@@ -1,0 +1,70 @@
+{
+  "changeId": "design-widget-first-ticketing-ux",
+  "projectedAt": "2026-03-17T06:16:00.718Z",
+  "mode": "initial",
+  "capabilityIds": [
+    "capability-ticket-views-and-operations"
+  ],
+  "tickets": [
+    {
+      "taskId": "task-001",
+      "ticketId": "t-0055",
+      "signature": "2d04ff38461939d6",
+      "capabilityIds": [
+        "capability-ticket-views-and-operations"
+      ],
+      "requirementIds": [
+        "req-004"
+      ],
+      "dependencyTaskIds": []
+    },
+    {
+      "taskId": "task-002",
+      "ticketId": "t-0056",
+      "signature": "e008daf8a15baccd",
+      "capabilityIds": [
+        "capability-ticket-views-and-operations"
+      ],
+      "requirementIds": [
+        "req-001",
+        "req-002",
+        "req-003"
+      ],
+      "dependencyTaskIds": [
+        "task-001"
+      ]
+    },
+    {
+      "taskId": "task-003",
+      "ticketId": "t-0057",
+      "signature": "595038e99637da77",
+      "capabilityIds": [
+        "capability-ticket-views-and-operations"
+      ],
+      "requirementIds": [
+        "req-005"
+      ],
+      "dependencyTaskIds": [
+        "task-002"
+      ]
+    },
+    {
+      "taskId": "task-004",
+      "ticketId": "t-0058",
+      "signature": "5a2c9866f8c74ace",
+      "capabilityIds": [
+        "capability-ticket-views-and-operations"
+      ],
+      "requirementIds": [
+        "req-002",
+        "req-004",
+        "req-005"
+      ],
+      "dependencyTaskIds": [
+        "task-001",
+        "task-002",
+        "task-003"
+      ]
+    }
+  ]
+}

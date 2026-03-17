@@ -1,0 +1,104 @@
+{
+  "changeId": "design-widget-first-ralph-ux",
+  "title": "Design widget-first Ralph UX",
+  "status": "planned",
+  "createdAt": "2026-03-17T05:56:15.232Z",
+  "updatedAt": "2026-03-17T05:59:05.726Z",
+  "finalizedAt": null,
+  "archivedAt": null,
+  "archivedPath": null,
+  "initiativeIds": [],
+  "researchIds": [],
+  "supersedes": [],
+  "proposalSummary": "Define the human-facing Ralph orchestration experience around a persistent run-status widget, focused iteration/timeline/verifier views, and direct workflows for steering bounded loops without tool-mirroring commands.",
+  "designNotes": "Ralph is Loom's bounded orchestration layer for plan-execute-review loops. Its human-facing UX should feel like steering and understanding long-horizon runs rather than operating orchestration internals through slash commands. The home widget should surface active runs, waiting state, blocking verifier or critique signals, and the next decision that matters.\n\nFocused interaction should support a run list, iteration timeline, run master-detail, verifier and critique linkage views, and decision controls for continue, pause, complete, halt, or escalate. The subsystem should make it easy to understand why a run is in its current state and what evidence is driving the next orchestration decision.\n\nThe surviving human verbs should center on opening Ralph, launching or resuming a run, and deciding or reviewing blocked runs. Tool-mirroring verbs for every run mutation should become unnecessary once the UX exposes the orchestration loop directly.",
+  "requirements": [
+    {
+      "id": "req-001",
+      "text": "Focused views must support scanning runs, inspecting one run in detail, reviewing iteration history, examining verifier and critique context, and acting on continuation decisions.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect a Ralph run, review iteration/verifier state, and make a continuation decision from the subsystem UX alone.",
+        "The persistent widget and focused views cover both run-queue triage and one-run deep steering.",
+        "The Ralph UX keeps orchestration state intelligible and bounded rather than turning into a generic workflow engine surface."
+      ],
+      "capabilities": [
+        "capability-ralph-run-workspace"
+      ]
+    },
+    {
+      "id": "req-002",
+      "text": "The design must preserve Ralph as an orchestration layer distinct from plans, tickets, critique, and workers.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect a Ralph run, review iteration/verifier state, and make a continuation decision from the subsystem UX alone.",
+        "The persistent widget and focused views cover both run-queue triage and one-run deep steering.",
+        "The Ralph UX keeps orchestration state intelligible and bounded rather than turning into a generic workflow engine surface."
+      ],
+      "capabilities": [
+        "capability-ralph-run-workspace"
+      ]
+    },
+    {
+      "id": "req-003",
+      "text": "The home widget must summarize active runs, waiting state, blocking verifier or critique signals, and the most important next orchestration actions.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect a Ralph run, review iteration/verifier state, and make a continuation decision from the subsystem UX alone.",
+        "The persistent widget and focused views cover both run-queue triage and one-run deep steering.",
+        "The Ralph UX keeps orchestration state intelligible and bounded rather than turning into a generic workflow engine surface."
+      ],
+      "capabilities": [
+        "capability-ralph-run-workspace"
+      ]
+    },
+    {
+      "id": "req-004",
+      "text": "The UI must support creating, launching, resuming, pausing, completing, halting, or escalating runs through direct workflows instead of tool-mirroring slash commands.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect a Ralph run, review iteration/verifier state, and make a continuation decision from the subsystem UX alone.",
+        "The persistent widget and focused views cover both run-queue triage and one-run deep steering.",
+        "The Ralph UX keeps orchestration state intelligible and bounded rather than turning into a generic workflow engine surface."
+      ],
+      "capabilities": [
+        "capability-ralph-run-workspace"
+      ]
+    },
+    {
+      "id": "req-005",
+      "text": "The workspace must make run state, decision rationale, and blocking evidence legible enough for a human to trust and steer long-horizon loops.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect a Ralph run, review iteration/verifier state, and make a continuation decision from the subsystem UX alone.",
+        "The persistent widget and focused views cover both run-queue triage and one-run deep steering.",
+        "The Ralph UX keeps orchestration state intelligible and bounded rather than turning into a generic workflow engine surface."
+      ],
+      "capabilities": [
+        "capability-ralph-run-workspace"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "capability-ralph-run-workspace",
+      "title": "Ralph run and iteration workspace",
+      "summary": "The Ralph subsystem provides a persistent orchestration widget plus focused run-list, iteration-timeline, verifier, and decision views for bounded loop management.",
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003",
+        "req-004",
+        "req-005"
+      ],
+      "scenarios": [
+        "A reviewer inspects verifier evidence and critique links for one run, then chooses whether to continue, pause, or halt from the same subsystem experience.",
+        "A user opens Ralph and sees one run waiting on critique, one active run nearing an iteration limit, and one paused run, then drills into the blocked run's iteration timeline.",
+        "A user scans the run list to decide which orchestration loop most urgently needs attention without raw slash commands."
+      ]
+    }
+  ],
+  "tasks": [],
+  "artifactVersions": {
+    "proposal": "2026-03-17T05:59:06.040Z",
+    "design": "2026-03-17T05:59:06.040Z",
+    "tasks": null,
+    "analysis": null,
+    "checklist": null
+  }
+}

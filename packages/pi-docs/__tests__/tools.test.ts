@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
@@ -216,6 +216,153 @@ describe("docs tools", () => {
       const listed = await docsList.execute("call-6", { docType: "overview" }, undefined, undefined, ctx);
       expect(listed.details).toMatchObject({
         docs: [expect.objectContaining({ id: "documentation-memory-system", revisionCount: 1 })],
+      });
+    } finally {
+      cleanup();
+    }
+  }, 15000);
+
+  it("rehydrates filesystem-imported docs for canonical list and read flows", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+      const mockPi = createMockPi();
+      const { registerDocsTools } = await import("../extensions/tools/docs.js");
+      registerDocsTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const docsWrite = getTool(mockPi, "docs_write");
+      const docsRead = getTool(mockPi, "docs_read");
+      const docsList = getTool(mockPi, "docs_list");
+
+      await docsWrite.execute(
+        "call-1",
+        {
+          action: "create",
+          title: "Filesystem imported doc",
+          docType: "overview",
+          summary: "Repair imported documentation entities from SQLite snapshots.",
+          audience: ["ai"],
+          scopePaths: ["packages/pi-docs"],
+          contextRefs: { critiqueIds: ["missing-critique"] },
+          sourceTarget: { kind: "workspace", ref: "repo" },
+          updateReason: "Create a canonical repair fixture.",
+          document: [
+            "## Summary",
+            "Canonical docs should repair imported entities without rereading projection files.",
+            "",
+            "## Boundaries",
+            "Missing linked critiques should stay truthful and non-crashing.",
+          ].join("\n"),
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await docsWrite.execute(
+        "call-2",
+        {
+          action: "update",
+          ref: "filesystem-imported-doc",
+          updateReason: "Record a durable revision before import repair.",
+          changedSections: ["Summary"],
+          document: [
+            "## Summary",
+            "Canonical docs should repair imported entities from SQLite snapshots.",
+            "",
+            "## Boundaries",
+            "Missing linked critiques should stay truthful and non-crashing.",
+          ].join("\n"),
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await docsWrite.execute(
+        "call-3",
+        {
+          action: "create",
+          title: "Still structured doc",
+          docType: "overview",
+          summary: "Keep a mixed canonical list.",
+          audience: ["human"],
+          sourceTarget: { kind: "workspace", ref: "repo" },
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
+        import("../../pi-storage/storage/entities.js"),
+        import("../../pi-storage/storage/workspace.js"),
+      ]);
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const entity = await findEntityByDisplayId(
+        storage,
+        identity.space.id,
+        "documentation",
+        "filesystem-imported-doc",
+      );
+      expect(entity).toBeTruthy();
+      if (!entity) {
+        throw new Error("Expected documentation entity to exist");
+      }
+
+      const docRoot = ".loom/docs/overviews/filesystem-imported-doc";
+      const docDir = join(cwd, docRoot);
+      await upsertEntityByDisplayId(storage, {
+        kind: entity.kind,
+        spaceId: entity.spaceId,
+        owningRepositoryId: entity.owningRepositoryId,
+        displayId: entity.displayId,
+        title: entity.title,
+        summary: entity.summary,
+        status: entity.status,
+        version: entity.version + 1,
+        tags: entity.tags,
+        pathScopes: entity.pathScopes,
+        attributes: {
+          importedFrom: "filesystem",
+          filesByPath: {
+            [`${docRoot}/state.json`]: readFileSync(join(docDir, "state.json"), "utf-8"),
+            [`${docRoot}/doc.md`]: readFileSync(join(docDir, "doc.md"), "utf-8"),
+            [`${docRoot}/packet.md`]: readFileSync(join(docDir, "packet.md"), "utf-8"),
+            [`${docRoot}/revisions.jsonl`]: readFileSync(join(docDir, "revisions.jsonl"), "utf-8"),
+          },
+        },
+        createdAt: entity.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+      rmSync(docDir, { recursive: true, force: true });
+
+      const listed = await docsList.execute("call-4", { docType: "overview" }, undefined, undefined, ctx);
+      expect(listed.details).toMatchObject({
+        docs: expect.arrayContaining([
+          expect.objectContaining({ id: "filesystem-imported-doc", revisionCount: 1 }),
+          expect.objectContaining({ id: "still-structured-doc" }),
+        ]),
+      });
+
+      const read = await docsRead.execute("call-5", { ref: "filesystem-imported-doc" }, undefined, undefined, ctx);
+      expect(read.details).toMatchObject({
+        documentation: {
+          summary: { id: "filesystem-imported-doc", revisionCount: 1 },
+          state: { docId: "filesystem-imported-doc" },
+        },
+      });
+
+      const repaired = await findEntityByDisplayId(
+        storage,
+        identity.space.id,
+        "documentation",
+        "filesystem-imported-doc",
+      );
+      expect(repaired?.attributes).toMatchObject({
+        record: {
+          state: expect.objectContaining({ docId: "filesystem-imported-doc" }),
+          revisions: [expect.objectContaining({ id: "rev-001" })],
+        },
       });
     } finally {
       cleanup();

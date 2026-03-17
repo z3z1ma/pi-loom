@@ -1,0 +1,89 @@
+{
+  "researchId": "evaluate-pi-control-surfaces-for-long-lived-workers",
+  "title": "Evaluate Pi control surfaces for long-lived workers",
+  "status": "synthesized",
+  "createdAt": "2026-03-16T02:19:49.094Z",
+  "updatedAt": "2026-03-16T02:37:06.151Z",
+  "archivedAt": null,
+  "synthesizedAt": "2026-03-16T02:20:26.187Z",
+  "question": "What Pi runtime/control surfaces are available for live, long-lived worker processes, and which direction best fits Pi Loom's manager-worker model without falling back to TUI/tmux automation?",
+  "objective": "Produce durable source-backed guidance on whether Pi Loom should keep one-shot subprocess workers, move to long-lived RPC workers, or embed Pi via the SDK for long-lived manager-controlled workers.",
+  "scope": [
+    ".agents/resources/oh-my-pi/docs/rpc.md",
+    ".agents/resources/oh-my-pi/docs/sdk.md",
+    ".agents/resources/oh-my-pi/docs/session-operations-export-share-fork-resume.md",
+    ".loom/research/prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces/research.md",
+    "node_modules/@mariozechner/pi-coding-agent/examples/extensions/subagent/index.ts",
+    "node_modules/@mariozechner/pi-coding-agent/examples/rpc-extension-ui.ts",
+    "node_modules/@mariozechner/pi-coding-agent/examples/sdk/11-sessions.ts",
+    "packages/pi-workers/extensions/domain/runtime.ts"
+  ],
+  "nonGoals": [
+    "Claim undocumented Pi transport or daemon capabilities",
+    "Commit to a final implementation before a dedicated design session"
+  ],
+  "methodology": [
+    "Capture a provisional recommendation while preserving tradeoffs and open questions",
+    "Compare those surfaces with current pi-workers subprocess runtime",
+    "Map each surface to the needs of long-lived, worktree-backed workers",
+    "Read current Pi RPC, SDK, and session-operation docs"
+  ],
+  "keywords": [
+    "manager-worker",
+    "pi",
+    "rpc",
+    "runtime",
+    "sdk",
+    "workers",
+    "worktree"
+  ],
+  "statusSummary": "Research synthesized. Pi clearly exposes one-shot CLI/JSON, long-lived stdio RPC, and in-process SDK control surfaces; no first-class workspace-backed worker daemon or network RPC service was found. The current preference is to explore an SDK-backed worker runtime first, with RPC as the strongest cross-process fallback.",
+  "conclusions": [
+    "Long-lived stdio RPC is sufficient to build live workers with steering, follow-up, abort, state inspection, and extension-UI round trips, but it remains a process/session protocol rather than a worker/domain model.",
+    "No documented Pi-native HTTP/WebSocket/gRPC daemon surface or first-class workspace/worktree worker abstraction was found in the inspected docs/source.",
+    "Pi currently exposes three meaningful control surfaces for this problem: one-shot CLI/JSON subprocesses, long-lived stdio RPC sessions, and in-process SDK sessions.",
+    "Pi session fork/resume/branch operations are session-history primitives, not workspace-aware worker abstractions, so they should not be treated as the worker substrate.",
+    "The SDK offers the cleanest same-runtime control surface for a robust manager-worker implementation because it exposes direct session methods plus event subscriptions without protocol framing overhead."
+  ],
+  "recommendations": [
+    "Continue to let Pi Loom own worker identity, worktree lifecycle, durable messaging, approvals, and consolidation; Pi should remain the agent/session engine rather than the source of worker semantics.",
+    "Do not overload session fork/tree/resume as worker management primitives; they are conversation/session operations and would make the design lie about what a worker is.",
+    "Explore an SDK-backed worker runtime first for Pi Loom wherever Pi subprocesses are currently spawned, so worker execution stays consistent and event-driven within one host runtime.",
+    "Keep RPC as a fallback path when process isolation or cross-language hosting is required, because it already supports long-lived live control over stdio."
+  ],
+  "openQuestions": [
+    "How much isolation does Pi Loom truly need between manager and worker before SDK embedding becomes too tightly coupled?",
+    "Should Pi Loom support both SDK-backed and RPC-backed worker runtimes behind one worker contract, or pick one canonical runtime first?",
+    "What recovery contract should an SDK-backed worker host expose when a session throws or the host needs to restart?"
+  ],
+  "initiativeIds": [
+    "workspace-backed-manager-worker-coordination"
+  ],
+  "specChangeIds": [
+    "add-inbox-driven-manager-worker-control-plane",
+    "add-workspace-backed-manager-worker-substrate"
+  ],
+  "ticketIds": [],
+  "capabilityIds": [],
+  "artifactIds": [
+    "artifact-001"
+  ],
+  "sourceRefs": [
+    ".agents/resources/oh-my-pi/docs/rpc.md",
+    ".agents/resources/oh-my-pi/docs/sdk.md",
+    ".agents/resources/oh-my-pi/docs/session-operations-export-share-fork-resume.md",
+    ".loom/research/prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces/research.md",
+    "node_modules/@mariozechner/pi-coding-agent/examples/extensions/subagent/index.ts",
+    "node_modules/@mariozechner/pi-coding-agent/examples/rpc-extension-ui.ts",
+    "node_modules/@mariozechner/pi-coding-agent/examples/sdk/11-sessions.ts",
+    "packages/pi-workers/extensions/domain/runtime.ts"
+  ],
+  "supersedes": [],
+  "tags": [
+    "manager-worker",
+    "rpc",
+    "runtime",
+    "sdk",
+    "workers"
+  ]
+}

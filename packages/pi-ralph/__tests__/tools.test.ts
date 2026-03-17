@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
@@ -197,6 +197,19 @@ describe("ralph tools", () => {
       }
       expect(read.content[0].text).toContain('"waitingFor": "operator"');
 
+      const packet = await ralphRead.execute(
+        "call-3c",
+        { ref: "ralph-tool-coverage", mode: "packet" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(packet.content[0]).toMatchObject({ type: "text" });
+      if (packet.content[0]?.type !== "text") {
+        throw new Error("Expected packet text content");
+      }
+      expect(packet.content[0].text).toContain("planning-layer (unresolved)");
+
       await ralphWrite.execute(
         "call-3b",
         {
@@ -309,5 +322,122 @@ describe("ralph tools", () => {
     } finally {
       cleanup();
     }
-  }, 15000);
+  }, 30000);
+
+  it("rehydrates filesystem-imported Ralph entities for canonical list and read flows", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const mockPi = createMockPi();
+      const { registerRalphTools } = await import("../extensions/tools/ralph.js");
+      registerRalphTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const ralphWrite = getTool(mockPi, "ralph_write");
+      const ralphRead = getTool(mockPi, "ralph_read");
+      const ralphList = getTool(mockPi, "ralph_list");
+
+      await ralphWrite.execute(
+        "call-1",
+        {
+          action: "create",
+          title: "Filesystem imported Ralph run",
+          objective: "Repair canonical Ralph records from explicit projection reads when imports are encountered.",
+          summary: "Keep canonical Ralph reads on SQLite after repairing imported entities.",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await ralphWrite.execute(
+        "call-2",
+        {
+          action: "create",
+          title: "Still structured Ralph run",
+          objective: "Exercise mixed canonical Ralph lists.",
+          summary: "One run repairs while another stays structured.",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
+        import("../../pi-storage/storage/entities.js"),
+        import("../../pi-storage/storage/workspace.js"),
+      ]);
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const entity = await findEntityByDisplayId(
+        storage,
+        identity.space.id,
+        "ralph_run",
+        "filesystem-imported-ralph-run",
+      );
+      expect(entity).toBeTruthy();
+      if (!entity) {
+        throw new Error("Expected Ralph entity to exist");
+      }
+
+      const runDir = join(cwd, ".loom", "ralph", "filesystem-imported-ralph-run");
+      const runRoot = ".loom/ralph/filesystem-imported-ralph-run";
+      await upsertEntityByDisplayId(storage, {
+        kind: entity.kind,
+        spaceId: entity.spaceId,
+        owningRepositoryId: entity.owningRepositoryId,
+        displayId: entity.displayId,
+        title: entity.title,
+        summary: entity.summary,
+        status: entity.status,
+        version: entity.version + 1,
+        tags: entity.tags,
+        pathScopes: entity.pathScopes,
+        attributes: {
+          importedFrom: "filesystem",
+          filesByPath: {
+            [`${runRoot}/state.json`]: readFileSync(join(runDir, "state.json"), "utf-8"),
+            [`${runRoot}/iterations.jsonl`]: readFileSync(join(runDir, "iterations.jsonl"), "utf-8"),
+            [`${runRoot}/packet.md`]: readFileSync(join(runDir, "packet.md"), "utf-8"),
+            [`${runRoot}/run.md`]: readFileSync(join(runDir, "run.md"), "utf-8"),
+            [`${runRoot}/launch.json`]: readFileSync(join(runDir, "launch.json"), "utf-8"),
+          },
+        },
+        createdAt: entity.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+
+      const listed = await ralphList.execute("call-3", {}, undefined, undefined, ctx);
+      expect(listed.details).toMatchObject({
+        runs: expect.arrayContaining([
+          expect.objectContaining({ id: "filesystem-imported-ralph-run" }),
+          expect.objectContaining({ id: "still-structured-ralph-run" }),
+        ]),
+      });
+
+      const read = await ralphRead.execute(
+        "call-4",
+        { ref: "filesystem-imported-ralph-run", mode: "state" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(read.details).toMatchObject({
+        summary: { id: "filesystem-imported-ralph-run" },
+        state: { runId: "filesystem-imported-ralph-run" },
+      });
+
+      const repaired = await findEntityByDisplayId(
+        storage,
+        identity.space.id,
+        "ralph_run",
+        "filesystem-imported-ralph-run",
+      );
+      expect(repaired?.attributes).toMatchObject({
+        record: {
+          summary: expect.objectContaining({ id: "filesystem-imported-ralph-run" }),
+          state: expect.objectContaining({ runId: "filesystem-imported-ralph-run" }),
+        },
+      });
+    } finally {
+      cleanup();
+    }
+  }, 60000);
 });

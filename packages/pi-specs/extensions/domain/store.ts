@@ -78,6 +78,21 @@ interface SpecCapabilityEntityAttributes {
   record: CanonicalCapabilityRecord;
 }
 
+interface FilesystemImportedSpecChangeAttributes {
+  importedFrom?: string;
+  filesByPath?: Record<string, string>;
+}
+
+function hasStructuredSpecChangeAttributes(attributes: unknown): attributes is SpecChangeEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
+}
+
+function hasFilesystemImportedSpecChangeAttributes(
+  attributes: unknown,
+): attributes is FilesystemImportedSpecChangeAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
+}
+
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
 }
@@ -95,6 +110,10 @@ function writeJson(path: string, value: unknown): void {
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
+}
+
+function parseJsonText<T>(content: string): T {
+  return JSON.parse(content) as T;
 }
 
 function readText(path: string): string {
@@ -470,7 +489,17 @@ export class SpecStore {
     if (!entity) {
       throw new Error(`Unknown spec change: ${ref}`);
     }
-    const attributes = entity.attributes as unknown as SpecChangeEntityAttributes;
+    if (!hasStructuredSpecChangeAttributes(entity.attributes)) {
+      const projection = this.readImportedChange(changeId, entity.attributes) ?? this.readChangeProjection(changeId);
+      return this.persistCanonicalChange(
+        projection.state,
+        projection.decisions,
+        projection.projection,
+        projection.analysis,
+        projection.checklist,
+      );
+    }
+    const attributes = entity.attributes;
     return this.materializeChangeRecord(
       this.normalizeState(attributes.state),
       attributes.decisions ?? [],
@@ -478,6 +507,74 @@ export class SpecStore {
       attributes.analysis ?? "",
       attributes.checklist ?? "",
     );
+  }
+
+  private readImportedChange(changeId: string, attributes: unknown): SpecChangeRecord | null {
+    if (!hasFilesystemImportedSpecChangeAttributes(attributes) || !attributes.filesByPath) {
+      return null;
+    }
+    const statePath = `.loom/specs/changes/${changeId}/state.json`;
+    const archivedStatePath = Object.keys(attributes.filesByPath).find((path) =>
+      path.endsWith(`/${changeId}/state.json`) && path.includes(".loom/specs/archive/"),
+    );
+    const resolvedStatePath = attributes.filesByPath[statePath] ? statePath : archivedStatePath;
+    const proposalPath = Object.keys(attributes.filesByPath).find((path) =>
+      path.endsWith(`/${changeId}/proposal.md`) && path.includes(".loom/specs/"),
+    );
+    if (!resolvedStatePath && !proposalPath) {
+      return null;
+    }
+    const baseDir = resolvedStatePath
+      ? resolvedStatePath.slice(0, -"/state.json".length)
+      : (proposalPath as string).slice(0, -"/proposal.md".length);
+    const state = resolvedStatePath
+      ? this.normalizeState(parseJsonText<SpecChangeState>(attributes.filesByPath[resolvedStatePath]))
+      : this.normalizeState({
+          changeId,
+          title: parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter.title ?? changeId,
+          status: parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter.status ?? "proposed",
+          createdAt:
+            parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter["created-at"] ??
+            currentTimestamp(),
+          updatedAt:
+            parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter["updated-at"] ??
+            currentTimestamp(),
+          finalizedAt: null,
+          archivedAt: null,
+          archivedPath: baseDir.includes(".loom/specs/archive/") ? baseDir : null,
+          initiativeIds: normalizeStringList(
+            parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter.initiatives,
+          ),
+          researchIds: normalizeStringList(
+            parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter.research,
+          ),
+          supersedes: [],
+          proposalSummary: parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).body.trim() || changeId,
+          designNotes: "",
+          requirements: [],
+          capabilities: [],
+          tasks: [],
+          artifactVersions: artifactVersions(),
+        });
+    const decisionsText = attributes.filesByPath[`${baseDir}/decisions.jsonl`] ?? "";
+    const decisions = decisionsText
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as SpecDecisionRecord);
+    const projectionText = attributes.filesByPath[`${baseDir}/ticket-projection.json`];
+    return {
+      state,
+      summary: summarizeChange(this.cwd, state, fromRepoRelativePath(this.cwd, baseDir), Boolean(state.archivedPath)),
+      artifacts: [],
+      proposal: attributes.filesByPath[`${baseDir}/proposal.md`] ?? "",
+      design: attributes.filesByPath[`${baseDir}/design.md`] ?? "",
+      tasksMarkdown: attributes.filesByPath[`${baseDir}/tasks.md`] ?? "",
+      analysis: attributes.filesByPath[`${baseDir}/analysis.md`] ?? "",
+      checklist: attributes.filesByPath[`${baseDir}/checklist.md`] ?? "",
+      decisions,
+      capabilitySpecs: [],
+      projection: projectionText ? parseJsonText<SpecTicketProjection>(projectionText) : null,
+    };
   }
 
   private async persistCanonicalChange(
@@ -649,13 +746,27 @@ export class SpecStore {
 
   async listChanges(filter: SpecListFilter = {}): Promise<SpecChangeSummary[]> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    return (await storage.listEntities(identity.space.id, SPEC_CHANGE_ENTITY_KIND))
-      .map((entity) => {
-        const attributes = entity.attributes as unknown as SpecChangeEntityAttributes;
-        const state = this.normalizeState(attributes.state);
-        const path = state.archivedPath ? fromRepoRelativePath(this.cwd, state.archivedPath) : getChangeDir(this.cwd, state.changeId);
-        return summarizeChange(this.cwd, state, path, Boolean(state.archivedPath));
-      })
+    const summaries: SpecChangeSummary[] = [];
+    for (const entity of await storage.listEntities(identity.space.id, SPEC_CHANGE_ENTITY_KIND)) {
+      if (hasStructuredSpecChangeAttributes(entity.attributes)) {
+        const state = this.normalizeState(entity.attributes.state);
+        const path = state.archivedPath
+          ? fromRepoRelativePath(this.cwd, state.archivedPath)
+          : getChangeDir(this.cwd, state.changeId);
+        summaries.push(summarizeChange(this.cwd, state, path, Boolean(state.archivedPath)));
+        continue;
+      }
+      const projection = this.readImportedChange(entity.displayId, entity.attributes) ?? this.readChangeProjection(entity.displayId);
+      const repaired = await this.persistCanonicalChange(
+        projection.state,
+        projection.decisions,
+        projection.projection,
+        projection.analysis,
+        projection.checklist,
+      );
+      summaries.push(repaired.summary);
+    }
+    return summaries
       .filter((summary) => {
         if (!filter.includeArchived && summary.archived) {
           return false;

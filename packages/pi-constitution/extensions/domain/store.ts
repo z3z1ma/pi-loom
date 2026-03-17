@@ -69,6 +69,10 @@ interface ConstitutionalEntityAttributes {
   state: Omit<ConstitutionalState, "artifactPaths">;
 }
 
+function hasStructuredConstitutionAttributes(attributes: unknown): attributes is ConstitutionalEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
+}
+
 function ensureDir(filePath: string): void {
   fs.mkdirSync(filePath, { recursive: true });
 }
@@ -411,9 +415,35 @@ export class ConstitutionalStore {
       return { record, storage };
     }
 
-    const attributes = entity.attributes as unknown as ConstitutionalEntityAttributes | undefined;
+    if (!hasStructuredConstitutionAttributes(entity.attributes)) {
+      const projectionState = this.readStateFromFiles();
+      const projectionDecisions = this.readDecisionsFromFiles();
+      const existingDecisionIds = new Set(
+        (await storage.listEvents(entity.id))
+          .filter((event) => event.kind === "decision_recorded")
+          .map((event) => (event.payload.decision as ConstitutionDecisionRecord).id),
+      );
+      for (const decision of projectionDecisions) {
+        if (!existingDecisionIds.has(decision.id)) {
+          await appendEntityEvent(
+            storage,
+            entity.id,
+            "decision_recorded",
+            "constitution-rehydrate",
+            { decision },
+            decision.createdAt,
+          );
+        }
+      }
+      return {
+        record: await this.persistCanonical(projectionState, projectionDecisions),
+        storage,
+      };
+    }
+
+    const attributes = entity.attributes;
     const state = this.normalizeState({
-      ...(attributes?.state ?? this.defaultState({}, currentTimestamp())),
+      ...(attributes.state ?? this.defaultState({}, currentTimestamp())),
       artifactPaths: this.artifactPaths(),
     });
     const decisions = (await storage.listEvents(entity.id))

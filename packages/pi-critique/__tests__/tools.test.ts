@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
@@ -304,4 +304,160 @@ describe("critique tools", () => {
       cleanup();
     }
   });
+
+  it("rehydrates filesystem-imported critiques for canonical list and read flows", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+      const mockPi = createMockPi();
+      const { registerCritiqueTools } = await import("../extensions/tools/critique.js");
+      registerCritiqueTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const critiqueWrite = getTool(mockPi, "critique_write");
+      const critiqueRun = getTool(mockPi, "critique_run");
+      const critiqueFinding = getTool(mockPi, "critique_finding");
+      const critiqueList = getTool(mockPi, "critique_list");
+      const critiqueRead = getTool(mockPi, "critique_read");
+
+      await critiqueWrite.execute(
+        "call-1",
+        {
+          action: "create",
+          title: "Filesystem imported critique",
+          target: { kind: "workspace", ref: "repo" },
+          focusAreas: ["correctness"],
+          contextRefs: { specChangeIds: ["missing-spec"] },
+          reviewQuestion: "Can canonical critique reads repair imported entities from SQLite?",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await critiqueRun.execute(
+        "call-2",
+        {
+          ref: "filesystem-imported-critique",
+          kind: "adversarial",
+          summary: "Imported critique should still preserve its durable run.",
+          verdict: "concerns",
+          freshContext: true,
+          focusAreas: ["correctness"],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await critiqueFinding.execute(
+        "call-3",
+        {
+          action: "create",
+          ref: "filesystem-imported-critique",
+          runId: "run-001",
+          kind: "missing_test",
+          severity: "medium",
+          confidence: "medium",
+          title: "Repair coverage missing",
+          summary: "Imported critique repair still needs regression coverage.",
+          evidence: ["No imported-entity canonical read test existed."],
+          recommendedAction: "Add a targeted canonical critique repair test.",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await critiqueWrite.execute(
+        "call-4",
+        {
+          action: "create",
+          title: "Still structured critique",
+          target: { kind: "workspace", ref: "repo" },
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
+        import("../../pi-storage/storage/entities.js"),
+        import("../../pi-storage/storage/workspace.js"),
+      ]);
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const entity = await findEntityByDisplayId(
+        storage,
+        identity.space.id,
+        "critique",
+        "filesystem-imported-critique",
+      );
+      expect(entity).toBeTruthy();
+      if (!entity) {
+        throw new Error("Expected critique entity to exist");
+      }
+
+      const critiqueRoot = ".loom/critiques/filesystem-imported-critique";
+      const critiqueDir = join(cwd, critiqueRoot);
+      await upsertEntityByDisplayId(storage, {
+        kind: entity.kind,
+        spaceId: entity.spaceId,
+        owningRepositoryId: entity.owningRepositoryId,
+        displayId: entity.displayId,
+        title: entity.title,
+        summary: entity.summary,
+        status: entity.status,
+        version: entity.version + 1,
+        tags: entity.tags,
+        pathScopes: entity.pathScopes,
+        attributes: {
+          importedFrom: "filesystem",
+          filesByPath: {
+            [`${critiqueRoot}/state.json`]: readFileSync(join(critiqueDir, "state.json"), "utf-8"),
+            [`${critiqueRoot}/runs.jsonl`]: readFileSync(join(critiqueDir, "runs.jsonl"), "utf-8"),
+            [`${critiqueRoot}/findings.jsonl`]: readFileSync(join(critiqueDir, "findings.jsonl"), "utf-8"),
+          },
+        },
+        createdAt: entity.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+      rmSync(critiqueDir, { recursive: true, force: true });
+
+      const listed = await critiqueList.execute("call-5", { targetKind: "workspace" }, undefined, undefined, ctx);
+      expect(listed.details).toMatchObject({
+        critiques: expect.arrayContaining([
+          expect.objectContaining({ id: "filesystem-imported-critique", verdict: "concerns" }),
+          expect.objectContaining({ id: "still-structured-critique" }),
+        ]),
+      });
+
+      const read = await critiqueRead.execute(
+        "call-6",
+        { ref: "filesystem-imported-critique" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(read.details).toMatchObject({
+        critique: {
+          summary: { id: "filesystem-imported-critique", verdict: "concerns" },
+          state: { critiqueId: "filesystem-imported-critique" },
+          findings: [expect.objectContaining({ id: "finding-001" })],
+        },
+      });
+
+      const repaired = await findEntityByDisplayId(
+        storage,
+        identity.space.id,
+        "critique",
+        "filesystem-imported-critique",
+      );
+      expect(repaired?.attributes).toMatchObject({
+        record: {
+          state: expect.objectContaining({ critiqueId: "filesystem-imported-critique" }),
+          runs: [expect.objectContaining({ id: "run-001" })],
+          findings: [expect.objectContaining({ id: "finding-001" })],
+        },
+      });
+    } finally {
+      cleanup();
+    }
+  }, 30000);
 });

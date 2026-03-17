@@ -1,5 +1,17 @@
 export const TICKET_STATUSES = ["open", "ready", "in_progress", "blocked", "review", "closed"] as const;
 export const MUTABLE_TICKET_STATUSES = ["open", "in_progress", "review", "closed"] as const;
+export const TICKET_WRITE_ACTIONS = [
+  "create",
+  "update",
+  "start",
+  "reopen",
+  "close",
+  "add_note",
+  "add_journal_entry",
+  "attach_artifact",
+  "add_dependency",
+  "remove_dependency",
+] as const;
 export const TICKET_TYPES = ["task", "bug", "feature", "epic", "chore", "review", "security"] as const;
 export const TICKET_PRIORITIES = ["low", "medium", "high", "critical"] as const;
 export const TICKET_RISKS = ["low", "medium", "high"] as const;
@@ -16,6 +28,7 @@ export const JOURNAL_KINDS = [
 
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 export type MutableTicketStatus = (typeof MUTABLE_TICKET_STATUSES)[number];
+export type TicketWriteAction = (typeof TICKET_WRITE_ACTIONS)[number];
 export type TicketType = (typeof TICKET_TYPES)[number];
 export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
 export type TicketRisk = (typeof TICKET_RISKS)[number];
@@ -242,6 +255,6 @@ export interface CreateCheckpointInput {
 }
 
 export interface TicketWriteResult {
-  action: string;
+  action: TicketWriteAction;
   ticket: TicketReadResult;
 }

@@ -1,183 +1,414 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { AttachArtifactInput, CreateCheckpointInput, UpdateTicketInput } from "../domain/models.js";
-import { renderGraph, renderJournal, renderTicketDetail, renderTicketSummary } from "../domain/render.js";
+import {
+  REVIEW_STATUSES,
+  TICKET_PRIORITIES,
+  TICKET_RISKS,
+  TICKET_TYPES,
+  type TicketReadResult,
+  type TicketReviewStatus,
+  type TicketRisk,
+  type TicketType,
+  type UpdateTicketInput,
+} from "../domain/models.js";
+import { renderTicketDetail } from "../domain/render.js";
 import { createTicketStore } from "../domain/store.js";
+import {
+  loadTicketWorkspaceSnapshot,
+  openInteractiveTicketWorkspace,
+  renderTicketWorkspaceText,
+  syncTicketHomeWidget,
+  type TicketWorkspaceAction,
+  type TicketWorkspaceField,
+  type TicketWorkspaceView,
+} from "../ui/ticket-workspace.js";
+
+const WORKSPACE_FIELDS = [
+  "title",
+  "assignee",
+  "priority",
+  "risk",
+  "type",
+  "reviewStatus",
+  "summary",
+  "context",
+  "plan",
+  "notes",
+  "verification",
+  "journalSummary",
+] as const satisfies readonly TicketWorkspaceField[];
 
 function splitArgs(args: string): string[] {
   return args.trim().split(/\s+/).filter(Boolean);
 }
 
-function parseRefAndText(args: string): { ref: string; text: string } {
-  const [ref, ...rest] = splitArgs(args);
-  if (!ref || rest.length === 0) {
-    throw new Error("Expected a ticket reference followed by text");
-  }
-  return { ref, text: rest.join(" ").trim() };
+function normalizeWorkspaceRef(ref: string): string {
+  return ref.startsWith("#") ? ref.slice(1) : ref;
 }
 
-function parseUpdateArgs(parts: string[]): { ref: string; updates: UpdateTicketInput } {
-  const [ref, ...pairs] = parts;
-  if (!ref || pairs.length === 0) {
-    throw new Error("Usage: /ticket update <ref> key=value ...");
+function fieldLabel(field: TicketWorkspaceField): string {
+  switch (field) {
+    case "journalSummary":
+      return "journal summary";
+    default:
+      return field;
   }
-  const updates: UpdateTicketInput = {};
-  for (const pair of pairs) {
-    const separatorIndex = pair.indexOf("=");
-    if (separatorIndex === -1) {
-      throw new Error(`Invalid update pair: ${pair}`);
+}
+
+function currentFieldValue(result: TicketReadResult, field: TicketWorkspaceField): string {
+  switch (field) {
+    case "assignee":
+      return result.ticket.frontmatter.assignee ?? "";
+    case "priority":
+      return result.ticket.frontmatter.priority;
+    case "risk":
+      return result.ticket.frontmatter.risk;
+    case "type":
+      return result.ticket.frontmatter.type;
+    case "reviewStatus":
+      return result.ticket.frontmatter["review-status"];
+    case "title":
+      return result.ticket.frontmatter.title;
+    case "summary":
+      return result.ticket.body.summary;
+    case "context":
+      return result.ticket.body.context;
+    case "plan":
+      return result.ticket.body.plan;
+    case "notes":
+      return result.ticket.body.notes;
+    case "verification":
+      return result.ticket.body.verification;
+    case "journalSummary":
+      return result.ticket.body.journalSummary;
+  }
+}
+
+function normalizeEnumInput<T extends string>(
+  field: string,
+  value: string | undefined,
+  allowed: readonly T[],
+): T | null {
+  if (value === undefined) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if ((allowed as readonly string[]).includes(trimmed)) {
+    return trimmed as T;
+  }
+  throw new Error(`Invalid ${field}: ${trimmed}. Expected one of ${allowed.join(", ")}.`);
+}
+
+async function safeSyncTicketHomeWidget(ctx: ExtensionCommandContext): Promise<void> {
+  try {
+    await syncTicketHomeWidget(ctx);
+  } catch {
+    // Widget refresh is advisory; durable ticket mutations must not fail outward when it cannot render.
+  }
+}
+
+function notifyTicketResult(ctx: ExtensionCommandContext, result: TicketReadResult): void {
+  if (typeof ctx.ui?.notify === "function") {
+    ctx.ui.notify(renderTicketDetail(result), "info");
+  }
+}
+
+function parseWorkspaceField(value: string | undefined): TicketWorkspaceField {
+  if (value && WORKSPACE_FIELDS.includes(value as TicketWorkspaceField)) {
+    return value as TicketWorkspaceField;
+  }
+  throw new Error(`Unsupported ticket field. Expected one of ${WORKSPACE_FIELDS.join(", ")}.`);
+}
+
+function buildFieldUpdate(field: TicketWorkspaceField, value: string | undefined): UpdateTicketInput | null {
+  if (field === "title") {
+    const trimmed = value?.trim();
+    return trimmed ? { title: trimmed } : null;
+  }
+  if (field === "assignee") {
+    if (value === undefined) {
+      return null;
     }
-    const key = pair.slice(0, separatorIndex);
-    const value = pair.slice(separatorIndex + 1);
-    switch (key) {
-      case "title":
-        updates.title = value;
-        break;
-      case "summary":
-        updates.summary = value;
-        break;
-      case "context":
-        updates.context = value;
-        break;
-      case "plan":
-        updates.plan = value;
-        break;
-      case "notes":
-        updates.notes = value;
-        break;
-      case "verification":
-        updates.verification = value;
-        break;
-      case "journalSummary":
-        updates.journalSummary = value;
-        break;
-      case "status":
-        updates.status = value as UpdateTicketInput["status"];
-        break;
-      case "priority":
-        updates.priority = value as UpdateTicketInput["priority"];
-        break;
-      case "type":
-        updates.type = value as UpdateTicketInput["type"];
-        break;
-      case "risk":
-        updates.risk = value as UpdateTicketInput["risk"];
-        break;
-      case "reviewStatus":
-        updates.reviewStatus = value as UpdateTicketInput["reviewStatus"];
-        break;
-      case "parent":
-        updates.parent = value;
-        break;
-      case "assignee":
-        updates.assignee = value;
-        break;
-      default:
-        throw new Error(`Unsupported update field: ${key}`);
+    const trimmed = value.trim();
+    return { assignee: !trimmed || trimmed === "none" ? null : trimmed };
+  }
+  if (field === "priority") {
+    const priority = normalizeEnumInput("priority", value, TICKET_PRIORITIES);
+    return priority ? { priority } : null;
+  }
+  if (field === "risk") {
+    const risk = normalizeEnumInput<TicketRisk>("risk", value, TICKET_RISKS);
+    return risk ? { risk } : null;
+  }
+  if (field === "type") {
+    const type = normalizeEnumInput<TicketType>("type", value, TICKET_TYPES);
+    return type ? { type } : null;
+  }
+  if (field === "reviewStatus") {
+    const reviewStatus = normalizeEnumInput<TicketReviewStatus>("review status", value, REVIEW_STATUSES);
+    return reviewStatus ? { reviewStatus } : null;
+  }
+  if (value === undefined) {
+    return null;
+  }
+  return { [field]: value.trim() } as UpdateTicketInput;
+}
+
+function promptTitle(ctx: ExtensionCommandContext, initialValue: string): Promise<string | undefined> {
+  return ctx.ui.input("Ticket title", initialValue || "Short human-readable title");
+}
+
+async function promptFieldUpdate(
+  ctx: ExtensionCommandContext,
+  ref: string,
+  field: TicketWorkspaceField,
+  currentValue: string,
+  suppliedValue?: string,
+): Promise<UpdateTicketInput | null> {
+  if (suppliedValue !== undefined) {
+    return buildFieldUpdate(field, suppliedValue);
+  }
+  if (field === "title") {
+    return buildFieldUpdate(field, await promptTitle(ctx, currentValue));
+  }
+  if (field === "assignee") {
+    return buildFieldUpdate(
+      field,
+      await ctx.ui.input(`Edit ${ref} assignee`, currentValue || "Unassigned; leave blank to clear"),
+    );
+  }
+  if (field === "priority") {
+    return buildFieldUpdate(
+      field,
+      await ctx.ui.input(`Edit ${ref} priority (${TICKET_PRIORITIES.join(", ")})`, currentValue),
+    );
+  }
+  if (field === "risk") {
+    return buildFieldUpdate(
+      field,
+      await ctx.ui.input(`Edit ${ref} risk (${TICKET_RISKS.join(", ")})`, currentValue),
+    );
+  }
+  if (field === "type") {
+    return buildFieldUpdate(
+      field,
+      await ctx.ui.input(`Edit ${ref} type (${TICKET_TYPES.join(", ")})`, currentValue),
+    );
+  }
+  if (field === "reviewStatus") {
+    return buildFieldUpdate(
+      field,
+      await ctx.ui.input(`Edit ${ref} review status (${REVIEW_STATUSES.join(", ")})`, currentValue),
+    );
+  }
+  const value = await ctx.ui.editor(`Edit ${ref} ${fieldLabel(field)}`, currentValue);
+  return buildFieldUpdate(field, value);
+}
+
+function parseOpenCommand(parts: string[]): { view: TicketWorkspaceView; action: TicketWorkspaceAction | null } {
+  const [view, maybeRef, maybeAction, ...rest] = parts;
+  if (!view || view === "home") {
+    return { view: { kind: "home" }, action: null };
+  }
+  if (view === "list") {
+    return { view: { kind: "list" }, action: null };
+  }
+  if (view === "board") {
+    return { view: { kind: "board" }, action: null };
+  }
+  if (view === "timeline") {
+    return { view: { kind: "timeline" }, action: null };
+  }
+  if (view === "detail") {
+    if (!maybeRef) {
+      throw new Error("Usage: /ticket open detail <ref>");
     }
+    const ref = normalizeWorkspaceRef(maybeRef);
+    if (!maybeAction) {
+      return { view: { kind: "detail", ref }, action: null };
+    }
+    if (maybeAction === "edit") {
+      const field = parseWorkspaceField(rest[0]);
+      return { view: { kind: "detail", ref }, action: { kind: "edit", ref, field, value: rest.slice(1).join(" ") } };
+    }
+    if (maybeAction === "status") {
+      const [status, ...noteParts] = rest;
+      if (!status || !["open", "reopen", "in_progress", "review", "close"].includes(status)) {
+        throw new Error("Usage: /ticket open detail <ref> status <open|reopen|in_progress|review|close> [verification note]");
+      }
+      return {
+        view: { kind: "detail", ref },
+        action: {
+          kind: "status",
+          ref,
+          status: status as "open" | "reopen" | "in_progress" | "review" | "close",
+          verificationNote: noteParts.join(" "),
+        },
+      };
+    }
+    if (maybeAction === "dependency") {
+      const [mode, dependencyRef] = rest;
+      if ((mode !== "add" && mode !== "remove") || !dependencyRef) {
+        throw new Error("Usage: /ticket open detail <ref> dependency <add|remove> <depRef>");
+      }
+      return {
+        view: { kind: "detail", ref },
+        action: { kind: "dependency", ref, mode, dependencyRef },
+      };
+    }
+    throw new Error("Usage: /ticket open detail <ref> [edit <field> <value...>|status <open|reopen|in_progress|review|close> [verification note]|dependency <add|remove> <depRef>]");
   }
-  return { ref, updates };
+  throw new Error("Usage: /ticket open [home|list|board|timeline|detail <ref>]");
 }
 
-function parseAttachArgs(parts: string[]): { ref: string; input: AttachArtifactInput } {
-  const [ref, label, ...rest] = parts;
-  if (!ref || !label || rest.length === 0) {
-    throw new Error("Usage: /ticket attach <ref> <label> path:<path>|text:<content>");
+async function performWorkspaceAction(
+  action: TicketWorkspaceAction,
+  ctx: ExtensionCommandContext,
+): Promise<TicketWorkspaceView> {
+  const store = createTicketStore(ctx.cwd);
+  switch (action.kind) {
+    case "navigate":
+      return action.view;
+    case "create": {
+      const title = await promptTitle(ctx, "");
+      if (!title?.trim()) {
+        return { kind: "home" };
+      }
+      const created = await store.createTicketAsync({ title: title.trim() });
+      await safeSyncTicketHomeWidget(ctx);
+      notifyTicketResult(ctx, created);
+      return { kind: "detail", ref: created.summary.id };
+    }
+    case "edit": {
+      const current = await store.readTicketAsync(action.ref);
+      if (current.ticket.closed) {
+        throw new Error(`Closed ticket ${action.ref} must be reopened before it can be edited.`);
+      }
+      const updates = await promptFieldUpdate(
+        ctx,
+        action.ref,
+        action.field,
+        currentFieldValue(current, action.field),
+        action.value,
+      );
+      if (!updates) {
+        return { kind: "detail", ref: action.ref };
+      }
+      const updated = await store.updateTicketAsync(action.ref, updates);
+      await safeSyncTicketHomeWidget(ctx);
+      notifyTicketResult(ctx, updated);
+      return { kind: "detail", ref: updated.summary.id };
+    }
+    case "status": {
+      let updated: TicketReadResult;
+      if (action.status === "reopen") {
+        updated = await store.reopenTicketAsync(action.ref);
+      } else if (action.status === "open") {
+        updated = await store.updateTicketAsync(action.ref, { status: "open" });
+      } else if (action.status === "in_progress") {
+        updated = await store.startTicketAsync(action.ref);
+      } else if (action.status === "review") {
+        updated = await store.updateTicketAsync(action.ref, { status: "review" });
+      } else {
+        const verificationNote = action.verificationNote?.trim()
+          ? action.verificationNote.trim()
+          : ctx.hasUI
+            ? (await ctx.ui.editor(`Close ${action.ref}: verification`, ""))?.trim()
+            : undefined;
+        updated = await store.closeTicketAsync(
+          action.ref,
+          verificationNote,
+        );
+      }
+      await safeSyncTicketHomeWidget(ctx);
+      notifyTicketResult(ctx, updated);
+      return { kind: "detail", ref: updated.summary.id };
+    }
+    case "dependency": {
+      const current = await store.readTicketAsync(action.ref);
+      if (current.ticket.closed) {
+        throw new Error(`Closed ticket ${action.ref} must be reopened before dependencies can change.`);
+      }
+      const prompt = action.mode === "add" ? `Add dependency to ${action.ref}` : `Remove dependency from ${action.ref}`;
+      const ref = action.dependencyRef ?? (await ctx.ui.input(prompt, "t-0001 or #t-0001"));
+      if (!ref?.trim()) {
+        return { kind: "detail", ref: action.ref };
+      }
+      const updated =
+        action.mode === "add"
+          ? await store.addDependencyAsync(action.ref, ref.trim())
+          : await store.removeDependencyAsync(action.ref, ref.trim());
+      await safeSyncTicketHomeWidget(ctx);
+      notifyTicketResult(ctx, updated);
+      return { kind: "detail", ref: updated.summary.id };
+    }
+    case "close":
+      return { kind: "home" };
   }
-  const payload = rest.join(" ");
-  if (payload.startsWith("path:")) {
-    return { ref, input: { label, path: payload.slice(5) } };
-  }
-  if (payload.startsWith("text:")) {
-    return { ref, input: { label, content: payload.slice(5), mediaType: "text/plain" } };
-  }
-  throw new Error("Attachment payload must start with path: or text:");
 }
 
-function parseCheckpointArgs(args: string): { ref: string; input: CreateCheckpointInput } {
-  const separatorIndex = args.indexOf("::");
-  if (separatorIndex === -1) {
-    throw new Error("Usage: /ticket checkpoint <ref> <title> :: <body>");
+async function openTicketWorkspace(initialView: TicketWorkspaceView, ctx: ExtensionCommandContext): Promise<string> {
+  const store = createTicketStore(ctx.cwd);
+  if (!ctx.hasUI) {
+    return renderTicketWorkspaceText(await loadTicketWorkspaceSnapshot(store, initialView));
   }
-  const left = args.slice(0, separatorIndex).trim();
-  const body = args.slice(separatorIndex + 2).trim();
-  const [ref, ...titleParts] = splitArgs(left);
-  if (!ref || titleParts.length === 0 || !body) {
-    throw new Error("Usage: /ticket checkpoint <ref> <title> :: <body>");
+
+  let view = initialView;
+  while (true) {
+    const action = await openInteractiveTicketWorkspace(ctx, await loadTicketWorkspaceSnapshot(store, view));
+    if (!action || action.kind === "close") {
+      await safeSyncTicketHomeWidget(ctx);
+      return "";
+    }
+    view = await performWorkspaceAction(action, ctx);
   }
-  return { ref, input: { title: titleParts.join(" "), body } };
+}
+
+function parseReviewFilter(value: string | undefined): "ready" | "blocked" {
+  if (!value || value === "ready") {
+    return "ready";
+  }
+  if (value === "blocked") {
+    return "blocked";
+  }
+  throw new Error("Usage: /ticket review [ready|blocked]");
 }
 
 export async function handleTicketCommand(args: string, ctx: ExtensionCommandContext): Promise<string> {
   const store = createTicketStore(ctx.cwd);
+  await store.initLedgerAsync();
   const [subcommand, ...rest] = splitArgs(args);
   if (!subcommand) {
-    return "Usage: /ticket <init|create|list|show|update|start|close|ready|blocked|note|dep|journal|attach|checkpoint>";
+    return "Usage: /ticket <open [home|list|board|timeline|detail <ref>]|create [title...]|review [ready|blocked]>";
   }
 
   switch (subcommand) {
-    case "init": {
-      const result = await store.initLedgerAsync();
-      return `Initialized ticket ledger at ${result.root}`;
+    case "open": {
+      const parsed = parseOpenCommand(rest);
+      if (parsed.action) {
+        const nextView = await performWorkspaceAction(parsed.action, ctx);
+        return ctx.hasUI
+          ? openTicketWorkspace(nextView, ctx)
+          : renderTicketWorkspaceText(await loadTicketWorkspaceSnapshot(store, nextView));
+      }
+      return openTicketWorkspace(parsed.view, ctx);
     }
     case "create": {
-      const title = rest.join(" ").trim();
+      let title = rest.join(" ").trim();
+      if (!title && ctx.hasUI) {
+        title = (await promptTitle(ctx, ""))?.trim() ?? "";
+      }
+      if (!title) {
+        throw new Error("Usage: /ticket create [title...]");
+      }
       const result = await store.createTicketAsync({ title });
+      await safeSyncTicketHomeWidget(ctx);
       return renderTicketDetail(result);
     }
-    case "list": {
-      const status = rest[0] as "open" | "ready" | "in_progress" | "blocked" | "review" | "closed" | undefined;
-      const tickets = await store.listTicketsAsync({ includeClosed: status === "closed", status });
-      return tickets.length > 0 ? tickets.map(renderTicketSummary).join("\n") : "No tickets.";
-    }
-    case "show": {
-      const ref = rest[0];
-      if (!ref) throw new Error("Usage: /ticket show <ref>");
-      return renderTicketDetail(await store.readTicketAsync(ref));
-    }
-    case "update": {
-      const { ref, updates } = parseUpdateArgs(rest);
-      return renderTicketDetail(await store.updateTicketAsync(ref, updates));
-    }
-    case "start": {
-      const ref = rest[0];
-      if (!ref) throw new Error("Usage: /ticket start <ref>");
-      return renderTicketDetail(await store.startTicketAsync(ref));
-    }
-    case "close": {
-      const ref = rest[0];
-      if (!ref) throw new Error("Usage: /ticket close <ref> [verification note]");
-      return renderTicketDetail(await store.closeTicketAsync(ref, rest.slice(1).join(" ")));
-    }
-    case "ready":
-      return renderGraph(await store.graphAsync());
-    case "blocked":
-      return renderGraph(await store.graphAsync());
-    case "note": {
-      const { ref, text } = parseRefAndText(rest.join(" "));
-      return renderTicketDetail(await store.addNoteAsync(ref, text));
-    }
-    case "dep": {
-      const [action, ref, depRef] = rest;
-      if (!action || !ref || !depRef) {
-        throw new Error("Usage: /ticket dep <add|remove> <ref> <depRef>");
-      }
-      return renderTicketDetail(
-        action === "add" ? await store.addDependencyAsync(ref, depRef) : await store.removeDependencyAsync(ref, depRef),
-      );
-    }
-    case "journal": {
-      const ref = rest[0];
-      if (!ref) throw new Error("Usage: /ticket journal <ref>");
-      return renderJournal((await store.readTicketAsync(ref)).journal);
-    }
-    case "attach": {
-      const { ref, input } = parseAttachArgs(rest);
-      return renderTicketDetail(await store.attachArtifactAsync(ref, input));
-    }
-    case "checkpoint": {
-      const { ref, input } = parseCheckpointArgs(rest.join(" "));
-      return renderTicketDetail(await store.recordCheckpointAsync(ref, input));
-    }
+    case "review":
+      return openTicketWorkspace({ kind: "board", filter: parseReviewFilter(rest[0]) }, ctx);
     default:
       throw new Error(`Unknown /ticket subcommand: ${subcommand}`);
   }

@@ -9,16 +9,10 @@ research:
   - prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces
 initiatives:
   - workspace-backed-manager-worker-coordination
-capabilities:
-  - durable-inbox-protocol
-  - inbox-driven-worker-turns
-  - manager-control-surface
-  - runtime-abstraction
-  - sdk-first-live-workers
-  - bounded-manager-scheduler
-  - recovery-and-observability-alignment
+capabilities: []
 ---
 
+## Overview
 ## Overview
 Evolve the implemented worker substrate from a durable, subprocess-backed foundation into a more useful manager-worker control plane centered on durable inbox semantics, inbox-driven worker turns, an explicit manager orchestration surface, and a worker runtime abstraction that can support SDK-backed live workers while preserving RPC as a fallback. The change is intentionally bounded: it extends the existing `pi-workers` package and surrounding Loom integrations without replacing tickets as the live execution ledger, without turning Ralph into a worker graph, and without prematurely committing the system to a full sidecar/event-mesh architecture.
 
@@ -110,3 +104,12 @@ Just as important as what this spec adds is what it defers. It does not claim un
 - 2026-03-16T02:32:38.575Z Which live-worker runtime should the next implementation prefer? -> The provisional preference is SDK-backed worker runtime for same-process live control because the documented Pi SDK exposes direct session control and event subscriptions with less framing overhead than RPC. RPC should remain a supported fallback when stronger process separation or external hosting is required. The subprocess runtime remains as the current baseline and compatibility path.
 - 2026-03-16T02:32:38.578Z Does this spec change ticket or Ralph ownership of execution truth? -> No. Tickets remain the live execution ledger and Ralph remains bounded orchestration. The new control plane extends how managers and workers coordinate around tickets and runtimes; it must not turn worker state into a shadow ticket system or let Ralph absorb worker internals into a general workflow engine.
 - 2026-03-16T02:32:38.582Z When is an inbox-driven worker run allowed to stop? -> A worker run may stop only when a legitimate bounded stop condition is met: the unresolved inbox is empty, the worker is blocked on manager input, the worker is requesting approval/completion review, or policy has reached an explicit budget/turn boundary. A worker must not leave unresolved manager instructions unacknowledged and silently exit as though the inbox had been handled.
+
+## Capabilities
+(none)
+
+## Requirements
+(none)
+
+## Clarifications
+(none)

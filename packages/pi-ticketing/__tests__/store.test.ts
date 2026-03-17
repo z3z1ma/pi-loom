@@ -105,6 +105,19 @@ describe("TicketStore durable ledger", () => {
     expect(closedMarkdown).toContain("updated-at: 2024-01-02T05:06:07.000Z");
     expect(closedMarkdown).toContain("Smoke test pending.\n\nSmoke test passed.");
     expect(getLedgerPaths(workspace).closedTicketsDir).toContain(".loom/tickets/closed");
+
+    vi.setSystemTime(new Date("2024-01-02T06:00:00.000Z"));
+    const reopened = store.reopenTicket(created.ticket.frontmatter.id);
+    expect(existsSync(openPath)).toBe(true);
+    expect(existsSync(closedPath)).toBe(false);
+    expect(reopened.ticket.closed).toBe(false);
+    expect(reopened.ticket.frontmatter.status).toBe("open");
+    expect(reopened.ticket.path).toBe(relative(workspace, openPath));
+    expect(reopened.summary.path).toBe(relative(workspace, openPath));
+
+    const reopenedMarkdown = readFileSync(openPath, "utf-8");
+    expect(reopenedMarkdown).toContain("status: open");
+    expect(reopenedMarkdown).toContain("updated-at: 2024-01-02T06:00:00.000Z");
   });
 
   it("appends audit records for each write", () => {
@@ -116,10 +129,12 @@ describe("TicketStore durable ledger", () => {
     store.addNote(created.ticket.frontmatter.id, "Captured incident notes");
     vi.setSystemTime(new Date("2024-01-03T00:00:03.000Z"));
     store.closeTicket(created.ticket.frontmatter.id, "Verified closure");
+    vi.setSystemTime(new Date("2024-01-03T00:00:04.000Z"));
+    store.reopenTicket(created.ticket.frontmatter.id);
 
     const auditPath = getAuditPath(workspace, "2024-01-03");
     const auditLines = readFileSync(auditPath, "utf-8").trim().split("\n");
-    expect(auditLines).toHaveLength(3);
+    expect(auditLines).toHaveLength(4);
 
     const actions = auditLines.map((line) => {
       const entry = JSON.parse(line) as { action: string; ticketId: string | null };
@@ -129,6 +144,7 @@ describe("TicketStore durable ledger", () => {
       { action: "create_ticket", ticketId: "t-0001" },
       { action: "add_note", ticketId: "t-0001" },
       { action: "close_ticket", ticketId: "t-0001" },
+      { action: "reopen_ticket", ticketId: "t-0001" },
     ]);
   });
 });

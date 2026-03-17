@@ -7,13 +7,10 @@ updated-at: 2026-03-15T20:20:25.000Z
 research:
   - state-of-the-art-for-ralph-loop-orchestration
 initiatives: []
-capabilities:
-  - durable-ralph-runs
-  - policy-driven-loop-lifecycle
-  - critique-and-verifier-integration
-  - fresh-context-operator-surface
+capabilities: []
 ---
 
+## Overview
 ## Overview
 Introduce a bounded Ralph-specific orchestration extension that runs plan → execute → critique → revise cycles over existing Loom primitives with durable run state, fresh-context iteration support, explicit stop policies, and critique-aware continuation decisions.
 
@@ -66,3 +63,12 @@ Introduce a bounded Ralph-specific orchestration extension that runs plan → ex
 - 2026-03-15T20:16:48.591Z How should Ralph preserve context between iterations? -> Ralph should support fresh-context iterations. Durable Loom artifacts are the canonical memory: each iteration rehydrates from linked plan, ticket, critique, and optional spec/research references plus prior Ralph run state, rather than relying on one ever-growing transcript.
 - 2026-03-15T20:16:53.592Z Is critique part of Ralph's internal implementation model? -> No. Critique remains a distinct durable Loom layer. Ralph may create, link, launch, await, and consume critique artifacts and verdicts, but it must not absorb critique into its own run state as mere freeform reflection or replace critique's separate review contract.
 - 2026-03-15T20:16:58.649Z What determines whether a Ralph run continues, pauses, escalates, or stops? -> Continuation must be policy-driven and explicit. The extension should evaluate composed stop and escalation rules using iteration limits, runtime failures, verifier summaries, critique verdicts and findings, linked ticket/spec acceptance status where available, and operator or external stop requests. A model asserting 'done' is insufficient on its own.
+
+## Capabilities
+(none)
+
+## Requirements
+(none)
+
+## Clarifications
+(none)

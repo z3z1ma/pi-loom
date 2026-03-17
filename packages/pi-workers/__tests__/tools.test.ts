@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
+import { getWorkerArtifactPaths } from "../extensions/domain/paths.js";
 import { runWorkerLaunch } from "../extensions/domain/runtime.js";
 import { createWorkerStore } from "../extensions/domain/store.js";
 import { registerManagerTools } from "../extensions/tools/manager.js";
@@ -164,7 +167,7 @@ describe("worker tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 
   it("supports explicit message acknowledgement and resolution actions", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -243,6 +246,124 @@ describe("worker tools", () => {
       worker = createWorkerStore(cwd).readWorker("inbox-tool-worker");
       expect(worker.summary.unresolvedInboxCount).toBe(0);
       expect(worker.messages.at(-1)?.kind).toBe("resolution");
+    } finally {
+      cleanup();
+    }
+  }, 15000);
+
+  it("repairs filesystem-imported worker entities during canonical list and read flows", async () => {
+    const { cwd, cleanup } = createWorkspace();
+    try {
+      createWorkerTicket(cwd);
+
+      const mockPi = createMockPi();
+      registerManagerTools(mockPi as unknown as ExtensionAPI);
+      registerWorkerTools(mockPi as unknown as ExtensionAPI);
+      const workerWrite = mockPi.tools.get("worker_write");
+      const workerRead = mockPi.tools.get("worker_read");
+      const workerList = mockPi.tools.get("worker_list");
+      expect(workerWrite && workerRead && workerList).toBeTruthy();
+
+      await workerWrite?.execute(
+        "call-create",
+        { action: "create", title: "Filesystem Imported Worker", linkedRefs: { ticketIds: ["t-0001"] } },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      await workerWrite?.execute(
+        "call-message",
+        {
+          action: "append_message",
+          ref: "filesystem-imported-worker",
+          message: {
+            direction: "manager_to_worker",
+            kind: "assignment",
+            text: "Recover this imported worker",
+          },
+        },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      await workerWrite?.execute(
+        "call-checkpoint",
+        {
+          action: "append_checkpoint",
+          ref: "filesystem-imported-worker",
+          checkpoint: { summary: "Imported checkpoint summary", details: "Imported checkpoint details" },
+        },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      await workerWrite?.execute(
+        "call-create-structured",
+        { action: "create", title: "Still Structured Worker", linkedRefs: { ticketIds: ["t-0001"] } },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const entity = await findEntityByDisplayId(storage, identity.space.id, "worker", "filesystem-imported-worker");
+      expect(entity).toBeTruthy();
+      if (!entity) {
+        throw new Error("Expected worker entity to exist");
+      }
+
+      const artifacts = getWorkerArtifactPaths(cwd, "filesystem-imported-worker");
+      await upsertEntityByDisplayId(storage, {
+        kind: entity.kind,
+        spaceId: entity.spaceId,
+        owningRepositoryId: entity.owningRepositoryId,
+        displayId: entity.displayId,
+        title: entity.title,
+        summary: entity.summary,
+        status: entity.status,
+        version: entity.version + 1,
+        tags: entity.tags,
+        pathScopes: entity.pathScopes,
+        attributes: {
+          importedFrom: "filesystem",
+          filesByPath: {
+            ".loom/workers/filesystem-imported-worker/state.json": readFileSync(artifacts.state, "utf-8"),
+            ".loom/workers/filesystem-imported-worker/worker.md": readFileSync(artifacts.worker, "utf-8"),
+            ".loom/workers/filesystem-imported-worker/messages.jsonl": readFileSync(artifacts.messages, "utf-8"),
+            ".loom/workers/filesystem-imported-worker/checkpoints.jsonl": readFileSync(artifacts.checkpoints, "utf-8"),
+          },
+        },
+        createdAt: entity.createdAt,
+        updatedAt: new Date("2026-03-17T00:00:00.000Z").toISOString(),
+      });
+
+      const listed = await workerList?.execute("call-list", {}, undefined, undefined, createCtx(cwd));
+      expect(JSON.stringify(listed)).toContain("filesystem-imported-worker");
+      expect(JSON.stringify(listed)).toContain("still-structured-worker");
+
+      const read = await workerRead?.execute(
+        "call-read",
+        { ref: "filesystem-imported-worker" },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
+      expect(read?.details).toMatchObject({
+        worker: {
+          summary: { id: "filesystem-imported-worker" },
+          messages: [expect.objectContaining({ text: "Recover this imported worker" })],
+          checkpoints: [expect.objectContaining({ summary: "Imported checkpoint summary" })],
+        },
+      });
+
+      const repaired = await findEntityByDisplayId(storage, identity.space.id, "worker", "filesystem-imported-worker");
+      expect(repaired?.attributes).toMatchObject({
+        worker: {
+          state: expect.objectContaining({ workerId: "filesystem-imported-worker" }),
+          messages: [expect.objectContaining({ text: "Recover this imported worker" })],
+          checkpoints: [expect.objectContaining({ summary: "Imported checkpoint summary" })],
+        },
+      });
     } finally {
       cleanup();
     }

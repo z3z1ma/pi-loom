@@ -191,7 +191,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = getStore(ctx).listResearch({
+      const research = await getStore(ctx).listResearch({
         status: params.status,
         includeArchived: params.includeArchived,
         text: params.text,

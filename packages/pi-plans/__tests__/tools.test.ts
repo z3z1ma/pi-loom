@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
@@ -204,6 +204,119 @@ describe("plan tools", () => {
       );
       expect(listed.details).toMatchObject({
         plans: [expect.objectContaining({ id: "planning-layer-rollout", linkedTicketCount: 1 })],
+      });
+    } finally {
+      cleanup();
+    }
+  }, 60000);
+
+  it("rehydrates filesystem-imported plan entities for canonical list and read flows", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const mockPi = createMockPi();
+      const { registerPlanTools } = await import("../extensions/tools/plan.js");
+      registerPlanTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const planWrite = getTool(mockPi, "plan_write");
+      const planRead = getTool(mockPi, "plan_read");
+      const planList = getTool(mockPi, "plan_list");
+
+      await planWrite.execute(
+        "call-1",
+        {
+          action: "create",
+          title: "Filesystem imported plan",
+          summary: "Repair canonical plan state from projection files.",
+          purpose: "Keep canonical plan reads on SQLite after repair.",
+          milestones: "Materialize once and keep projections secondary.",
+          idempotenceAndRecovery: "Re-reading after partial repair is safe.",
+          interfacesAndDependencies: "PlanStore remains the canonical path.",
+          sourceTarget: { kind: "workspace", ref: "repo" },
+          scopePaths: ["packages/pi-plans"],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      await planWrite.execute(
+        "call-2",
+        {
+          action: "create",
+          title: "Still structured plan",
+          summary: "Keep a mixed plan list healthy.",
+          purpose: "Exercise list behavior with one repaired and one structured plan.",
+          milestones: "Verify mixed canonical storage.",
+          idempotenceAndRecovery: "Safe to read repeatedly.",
+          interfacesAndDependencies: "PlanStore canonical reads stay stable.",
+          sourceTarget: { kind: "workspace", ref: "repo" },
+          scopePaths: ["packages/pi-plans"],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
+        import("../../pi-storage/storage/entities.js"),
+        import("../../pi-storage/storage/workspace.js"),
+      ]);
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const entity = await findEntityByDisplayId(storage, identity.space.id, "plan", "filesystem-imported-plan");
+      expect(entity).toBeTruthy();
+      if (!entity) {
+        throw new Error("Expected plan entity to exist");
+      }
+
+      const planDir = join(cwd, ".loom", "plans", "filesystem-imported-plan");
+      const planRoot = ".loom/plans/filesystem-imported-plan";
+      await upsertEntityByDisplayId(storage, {
+        kind: entity.kind,
+        spaceId: entity.spaceId,
+        owningRepositoryId: entity.owningRepositoryId,
+        displayId: entity.displayId,
+        title: entity.title,
+        summary: entity.summary,
+        status: entity.status,
+        version: entity.version + 1,
+        tags: entity.tags,
+        pathScopes: entity.pathScopes,
+        attributes: {
+          importedFrom: "filesystem",
+          filesByPath: {
+            [`${planRoot}/state.json`]: readFileSync(join(planDir, "state.json"), "utf-8"),
+            [`${planRoot}/packet.md`]: readFileSync(join(planDir, "packet.md"), "utf-8"),
+            [`${planRoot}/plan.md`]: readFileSync(join(planDir, "plan.md"), "utf-8"),
+          },
+        },
+        createdAt: entity.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+
+      const listed = await planList.execute("call-3", {}, undefined, undefined, ctx);
+      expect(listed.details).toMatchObject({
+        plans: expect.arrayContaining([
+          expect.objectContaining({ id: "filesystem-imported-plan" }),
+          expect.objectContaining({ id: "still-structured-plan" }),
+        ]),
+      });
+
+      const read = await planRead.execute(
+        "call-4",
+        { ref: "filesystem-imported-plan", mode: "plan" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(read.details).toMatchObject({
+        plan: {
+          id: "filesystem-imported-plan",
+        },
+      });
+
+      const repaired = await findEntityByDisplayId(storage, identity.space.id, "plan", "filesystem-imported-plan");
+      expect(repaired?.attributes).toMatchObject({
+        state: expect.objectContaining({ planId: "filesystem-imported-plan" }),
       });
     } finally {
       cleanup();

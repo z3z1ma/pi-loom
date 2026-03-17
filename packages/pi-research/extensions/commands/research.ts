@@ -174,7 +174,7 @@ export async function handleResearchCommand(args: string, ctx: ExtensionCommandC
     }
     case "list": {
       const status = rest[0] as UpdateResearchInput["status"] | undefined;
-      const research = store.listResearch({ includeArchived: true, status });
+      const research = await store.listResearch({ includeArchived: true, status });
       return research.length > 0 ? research.map(renderResearchSummary).join("\n") : "No research records.";
     }
     case "show": {

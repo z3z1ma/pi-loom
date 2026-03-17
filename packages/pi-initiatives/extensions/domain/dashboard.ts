@@ -1,10 +1,13 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { RoadmapItem } from "@pi-loom/pi-constitution/extensions/domain/models.js";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
-import type { SpecChangeSummary } from "@pi-loom/pi-specs/extensions/domain/models.js";
+import type { ResearchState } from "@pi-loom/pi-research/extensions/domain/models.js";
+import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import { SPEC_STATUSES } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { TICKET_STATUSES, type TicketSummary } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import type {
@@ -16,28 +19,36 @@ import type {
 } from "./models.js";
 import { normalizeStringList } from "./normalize.js";
 
-type InitiativeAwareSpecSummary = SpecChangeSummary & { initiativeIds?: string[] };
-type InitiativeAwareTicketSummary = TicketSummary & { initiativeIds?: string[] };
+type InitiativeAwareSpecSummary = Awaited<ReturnType<ReturnType<typeof createSpecStore>["listChanges"]>>[number];
+type InitiativeAwareTicketSummary = Awaited<
+  ReturnType<ReturnType<typeof createTicketStore>["listTicketsAsync"]>
+>[number];
 
-function relativeOrAbsolute(cwd: string, filePath: string): string {
-  const relativePath = relative(cwd, filePath);
-  return relativePath || filePath;
+function isUnknownReference(error: unknown, prefix: string): boolean {
+  return error instanceof Error && error.message.startsWith(prefix);
 }
 
 function zeroCounts<T extends string>(values: readonly T[]): Record<T, number> {
   return Object.fromEntries(values.map((value) => [value, 0])) as Record<T, number>;
 }
 
-function readLinkedRoadmap(cwd: string, roadmapRefs: string[]): { items: RoadmapItem[]; missingRefs: string[] } {
+async function readLinkedRoadmap(
+  cwd: string,
+  roadmapRefs: string[],
+): Promise<{ items: RoadmapItem[]; missingRefs: string[] }> {
   const constitutionalStore = createConstitutionalStore(cwd);
+  const roadmapItems = await constitutionalStore.listRoadmapItems({});
+  const roadmapById = new Map(roadmapItems.map((item) => [item.id, item]));
+  const normalizedRefs = normalizeStringList(roadmapRefs);
   const items: RoadmapItem[] = [];
   const missingRefs: string[] = [];
-  for (const roadmapRef of roadmapRefs) {
-    if (!constitutionalStore.hasRoadmapItemProjection(roadmapRef)) {
+  for (const roadmapRef of normalizedRefs) {
+    const item = roadmapById.get(roadmapRef);
+    if (!item) {
       missingRefs.push(roadmapRef);
       continue;
     }
-    items.push(constitutionalStore.readRoadmapItemProjection(roadmapRef));
+    items.push(item);
   }
   return {
     items: items.sort((left, right) => left.id.localeCompare(right.id)),
@@ -45,28 +56,43 @@ function readLinkedRoadmap(cwd: string, roadmapRefs: string[]): { items: Roadmap
   };
 }
 
-function readLinkedResearch(cwd: string, researchIds: string[]) {
-  return researchIds
-    .map((researchId) => {
-      const statePath = join(cwd, ".loom", "research", researchId, "state.json");
-      if (!existsSync(statePath)) {
+async function readLinkedResearch(cwd: string, researchIds: string[]) {
+  const { storage, identity } = await openWorkspaceStorage(cwd);
+  const linkedResearch = await Promise.all(
+    normalizeStringList(researchIds).map(async (researchId) => {
+      const entity = await findEntityByDisplayId(storage, identity.space.id, "research", researchId);
+      if (!entity) {
         return null;
       }
-      const researchDir = join(cwd, ".loom", "research", researchId);
-      const state = JSON.parse(readFileSync(statePath, "utf-8")) as {
-        researchId: string;
-        title: string;
-        status: string;
-        updatedAt: string;
-      };
-      return {
-        id: state.researchId,
-        title: state.title,
-        status: state.status,
-        updatedAt: state.updatedAt,
-        path: relativeOrAbsolute(cwd, researchDir),
-      };
-    })
+      const attributes = entity.attributes as Record<string, unknown> | undefined;
+      if (attributes && "state" in attributes) {
+        const state = attributes.state as ResearchState;
+        return {
+          id: state.researchId,
+          title: state.title,
+          status: state.status,
+          updatedAt: state.updatedAt,
+          path: `.loom/research/${state.researchId}`,
+        };
+      }
+      try {
+        const record = createResearchStore(cwd).readResearchProjection(researchId);
+        return {
+          id: record.state.researchId,
+          title: record.state.title,
+          status: record.state.status,
+          updatedAt: record.state.updatedAt,
+          path: record.summary.path,
+        };
+      } catch (error) {
+        if (isUnknownReference(error, "Unknown research:")) {
+          return null;
+        }
+        throw error;
+      }
+    }),
+  );
+  return linkedResearch
     .filter((summary): summary is NonNullable<typeof summary> => summary !== null)
     .sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -110,23 +136,28 @@ function buildMilestoneDashboard(
   };
 }
 
-export function buildInitiativeDashboard(cwd: string, state: InitiativeState): InitiativeDashboard {
-  const constitutionalStore = createConstitutionalStore(cwd);
-  const specStore = createSpecStore(cwd);
-  const ticketStore = createTicketStore(cwd);
-  const linkedRoadmap = readLinkedRoadmap(cwd, state.roadmapRefs);
-  const linkedResearch = readLinkedResearch(cwd, state.researchIds);
-
-  const allSpecs = specStore.listChangesProjection({ includeArchived: true }) as InitiativeAwareSpecSummary[];
-  const linkedSpecs = allSpecs.filter((summary) => state.specChangeIds.includes(summary.id));
+function buildDashboardFromRelatedState(
+  state: InitiativeState,
+  linkedRoadmap: { items: RoadmapItem[]; missingRefs: string[] },
+  allRoadmapItems: RoadmapItem[],
+  linkedResearch: InitiativeDashboard["linkedResearch"]["items"],
+  allSpecs: InitiativeAwareSpecSummary[],
+  allTickets: InitiativeAwareTicketSummary[],
+  linkedSpecsInput: InitiativeAwareSpecSummary[] = allSpecs.filter((summary) =>
+    state.specChangeIds.includes(summary.id),
+  ),
+  linkedTicketsInput: InitiativeAwareTicketSummary[] = allTickets.filter((summary) =>
+    state.ticketIds.includes(summary.id),
+  ),
+): InitiativeDashboard {
+  const linkedSpecs = linkedSpecsInput;
   const missingSpecIds = state.specChangeIds.filter((id) => !linkedSpecs.some((summary) => summary.id === id));
   const specCounts = zeroCounts(SPEC_STATUSES);
   for (const spec of linkedSpecs) {
     specCounts[spec.status] += 1;
   }
 
-  const allTickets = ticketStore.listTickets({ includeClosed: true }) as InitiativeAwareTicketSummary[];
-  const linkedTickets = allTickets.filter((summary) => state.ticketIds.includes(summary.id));
+  const linkedTickets = linkedTicketsInput;
   const missingTicketIds = state.ticketIds.filter((id) => !linkedTickets.some((summary) => summary.id === id));
   const ticketCounts = zeroCounts(TICKET_STATUSES);
   for (const ticket of linkedTickets) {
@@ -136,22 +167,21 @@ export function buildInitiativeDashboard(cwd: string, state: InitiativeState): I
 
   const unlinkedSpecIds = normalizeStringList([
     ...allSpecs
-      .filter((summary) => summary.initiativeIds?.includes(state.initiativeId))
+      .filter((summary) => summary.initiativeIds.includes(state.initiativeId))
       .map((summary) => summary.id)
       .filter((id) => !state.specChangeIds.includes(id)),
     ...missingSpecIds,
   ]);
   const unlinkedTicketIds = normalizeStringList([
     ...allTickets
-      .filter((summary) => summary.initiativeIds?.includes(state.initiativeId))
+      .filter((summary) => summary.initiativeIds.includes(state.initiativeId))
       .map((summary) => summary.id)
       .filter((id) => !state.ticketIds.includes(id)),
     ...missingTicketIds,
   ]);
   const unlinkedRoadmapRefs = normalizeStringList([
-    ...constitutionalStore
-      .readConstitutionProjection()
-      .state.roadmapItems.filter((item) => item.initiativeIds.includes(state.initiativeId))
+    ...allRoadmapItems
+      .filter((item) => item.initiativeIds.includes(state.initiativeId))
       .map((item) => item.id)
       .filter((id) => !state.roadmapRefs.includes(id)),
     ...linkedRoadmap.missingRefs,
@@ -209,4 +239,74 @@ export function buildInitiativeDashboard(cwd: string, state: InitiativeState): I
       ticketIds: unlinkedTicketIds,
     },
   };
+}
+
+export function buildInitiativeDashboardProjection(cwd: string, state: InitiativeState): InitiativeDashboard {
+  const constitutionalStore = createConstitutionalStore(cwd);
+  const specStore = createSpecStore(cwd);
+  const ticketStore = createTicketStore(cwd);
+  const linkedRoadmapItems: RoadmapItem[] = [];
+  const missingRoadmapRefs: string[] = [];
+  for (const roadmapRef of normalizeStringList(state.roadmapRefs)) {
+    if (!constitutionalStore.hasRoadmapItemProjection(roadmapRef)) {
+      missingRoadmapRefs.push(roadmapRef);
+      continue;
+    }
+    linkedRoadmapItems.push(constitutionalStore.readRoadmapItemProjection(roadmapRef));
+  }
+  const linkedResearch = normalizeStringList(state.researchIds)
+    .map((researchId) => {
+      const statePath = join(cwd, ".loom", "research", researchId, "state.json");
+      if (!existsSync(statePath)) {
+        return null;
+      }
+      try {
+        const record = createResearchStore(cwd).readResearchProjection(researchId);
+        return {
+          id: record.state.researchId,
+          title: record.state.title,
+          status: record.state.status,
+          updatedAt: record.state.updatedAt,
+          path: record.summary.path,
+        };
+      } catch (error) {
+        if (isUnknownReference(error, "Unknown research:")) {
+          return null;
+        }
+        throw error;
+      }
+    })
+    .filter((summary): summary is NonNullable<typeof summary> => summary !== null)
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  const allRoadmapItems = constitutionalStore.readConstitutionProjection().state.roadmapItems;
+  const allSpecs = specStore.listChangesProjection({ includeArchived: true });
+  const allTickets = ticketStore.listTickets({ includeClosed: true });
+
+  return buildDashboardFromRelatedState(
+    state,
+    {
+      items: linkedRoadmapItems.sort((left, right) => left.id.localeCompare(right.id)),
+      missingRefs: normalizeStringList(missingRoadmapRefs),
+    },
+    allRoadmapItems,
+    linkedResearch,
+    allSpecs,
+    allTickets,
+  );
+}
+
+export async function buildInitiativeDashboard(cwd: string, state: InitiativeState): Promise<InitiativeDashboard> {
+  const constitutionalStore = createConstitutionalStore(cwd);
+  const specStore = createSpecStore(cwd);
+  const ticketStore = createTicketStore(cwd);
+  const [linkedRoadmap, linkedResearch, allRoadmapItems, allTickets] = await Promise.all([
+    readLinkedRoadmap(cwd, state.roadmapRefs),
+    readLinkedResearch(cwd, state.researchIds),
+    constitutionalStore.listRoadmapItems({}),
+    ticketStore.listTicketsAsync({ includeClosed: true }),
+  ]);
+  const allSpecs = specStore.listChangesProjection({ includeArchived: true });
+
+  return buildDashboardFromRelatedState(state, linkedRoadmap, allRoadmapItems, linkedResearch, allSpecs, allTickets);
 }

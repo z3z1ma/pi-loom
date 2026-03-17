@@ -89,26 +89,48 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
   return handler;
 }
 
-function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notify: ReturnType<typeof vi.fn> } } {
-  const ui = { notify: vi.fn() };
+function createCommandContext(
+  cwd: string,
+  options?: {
+    hasUI?: boolean;
+    customResult?: unknown;
+  },
+): {
+  ctx: ExtensionCommandContext;
+  ui: {
+    notify: ReturnType<typeof vi.fn>;
+    custom: ReturnType<typeof vi.fn>;
+    input: ReturnType<typeof vi.fn>;
+    editor: ReturnType<typeof vi.fn>;
+    setWidget: ReturnType<typeof vi.fn>;
+  };
+} {
+  const ui = {
+    notify: vi.fn(),
+    custom: vi.fn(async () => options?.customResult ?? null),
+    input: vi.fn(async () => undefined),
+    editor: vi.fn(async () => undefined),
+    setWidget: vi.fn(),
+  };
   return {
     ctx: {
       cwd,
       ui,
+      hasUI: options?.hasUI ?? false,
     } as unknown as ExtensionCommandContext,
     ui,
   };
 }
 
 describe("pi-ticketing extension", () => {
-  it("registers the /ticket command, ticket tools, and lifecycle hooks", async () => {
+  it("registers the /ticket workspace command, ticket tools, and lifecycle hooks", async () => {
     const mockPi = createMockPi();
     const { default: piTicketing } = await import("../extensions/index.js");
 
     piTicketing(mockPi as unknown as ExtensionAPI);
 
     expect(mockPi.commands.has("ticket")).toBe(true);
-    expect(getCommand(mockPi, "ticket").description).toContain("durable tickets");
+    expect(getCommand(mockPi, "ticket").description).toContain("workspace");
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "ticket_checkpoint",
       "ticket_graph",
@@ -120,7 +142,7 @@ describe("pi-ticketing extension", () => {
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
 
-  it("routes /ticket output through the registered command handler and initializes the ledger", async () => {
+  it("routes textual fallback output through notifications and interactive focused views through custom UI", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
@@ -129,20 +151,37 @@ describe("pi-ticketing extension", () => {
 
       const command = getCommand(mockPi, "ticket");
       const sessionStart = getHandler(mockPi, "session_start");
-      const { ctx, ui } = createCommandContext(cwd);
+      const { ctx: fallbackCtx, ui: fallbackUi } = createCommandContext(cwd, { hasUI: false });
+      const { ctx: interactiveCtx, ui: interactiveUi } = createCommandContext(cwd, {
+        hasUI: true,
+        customResult: null,
+      });
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
       expect(existsSync(join(cwd, ".loom", "tickets"))).toBe(true);
       expect(existsSync(join(cwd, ".loom", "tickets", ".audit"))).toBe(true);
 
-      await command.handler("create Establish durable ledger coverage", ctx);
+      await command.handler("create Establish durable ledger coverage", fallbackCtx);
+      expect(fallbackUi.notify).toHaveBeenCalledWith(
+        expect.stringContaining("Establish durable ledger coverage"),
+        "info",
+      );
 
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("t-0001 [ready]"), "info");
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Establish durable ledger coverage"), "info");
+      fallbackUi.notify.mockClear();
+      await command.handler("open home", fallbackCtx);
+      expect(fallbackUi.notify).toHaveBeenCalledWith(
+        expect.stringMatching(/ticket|ready|blocked|review|open/i),
+        "info",
+      );
+      expect(fallbackUi.setWidget).toHaveBeenCalled();
+
+      await command.handler("open detail #t-0001", interactiveCtx);
+      expect(interactiveUi.custom).toHaveBeenCalledTimes(1);
+      expect(interactiveUi.notify).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 
   it("augments the system prompt with ticketing doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();

@@ -1,10 +1,113 @@
+import type { InitiativeState, InitiativeSummary } from "@pi-loom/pi-initiatives/extensions/domain/models.js";
 import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
+import type { SpecChangeSummary } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import type { TicketSummary } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import type { ResearchArtifactRecord, ResearchHypothesisRecord, ResearchMap, ResearchState } from "./models.js";
-import { currentTimestamp } from "./normalize.js";
+import { currentTimestamp, normalizeStringList } from "./normalize.js";
 
-export function buildResearchMap(
+function summariesById<T extends { id: string }>(summaries: T[]): Map<string, T> {
+  return new Map(summaries.map((summary) => [summary.id, summary]));
+}
+
+function isMissingLinkedRecord(error: unknown, kind: "initiative" | "spec" | "ticket"): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const prefixes =
+    kind === "spec" ? [`Unknown ${kind}`, "Invalid change id"] : [`Unknown ${kind}`, `Invalid ${kind} id`];
+  return prefixes.some((prefix) => error.message.startsWith(prefix));
+}
+
+async function loadLinkedSummaryMaps(
+  cwd: string,
+  state: ResearchState,
+): Promise<{
+  initiatives: Map<string, InitiativeSummary>;
+  missingInitiatives: Set<string>;
+  specs: Map<string, SpecChangeSummary>;
+  missingSpecs: Set<string>;
+  tickets: Map<string, TicketSummary>;
+  missingTickets: Set<string>;
+}> {
+  const specStore = createSpecStore(cwd);
+  const ticketStore = createTicketStore(cwd);
+  const initiatives = new Map<string, InitiativeSummary>();
+  const missingInitiatives = new Set<string>();
+  for (const initiativeId of normalizeStringList(state.initiativeIds)) {
+    try {
+      initiatives.set(initiativeId, await resolveInitiativeSummary(cwd, initiativeId));
+    } catch (error) {
+      if (isMissingLinkedRecord(error, "initiative")) {
+        missingInitiatives.add(initiativeId);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  const specs = new Map<string, SpecChangeSummary>();
+  const missingSpecs = new Set<string>();
+  for (const changeId of normalizeStringList(state.specChangeIds)) {
+    try {
+      specs.set(changeId, (await specStore.readChange(changeId)).summary);
+    } catch (error) {
+      if (isMissingLinkedRecord(error, "spec")) {
+        missingSpecs.add(changeId);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  const tickets = new Map<string, TicketSummary>();
+  const missingTickets = new Set<string>();
+  for (const ticketId of normalizeStringList(state.ticketIds)) {
+    try {
+      tickets.set(ticketId, (await ticketStore.readTicketAsync(ticketId)).summary);
+    } catch (error) {
+      if (isMissingLinkedRecord(error, "ticket")) {
+        missingTickets.add(ticketId);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return { initiatives, missingInitiatives, specs, missingSpecs, tickets, missingTickets };
+}
+
+async function resolveInitiativeSummary(cwd: string, initiativeId: string): Promise<InitiativeSummary> {
+  const { storage, identity } = await openWorkspaceStorage(cwd);
+  const entity = await findEntityByDisplayId(storage, identity.space.id, "initiative", initiativeId);
+  if (entity?.attributes && typeof entity.attributes === "object" && "state" in entity.attributes) {
+    const state = (entity.attributes as { state: InitiativeState }).state;
+    return {
+      id: state.initiativeId,
+      title: state.title,
+      status: state.status,
+      milestoneCount: state.milestones.length,
+      specChangeCount: state.specChangeIds.length,
+      ticketCount: state.ticketIds.length,
+      updatedAt: state.updatedAt,
+      tags: [...state.tags],
+      path: `.loom/initiatives/${state.initiativeId}`,
+    };
+  }
+
+  const projection = createInitiativeStore(cwd)
+    .listInitiativesProjection({ includeArchived: true })
+    .find((summary) => summary.id === initiativeId);
+  if (projection) {
+    return projection as InitiativeSummary;
+  }
+  throw new Error(`Unknown initiative: ${initiativeId}`);
+}
+
+export function buildResearchMapProjection(
   cwd: string,
   state: ResearchState,
   hypotheses: ResearchHypothesisRecord[],
@@ -13,7 +116,30 @@ export function buildResearchMap(
   const initiativeStore = createInitiativeStore(cwd);
   const specStore = createSpecStore(cwd);
   const ticketStore = createTicketStore(cwd);
+  return buildResearchMapFromSummaries(
+    state,
+    hypotheses,
+    artifacts,
+    summariesById(initiativeStore.listInitiativesProjection({ includeArchived: true }) as InitiativeSummary[]),
+    new Set<string>(),
+    summariesById(specStore.listChangesProjection({ includeArchived: true }) as SpecChangeSummary[]),
+    new Set<string>(),
+    summariesById(ticketStore.listTickets({ includeClosed: true }) as TicketSummary[]),
+    new Set<string>(),
+  );
+}
 
+function buildResearchMapFromSummaries(
+  state: ResearchState,
+  hypotheses: ResearchHypothesisRecord[],
+  artifacts: ResearchArtifactRecord[],
+  initiatives: Map<string, InitiativeSummary>,
+  missingInitiatives: Set<string>,
+  specs: Map<string, SpecChangeSummary>,
+  missingSpecs: Set<string>,
+  tickets: Map<string, TicketSummary>,
+  missingTickets: Set<string>,
+): ResearchMap {
   const nodes: ResearchMap["nodes"] = {
     [state.researchId]: {
       id: state.researchId,
@@ -21,42 +147,46 @@ export function buildResearchMap(
       title: state.title,
       status: state.status,
       path: `.loom/research/${state.researchId}/research.md`,
+      missing: false,
     },
   };
   const edges: ResearchMap["edges"] = [];
 
-  for (const initiativeId of state.initiativeIds) {
-    const initiative = initiativeStore.readInitiativeProjection(initiativeId);
+  for (const initiativeId of normalizeStringList(state.initiativeIds)) {
+    const initiative = initiatives.get(initiativeId);
     nodes[`initiative:${initiativeId}`] = {
       id: `initiative:${initiativeId}`,
       kind: "initiative",
-      title: initiative.state.title,
-      status: initiative.state.status,
+      title: initiative?.title ?? `Missing initiative: ${initiativeId}`,
+      status: initiative?.status ?? null,
       path: `.loom/initiatives/${initiativeId}/initiative.md`,
+      missing: missingInitiatives.has(initiativeId) || initiative === undefined,
     };
     edges.push({ from: state.researchId, to: `initiative:${initiativeId}`, relation: "links_initiative" });
   }
 
-  for (const changeId of state.specChangeIds) {
-    const change = specStore.readChangeProjection(changeId);
+  for (const changeId of normalizeStringList(state.specChangeIds)) {
+    const change = specs.get(changeId);
     nodes[`spec:${changeId}`] = {
       id: `spec:${changeId}`,
       kind: "spec",
-      title: change.state.title,
-      status: change.state.status,
+      title: change?.title ?? `Missing spec: ${changeId}`,
+      status: change?.status ?? null,
       path: `.loom/specs/changes/${changeId}/proposal.md`,
+      missing: missingSpecs.has(changeId) || change === undefined,
     };
     edges.push({ from: state.researchId, to: `spec:${changeId}`, relation: "links_spec" });
   }
 
-  for (const ticketId of state.ticketIds) {
-    const ticket = ticketStore.readTicket(ticketId);
+  for (const ticketId of normalizeStringList(state.ticketIds)) {
+    const ticket = tickets.get(ticketId);
     nodes[`ticket:${ticketId}`] = {
       id: `ticket:${ticketId}`,
       kind: "ticket",
-      title: ticket.summary.title,
-      status: ticket.summary.status,
-      path: ticket.summary.path,
+      title: ticket?.title ?? `Missing ticket: ${ticketId}`,
+      status: ticket?.status ?? null,
+      path: ticket?.path ?? `.loom/tickets/${ticketId}.md`,
+      missing: missingTickets.has(ticketId) || ticket === undefined,
     };
     edges.push({ from: state.researchId, to: `ticket:${ticketId}`, relation: "links_ticket" });
   }
@@ -68,6 +198,7 @@ export function buildResearchMap(
       title: hypothesis.statement,
       status: hypothesis.status,
       path: `.loom/research/${state.researchId}/hypotheses.jsonl`,
+      missing: false,
     };
     edges.push({ from: state.researchId, to: hypothesis.id, relation: "tracks_hypothesis" });
   }
@@ -79,6 +210,7 @@ export function buildResearchMap(
       title: artifact.title,
       status: artifact.kind,
       path: artifact.path,
+      missing: false,
     };
     edges.push({ from: state.researchId, to: artifact.id, relation: "contains_artifact" });
     for (const hypothesisId of artifact.linkedHypothesisIds) {
@@ -92,4 +224,24 @@ export function buildResearchMap(
     edges,
     generatedAt: currentTimestamp(),
   };
+}
+
+export async function buildResearchMap(
+  cwd: string,
+  state: ResearchState,
+  hypotheses: ResearchHypothesisRecord[],
+  artifacts: ResearchArtifactRecord[],
+): Promise<ResearchMap> {
+  const linked = await loadLinkedSummaryMaps(cwd, state);
+  return buildResearchMapFromSummaries(
+    state,
+    hypotheses,
+    artifacts,
+    linked.initiatives,
+    linked.missingInitiatives,
+    linked.specs,
+    linked.missingSpecs,
+    linked.tickets,
+    linked.missingTickets,
+  );
 }

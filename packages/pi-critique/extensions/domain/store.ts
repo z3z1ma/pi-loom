@@ -17,12 +17,17 @@ import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/mode
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
-import { findEntityByDisplayId, upsertEntityByDisplayId, upsertProjectionForEntity } from "@pi-loom/pi-storage/storage/entities.js";
+import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
+import {
+  findEntityByDisplayId,
+  upsertEntityByDisplayId,
+  upsertProjectionForEntity,
+} from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { CreateTicketInput, TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildCritiqueDashboard, summarizeCritique } from "./dashboard.js";
-import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
+import { parseMarkdownArtifact, renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
   CreateCritiqueFindingInput,
   CreateCritiqueInput,
@@ -78,6 +83,28 @@ interface CritiqueEntityAttributes {
   record: CritiqueReadResult;
 }
 
+interface FilesystemImportedCritiqueEntityAttributes {
+  importedFrom?: string;
+  filesByPath?: Record<string, string>;
+}
+
+interface CritiqueSnapshot {
+  state: CritiqueState;
+  runs: CritiqueRunRecord[];
+  findings: CritiqueFindingRecord[];
+  launch: CritiqueLaunchDescriptor | null;
+}
+
+function hasStructuredCritiqueAttributes(attributes: unknown): attributes is CritiqueEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
+}
+
+function hasFilesystemImportedCritiqueAttributes(
+  attributes: unknown,
+): attributes is FilesystemImportedCritiqueEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
+}
+
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
 }
@@ -97,6 +124,10 @@ function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
 }
 
+function parseJsonText<T>(content: string): T {
+  return JSON.parse(content) as T;
+}
+
 function appendJsonl(path: string, value: unknown): void {
   ensureDir(dirname(path));
   appendFileSync(path, `${JSON.stringify(value)}\n`, "utf-8");
@@ -110,6 +141,67 @@ function readJsonl<T>(path: string): T[] {
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => JSON.parse(line) as T);
+}
+
+function parseJsonlText<T>(content: string): T[] {
+  return content
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as T);
+}
+
+function frontmatterString(
+  frontmatter: Readonly<Record<string, string | null | string[]>> | undefined,
+  key: string,
+): string | null {
+  const value = frontmatter?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function frontmatterStringList(
+  frontmatter: Readonly<Record<string, string | null | string[]>> | undefined,
+  key: string,
+): string[] {
+  const value = frontmatter?.[key];
+  if (Array.isArray(value)) {
+    return normalizeStringList(value);
+  }
+  return value ? normalizeStringList([value]) : [];
+}
+
+function frontmatterBoolean(
+  frontmatter: Readonly<Record<string, string | null | string[]>> | undefined,
+  key: string,
+): boolean | null {
+  const value = frontmatterString(frontmatter, key);
+  if (value === null) {
+    return null;
+  }
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  return null;
+}
+
+function safeParseMarkdown(
+  content: string | undefined,
+  filePath: string,
+): { frontmatter: Record<string, string | null | string[]>; body: string } | null {
+  if (!content) {
+    return null;
+  }
+  try {
+    return parseMarkdownArtifact(content, filePath);
+  } catch {
+    return null;
+  }
+}
+
+function findImportedFile(filesByPath: Record<string, string>, preferredPath: string, suffix: string): string | null {
+  return filesByPath[preferredPath] ?? Object.entries(filesByPath).find(([path]) => path.endsWith(suffix))?.[1] ?? null;
 }
 
 function mergeContextRefs(...refs: Array<Partial<CritiqueContextRefs> | undefined>): CritiqueContextRefs {
@@ -381,9 +473,28 @@ export class CritiqueStore {
     }
   }
 
+  private async readConstitutionIfPresentAsync(): Promise<ConstitutionalRecord | null> {
+    if (!this.constitutionExists()) {
+      return null;
+    }
+    try {
+      return await createConstitutionalStore(this.cwd).readConstitution();
+    } catch {
+      return null;
+    }
+  }
+
   private safeReadInitiative(id: string): InitiativeRecord | null {
     try {
       return createInitiativeStore(this.cwd).readInitiativeProjection(id);
+    } catch {
+      return null;
+    }
+  }
+
+  private async safeReadInitiativeAsync(id: string): Promise<InitiativeRecord | null> {
+    try {
+      return await createInitiativeStore(this.cwd).readInitiative(id);
     } catch {
       return null;
     }
@@ -397,9 +508,25 @@ export class CritiqueStore {
     }
   }
 
+  private async safeReadResearchAsync(id: string): Promise<ResearchRecord | null> {
+    try {
+      return await createResearchStore(this.cwd).readResearch(id);
+    } catch {
+      return null;
+    }
+  }
+
   private safeReadSpec(id: string): SpecChangeRecord | null {
     try {
       return createSpecStore(this.cwd).readChangeProjection(id);
+    } catch {
+      return null;
+    }
+  }
+
+  private async safeReadSpecAsync(id: string): Promise<SpecChangeRecord | null> {
+    try {
+      return await createSpecStore(this.cwd).readChange(id);
     } catch {
       return null;
     }
@@ -522,6 +649,92 @@ export class CritiqueStore {
     }
   }
 
+  private async resolveTargetSummaryCanonical(
+    target: CritiqueTargetRef,
+  ): Promise<{ summary: string; contextRefs: CritiqueContextRefs }> {
+    switch (target.kind) {
+      case "ticket":
+      case "artifact":
+      case "workspace":
+        return this.resolveTargetSummary(target);
+      case "spec": {
+        const change = await this.safeReadSpecAsync(target.ref);
+        if (!change) {
+          return {
+            summary: `Spec ${target.ref} could not be loaded. Review the referenced contract artifact directly.`,
+            contextRefs: mergeContextRefs({ specChangeIds: [target.ref] }),
+          };
+        }
+        return {
+          summary: [
+            `${change.summary.id} [${change.summary.status}] ${change.summary.title}`,
+            `Proposal: ${excerpt(change.state.proposalSummary)}`,
+            `Requirements: ${change.state.requirements.length}`,
+            `Tasks: ${change.state.tasks.length}`,
+            `Projection tickets: ${change.projection?.tickets.length ?? 0}`,
+          ].join("\n"),
+          contextRefs: deriveContextRefsFromSpec(change),
+        };
+      }
+      case "initiative": {
+        const initiative = await this.safeReadInitiativeAsync(target.ref);
+        if (!initiative) {
+          return {
+            summary: `Initiative ${target.ref} could not be loaded. Review the referenced strategic artifact directly.`,
+            contextRefs: mergeContextRefs({ initiativeIds: [target.ref] }),
+          };
+        }
+        return {
+          summary: [
+            `${initiative.summary.id} [${initiative.summary.status}] ${initiative.summary.title}`,
+            `Objective: ${excerpt(initiative.state.objective)}`,
+            `Status summary: ${excerpt(initiative.state.statusSummary)}`,
+            `Milestones: ${initiative.state.milestones.length}`,
+            `Risks: ${initiative.state.risks.join("; ") || "none"}`,
+          ].join("\n"),
+          contextRefs: deriveContextRefsFromInitiative(initiative),
+        };
+      }
+      case "research": {
+        const research = await this.safeReadResearchAsync(target.ref);
+        if (!research) {
+          return {
+            summary: `Research ${target.ref} could not be loaded. Review the referenced evidence artifact directly.`,
+            contextRefs: mergeContextRefs({ researchIds: [target.ref] }),
+          };
+        }
+        return {
+          summary: [
+            `${research.summary.id} [${research.summary.status}] ${research.summary.title}`,
+            `Question: ${excerpt(research.state.question)}`,
+            `Objective: ${excerpt(research.state.objective)}`,
+            `Conclusions: ${research.state.conclusions.join("; ") || "none"}`,
+            `Open questions: ${research.state.openQuestions.join("; ") || "none"}`,
+          ].join("\n"),
+          contextRefs: deriveContextRefsFromResearch(research),
+        };
+      }
+      case "constitution": {
+        const constitution = await this.readConstitutionIfPresentAsync();
+        if (!constitution) {
+          return {
+            summary: "Constitutional memory is not initialized. Review must rely on direct artifact references.",
+            contextRefs: normalizeContextRefs({}),
+          };
+        }
+        return {
+          summary: [
+            `${constitution.state.projectId} ${constitution.state.title}`,
+            `Strategic direction: ${excerpt(constitution.state.strategicDirectionSummary)}`,
+            `Current focus: ${constitution.state.currentFocus.join("; ") || "none"}`,
+            `Open questions: ${constitution.state.openConstitutionQuestions.join("; ") || "none"}`,
+          ].join("\n"),
+          contextRefs: deriveContextRefsFromConstitution(constitution),
+        };
+      }
+    }
+  }
+
   private resolvePacketContext(state: CritiqueState): ResolvedCritiqueContext {
     const target = this.resolveTargetSummary(state.target);
     const contextRefs = mergeContextRefs(state.contextRefs, target.contextRefs);
@@ -554,6 +767,78 @@ export class CritiqueStore {
       );
     const specs = contextRefs.specChangeIds
       .map((changeId) => this.safeReadSpec(changeId))
+      .filter((record): record is SpecChangeRecord => record !== null)
+      .map(
+        (record) =>
+          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} tasks=${record.state.tasks.length}`,
+      );
+    const tickets = contextRefs.ticketIds
+      .map((ticketId) => this.safeReadTicket(ticketId))
+      .filter((record): record is TicketReadResult => record !== null)
+      .map(
+        (record) =>
+          `${record.summary.id} [${record.summary.status}] ${record.summary.title} — ${excerpt(record.ticket.body.summary)}`,
+      );
+
+    const packetSummary = [
+      `${state.target.kind}:${state.target.ref}`,
+      `${state.focusAreas.length} focus area(s)`,
+      `${roadmapItems.length} roadmap`,
+      `${initiatives.length} initiative`,
+      `${research.length} research`,
+      `${specs.length} spec`,
+      `${tickets.length} ticket`,
+    ].join("; ");
+
+    return {
+      targetSummary: target.summary,
+      contextRefs,
+      constitution,
+      roadmapItems,
+      initiatives,
+      research,
+      specs,
+      tickets,
+      packetSummary,
+    };
+  }
+
+  private async resolvePacketContextCanonical(state: CritiqueState): Promise<ResolvedCritiqueContext> {
+    const target = await this.resolveTargetSummaryCanonical(state.target);
+    const contextRefs = mergeContextRefs(state.contextRefs, target.contextRefs);
+    const constitution = await this.readConstitutionIfPresentAsync();
+    const roadmapItems = constitution
+      ? (
+          await Promise.all(
+            contextRefs.roadmapItemIds.map(async (itemId) => {
+              try {
+                return await createConstitutionalStore(this.cwd).readRoadmapItem(itemId);
+              } catch {
+                return null;
+              }
+            }),
+          )
+        )
+          .filter((item): item is NonNullable<typeof item> => item !== null)
+          .map((item) => `${item.id} [${item.status}/${item.horizon}] ${item.title} — ${excerpt(item.summary)}`)
+      : [];
+    const initiatives = (
+      await Promise.all(contextRefs.initiativeIds.map((initiativeId) => this.safeReadInitiativeAsync(initiativeId)))
+    )
+      .filter((initiative): initiative is InitiativeRecord => initiative !== null)
+      .map(
+        (initiative) =>
+          `${initiative.state.initiativeId} [${initiative.state.status}] ${initiative.state.title} — ${excerpt(initiative.state.objective)}`,
+      );
+    const research = (
+      await Promise.all(contextRefs.researchIds.map((researchId) => this.safeReadResearchAsync(researchId)))
+    )
+      .filter((record): record is ResearchRecord => record !== null)
+      .map(
+        (record) =>
+          `${record.state.researchId} [${record.state.status}] ${record.state.title} — conclusions: ${record.state.conclusions.join("; ") || "none"}`,
+      );
+    const specs = (await Promise.all(contextRefs.specChangeIds.map((changeId) => this.safeReadSpecAsync(changeId))))
       .filter((record): record is SpecChangeRecord => record !== null)
       .map(
         (record) =>
@@ -650,6 +935,70 @@ export class CritiqueStore {
     );
   }
 
+  private async buildPacketCanonical(
+    state: CritiqueState,
+    runs: CritiqueRunRecord[],
+    findings: CritiqueFindingRecord[],
+  ): Promise<string> {
+    const context = await this.resolvePacketContextCanonical(state);
+    const constitutionSummary = context.constitution
+      ? [
+          `Project: ${context.constitution.state.title}`,
+          `Strategic direction: ${excerpt(context.constitution.state.strategicDirectionSummary)}`,
+          `Current focus: ${context.constitution.state.currentFocus.join("; ") || "none"}`,
+          `Open constitutional questions: ${context.constitution.state.openConstitutionQuestions.join("; ") || "none"}`,
+        ].join("\n")
+      : "(none)";
+    const openFindings = findings.filter((finding) => isActiveFindingStatus(finding.status));
+
+    return serializeMarkdownArtifact(
+      {
+        id: state.critiqueId,
+        title: state.title,
+        status: state.status,
+        verdict: state.currentVerdict,
+        target: `${state.target.kind}:${state.target.ref}`,
+        focus: state.focusAreas,
+        "created-at": state.createdAt,
+        "updated-at": state.updatedAt,
+        "fresh-context-required": state.freshContextRequired ? "true" : "false",
+        scope: state.scopePaths,
+      },
+      [
+        renderSection("Review Target", context.targetSummary),
+        renderSection("Review Question", state.reviewQuestion || "(empty)"),
+        renderSection("Focus Areas", state.focusAreas.join(", ") || "none"),
+        renderSection("Scope Paths", renderBulletList(state.scopePaths)),
+        renderSection("Non-Goals", renderBulletList(state.nonGoals)),
+        renderSection(
+          "Fresh Context Protocol",
+          renderBulletList([
+            "Start from a fresh reviewer context instead of inheriting the executor session.",
+            `Load ${relativeToWorkspace(this.cwd, getCritiquePacketPath(this.cwd, state.critiqueId))} before reasoning about the target.`,
+            "Judge the work against its contract, linked context, and likely failure modes; do not trust plausible output.",
+            "Persist the result with critique_run and critique_finding so findings survive the session.",
+          ]),
+        ),
+        renderSection("Constitutional Context", constitutionSummary),
+        renderSection("Roadmap Items", renderBulletList(context.roadmapItems)),
+        renderSection("Initiatives", renderBulletList(context.initiatives)),
+        renderSection("Research", renderBulletList(context.research)),
+        renderSection("Specs", renderBulletList(context.specs)),
+        renderSection("Tickets", renderBulletList(context.tickets)),
+        renderSection("Existing Runs", renderBulletList(summarizeRuns(runs))),
+        renderSection(
+          "Existing Open Findings",
+          renderBulletList(
+            openFindings.map(
+              (finding) =>
+                `${finding.id} [${finding.kind}/${finding.severity}] ${finding.title} — ${excerpt(finding.summary)}`,
+            ),
+          ),
+        ),
+      ].join("\n\n"),
+    );
+  }
+
   private deriveState(
     state: CritiqueState,
     runs: CritiqueRunRecord[],
@@ -680,6 +1029,187 @@ export class CritiqueStore {
       followupTicketIds,
       lastRunId: runs.at(-1)?.id ?? state.lastRunId,
     };
+  }
+
+  private async deriveStateCanonical(
+    state: CritiqueState,
+    runs: CritiqueRunRecord[],
+    findings: CritiqueFindingRecord[],
+  ): Promise<CritiqueState> {
+    const context = await this.resolvePacketContextCanonical(state);
+    const activeFindingIds = findings
+      .filter((finding) => isActiveFindingStatus(finding.status))
+      .map((finding) => finding.id);
+    const followupTicketIds = normalizeStringList([
+      ...state.followupTicketIds,
+      ...findings.map((finding) => finding.linkedTicketId ?? "").filter(Boolean),
+    ]);
+    const latestRunVerdict = runs.at(-1)?.verdict ?? state.currentVerdict;
+    const currentVerdict =
+      activeFindingIds.length === 0
+        ? state.status === "resolved" || state.currentVerdict === "pass"
+          ? "pass"
+          : latestRunVerdict
+        : latestRunVerdict === "pass"
+          ? "concerns"
+          : latestRunVerdict;
+    return {
+      ...state,
+      packetSummary: context.packetSummary,
+      currentVerdict,
+      openFindingIds: activeFindingIds,
+      followupTicketIds,
+      lastRunId: runs.at(-1)?.id ?? state.lastRunId,
+    };
+  }
+
+  private async buildCanonicalRecord(snapshot: CritiqueSnapshot): Promise<CritiqueReadResult> {
+    const nextState = await this.deriveStateCanonical(snapshot.state, snapshot.runs, snapshot.findings);
+    const critiqueId = nextState.critiqueId;
+    const critiqueDir = getCritiqueDir(this.cwd, critiqueId);
+    const packet = await this.buildPacketCanonical(nextState, snapshot.runs, snapshot.findings);
+    const critique = renderCritiqueMarkdown(nextState, snapshot.runs, snapshot.findings);
+    const dashboard = buildCritiqueDashboard(
+      nextState,
+      snapshot.runs,
+      snapshot.findings,
+      critiqueDir,
+      getCritiquePacketPath(this.cwd, critiqueId),
+      getCritiqueLaunchPath(this.cwd, critiqueId),
+      snapshot.launch,
+    );
+
+    return {
+      state: nextState,
+      summary: summarizeCritique(nextState, critiqueDir),
+      packet,
+      critique,
+      runs: snapshot.runs,
+      findings: snapshot.findings,
+      dashboard,
+      launch: snapshot.launch,
+    };
+  }
+
+  private readSnapshotFromImportedEntity(critiqueId: string, attributes: unknown): CritiqueSnapshot | null {
+    if (!hasFilesystemImportedCritiqueAttributes(attributes) || !attributes.filesByPath) {
+      return null;
+    }
+    const basePath = `.loom/critiques/${critiqueId}`;
+    const stateText = attributes.filesByPath[`${basePath}/state.json`];
+    if (!stateText) {
+      return null;
+    }
+    const launchText = attributes.filesByPath[`${basePath}/launch.json`];
+    return {
+      state: parseJsonText<CritiqueState>(stateText),
+      runs: parseJsonlText<CritiqueRunRecord>(attributes.filesByPath[`${basePath}/runs.jsonl`] ?? ""),
+      findings: latestFindings(
+        parseJsonlText<CritiqueFindingRecord>(attributes.filesByPath[`${basePath}/findings.jsonl`] ?? ""),
+      ),
+      launch: launchText ? parseJsonText<CritiqueLaunchDescriptor>(launchText) : null,
+    };
+  }
+
+  private buildMarkdownOnlyImportedRecord(entity: LoomEntityRecord): CritiqueReadResult | null {
+    if (!hasFilesystemImportedCritiqueAttributes(entity.attributes) || !entity.attributes.filesByPath) {
+      return null;
+    }
+    const filesByPath = entity.attributes.filesByPath as Record<string, string>;
+    const critiqueId = entity.displayId ?? "";
+    if (!critiqueId) {
+      return null;
+    }
+    const basePath = `.loom/critiques/${critiqueId}`;
+    const packet = findImportedFile(filesByPath, `${basePath}/packet.md`, `/${critiqueId}/packet.md`);
+    const critique = findImportedFile(filesByPath, `${basePath}/critique.md`, `/${critiqueId}/critique.md`);
+    if (!packet && !critique) {
+      return null;
+    }
+
+    const packetArtifact = safeParseMarkdown(packet ?? undefined, `${basePath}/packet.md`);
+    const critiqueArtifact = safeParseMarkdown(critique ?? undefined, `${basePath}/critique.md`);
+    const targetValue =
+      frontmatterString(critiqueArtifact?.frontmatter ?? {}, "target") ??
+      frontmatterString(packetArtifact?.frontmatter ?? {}, "target");
+    const targetSeparator = targetValue?.indexOf(":") ?? -1;
+    const hasStructuredTarget = targetSeparator > 0;
+    const targetKind = hasStructuredTarget ? normalizeTargetKind(targetValue?.slice(0, targetSeparator)) : "workspace";
+    const targetRef = hasStructuredTarget
+      ? targetValue?.slice(targetSeparator + 1).trim() || "(unavailable in markdown-only import)"
+      : "(unavailable in markdown-only import)";
+    const updatedAt =
+      frontmatterString(critiqueArtifact?.frontmatter ?? {}, "updated-at") ??
+      frontmatterString(packetArtifact?.frontmatter ?? {}, "updated-at") ??
+      entity.updatedAt;
+    const focusAreas = normalizeFocusAreas([
+      ...frontmatterStringList(critiqueArtifact?.frontmatter ?? {}, "focus"),
+      ...frontmatterStringList(packetArtifact?.frontmatter ?? {}, "focus"),
+    ]);
+    const state: CritiqueState = {
+      critiqueId,
+      title: frontmatterString(critiqueArtifact?.frontmatter ?? {}, "title") ?? entity.title,
+      status: normalizeStatus(entity.status),
+      createdAt: frontmatterString(packetArtifact?.frontmatter ?? {}, "created-at") ?? entity.createdAt,
+      updatedAt,
+      target: {
+        kind: targetKind,
+        ref: targetRef,
+        path: null,
+      },
+      focusAreas,
+      reviewQuestion: entity.summary || "Imported critique metadata is partial; review question is unavailable.",
+      scopePaths: frontmatterStringList(packetArtifact?.frontmatter ?? {}, "scope"),
+      nonGoals: [],
+      contextRefs: normalizeContextRefs({}),
+      packetSummary: entity.summary,
+      currentVerdict: normalizeVerdict(frontmatterString(critiqueArtifact?.frontmatter ?? {}, "verdict") ?? undefined),
+      openFindingIds: frontmatterStringList(critiqueArtifact?.frontmatter ?? {}, "open-findings"),
+      followupTicketIds: frontmatterStringList(critiqueArtifact?.frontmatter ?? {}, "followup-tickets"),
+      freshContextRequired: frontmatterBoolean(packetArtifact?.frontmatter ?? {}, "fresh-context-required") ?? true,
+      lastRunId: null,
+      lastLaunchAt: null,
+      launchCount: 0,
+    };
+    const critiqueDir = getCritiqueDir(this.cwd, critiqueId);
+    const summary = summarizeCritique(state, critiqueDir);
+    return {
+      state,
+      summary,
+      packet: packet ?? "Imported critique packet markdown is unavailable.",
+      critique: critique ?? renderCritiqueMarkdown(state, [], []),
+      runs: [],
+      findings: [],
+      dashboard: buildCritiqueDashboard(
+        state,
+        [],
+        [],
+        critiqueDir,
+        getCritiquePacketPath(this.cwd, critiqueId),
+        getCritiqueLaunchPath(this.cwd, critiqueId),
+        null,
+      ),
+      launch: null,
+    };
+  }
+
+  private async repairCanonicalEntity(entity: LoomEntityRecord): Promise<CritiqueReadResult> {
+    const critiqueId = entity.displayId ?? "";
+    if (!critiqueId) {
+      throw new Error(`Critique entity ${entity.id} is missing a display id`);
+    }
+    const importedSnapshot = this.readSnapshotFromImportedEntity(critiqueId, entity.attributes);
+    if (importedSnapshot) {
+      return this.upsertCanonicalRecord(await this.buildCanonicalRecord(importedSnapshot));
+    }
+    const markdownOnlyRecord = this.buildMarkdownOnlyImportedRecord(entity);
+    if (markdownOnlyRecord) {
+      return markdownOnlyRecord;
+    }
+    if (existsSync(getCritiqueStatePath(this.cwd, critiqueId))) {
+      return this.upsertCanonicalRecord(this.readCritiqueProjection(critiqueId));
+    }
+    throw new Error(`Critique ${critiqueId} is missing structured attributes`);
   }
 
   private writeArtifacts(
@@ -1041,27 +1571,41 @@ export class CritiqueStore {
   }
 
   private async upsertCanonicalRecord(record: CritiqueReadResult): Promise<CritiqueReadResult> {
+    const canonicalRecord = await this.buildCanonicalRecord({
+      state: record.state,
+      runs: record.runs,
+      findings: record.findings,
+      launch: record.launch,
+    });
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, record.summary.id);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
     const version = (existing?.version ?? 0) + 1;
     const entity = await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
-      displayId: record.summary.id,
-      title: record.summary.title,
-      summary: record.state.reviewQuestion,
-      status: record.summary.status,
+      displayId: canonicalRecord.summary.id,
+      title: canonicalRecord.summary.title,
+      summary: canonicalRecord.state.reviewQuestion,
+      status: canonicalRecord.summary.status,
       version,
-      tags: record.summary.focusAreas,
+      tags: canonicalRecord.summary.focusAreas,
       pathScopes: [
-        { repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" },
-        { repositoryId: identity.repository.id, relativePath: record.dashboard.packetPath, role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: `${record.summary.path}/critique.md`, role: "projection" },
+        { repositoryId: identity.repository.id, relativePath: canonicalRecord.summary.path, role: "canonical" },
+        {
+          repositoryId: identity.repository.id,
+          relativePath: canonicalRecord.dashboard.packetPath,
+          role: "projection",
+        },
+        {
+          repositoryId: identity.repository.id,
+          relativePath: `${canonicalRecord.summary.path}/critique.md`,
+          role: "projection",
+        },
       ],
-      attributes: { record },
-      createdAt: existing?.createdAt ?? record.state.createdAt,
-      updatedAt: record.state.updatedAt,
+      attributes: { record: canonicalRecord },
+      createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
+      updatedAt: canonicalRecord.state.updatedAt,
     });
     await upsertProjectionForEntity(
       storage,
@@ -1069,11 +1613,11 @@ export class CritiqueStore {
       "packet_markdown_projection",
       "repo_materialized",
       identity.repository.id,
-      record.dashboard.packetPath,
-      record.packet,
+      canonicalRecord.dashboard.packetPath,
+      canonicalRecord.packet,
       version,
-      record.state.createdAt,
-      record.state.updatedAt,
+      canonicalRecord.state.createdAt,
+      canonicalRecord.state.updatedAt,
     );
     await upsertProjectionForEntity(
       storage,
@@ -1081,27 +1625,32 @@ export class CritiqueStore {
       "plan_markdown_projection",
       "repo_materialized",
       identity.repository.id,
-      `${record.summary.path}/critique.md`,
-      record.critique,
+      `${canonicalRecord.summary.path}/critique.md`,
+      canonicalRecord.critique,
       version,
-      record.state.createdAt,
-      record.state.updatedAt,
+      canonicalRecord.state.createdAt,
+      canonicalRecord.state.updatedAt,
     );
-    return record;
+    return canonicalRecord;
   }
 
-  private async syncProjectionCritiquesToCanonical(): Promise<void> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    for (const summary of this.listCritiquesProjection({})) {
-      const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, summary.id);
-      if (!existing || existing.updatedAt !== summary.updatedAt) {
-        await this.upsertCanonicalRecord(this.readCritiqueProjection(summary.id));
+  private async entityRecord(entity: LoomEntityRecord): Promise<CritiqueReadResult> {
+    if (!hasStructuredCritiqueAttributes(entity.attributes)) {
+      return this.repairCanonicalEntity(entity);
+    }
+    const critiqueId = entity.displayId ?? entity.attributes.record.summary.id;
+    if (existsSync(getCritiqueStatePath(this.cwd, critiqueId))) {
+      const projectionState = this.readState(getCritiqueDir(this.cwd, critiqueId));
+      if (projectionState.updatedAt !== entity.attributes.record.state.updatedAt) {
+        return this.upsertCanonicalRecord(this.readCritiqueProjection(critiqueId));
       }
     }
-  }
-
-  private entityRecord(entity: { attributes: unknown }): CritiqueReadResult {
-    return (entity.attributes as CritiqueEntityAttributes).record;
+    return this.buildCanonicalRecord({
+      state: entity.attributes.record.state,
+      runs: entity.attributes.record.runs,
+      findings: entity.attributes.record.findings,
+      launch: entity.attributes.record.launch,
+    });
   }
 
   listCritiquesProjection(filter: CritiqueListFilter = {}): CritiqueSummary[] {
@@ -1117,10 +1666,12 @@ export class CritiqueStore {
   }
 
   async listCritiquesAsync(filter: CritiqueListFilter = {}): Promise<CritiqueSummary[]> {
-    await this.syncProjectionCritiquesToCanonical();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    return (await storage.listEntities(identity.space.id, ENTITY_KIND))
-      .map((entity) => this.entityRecord(entity).summary)
+    const records = await Promise.all(
+      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity)),
+    );
+    return records
+      .map((record) => record.summary)
       .filter((summary) => {
         if (filter.status && summary.status !== filter.status) return false;
         if (filter.verdict && summary.verdict !== filter.verdict) return false;
@@ -1136,14 +1687,11 @@ export class CritiqueStore {
   }
 
   async readCritiqueAsync(ref: string): Promise<CritiqueReadResult> {
-    await this.syncProjectionCritiquesToCanonical();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const critiqueId = normalizeCritiqueRef(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, critiqueId);
     if (!entity) {
-      const projection = this.readCritiqueProjection(ref);
-      await this.upsertCanonicalRecord(projection);
-      return projection;
+      return this.upsertCanonicalRecord(this.readCritiqueProjection(ref));
     }
     return this.entityRecord(entity);
   }
@@ -1156,7 +1704,9 @@ export class CritiqueStore {
     return this.upsertCanonicalRecord(this.updateCritique(ref, input));
   }
 
-  async launchCritiqueAsync(ref: string): Promise<{ critique: CritiqueReadResult; launch: CritiqueLaunchDescriptor; text: string }> {
+  async launchCritiqueAsync(
+    ref: string,
+  ): Promise<{ critique: CritiqueReadResult; launch: CritiqueLaunchDescriptor; text: string }> {
     const launched = this.launchCritique(ref);
     return { ...launched, critique: await this.upsertCanonicalRecord(launched.critique) };
   }

@@ -58,6 +58,19 @@ interface PlanEntityAttributes {
   state: PlanState;
 }
 
+interface FilesystemImportedPlanAttributes {
+  importedFrom?: string;
+  filesByPath?: Record<string, string>;
+}
+
+function hasStructuredPlanAttributes(attributes: unknown): attributes is PlanEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
+}
+
+function hasFilesystemImportedPlanAttributes(attributes: unknown): attributes is FilesystemImportedPlanAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
+}
+
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
 }
@@ -75,6 +88,10 @@ function writeJson(path: string, value: unknown): void {
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
+}
+
+function parseJsonText<T>(content: string): T {
+  return JSON.parse(content) as T;
 }
 
 function relativePathFromRoot(cwd: string, filePath: string): string {
@@ -1047,6 +1064,7 @@ export class PlanStore {
       linkedTickets,
     );
 
+    this.writeState(nextState);
     writeFileAtomic(getPlanPacketPath(this.cwd, nextState.planId), packet);
     writeFileAtomic(getPlanMarkdownPath(this.cwd, nextState.planId), plan);
 
@@ -1173,8 +1191,76 @@ export class PlanStore {
     if (!entity) {
       throw new Error(`Unknown plan: ${ref}`);
     }
-    const attributes = entity.attributes as unknown as PlanEntityAttributes;
-    return this.materializeCanonical(attributes.state);
+    if (!hasStructuredPlanAttributes(entity.attributes)) {
+      const importedStatePath = `.loom/plans/${planId}/state.json`;
+      if (hasFilesystemImportedPlanAttributes(entity.attributes) && entity.attributes.filesByPath?.[importedStatePath]) {
+        return this.persistCanonical(parseJsonText<PlanState>(entity.attributes.filesByPath[importedStatePath]));
+      }
+      const projection = await this.readImportedPlan(planId, entity.attributes);
+      if (projection) {
+        return projection;
+      }
+      return this.persistCanonical(this.readPlanProjection(planId).state);
+    }
+    return this.materializeCanonical(entity.attributes.state);
+  }
+
+  private async readImportedPlan(planId: string, attributes: unknown): Promise<PlanReadResult | null> {
+    if (!hasFilesystemImportedPlanAttributes(attributes) || !attributes.filesByPath) {
+      return null;
+    }
+    const statePath = `.loom/plans/${planId}/state.json`;
+    if (attributes.filesByPath[statePath]) {
+      return this.materializeCanonical(parseJsonText<PlanState>(attributes.filesByPath[statePath]));
+    }
+    const planPath = `.loom/plans/${planId}/plan.md`;
+    const plan = attributes.filesByPath[planPath];
+    if (!plan) {
+      return null;
+    }
+    const packet = attributes.filesByPath[`.loom/plans/${planId}/packet.md`] ?? "";
+    const now = currentTimestamp();
+    const state: PlanState = {
+      planId,
+      title: planId,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+      summary: "Imported plan projection awaiting canonical rehydration.",
+      purpose: "",
+      contextAndOrientation: "",
+      milestones: "",
+      planOfWork: "",
+      concreteSteps: "",
+      validation: "",
+      idempotenceAndRecovery: "",
+      artifactsAndNotes: "",
+      interfacesAndDependencies: "",
+      risksAndQuestions: "",
+      outcomesAndRetrospective: "",
+      scopePaths: [],
+      sourceTarget: { kind: normalizePlanSourceTargetKind("workspace"), ref: planId },
+      contextRefs: normalizeContextRefs({}),
+      linkedTickets: [],
+      progress: [],
+      discoveries: [],
+      decisions: [],
+      revisionNotes: [],
+      packetSummary: excerpt(packet),
+    };
+    return {
+      state,
+      summary: summarizePlan(state, `.loom/plans/${planId}`),
+      packet,
+      plan,
+      dashboard: buildPlanDashboard(
+        state,
+        `.loom/plans/${planId}`,
+        `.loom/plans/${planId}/packet.md`,
+        `.loom/plans/${planId}/plan.md`,
+        [],
+      ),
+    };
   }
 
   listPlansProjection(filter: PlanListFilter = {}): ReturnType<PlanStore["listPlansProjectionRaw"]> {
@@ -1217,11 +1303,27 @@ export class PlanStore {
 
   async listPlans(filter: PlanListFilter = {}) {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    return (await storage.listEntities(identity.space.id, ENTITY_KIND))
-      .map((entity) => {
-        const state = (entity.attributes as unknown as PlanEntityAttributes).state;
-        return summarizePlan(state, `.loom/plans/${state.planId}`);
-      })
+    const summaries: PlanReadResult["summary"][] = [];
+    for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
+      if (hasStructuredPlanAttributes(entity.attributes)) {
+        summaries.push(summarizePlan(entity.attributes.state, `.loom/plans/${entity.attributes.state.planId}`));
+        continue;
+      }
+      const importedStatePath = `.loom/plans/${entity.displayId}/state.json`;
+      if (hasFilesystemImportedPlanAttributes(entity.attributes) && entity.attributes.filesByPath?.[importedStatePath]) {
+        const repaired = await this.persistCanonical(parseJsonText<PlanState>(entity.attributes.filesByPath[importedStatePath]));
+        summaries.push(repaired.summary);
+        continue;
+      }
+      const imported = await this.readImportedPlan(entity.displayId, entity.attributes);
+      if (imported) {
+        summaries.push(imported.summary);
+        continue;
+      }
+      const repaired = await this.persistCanonical(this.readPlanProjection(entity.displayId).state);
+      summaries.push(repaired.summary);
+    }
+    return summaries
       .filter((summary) => {
         if (filter.status && summary.status !== filter.status) {
           return false;

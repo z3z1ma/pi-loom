@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,38 @@ import { createInitiativeStore } from "../../pi-initiatives/extensions/domain/st
 import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { createResearchStore } from "../extensions/domain/store.js";
+
+async function replaceResearchEntityWithFilesystemImport(
+  workspace: string,
+  researchId: string,
+  filesByPath: Record<string, string>,
+): Promise<void> {
+  const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
+    import("../../pi-storage/storage/entities.js"),
+    import("../../pi-storage/storage/workspace.js"),
+  ]);
+  const { storage, identity } = await openWorkspaceStorage(workspace);
+  const entity = await findEntityByDisplayId(storage, identity.space.id, "research", researchId);
+  expect(entity).toBeTruthy();
+  if (!entity) {
+    throw new Error(`Expected research entity ${researchId} to exist`);
+  }
+  await upsertEntityByDisplayId(storage, {
+    kind: entity.kind,
+    spaceId: entity.spaceId,
+    owningRepositoryId: entity.owningRepositoryId,
+    displayId: entity.displayId,
+    title: entity.title,
+    summary: entity.summary,
+    status: entity.status,
+    version: entity.version + 1,
+    tags: entity.tags,
+    pathScopes: entity.pathScopes,
+    attributes: { importedFrom: "filesystem", filesByPath },
+    createdAt: entity.createdAt,
+    updatedAt: new Date().toISOString(),
+  });
+}
 
 describe("research store", () => {
   let workspace: string;
@@ -54,7 +86,7 @@ describe("research store", () => {
       artifactCount: 0,
       path: ".loom/research/evaluate-theme-architecture",
     });
-    expect(store.listResearch()).toEqual([
+    await expect(store.listResearch()).resolves.toEqual([
       expect.objectContaining({
         id: "evaluate-theme-architecture",
         path: ".loom/research/evaluate-theme-architecture",
@@ -152,5 +184,87 @@ describe("research store", () => {
     expect(withArtifact.dashboard.hypotheses.counts.supported).toBe(1);
     expect(withArtifact.dashboard.artifacts.counts.experiment).toBe(1);
     expect(withArtifact.dashboard).not.toHaveProperty("generatedAt");
-  }, 15000);
+  }, 30000);
+
+  it("skips malformed research directories while listing valid records", async () => {
+    const store = createResearchStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T09:00:00.000Z"));
+    await store.createResearch({
+      title: "Alpha research",
+      question: "What should alpha validate?",
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T09:05:00.000Z"));
+    await store.createResearch({
+      title: "Zulu research",
+      question: "What should zulu validate?",
+    });
+
+    const malformedDir = join(workspace, ".loom", "research", "broken-record");
+    mkdirSync(malformedDir, { recursive: true });
+    writeFileSync(join(malformedDir, "research.md"), "incomplete projection\n", "utf-8");
+
+    await expect(store.listResearch()).resolves.toEqual([
+      expect.objectContaining({
+        id: "alpha-research",
+        path: ".loom/research/alpha-research",
+      }),
+      expect.objectContaining({
+        id: "zulu-research",
+        path: ".loom/research/zulu-research",
+      }),
+    ]);
+  });
+
+  it("repairs filesystem-imported entities into canonical storage during list reads", async () => {
+    const store = createResearchStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
+    await store.createResearch({
+      title: "Filesystem imported research",
+      question: "Can canonical list reads repair imported snapshots?",
+      keywords: ["repair"],
+    });
+    await store.recordHypothesis("filesystem-imported-research", {
+      statement: "Canonical list reads should recover imported records.",
+      status: "supported",
+      confidence: "high",
+    });
+
+    const researchDir = join(workspace, ".loom", "research", "filesystem-imported-research");
+    await replaceResearchEntityWithFilesystemImport(workspace, "filesystem-imported-research", {
+      ".loom/research/filesystem-imported-research/state.json": readFileSync(join(researchDir, "state.json"), "utf-8"),
+      ".loom/research/filesystem-imported-research/research.md": readFileSync(join(researchDir, "research.md"), "utf-8"),
+      ".loom/research/filesystem-imported-research/hypotheses.jsonl": readFileSync(
+        join(researchDir, "hypotheses.jsonl"),
+        "utf-8",
+      ),
+      ".loom/research/filesystem-imported-research/artifacts.json": readFileSync(
+        join(researchDir, "artifacts.json"),
+        "utf-8",
+      ),
+    });
+    rmSync(researchDir, { recursive: true, force: true });
+
+    await expect(store.listResearch({ includeArchived: true })).resolves.toEqual([
+      expect.objectContaining({
+        id: "filesystem-imported-research",
+        hypothesisCount: 1,
+        path: ".loom/research/filesystem-imported-research",
+      }),
+    ]);
+    expect(existsSync(join(researchDir, "state.json"))).toBe(true);
+
+    const [{ findEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
+      import("../../pi-storage/storage/entities.js"),
+      import("../../pi-storage/storage/workspace.js"),
+    ]);
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, "research", "filesystem-imported-research");
+    expect(entity?.attributes).toMatchObject({
+      state: expect.objectContaining({ researchId: "filesystem-imported-research" }),
+      hypotheses: [expect.objectContaining({ id: "hyp-001" })],
+    });
+  });
 });

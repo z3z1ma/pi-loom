@@ -1,0 +1,104 @@
+{
+  "changeId": "design-widget-first-workers-ux",
+  "title": "Design widget-first workers UX",
+  "status": "planned",
+  "createdAt": "2026-03-17T05:56:14.921Z",
+  "updatedAt": "2026-03-17T05:59:05.301Z",
+  "finalizedAt": null,
+  "archivedAt": null,
+  "archivedPath": null,
+  "initiativeIds": [],
+  "researchIds": [],
+  "supersedes": [],
+  "proposalSummary": "Define the human-facing workers and manager experience around a persistent fleet widget, focused worker/inbox/checkpoint/approval views, and direct supervision workflows that replace tool-mirroring manager and worker commands.",
+  "designNotes": "Workers are Loom's workspace-backed execution substrate, and their human-facing UX must balance worker detail with manager oversight. The home widget should surface active workers, blocked workers, inbox backlog, approvals waiting, and the next highest-leverage supervision actions. It should let a human instantly see fleet health without reading raw worker state.\n\nFocused interaction should support both fleet-level and worker-level views: a worker list or board, worker master-detail, inbox/message history, checkpoint inspection, approval and consolidation flows, and manager-side scheduling or supervision views. The design must preserve the conceptual distinction between worker execution state, manager oversight, and linked ticket truth.\n\nThe surviving human verbs should center on opening the fleet, launching or resuming workers, reviewing inbox or approvals, and supervising the manager queue. Tool-mirroring verbs for every manager and worker tool should become obsolete once the UI makes those workflows direct.",
+  "requirements": [
+    {
+      "id": "req-001",
+      "text": "Focused views must support fleet scanning, worker master-detail inspection, inbox/message review, checkpoint history, approval/consolidation review, and manager-side supervision or scheduling views.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect fleet health, open one worker, review inbox and checkpoints, and approve or resume work from the subsystem UX alone.",
+        "The persistent widget and focused views together cover both fleet overview and single-worker deep inspection.",
+        "The workers spec preserves the distinction between manager-side and worker-side responsibilities instead of collapsing them into one opaque panel."
+      ],
+      "capabilities": [
+        "capability-worker-fleet-workspace"
+      ]
+    },
+    {
+      "id": "req-002",
+      "text": "The design must preserve the boundaries between workers, managers, and tickets so the UI does not lie about where execution truth lives.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect fleet health, open one worker, review inbox and checkpoints, and approve or resume work from the subsystem UX alone.",
+        "The persistent widget and focused views together cover both fleet overview and single-worker deep inspection.",
+        "The workers spec preserves the distinction between manager-side and worker-side responsibilities instead of collapsing them into one opaque panel."
+      ],
+      "capabilities": [
+        "capability-worker-fleet-workspace"
+      ]
+    },
+    {
+      "id": "req-003",
+      "text": "The home widget must summarize active workers, blocked workers, inbox backlog, approval pressure, and the most valuable next supervision actions.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect fleet health, open one worker, review inbox and checkpoints, and approve or resume work from the subsystem UX alone.",
+        "The persistent widget and focused views together cover both fleet overview and single-worker deep inspection.",
+        "The workers spec preserves the distinction between manager-side and worker-side responsibilities instead of collapsing them into one opaque panel."
+      ],
+      "capabilities": [
+        "capability-worker-fleet-workspace"
+      ]
+    },
+    {
+      "id": "req-004",
+      "text": "The UI must support creating or linking workers, launching/resuming work, reviewing worker state, resolving or escalating inbox items, and acting on approvals without relying on tool-mirroring slash commands.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect fleet health, open one worker, review inbox and checkpoints, and approve or resume work from the subsystem UX alone.",
+        "The persistent widget and focused views together cover both fleet overview and single-worker deep inspection.",
+        "The workers spec preserves the distinction between manager-side and worker-side responsibilities instead of collapsing them into one opaque panel."
+      ],
+      "capabilities": [
+        "capability-worker-fleet-workspace"
+      ]
+    },
+    {
+      "id": "req-005",
+      "text": "The workspace must make worker fleet health and per-worker resumability legible enough that a human can supervise multiple workers confidently.",
+      "acceptance": [
+        "A reviewer can identify how a user would inspect fleet health, open one worker, review inbox and checkpoints, and approve or resume work from the subsystem UX alone.",
+        "The persistent widget and focused views together cover both fleet overview and single-worker deep inspection.",
+        "The workers spec preserves the distinction between manager-side and worker-side responsibilities instead of collapsing them into one opaque panel."
+      ],
+      "capabilities": [
+        "capability-worker-fleet-workspace"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "capability-worker-fleet-workspace",
+      "title": "Fleet and worker workspace with manager oversight",
+      "summary": "The workers subsystem provides a persistent fleet widget plus focused fleet, worker-detail, inbox, checkpoint, and approval views for human supervision of workspace-backed workers.",
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003",
+        "req-004",
+        "req-005"
+      ],
+      "scenarios": [
+        "A manager opens a supervision view, reviews fleet state, resumes one worker, and clears another approval from the same subsystem experience.",
+        "A user inspects a worker in master-detail view while keeping its linked ticket and execution status visible without falling back to raw slash commands.",
+        "A user opens workers and sees two active workers, one blocked worker with unresolved inbox, and one approval waiting, then drills into the blocked worker's message and checkpoint history."
+      ]
+    }
+  ],
+  "tasks": [],
+  "artifactVersions": {
+    "proposal": "2026-03-17T05:59:06.031Z",
+    "design": "2026-03-17T05:59:06.031Z",
+    "tasks": null,
+    "analysis": null,
+    "checklist": null
+  }
+}

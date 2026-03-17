@@ -9,17 +9,10 @@ research:
   - prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces
 initiatives:
   - workspace-backed-manager-worker-coordination
-capabilities:
-  - workspace-backed-worker-records
-  - workspace-lifecycle-and-runtime-attachments
-  - durable-manager-worker-messaging
-  - checkpoint-telemetry-and-observability
-  - out-of-band-supervisory-control
-  - completion-approval-and-consolidation
-  - loom-boundary-and-provenance-integration
-  - headless-operator-surface-and-recovery
+capabilities: []
 ---
 
+## Overview
 ## Overview
 Introduce a new workspace-backed execution substrate for Pi Loom in which workers are durable, ticket-attached abstractions over ephemeral workspaces and managers act as out-of-band supervisors and consolidators rather than as transcript-bound copilots. The change formalizes how manager-worker coordination fits into the existing Loom stack without overloading current session branching, task spawning, or Ralph orchestration semantics.
 
@@ -125,3 +118,12 @@ The spec intentionally keeps broader coordination bounded. It does not claim unr
 - 2026-03-15T23:59:42.213Z What runtime form should v1 prefer for launching workers? -> V1 should prefer explicit subprocess-backed Pi runtimes launched with cwd set to a provisioned workspace, typically a Git worktree. This matches current Pi runtime strengths and avoids pretending that session fork/tree or in-process cwd mutation are sufficient workspace abstractions.
 - 2026-03-15T23:59:42.220Z Who owns the decision to fan worker changes back into the target branch or execution stream? -> The manager owns consolidation authority. Workers may submit completion requests and evidence, but only a manager may approve work for consolidation and record the chosen fan-in outcome. This preserves a single accountable point for non-parallelizable merge and validation decisions.
 - 2026-03-15T23:59:42.225Z What first-class package and command/tool surface should this spec assume? -> The spec assumes a dedicated worker package, likely `packages/pi-workers`, with a `/worker` command namespace and `worker_*` tools. The package owns workspace-backed worker records, messaging, checkpoints, approval flow, dashboards, and runtime launch descriptors while integrating with the surrounding Loom layers through explicit links.
+
+## Capabilities
+(none)
+
+## Requirements
+(none)
+
+## Clarifications
+(none)

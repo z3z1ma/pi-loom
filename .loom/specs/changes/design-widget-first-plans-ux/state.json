@@ -1,0 +1,104 @@
+{
+  "changeId": "design-widget-first-plans-ux",
+  "title": "Design widget-first plans UX",
+  "status": "planned",
+  "createdAt": "2026-03-17T05:56:14.588Z",
+  "updatedAt": "2026-03-17T05:58:07.195Z",
+  "finalizedAt": null,
+  "archivedAt": null,
+  "archivedPath": null,
+  "initiativeIds": [],
+  "researchIds": [],
+  "supersedes": [],
+  "proposalSummary": "Define the human-facing plans experience around a persistent execution-strategy widget, focused milestone/progress and linked-ticket views, and direct workflows for managing workplan narratives without tool-mirroring commands.",
+  "designNotes": "Plans are Loom's execution-strategy layer between specs/initiatives and tickets. Their human-facing UX should feel like understanding sequencing, milestones, risks, and linked-ticket coverage, not editing an opaque markdown blob through commands. The home widget should show active plans, milestone pressure, linked-ticket health, and the next planning action that matters.\n\nFocused interaction should support a plan list, milestone and progress views, master-detail plan reading/editing, and linked-ticket coverage views. The subsystem should help the user answer whether a plan is coherent, current, and adequately linked to execution without collapsing into ticket-level live state management.\n\nThe surviving human verbs should center on opening plans, creating a new workplan, and updating plan progress or linking scope. Tool-mirroring verbs for raw packet or linking operations should become unnecessary once the UX makes plan maintenance direct.",
+  "requirements": [
+    {
+      "id": "req-001",
+      "text": "Focused views must support scanning plans, reading and editing one plan in detail, reviewing milestones and progress, and inspecting linked-ticket coverage or gaps.",
+      "acceptance": [
+        "A reviewer can identify how a user would create a plan, inspect milestone/progress state, and verify linked-ticket coverage from the subsystem UX alone.",
+        "The persistent widget and focused views expose both portfolio-level plan health and single-plan detail.",
+        "The plan UX preserves the plan layer's focus on sequencing and execution narrative rather than duplicating live ticket state."
+      ],
+      "capabilities": [
+        "capability-plan-workspace"
+      ]
+    },
+    {
+      "id": "req-002",
+      "text": "The design must preserve plans as execution-strategy artifacts rather than turning the subsystem into a ticket board or a spec editor.",
+      "acceptance": [
+        "A reviewer can identify how a user would create a plan, inspect milestone/progress state, and verify linked-ticket coverage from the subsystem UX alone.",
+        "The persistent widget and focused views expose both portfolio-level plan health and single-plan detail.",
+        "The plan UX preserves the plan layer's focus on sequencing and execution narrative rather than duplicating live ticket state."
+      ],
+      "capabilities": [
+        "capability-plan-workspace"
+      ]
+    },
+    {
+      "id": "req-003",
+      "text": "The home widget must summarize active plans, milestone pressure, revision freshness, and linked-ticket coverage signals that help a user spot stale or risky plans.",
+      "acceptance": [
+        "A reviewer can identify how a user would create a plan, inspect milestone/progress state, and verify linked-ticket coverage from the subsystem UX alone.",
+        "The persistent widget and focused views expose both portfolio-level plan health and single-plan detail.",
+        "The plan UX preserves the plan layer's focus on sequencing and execution narrative rather than duplicating live ticket state."
+      ],
+      "capabilities": [
+        "capability-plan-workspace"
+      ]
+    },
+    {
+      "id": "req-004",
+      "text": "The UI must support creating a plan, updating plan progress or revision notes, and reviewing ticket linkage without relying on tool-mirroring slash commands.",
+      "acceptance": [
+        "A reviewer can identify how a user would create a plan, inspect milestone/progress state, and verify linked-ticket coverage from the subsystem UX alone.",
+        "The persistent widget and focused views expose both portfolio-level plan health and single-plan detail.",
+        "The plan UX preserves the plan layer's focus on sequencing and execution narrative rather than duplicating live ticket state."
+      ],
+      "capabilities": [
+        "capability-plan-workspace"
+      ]
+    },
+    {
+      "id": "req-005",
+      "text": "The workspace must help users tell whether a plan is still truthful and sufficiently connected to real execution work.",
+      "acceptance": [
+        "A reviewer can identify how a user would create a plan, inspect milestone/progress state, and verify linked-ticket coverage from the subsystem UX alone.",
+        "The persistent widget and focused views expose both portfolio-level plan health and single-plan detail.",
+        "The plan UX preserves the plan layer's focus on sequencing and execution narrative rather than duplicating live ticket state."
+      ],
+      "capabilities": [
+        "capability-plan-workspace"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "capability-plan-workspace",
+      "title": "Execution-strategy workspace with milestone and linkage views",
+      "summary": "The plans subsystem provides a persistent execution-strategy widget plus focused milestone, progress, master-detail, and linked-ticket views for managing plan narratives.",
+      "requirements": [
+        "req-001",
+        "req-002",
+        "req-003",
+        "req-004",
+        "req-005"
+      ],
+      "scenarios": [
+        "A user compares two plans to decide which execution slice is actually ready to resume without reaching for raw slash commands.",
+        "A user opens plans and sees one active plan with stale progress notes and weak ticket coverage, then drills into its milestones and linked-ticket view.",
+        "A user updates a plan's progress and revision notes from master-detail view, then confirms the linked ticket set still matches the intended scope."
+      ]
+    }
+  ],
+  "tasks": [],
+  "artifactVersions": {
+    "proposal": "2026-03-17T05:58:07.451Z",
+    "design": "2026-03-17T05:58:07.452Z",
+    "tasks": null,
+    "analysis": null,
+    "checklist": null
+  }
+}

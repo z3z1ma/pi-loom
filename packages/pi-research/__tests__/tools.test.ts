@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
@@ -275,4 +275,183 @@ describe("research tools", () => {
       cleanup();
     }
   });
+
+  it("keeps research readable when linked initiative, spec, or ticket refs are stale", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+      const mockPi = createMockPi();
+      const { registerResearchTools } = await import("../extensions/tools/research.js");
+      registerResearchTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const researchWrite = getTool(mockPi, "research_write");
+      const researchList = getTool(mockPi, "research_list");
+      const researchRead = getTool(mockPi, "research_read");
+      const researchDashboard = getTool(mockPi, "research_dashboard");
+      const researchMap = getTool(mockPi, "research_map");
+
+      await researchWrite.execute(
+        "call-1",
+        {
+          action: "create",
+          title: "Evaluate control surfaces",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const statePath = join(cwd, ".loom", "research", "evaluate-control-surfaces", "state.json");
+      const state = JSON.parse(readFileSync(statePath, "utf-8")) as {
+        initiativeIds: string[];
+        specChangeIds: string[];
+        ticketIds: string[];
+      };
+      writeFileSync(
+        statePath,
+        `${JSON.stringify(
+          {
+            ...state,
+            initiativeIds: ["workspace-backed-manager-worker-coordination"],
+            specChangeIds: ["manager-worker-runtime-contract"],
+            ticketIds: ["ticket-404"],
+          },
+          null,
+          2,
+        )}\n`,
+        "utf-8",
+      );
+
+      const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
+        import("../../pi-storage/storage/entities.js"),
+        import("../../pi-storage/storage/workspace.js"),
+      ]);
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const entity = await findEntityByDisplayId(storage, identity.space.id, "research", "evaluate-control-surfaces");
+      expect(entity).toBeTruthy();
+      if (!entity) {
+        throw new Error("Expected research entity to exist");
+      }
+      const researchDir = join(cwd, ".loom", "research", "evaluate-control-surfaces");
+      await upsertEntityByDisplayId(storage, {
+        kind: entity.kind,
+        spaceId: entity.spaceId,
+        owningRepositoryId: entity.owningRepositoryId,
+        displayId: entity.displayId,
+        title: entity.title,
+        summary: entity.summary,
+        status: entity.status,
+        version: entity.version + 1,
+        tags: entity.tags,
+        pathScopes: entity.pathScopes,
+        attributes: {
+          importedFrom: "filesystem",
+          filesByPath: {
+            ".loom/research/evaluate-control-surfaces/state.json": readFileSync(join(researchDir, "state.json"), "utf-8"),
+            ".loom/research/evaluate-control-surfaces/research.md": readFileSync(join(researchDir, "research.md"), "utf-8"),
+            ".loom/research/evaluate-control-surfaces/hypotheses.jsonl": readFileSync(
+              join(researchDir, "hypotheses.jsonl"),
+              "utf-8",
+            ),
+            ".loom/research/evaluate-control-surfaces/artifacts.json": readFileSync(join(researchDir, "artifacts.json"), "utf-8"),
+          },
+        },
+        createdAt: entity.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+      rmSync(researchDir, { recursive: true, force: true });
+
+      const listed = await researchList.execute("call-list", { includeArchived: true }, undefined, undefined, ctx);
+      expect(listed.details).toMatchObject({
+        research: [expect.objectContaining({ id: "evaluate-control-surfaces" })],
+      });
+      expect(readFileSync(statePath, "utf-8")).toContain("workspace-backed-manager-worker-coordination");
+
+      const read = await researchRead.execute("call-2", { ref: "evaluate-control-surfaces" }, undefined, undefined, ctx);
+      expect(read.details).toMatchObject({
+        research: {
+          summary: { id: "evaluate-control-surfaces" },
+          state: {
+            initiativeIds: ["workspace-backed-manager-worker-coordination"],
+            specChangeIds: ["manager-worker-runtime-contract"],
+            ticketIds: ["ticket-404"],
+          },
+          dashboard: {
+            linkedInitiatives: { total: 0, items: [] },
+            linkedSpecs: { total: 0, items: [] },
+            linkedTickets: { total: 0, items: [] },
+            unresolvedReferences: {
+              initiativeIds: ["workspace-backed-manager-worker-coordination"],
+              specChangeIds: ["manager-worker-runtime-contract"],
+              ticketIds: ["ticket-404"],
+            },
+          },
+          map: {
+            nodes: expect.objectContaining({
+              "initiative:workspace-backed-manager-worker-coordination": expect.objectContaining({
+                kind: "initiative",
+                missing: true,
+              }),
+              "spec:manager-worker-runtime-contract": expect.objectContaining({ kind: "spec", missing: true }),
+              "ticket:ticket-404": expect.objectContaining({ kind: "ticket", missing: true }),
+            }),
+            edges: expect.arrayContaining([
+              expect.objectContaining({
+                from: "evaluate-control-surfaces",
+                to: "initiative:workspace-backed-manager-worker-coordination",
+                relation: "links_initiative",
+              }),
+              expect.objectContaining({
+                from: "evaluate-control-surfaces",
+                to: "spec:manager-worker-runtime-contract",
+                relation: "links_spec",
+              }),
+              expect.objectContaining({
+                from: "evaluate-control-surfaces",
+                to: "ticket:ticket-404",
+                relation: "links_ticket",
+              }),
+            ]),
+          },
+        },
+      });
+
+      const dashboard = await researchDashboard.execute(
+        "call-3",
+        { ref: "evaluate-control-surfaces" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(dashboard.details).toMatchObject({
+        dashboard: {
+          unresolvedReferences: {
+            initiativeIds: ["workspace-backed-manager-worker-coordination"],
+            specChangeIds: ["manager-worker-runtime-contract"],
+            ticketIds: ["ticket-404"],
+          },
+        },
+      });
+
+      const map = await researchMap.execute(
+        "call-4",
+        { ref: "evaluate-control-surfaces" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(map.details).toMatchObject({
+        map: {
+          nodes: expect.objectContaining({
+            "initiative:workspace-backed-manager-worker-coordination": expect.objectContaining({ missing: true }),
+            "spec:manager-worker-runtime-contract": expect.objectContaining({ missing: true }),
+            "ticket:ticket-404": expect.objectContaining({ missing: true }),
+          }),
+        },
+      });
+    } finally {
+      cleanup();
+    }
+  }, 30000);
 });

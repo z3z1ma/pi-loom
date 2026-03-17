@@ -1,20 +1,15 @@
-import { appendEntityEvent, findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
-import { findOrBootstrapEntityByDisplayId, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import {
+  appendEntityEvent,
+  findEntityByDisplayId,
+  upsertEntityByDisplayId,
+} from "@pi-loom/pi-storage/storage/entities.js";
+import { findOrBootstrapEntityByDisplayId, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { buildInitiativeDashboard } from "./dashboard.js";
+import { buildInitiativeDashboard, buildInitiativeDashboardProjection } from "./dashboard.js";
 import type {
   CreateInitiativeInput,
   InitiativeDecisionKind,
@@ -39,12 +34,7 @@ import {
   normalizeStringList,
   slugifyTitle,
 } from "./normalize.js";
-import {
-  getInitiativeBriefPath,
-  getInitiativeDecisionsPath,
-  getInitiativeDir,
-  getInitiativesPaths,
-} from "./paths.js";
+import { getInitiativeBriefPath, getInitiativeDecisionsPath, getInitiativeDir, getInitiativesPaths } from "./paths.js";
 import { renderInitiativeMarkdown } from "./render.js";
 
 const ENTITY_KIND = "initiative" as const;
@@ -52,6 +42,10 @@ const ENTITY_KIND = "initiative" as const;
 interface InitiativeEntityAttributes {
   state: InitiativeState;
   decisions: InitiativeDecisionRecord[];
+}
+
+function hasStructuredInitiativeAttributes(attributes: unknown): attributes is InitiativeEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
 }
 
 function ensureDir(path: string): void {
@@ -96,6 +90,26 @@ function summarizeInitiative(cwd: string, state: InitiativeState, path: string):
   };
 }
 
+function summarizeImportedInitiativeEntity(entity: {
+  displayId: string;
+  title: string;
+  status: string;
+  updatedAt: string;
+  tags: string[];
+}): InitiativeSummary {
+  return {
+    id: normalizeInitiativeId(entity.displayId),
+    title: entity.title,
+    status: normalizeStatus(entity.status),
+    milestoneCount: 0,
+    specChangeCount: 0,
+    ticketCount: 0,
+    updatedAt: entity.updatedAt,
+    tags: entity.tags,
+    path: `.loom/initiatives/${normalizeInitiativeId(entity.displayId)}`,
+  };
+}
+
 function normalizeMilestone(input: InitiativeMilestoneInput, existingIds: string[]): InitiativeMilestone {
   const milestoneId = input.id
     ? normalizeMilestoneId(input.id)
@@ -128,7 +142,7 @@ export class InitiativeStore {
 
   private defaultState(input: CreateInitiativeInput, timestamp: string): InitiativeState {
     const initiativeId = normalizeInitiativeId(input.initiativeId ?? slugifyTitle(input.title));
-    const roadmapRefs = createConstitutionalStore(this.cwd).validateRoadmapRefsProjection(input.roadmapRefs ?? []);
+    const roadmapRefs = normalizeStringList(input.roadmapRefs);
     return {
       initiativeId,
       title: input.title.trim(),
@@ -166,11 +180,6 @@ export class InitiativeStore {
       .map((entry) => join(directory, entry))
       .filter((pathValue) => statSync(pathValue).isDirectory())
       .sort((left, right) => basename(left).localeCompare(basename(right)));
-  }
-
-  private resolveInitiativeDirectory(ref: string): string {
-    const directId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
-    return getInitiativeDir(this.cwd, directId);
   }
 
   private readStateFromFiles(initiativeId: string): InitiativeState {
@@ -216,10 +225,16 @@ export class InitiativeStore {
       .map((line) => JSON.parse(line) as InitiativeDecisionRecord);
   }
 
-  private materializeArtifacts(state: InitiativeState, decisions: InitiativeDecisionRecord[]): InitiativeRecord {
+  private writeArtifacts(
+    state: InitiativeState,
+    decisions: InitiativeDecisionRecord[],
+    dashboard: InitiativeRecord["dashboard"],
+  ): InitiativeRecord {
     const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
-    const dashboard = buildInitiativeDashboard(this.cwd, state);
-    writeFileAtomic(getInitiativeBriefPath(this.cwd, state.initiativeId), renderInitiativeMarkdown(state, decisions, dashboard));
+    writeFileAtomic(
+      getInitiativeBriefPath(this.cwd, state.initiativeId),
+      renderInitiativeMarkdown(state, decisions, dashboard),
+    );
     writeJson(join(initiativeDir, "state.json"), state);
     writeFileAtomic(
       getInitiativeDecisionsPath(this.cwd, state.initiativeId),
@@ -234,11 +249,57 @@ export class InitiativeStore {
     };
   }
 
+  private async materializeCanonicalArtifacts(
+    state: InitiativeState,
+    decisions: InitiativeDecisionRecord[],
+  ): Promise<InitiativeRecord> {
+    return this.writeArtifacts(state, decisions, await buildInitiativeDashboard(this.cwd, state));
+  }
+
+  private materializeProjectionArtifacts(
+    state: InitiativeState,
+    decisions: InitiativeDecisionRecord[],
+  ): InitiativeRecord {
+    return this.writeArtifacts(state, decisions, buildInitiativeDashboardProjection(this.cwd, state));
+  }
+
+  private syncInitiativeToCanonical(initiativeId: string): Promise<InitiativeRecord> {
+    const projection = this.readInitiativeProjection(initiativeId);
+    return this.persistRecord(projection.state, projection.decisions);
+  }
+
+  listInitiativesProjection(filter: InitiativeListFilter = {}): InitiativeSummary[] {
+    this.initLedger();
+    return this.initiativeDirectories()
+      .map((pathValue) => summarizeInitiative(this.cwd, this.readStateFromFiles(basename(pathValue)), pathValue))
+      .filter((summary) => {
+        if (!filter.includeArchived && summary.status === "archived") return false;
+        if (filter.status && summary.status !== filter.status) return false;
+        if (filter.tag && !summary.tags.includes(filter.tag)) return false;
+        if (filter.text) {
+          const haystack = `${summary.id} ${summary.title}`.toLowerCase();
+          if (!haystack.includes(filter.text.toLowerCase())) return false;
+        }
+        return true;
+      })
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
   private async loadRecord(ref: string): Promise<InitiativeRecord> {
     this.initLedger();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const initiativeId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
-    let entity = await findOrBootstrapEntityByDisplayId(this.cwd, storage, identity.space.id, ENTITY_KIND, initiativeId);
+    let entity = await findOrBootstrapEntityByDisplayId(
+      this.cwd,
+      storage,
+      identity.space.id,
+      ENTITY_KIND,
+      initiativeId,
+    );
+    const statePath = join(getInitiativeDir(this.cwd, initiativeId), "state.json");
+    if (!entity && existsSync(statePath)) {
+      return this.syncInitiativeToCanonical(initiativeId);
+    }
     if (!entity) {
       const timestamp = currentTimestamp();
       const state = this.defaultState({ title: initiativeId, initiativeId }, timestamp);
@@ -253,23 +314,38 @@ export class InitiativeStore {
         version: 1,
         tags: state.tags,
         pathScopes: [
-          { repositoryId: identity.repository.id, relativePath: `.loom/initiatives/${state.initiativeId}/initiative.md`, role: "projection" },
+          {
+            repositoryId: identity.repository.id,
+            relativePath: `.loom/initiatives/${state.initiativeId}/initiative.md`,
+            role: "projection",
+          },
         ],
         attributes: { state, decisions: [] },
         createdAt: state.createdAt,
         updatedAt: state.updatedAt,
       });
     }
-    const attributes = entity.attributes as unknown as InitiativeEntityAttributes;
-    const state = attributes?.state ?? this.defaultState({ title: initiativeId, initiativeId }, currentTimestamp());
-    return this.materializeArtifacts(state, attributes?.decisions ?? []);
+    if (!hasStructuredInitiativeAttributes(entity.attributes)) {
+      if (existsSync(statePath)) {
+        return this.syncInitiativeToCanonical(initiativeId);
+      }
+      throw new Error(`Initiative entity ${initiativeId} is missing structured attributes`);
+    }
+    const attributes = entity.attributes;
+    return this.materializeCanonicalArtifacts(
+      attributes.state ?? this.defaultState({ title: initiativeId, initiativeId }, currentTimestamp()),
+      attributes.decisions ?? [],
+    );
   }
 
-  private async persistRecord(state: InitiativeState, decisions: InitiativeDecisionRecord[]): Promise<InitiativeRecord> {
+  private async persistRecord(
+    state: InitiativeState,
+    decisions: InitiativeDecisionRecord[],
+  ): Promise<InitiativeRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.initiativeId);
     const version = (existing?.version ?? 0) + 1;
-    const record = this.materializeArtifacts(state, decisions);
+    const record = await this.materializeCanonicalArtifacts(state, decisions);
     await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
@@ -281,7 +357,11 @@ export class InitiativeStore {
       version,
       tags: record.state.tags,
       pathScopes: [
-        { repositoryId: identity.repository.id, relativePath: `.loom/initiatives/${record.state.initiativeId}/initiative.md`, role: "projection" },
+        {
+          repositoryId: identity.repository.id,
+          relativePath: `.loom/initiatives/${record.state.initiativeId}/initiative.md`,
+          role: "projection",
+        },
       ],
       attributes: { state: record.state, decisions: record.decisions },
       createdAt: existing?.createdAt ?? record.state.createdAt,
@@ -305,32 +385,32 @@ export class InitiativeStore {
     }
   }
 
-  private syncTicketMembership(initiativeId: string, previousIds: string[], nextIds: string[]): void {
+  private async syncTicketMembership(initiativeId: string, previousIds: string[], nextIds: string[]): Promise<void> {
     const store = createTicketStore(this.cwd);
     const impactedIds = normalizeStringList([...previousIds, ...nextIds]);
     for (const ticketId of impactedIds) {
-      const ticket = store.readTicketProjection(ticketId);
+      const ticket = await store.readTicketAsync(ticketId);
       const shouldLink = nextIds.includes(ticketId);
       const nextInitiativeIds = shouldLink
         ? normalizeStringList([...ticket.summary.initiativeIds, initiativeId])
         : ticket.summary.initiativeIds.filter((id) => id !== initiativeId);
       if (JSON.stringify(nextInitiativeIds) !== JSON.stringify(ticket.summary.initiativeIds)) {
-        store.setInitiativeIdsProjection(ticketId, nextInitiativeIds);
+        await store.setInitiativeIdsAsync(ticketId, nextInitiativeIds);
       }
     }
   }
 
-  private syncRoadmapMembership(initiativeId: string, previousRefs: string[], nextRefs: string[]): void {
+  private async syncRoadmapMembership(initiativeId: string, previousRefs: string[], nextRefs: string[]): Promise<void> {
     const store = createConstitutionalStore(this.cwd);
     const impactedRefs = normalizeStringList([...previousRefs, ...nextRefs]);
     for (const roadmapRef of impactedRefs) {
-      const item = store.readRoadmapItemProjection(roadmapRef);
+      const item = await store.readRoadmapItem(roadmapRef);
       const shouldLink = nextRefs.includes(roadmapRef);
       const nextInitiativeIds = shouldLink
         ? normalizeStringList([...item.initiativeIds, initiativeId])
         : item.initiativeIds.filter((id) => id !== initiativeId);
       if (JSON.stringify(nextInitiativeIds) !== JSON.stringify(item.initiativeIds)) {
-        store.upsertRoadmapItemProjection({ id: item.id, initiativeIds: nextInitiativeIds });
+        await store.upsertRoadmapItem({ id: item.id, initiativeIds: nextInitiativeIds });
       }
     }
   }
@@ -344,15 +424,29 @@ export class InitiativeStore {
     nextSpecIds: string[],
     nextTicketIds: string[],
   ): Promise<void> {
-    this.syncRoadmapMembership(initiativeId, previousRoadmapRefs, nextRoadmapRefs);
+    await this.syncRoadmapMembership(initiativeId, previousRoadmapRefs, nextRoadmapRefs);
     await this.syncSpecMembership(initiativeId, previousSpecIds, nextSpecIds);
-    this.syncTicketMembership(initiativeId, previousTicketIds, nextTicketIds);
+    await this.syncTicketMembership(initiativeId, previousTicketIds, nextTicketIds);
   }
 
-  listInitiatives(filter: InitiativeListFilter = {}): InitiativeSummary[] {
-    this.initLedger();
-    return this.initiativeDirectories()
-      .map((pathValue) => summarizeInitiative(this.cwd, this.readStateFromFiles(basename(pathValue)), pathValue))
+  async listInitiatives(filter: InitiativeListFilter = {}): Promise<InitiativeSummary[]> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const summaries: InitiativeSummary[] = [];
+    for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
+      if (hasStructuredInitiativeAttributes(entity.attributes)) {
+        summaries.push(
+          summarizeInitiative(this.cwd, entity.attributes.state, getInitiativeDir(this.cwd, entity.attributes.state.initiativeId)),
+        );
+        continue;
+      }
+      try {
+        const repaired = await this.syncInitiativeToCanonical(entity.displayId);
+        summaries.push(repaired.summary);
+      } catch {
+        summaries.push(summarizeImportedInitiativeEntity(entity));
+      }
+    }
+    return summaries
       .filter((summary) => {
         if (!filter.includeArchived && summary.status === "archived") return false;
         if (filter.status && summary.status !== filter.status) return false;
@@ -373,16 +467,28 @@ export class InitiativeStore {
   readInitiativeProjection(ref: string): InitiativeRecord {
     this.initLedger();
     const initiativeId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
-    return this.materializeArtifacts(this.readStateFromFiles(initiativeId), this.readDecisionLogFromFiles(initiativeId));
+    return this.materializeProjectionArtifacts(
+      this.readStateFromFiles(initiativeId),
+      this.readDecisionLogFromFiles(initiativeId),
+    );
   }
 
   async createInitiative(input: CreateInitiativeInput): Promise<InitiativeRecord> {
     this.initLedger();
     const timestamp = currentTimestamp();
     const state = this.defaultState(input, timestamp);
+    state.roadmapRefs = await createConstitutionalStore(this.cwd).validateRoadmapRefs(input.roadmapRefs ?? []);
     const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
     ensureDir(initiativeDir);
-    await this.syncLinkedEntities(state.initiativeId, [], [], [], state.roadmapRefs, state.specChangeIds, state.ticketIds);
+    await this.syncLinkedEntities(
+      state.initiativeId,
+      [],
+      [],
+      [],
+      state.roadmapRefs,
+      state.specChangeIds,
+      state.ticketIds,
+    );
     return this.persistRecord(state, []);
   }
 
@@ -413,7 +519,7 @@ export class InitiativeStore {
     if (updates.capabilityIds !== undefined) state.capabilityIds = normalizeStringList(updates.capabilityIds);
     if (updates.supersedes !== undefined) state.supersedes = normalizeStringList(updates.supersedes);
     if (updates.roadmapRefs !== undefined) {
-      state.roadmapRefs = createConstitutionalStore(this.cwd).validateRoadmapRefsProjection(updates.roadmapRefs);
+      state.roadmapRefs = await createConstitutionalStore(this.cwd).validateRoadmapRefs(updates.roadmapRefs);
     }
     state.updatedAt = currentTimestamp();
     await this.syncLinkedEntities(
@@ -437,7 +543,7 @@ export class InitiativeStore {
   setResearchIdsProjection(ref: string, researchIds: string[]): InitiativeRecord {
     const record = this.readInitiativeProjection(ref);
     const state = { ...record.state, researchIds: normalizeStringList(researchIds), updatedAt: currentTimestamp() };
-    return this.materializeArtifacts(state, record.decisions);
+    return this.materializeProjectionArtifacts(state, record.decisions);
   }
 
   async recordDecision(
@@ -448,7 +554,10 @@ export class InitiativeStore {
   ): Promise<InitiativeRecord> {
     const record = await this.loadRecord(ref);
     const decision: InitiativeDecisionRecord = {
-      id: nextSequenceId(record.decisions.map((entry) => entry.id), "decision"),
+      id: nextSequenceId(
+        record.decisions.map((entry) => entry.id),
+        "decision",
+      ),
       initiativeId: record.state.initiativeId,
       createdAt: currentTimestamp(),
       kind: normalizeDecisionKind(kind),
@@ -461,7 +570,14 @@ export class InitiativeStore {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, persisted.state.initiativeId);
     if (entity) {
-      await appendEntityEvent(storage, entity.id, "decision_recorded", "initiative-store", { decision }, decision.createdAt);
+      await appendEntityEvent(
+        storage,
+        entity.id,
+        "decision_recorded",
+        "initiative-store",
+        { decision },
+        decision.createdAt,
+      );
     }
     return persisted;
   }
@@ -517,7 +633,10 @@ export class InitiativeStore {
   async upsertMilestone(ref: string, input: InitiativeMilestoneInput): Promise<InitiativeRecord> {
     const record = await this.loadRecord(ref);
     const state = { ...record.state };
-    const milestone = normalizeMilestone(input, state.milestones.map((existing) => existing.id));
+    const milestone = normalizeMilestone(
+      input,
+      state.milestones.map((existing) => existing.id),
+    );
     const index = state.milestones.findIndex((existing) => existing.id === milestone.id);
     if (index === -1) {
       state.milestones.push(milestone);

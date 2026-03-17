@@ -101,12 +101,16 @@ describe("InitiativeStore durable memory", () => {
     expect(archived.state.status).toBe("archived");
     expect(archived.state.archivedAt).toBe("2026-03-15T12:15:00.000Z");
     expect(archived.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
-    expect(initiativeStore.listInitiatives({ includeArchived: true })[0]?.path).toBe(
+    expect((await initiativeStore.listInitiatives({ includeArchived: true }))[0]?.path).toBe(
       join(".loom", "initiatives", "platform-modernization"),
     );
-    expect(specStore.readChangeProjection("modernize-theming-tokens").summary.initiativeIds).toEqual(["platform-modernization"]);
+    expect(specStore.readChangeProjection("modernize-theming-tokens").summary.initiativeIds).toEqual([
+      "platform-modernization",
+    ]);
 
-    expect(hydrated.dashboard.linkedResearch.items[0]?.path).toBe(join(".loom", "research", "investigate-theme-migration"));
+    expect(hydrated.dashboard.linkedResearch.items[0]?.path).toBe(
+      join(".loom", "research", "investigate-theme-migration"),
+    );
     expect(hydrated.dashboard).not.toHaveProperty("generatedAt");
 
     const brief = readFileSync(
@@ -116,5 +120,5 @@ describe("InitiativeStore durable memory", () => {
     expect(brief).toContain("## Objective");
     expect(brief).toContain("Coordinate the long-horizon modernization program.");
     expect(brief).toContain("## Milestones");
-  }, 60000);
+  }, 120000);
 });

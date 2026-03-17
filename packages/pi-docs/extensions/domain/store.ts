@@ -20,7 +20,12 @@ import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/mode
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
-import { findEntityByDisplayId, upsertEntityByDisplayId, upsertProjectionForEntity } from "@pi-loom/pi-storage/storage/entities.js";
+import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
+import {
+  findEntityByDisplayId,
+  upsertEntityByDisplayId,
+  upsertProjectionForEntity,
+} from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
@@ -69,6 +74,27 @@ interface DocumentationEntityAttributes {
   record: DocumentationReadResult;
 }
 
+interface FilesystemImportedDocumentationEntityAttributes {
+  importedFrom?: string;
+  filesByPath?: Record<string, string>;
+}
+
+interface DocumentationSnapshot {
+  state: DocumentationState;
+  revisions: DocumentationRevisionRecord[];
+  documentBody: string;
+}
+
+function hasStructuredDocumentationAttributes(attributes: unknown): attributes is DocumentationEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
+}
+
+function hasFilesystemImportedDocumentationAttributes(
+  attributes: unknown,
+): attributes is FilesystemImportedDocumentationEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
+}
+
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
 }
@@ -88,6 +114,10 @@ function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
 }
 
+function parseJsonText<T>(content: string): T {
+  return JSON.parse(content) as T;
+}
+
 function appendJsonl(path: string, value: unknown): void {
   ensureDir(dirname(path));
   appendFileSync(path, `${JSON.stringify(value)}\n`, "utf-8");
@@ -101,6 +131,50 @@ function readJsonl<T>(path: string): T[] {
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => JSON.parse(line) as T);
+}
+
+function parseJsonlText<T>(content: string): T[] {
+  return content
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as T);
+}
+
+function frontmatterString(
+  frontmatter: Readonly<Record<string, string | null | string[]>> | undefined,
+  key: string,
+): string | null {
+  const value = frontmatter?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function frontmatterStringList(
+  frontmatter: Readonly<Record<string, string | null | string[]>> | undefined,
+  key: string,
+): string[] {
+  const value = frontmatter?.[key];
+  if (Array.isArray(value)) {
+    return normalizeStringList(value);
+  }
+  return value ? normalizeStringList([value]) : [];
+}
+
+function safeParseMarkdown(
+  content: string | undefined,
+  filePath: string,
+): { frontmatter: Record<string, string | null | string[]>; body: string } | null {
+  if (!content) {
+    return null;
+  }
+  try {
+    return parseMarkdownArtifact(content, filePath);
+  } catch {
+    return null;
+  }
+}
+
+function findImportedFile(filesByPath: Record<string, string>, preferredPath: string, suffix: string): string | null {
+  return filesByPath[preferredPath] ?? Object.entries(filesByPath).find(([path]) => path.endsWith(suffix))?.[1] ?? null;
 }
 
 function mergeContextRefs(...refs: Array<Partial<DocsContextRefs> | undefined>): DocsContextRefs {
@@ -195,27 +269,40 @@ export class DocumentationStore {
   }
 
   private async upsertCanonicalRecord(record: DocumentationReadResult): Promise<DocumentationReadResult> {
+    const canonicalRecord = await this.buildCanonicalRecord({
+      state: record.state,
+      revisions: record.revisions,
+      documentBody: this.extractDocumentBody(record.document, record.dashboard.documentPath),
+    });
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, record.summary.id);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
     const version = (existing?.version ?? 0) + 1;
     const entity = await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
-      displayId: record.summary.id,
-      title: record.summary.title,
-      summary: record.state.summary,
-      status: record.summary.status,
+      displayId: canonicalRecord.summary.id,
+      title: canonicalRecord.summary.title,
+      summary: canonicalRecord.state.summary,
+      status: canonicalRecord.summary.status,
       version,
-      tags: [record.summary.docType, ...record.state.guideTopics],
+      tags: [canonicalRecord.summary.docType, ...canonicalRecord.state.guideTopics],
       pathScopes: [
-        { repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" },
-        { repositoryId: identity.repository.id, relativePath: record.dashboard.packetPath, role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: record.dashboard.documentPath, role: "projection" },
+        { repositoryId: identity.repository.id, relativePath: canonicalRecord.summary.path, role: "canonical" },
+        {
+          repositoryId: identity.repository.id,
+          relativePath: canonicalRecord.dashboard.packetPath,
+          role: "projection",
+        },
+        {
+          repositoryId: identity.repository.id,
+          relativePath: canonicalRecord.dashboard.documentPath,
+          role: "projection",
+        },
       ],
-      attributes: { record },
-      createdAt: existing?.createdAt ?? record.state.createdAt,
-      updatedAt: record.state.updatedAt,
+      attributes: { record: canonicalRecord },
+      createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
+      updatedAt: canonicalRecord.state.updatedAt,
     });
     await upsertProjectionForEntity(
       storage,
@@ -223,11 +310,11 @@ export class DocumentationStore {
       "packet_markdown_projection",
       "repo_materialized",
       identity.repository.id,
-      record.dashboard.packetPath,
-      record.packet,
+      canonicalRecord.dashboard.packetPath,
+      canonicalRecord.packet,
       version,
-      record.state.createdAt,
-      record.state.updatedAt,
+      canonicalRecord.state.createdAt,
+      canonicalRecord.state.updatedAt,
     );
     await upsertProjectionForEntity(
       storage,
@@ -235,27 +322,37 @@ export class DocumentationStore {
       "documentation_markdown_body",
       "repo_materialized",
       identity.repository.id,
-      record.dashboard.documentPath,
-      record.document,
+      canonicalRecord.dashboard.documentPath,
+      canonicalRecord.document,
       version,
-      record.state.createdAt,
-      record.state.updatedAt,
+      canonicalRecord.state.createdAt,
+      canonicalRecord.state.updatedAt,
     );
-    return record;
+    return canonicalRecord;
   }
 
-  private async syncProjectionDocsToCanonical(): Promise<void> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    for (const summary of this.listDocsProjection({})) {
-      const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, summary.id);
-      if (!existing || existing.updatedAt !== summary.updatedAt) {
-        await this.upsertCanonicalRecord(this.readDocProjection(summary.id));
+  private async entityRecord(entity: LoomEntityRecord): Promise<DocumentationReadResult> {
+    if (!hasStructuredDocumentationAttributes(entity.attributes)) {
+      return this.repairCanonicalEntity(entity);
+    }
+    const docId = entity.displayId ?? entity.attributes.record.summary.id;
+    const statePath = this.sectionGroups()
+      .map((sectionGroup) => getDocumentationStatePath(this.cwd, sectionGroup, docId))
+      .find((path) => existsSync(path));
+    if (statePath) {
+      const projectionRecord = this.readDocProjection(docId);
+      if (projectionRecord.state.updatedAt !== entity.attributes.record.state.updatedAt) {
+        return this.upsertCanonicalRecord(projectionRecord);
       }
     }
-  }
-
-  private entityRecord(entity: { attributes: unknown }): DocumentationReadResult {
-    return (entity.attributes as DocumentationEntityAttributes).record;
+    return this.buildCanonicalRecord({
+      state: entity.attributes.record.state,
+      revisions: entity.attributes.record.revisions,
+      documentBody: this.extractDocumentBody(
+        entity.attributes.record.document,
+        entity.attributes.record.dashboard.documentPath,
+      ),
+    });
   }
 
   private sectionGroups(): DocSectionGroup[] {
@@ -354,6 +451,14 @@ export class DocumentationStore {
     }
   }
 
+  private extractDocumentBody(document: string, docPath: string): string {
+    try {
+      return parseMarkdownArtifact(document, docPath).body;
+    } catch {
+      return document.trim();
+    }
+  }
+
   private writeState(state: DocumentationState): void {
     writeJson(getDocumentationStatePath(this.cwd, state.sectionGroup, state.docId), state);
   }
@@ -373,9 +478,28 @@ export class DocumentationStore {
     }
   }
 
+  private async readConstitutionIfPresentAsync(): Promise<ConstitutionalRecord | null> {
+    if (!this.constitutionExists()) {
+      return null;
+    }
+    try {
+      return await createConstitutionalStore(this.cwd).readConstitution();
+    } catch {
+      return null;
+    }
+  }
+
   private safeReadInitiative(id: string): InitiativeRecord | null {
     try {
       return createInitiativeStore(this.cwd).readInitiativeProjection(id);
+    } catch {
+      return null;
+    }
+  }
+
+  private async safeReadInitiativeAsync(id: string): Promise<InitiativeRecord | null> {
+    try {
+      return await createInitiativeStore(this.cwd).readInitiative(id);
     } catch {
       return null;
     }
@@ -389,9 +513,25 @@ export class DocumentationStore {
     }
   }
 
+  private async safeReadResearchAsync(id: string): Promise<ResearchRecord | null> {
+    try {
+      return await createResearchStore(this.cwd).readResearch(id);
+    } catch {
+      return null;
+    }
+  }
+
   private safeReadSpec(id: string): SpecChangeRecord | null {
     try {
       return createSpecStore(this.cwd).readChangeProjection(id);
+    } catch {
+      return null;
+    }
+  }
+
+  private async safeReadSpecAsync(id: string): Promise<SpecChangeRecord | null> {
+    try {
+      return await createSpecStore(this.cwd).readChange(id);
     } catch {
       return null;
     }
@@ -408,6 +548,14 @@ export class DocumentationStore {
   private safeReadCritique(id: string): CritiqueReadResult | null {
     try {
       return createCritiqueStore(this.cwd).readCritique(id);
+    } catch {
+      return null;
+    }
+  }
+
+  private async safeReadCritiqueAsync(id: string): Promise<CritiqueReadResult | null> {
+    try {
+      return await createCritiqueStore(this.cwd).readCritiqueAsync(id);
     } catch {
       return null;
     }
@@ -492,6 +640,70 @@ export class DocumentationStore {
           summary: `Workspace documentation target: ${state.sourceTarget.ref}`,
           contextRefs: normalizeContextRefs(state.contextRefs),
         };
+    }
+  }
+
+  private async resolveSourceSummaryCanonical(
+    state: DocumentationState,
+  ): Promise<{ summary: string; contextRefs: DocsContextRefs }> {
+    switch (state.sourceTarget.kind) {
+      case "ticket":
+      case "workspace":
+        return this.resolveSourceSummary(state);
+      case "spec": {
+        const change = await this.safeReadSpecAsync(state.sourceTarget.ref);
+        if (!change) {
+          return {
+            summary: `Spec ${state.sourceTarget.ref} could not be loaded. Update the document from the packet context directly.`,
+            contextRefs: mergeContextRefs({ specChangeIds: [state.sourceTarget.ref] }),
+          };
+        }
+        return {
+          summary: [
+            `${change.summary.id} [${change.summary.status}] ${change.summary.title}`,
+            `Proposal: ${excerpt(change.state.proposalSummary)}`,
+            `Requirements: ${change.state.requirements.length}`,
+            `Tasks: ${change.state.tasks.length}`,
+          ].join("\n"),
+          contextRefs: deriveContextRefsFromSpec(change),
+        };
+      }
+      case "initiative": {
+        const initiative = await this.safeReadInitiativeAsync(state.sourceTarget.ref);
+        if (!initiative) {
+          return {
+            summary: `Initiative ${state.sourceTarget.ref} could not be loaded. Update the document from the packet context directly.`,
+            contextRefs: mergeContextRefs({ initiativeIds: [state.sourceTarget.ref] }),
+          };
+        }
+        return {
+          summary: [
+            `${initiative.summary.id} [${initiative.summary.status}] ${initiative.summary.title}`,
+            `Objective: ${excerpt(initiative.state.objective)}`,
+            `Status summary: ${excerpt(initiative.state.statusSummary)}`,
+            `Milestones: ${initiative.state.milestones.length}`,
+          ].join("\n"),
+          contextRefs: deriveContextRefsFromInitiative(initiative),
+        };
+      }
+      case "critique": {
+        const critique = await this.safeReadCritiqueAsync(state.sourceTarget.ref);
+        if (!critique) {
+          return {
+            summary: `Critique ${state.sourceTarget.ref} could not be loaded. Update the document from the packet context directly.`,
+            contextRefs: mergeContextRefs({ critiqueIds: [state.sourceTarget.ref] }),
+          };
+        }
+        return {
+          summary: [
+            `${critique.summary.id} [${critique.summary.status}/${critique.summary.verdict}] ${critique.summary.title}`,
+            `Target: ${critique.state.target.kind}:${critique.state.target.ref}`,
+            `Review question: ${excerpt(critique.state.reviewQuestion)}`,
+            `Open findings: ${critique.state.openFindingIds.join(", ") || "none"}`,
+          ].join("\n"),
+          contextRefs: deriveContextRefsFromCritique(critique),
+        };
+      }
     }
   }
 
@@ -593,6 +805,89 @@ export class DocumentationStore {
     };
   }
 
+  private async resolvePacketContextCanonical(
+    state: DocumentationState,
+    revisions: DocumentationRevisionRecord[],
+    documentBody: string,
+  ): Promise<ResolvedDocumentationContext> {
+    const source = await this.resolveSourceSummaryCanonical(state);
+    const contextRefs = mergeContextRefs(state.contextRefs, source.contextRefs);
+    const constitution = await this.readConstitutionIfPresentAsync();
+    const roadmapItems = constitution
+      ? (
+          await Promise.all(
+            contextRefs.roadmapItemIds.map(async (itemId) => {
+              try {
+                return await createConstitutionalStore(this.cwd).readRoadmapItem(itemId);
+              } catch {
+                return null;
+              }
+            }),
+          )
+        )
+          .filter((item): item is NonNullable<typeof item> => item !== null)
+          .map((item) => `${item.id} [${item.status}/${item.horizon}] ${item.title} — ${excerpt(item.summary)}`)
+      : [];
+    const initiatives = (
+      await Promise.all(contextRefs.initiativeIds.map((initiativeId) => this.safeReadInitiativeAsync(initiativeId)))
+    )
+      .filter((initiative): initiative is InitiativeRecord => initiative !== null)
+      .map(
+        (initiative) =>
+          `${initiative.state.initiativeId} [${initiative.state.status}] ${initiative.state.title} — ${excerpt(initiative.state.objective)}`,
+      );
+    const research = (
+      await Promise.all(contextRefs.researchIds.map((researchId) => this.safeReadResearchAsync(researchId)))
+    )
+      .filter((record): record is ResearchRecord => record !== null)
+      .map(
+        (record) =>
+          `${record.state.researchId} [${record.state.status}] ${record.state.title} — conclusions: ${record.state.conclusions.join("; ") || "none"}`,
+      );
+    const specs = (await Promise.all(contextRefs.specChangeIds.map((changeId) => this.safeReadSpecAsync(changeId))))
+      .filter((record): record is SpecChangeRecord => record !== null)
+      .map(
+        (record) =>
+          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} tasks=${record.state.tasks.length}`,
+      );
+    const tickets = contextRefs.ticketIds
+      .map((ticketId) => this.safeReadTicket(ticketId))
+      .filter((record): record is TicketReadResult => record !== null)
+      .map(
+        (record) =>
+          `${record.summary.id} [${record.summary.status}] ${record.summary.title} — ${excerpt(record.ticket.body.summary)}`,
+      );
+    const critiques = (
+      await Promise.all(contextRefs.critiqueIds.map((critiqueId) => this.safeReadCritiqueAsync(critiqueId)))
+    )
+      .filter((record): record is CritiqueReadResult => record !== null)
+      .map(
+        (record) =>
+          `${record.summary.id} [${record.summary.status}/${record.summary.verdict}] ${record.summary.title} — open findings: ${record.state.openFindingIds.length}`,
+      );
+    const currentDocumentSummary = documentBody
+      ? `${excerpt(summarizeDocument(documentBody))}${extractMarkdownSections(documentBody).length > 0 ? ` | sections: ${extractMarkdownSections(documentBody).join(", ")}` : ""}`
+      : "(none yet)";
+    const likelySections = normalizeStringList([
+      ...this.likelySectionsForType(state, documentBody),
+      ...revisions.flatMap((revision) => revision.changedSections),
+    ]);
+
+    return {
+      sourceSummary: source.summary,
+      contextRefs,
+      constitution,
+      roadmapItems,
+      initiatives,
+      research,
+      specs,
+      tickets,
+      critiques,
+      currentDocumentSummary,
+      likelySections,
+    };
+  }
+
   private buildPacket(
     state: DocumentationState,
     revisions: DocumentationRevisionRecord[],
@@ -655,6 +950,224 @@ export class DocumentationStore {
         renderSection("Critiques", renderBulletList(context.critiques)),
       ].join("\n\n"),
     );
+  }
+
+  private async buildPacketCanonical(
+    state: DocumentationState,
+    revisions: DocumentationRevisionRecord[],
+    documentBody: string,
+  ): Promise<string> {
+    const context = await this.resolvePacketContextCanonical(state, revisions, documentBody);
+    const constitutionSummary = context.constitution
+      ? [
+          `Project: ${context.constitution.state.title}`,
+          `Strategic direction: ${excerpt(context.constitution.state.strategicDirectionSummary)}`,
+          `Current focus: ${context.constitution.state.currentFocus.join("; ") || "none"}`,
+          `Open constitutional questions: ${context.constitution.state.openConstitutionQuestions.join("; ") || "none"}`,
+        ].join("\n")
+      : "(none)";
+
+    return serializeMarkdownArtifact(
+      {
+        id: state.docId,
+        title: state.title,
+        status: state.status,
+        type: state.docType,
+        section: state.sectionGroup,
+        source: `${state.sourceTarget.kind}:${state.sourceTarget.ref}`,
+        audience: state.audience,
+        "created-at": state.createdAt,
+        "updated-at": state.updatedAt,
+      },
+      [
+        renderSection("Documentation Target", context.sourceSummary),
+        renderSection("Update Reason", state.updateReason || "(empty)"),
+        renderSection("Current Document Summary", context.currentDocumentSummary),
+        renderSection("Audience", state.audience.join(", ") || "none"),
+        renderSection("Scope Paths", renderBulletList(state.scopePaths)),
+        renderSection("Guide Topics", renderBulletList(state.guideTopics)),
+        renderSection(
+          "Documentation Boundaries",
+          renderBulletList([
+            "Keep the document high-level and explanatory for both humans and AI memory.",
+            "Do not generate API reference docs or exhaustive symbol listings.",
+            "Describe completed reality, not plans that have not landed.",
+            "Keep linkedOutputPaths truthful for future sync workflows, but do not mutate external docs trees automatically in v1.",
+          ]),
+        ),
+        renderSection("Likely Sections To Update", renderBulletList(context.likelySections)),
+        renderSection(
+          "Existing Revisions",
+          renderBulletList(
+            revisions.map(
+              (revision) =>
+                `${revision.id} ${revision.reason} — ${excerpt(revision.summary)} (${revision.changedSections.join(", ") || "no sections"})`,
+            ),
+          ),
+        ),
+        renderSection("Constitutional Context", constitutionSummary),
+        renderSection("Roadmap Items", renderBulletList(context.roadmapItems)),
+        renderSection("Initiatives", renderBulletList(context.initiatives)),
+        renderSection("Research", renderBulletList(context.research)),
+        renderSection("Specs", renderBulletList(context.specs)),
+        renderSection("Tickets", renderBulletList(context.tickets)),
+        renderSection("Critiques", renderBulletList(context.critiques)),
+      ].join("\n\n"),
+    );
+  }
+
+  private async buildCanonicalRecord(snapshot: DocumentationSnapshot): Promise<DocumentationReadResult> {
+    const packet = await this.buildPacketCanonical(snapshot.state, snapshot.revisions, snapshot.documentBody);
+    const document = renderDocumentationMarkdown(snapshot.state, snapshot.documentBody);
+    const docDir = getDocumentationDir(this.cwd, snapshot.state.sectionGroup, snapshot.state.docId);
+    return {
+      state: snapshot.state,
+      summary: summarizeDocumentation(snapshot.state, docDir, snapshot.revisions.length),
+      packet,
+      document,
+      revisions: snapshot.revisions,
+      dashboard: buildDocumentationDashboard(
+        snapshot.state,
+        snapshot.revisions,
+        getDocumentationPacketPath(this.cwd, snapshot.state.sectionGroup, snapshot.state.docId),
+        getDocumentationMarkdownPath(this.cwd, snapshot.state.sectionGroup, snapshot.state.docId),
+        docDir,
+      ),
+    };
+  }
+
+  private readSnapshotFromImportedEntity(docId: string, attributes: unknown): DocumentationSnapshot | null {
+    if (!hasFilesystemImportedDocumentationAttributes(attributes) || !attributes.filesByPath) {
+      return null;
+    }
+    const stateEntry = Object.entries(attributes.filesByPath).find(([path]) => path.endsWith(`/${docId}/state.json`));
+    if (!stateEntry) {
+      return null;
+    }
+    const basePath = stateEntry[0].slice(0, -"/state.json".length);
+    const state = parseJsonText<DocumentationState>(stateEntry[1]);
+    return {
+      state,
+      revisions: parseJsonlText<DocumentationRevisionRecord>(
+        attributes.filesByPath[`${basePath}/revisions.jsonl`] ?? "",
+      ),
+      documentBody: parseMarkdownArtifact(
+        attributes.filesByPath[`${basePath}/doc.md`] ?? this.defaultDocumentBody(state),
+        `${basePath}/doc.md`,
+      ).body,
+    };
+  }
+
+  private buildMarkdownOnlyImportedRecord(entity: LoomEntityRecord): DocumentationReadResult | null {
+    if (!hasFilesystemImportedDocumentationAttributes(entity.attributes) || !entity.attributes.filesByPath) {
+      return null;
+    }
+    const filesByPath = entity.attributes.filesByPath as Record<string, string>;
+    const docId = entity.displayId ?? "";
+    if (!docId) {
+      return null;
+    }
+    const packet = findImportedFile(filesByPath, `.loom/docs/${docId}/packet.md`, `/${docId}/packet.md`);
+    const document = findImportedFile(filesByPath, `.loom/docs/${docId}/doc.md`, `/${docId}/doc.md`);
+    const exactDocumentPath = Object.keys(filesByPath).find((path) => path.endsWith(`/${docId}/doc.md`)) ?? null;
+    if (!packet && !document) {
+      return null;
+    }
+
+    const packetArtifact = safeParseMarkdown(packet ?? undefined, `.loom/docs/${docId}/packet.md`);
+    const documentArtifact = safeParseMarkdown(
+      document ?? undefined,
+      exactDocumentPath ?? `.loom/docs/${docId}/doc.md`,
+    );
+    const sectionFromPath = exactDocumentPath?.split("/").at(-3);
+    const sectionGroup = normalizeSectionGroup(
+      frontmatterString(documentArtifact?.frontmatter ?? {}, "section") ??
+        frontmatterString(packetArtifact?.frontmatter ?? {}, "section") ??
+        sectionFromPath ??
+        undefined,
+    );
+    const sourceValue =
+      frontmatterString(documentArtifact?.frontmatter ?? {}, "source") ??
+      frontmatterString(packetArtifact?.frontmatter ?? {}, "source");
+    const sourceSeparator = sourceValue?.indexOf(":") ?? -1;
+    const hasStructuredSource = sourceSeparator > 0;
+    const docType = normalizeDocType(
+      frontmatterString(documentArtifact?.frontmatter ?? {}, "type") ??
+        frontmatterString(packetArtifact?.frontmatter ?? {}, "type") ??
+        (sectionGroup === "guides"
+          ? "guide"
+          : sectionGroup === "concepts"
+            ? "concept"
+            : sectionGroup === "operations"
+              ? "operations"
+              : "overview"),
+    );
+    const documentBody =
+      documentArtifact?.body ?? (document?.trim() || "Imported documentation markdown body is unavailable.");
+    const state: DocumentationState = {
+      docId,
+      title: frontmatterString(documentArtifact?.frontmatter ?? {}, "title") ?? entity.title,
+      status: normalizeDocStatus(entity.status),
+      docType,
+      sectionGroup,
+      createdAt: frontmatterString(packetArtifact?.frontmatter ?? {}, "created-at") ?? entity.createdAt,
+      updatedAt:
+        frontmatterString(documentArtifact?.frontmatter ?? {}, "updated-at") ??
+        frontmatterString(packetArtifact?.frontmatter ?? {}, "updated-at") ??
+        entity.updatedAt,
+      summary: entity.summary || summarizeDocument(documentBody),
+      audience: normalizeAudience(frontmatterStringList(documentArtifact?.frontmatter ?? {}, "audience")),
+      scopePaths: [],
+      contextRefs: normalizeContextRefs({}),
+      sourceTarget: {
+        kind: hasStructuredSource ? normalizeSourceTargetKind(sourceValue?.slice(0, sourceSeparator)) : "workspace",
+        ref: hasStructuredSource
+          ? sourceValue?.slice(sourceSeparator + 1).trim() || "(unavailable in markdown-only import)"
+          : "(unavailable in markdown-only import)",
+      },
+      updateReason: "Imported markdown-only documentation record; structured update metadata is unavailable.",
+      guideTopics: [],
+      linkedOutputPaths: [],
+      lastRevisionId: null,
+    };
+    const docDir = getDocumentationDir(this.cwd, sectionGroup, docId);
+    const revisions: DocumentationRevisionRecord[] = [];
+    return {
+      state,
+      summary: summarizeDocumentation(state, docDir, revisions.length),
+      packet: packet ?? "Imported documentation packet markdown is unavailable.",
+      document: document ?? renderDocumentationMarkdown(state, documentBody),
+      revisions,
+      dashboard: buildDocumentationDashboard(
+        state,
+        revisions,
+        getDocumentationPacketPath(this.cwd, sectionGroup, docId),
+        getDocumentationMarkdownPath(this.cwd, sectionGroup, docId),
+        docDir,
+      ),
+    };
+  }
+
+  private async repairCanonicalEntity(entity: LoomEntityRecord): Promise<DocumentationReadResult> {
+    const docId = entity.displayId ?? "";
+    if (!docId) {
+      throw new Error(`Documentation entity ${entity.id} is missing a display id`);
+    }
+    const importedSnapshot = this.readSnapshotFromImportedEntity(docId, entity.attributes);
+    if (importedSnapshot) {
+      return this.upsertCanonicalRecord(await this.buildCanonicalRecord(importedSnapshot));
+    }
+    const markdownOnlyRecord = this.buildMarkdownOnlyImportedRecord(entity);
+    if (markdownOnlyRecord) {
+      return markdownOnlyRecord;
+    }
+    const statePath = this.sectionGroups()
+      .map((sectionGroup) => getDocumentationStatePath(this.cwd, sectionGroup, docId))
+      .find((path) => existsSync(path));
+    if (statePath) {
+      return this.upsertCanonicalRecord(this.readDocProjection(docId));
+    }
+    throw new Error(`Documentation entity ${docId} is missing structured attributes`);
   }
 
   private defaultDocumentBody(state: DocumentationState): string {
@@ -915,10 +1428,11 @@ export class DocumentationStore {
   }
 
   async listDocs(filter: DocumentationListFilter = {}): Promise<ReturnType<DocumentationStore["listDocsProjection"]>> {
-    await this.syncProjectionDocsToCanonical();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    return (await storage.listEntities(identity.space.id, ENTITY_KIND))
-      .map((entity) => this.entityRecord(entity))
+    const records = await Promise.all(
+      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity)),
+    );
+    return records
       .filter((record) => {
         const summary = record.summary;
         if (filter.status && summary.status !== filter.status) return false;
@@ -939,14 +1453,11 @@ export class DocumentationStore {
   }
 
   async readDoc(ref: string): Promise<DocumentationReadResult> {
-    await this.syncProjectionDocsToCanonical();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const docId = normalizeDocRef(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, docId);
     if (!entity) {
-      const projection = this.readDocProjection(ref);
-      await this.upsertCanonicalRecord(projection);
-      return projection;
+      return this.upsertCanonicalRecord(this.readDocProjection(ref));
     }
     return this.entityRecord(entity);
   }

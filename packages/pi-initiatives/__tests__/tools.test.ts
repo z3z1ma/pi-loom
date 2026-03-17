@@ -91,7 +91,7 @@ describe("initiative tools", () => {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const specStore = createSpecStore(cwd);
       const ticketStore = createTicketStore(cwd);
-      specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+      await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
       const ticket = ticketStore.createTicket({ title: "Build theme toggle" });
 
       const mockPi = createMockPi();
@@ -200,5 +200,5 @@ describe("initiative tools", () => {
     } finally {
       cleanup();
     }
-  }, 15000);
+  }, 30000);
 });

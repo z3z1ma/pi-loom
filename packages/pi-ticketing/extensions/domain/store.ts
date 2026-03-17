@@ -10,8 +10,20 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  findEntityByDisplayId,
+  upsertEntityByDisplayId,
+  upsertProjectionForEntity,
+} from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { inferMediaType, readAttachments } from "./attachments.js";
-import { parseCheckpoint, readCheckpointIndex, serializeCheckpoint, withCheckpointPath } from "./checkpoints.js";
+import {
+  parseCheckpoint,
+  readCheckpointIdsFromRecord,
+  readCheckpointIndex,
+  serializeCheckpoint,
+  withCheckpointPath,
+} from "./checkpoints.js";
 import { createEmptyBody, parseTicket, serializeTicket } from "./frontmatter.js";
 import { buildTicketGraph, findDependencyCycle, summarizeTicket } from "./graph.js";
 import { createJournalEntry, readJournalEntries } from "./journal.js";
@@ -22,6 +34,7 @@ import type {
   CheckpointRecord,
   CreateCheckpointInput,
   CreateTicketInput,
+  JournalEntry,
   JournalKind,
   TicketGraphResult,
   TicketListFilter,
@@ -42,13 +55,24 @@ import {
   getTicketPath,
 } from "./paths.js";
 import { filterTickets, summarizeTickets } from "./query.js";
-import { findEntityByDisplayId, upsertEntityByDisplayId, upsertProjectionForEntity } from "@pi-loom/pi-storage/storage/entities.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 
 const ENTITY_KIND = "ticket" as const;
 
 interface TicketEntityAttributes {
   record: TicketReadResult;
+}
+
+interface FilesystemImportedEntityAttributes {
+  importedFrom?: string;
+  filesByPath?: Record<string, string>;
+}
+
+function hasStructuredTicketAttributes(attributes: unknown): attributes is TicketEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
+}
+
+function hasFilesystemImportedTicketAttributes(attributes: unknown): attributes is FilesystemImportedEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
 }
 
 function ensureDir(path: string): void {
@@ -93,6 +117,61 @@ function mediaTypeExtension(mediaType: string): string {
   }
 }
 
+function parseJsonText<T>(content: string): T {
+  return JSON.parse(content) as T;
+}
+
+function parseJournalEntriesText(ticketId: string, content: string): JournalEntry[] {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const entries: JournalEntry[] = [];
+  for (const line of lines) {
+    const parsed = JSON.parse(line) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      continue;
+    }
+    const record = parsed as Record<string, unknown>;
+    entries.push({
+      id: typeof record.id === "string" ? record.id : `${ticketId}-journal-unknown`,
+      ticketId: typeof record.ticketId === "string" ? record.ticketId : ticketId,
+      createdAt: typeof record.createdAt === "string" ? record.createdAt : new Date(0).toISOString(),
+      kind: typeof record.kind === "string" ? (record.kind as JournalKind) : "note",
+      text: typeof record.text === "string" ? record.text : "",
+      metadata:
+        record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
+          ? (record.metadata as Record<string, unknown>)
+          : {},
+    });
+  }
+  return entries.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+function parseAttachmentsText(ticketId: string, content: string): AttachmentRecord[] {
+  const parsed = parseJsonText<unknown>(content);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  return parsed
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry)))
+    .map((entry) => ({
+      id: typeof entry.id === "string" ? entry.id : "",
+      ticketId: typeof entry.ticketId === "string" ? entry.ticketId : ticketId,
+      createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date(0).toISOString(),
+      label: typeof entry.label === "string" ? entry.label : "artifact",
+      mediaType: typeof entry.mediaType === "string" ? entry.mediaType : "application/octet-stream",
+      artifactPath: typeof entry.artifactPath === "string" ? entry.artifactPath : null,
+      sourcePath: typeof entry.sourcePath === "string" ? entry.sourcePath : null,
+      description: typeof entry.description === "string" ? entry.description : "",
+      metadata:
+        entry.metadata && typeof entry.metadata === "object" && !Array.isArray(entry.metadata)
+          ? (entry.metadata as Record<string, unknown>)
+          : {},
+    }))
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
 function relativeOrAbsolute(cwd: string, filePath: string): string {
   if (!isAbsolute(filePath)) {
     return filePath;
@@ -134,7 +213,11 @@ export class TicketStore {
       tags: record.ticket.frontmatter.tags,
       pathScopes: [
         { repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" },
-        { repositoryId: identity.repository.id, relativePath: relativeOrAbsolute(this.cwd, getJournalPath(this.cwd, record.summary.id)), role: "projection" },
+        {
+          repositoryId: identity.repository.id,
+          relativePath: relativeOrAbsolute(this.cwd, getJournalPath(this.cwd, record.summary.id)),
+          role: "projection",
+        },
       ],
       attributes: { record },
       createdAt: existing?.createdAt ?? record.summary.createdAt,
@@ -158,22 +241,54 @@ export class TicketStore {
     return record;
   }
 
-  private async syncTicketToCanonical(ticketId: string): Promise<TicketReadResult> {
-    return this.upsertCanonicalRecord(this.readTicketProjection(ticketId));
-  }
-
-  private async syncProjectionTicketsToCanonical(): Promise<void> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    for (const summary of summarizeTickets(this.loadAllTickets())) {
-      const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, summary.id);
-      if (!existing || existing.updatedAt !== summary.updatedAt) {
-        await this.syncTicketToCanonical(summary.id);
-      }
-    }
-  }
-
   private entityRecord(entity: { attributes: unknown }): TicketReadResult {
     return (entity.attributes as TicketEntityAttributes).record;
+  }
+
+  private readImportedEntityRecord(ticketId: string, attributes: unknown): TicketReadResult | null {
+    if (!hasFilesystemImportedTicketAttributes(attributes) || !attributes.filesByPath) {
+      return null;
+    }
+    const openPath = relativeOrAbsolute(this.cwd, getTicketPath(this.cwd, ticketId, false));
+    const closedPath = relativeOrAbsolute(this.cwd, getTicketPath(this.cwd, ticketId, true));
+    const ticketPath = openPath in attributes.filesByPath ? openPath : closedPath in attributes.filesByPath ? closedPath : null;
+    if (!ticketPath) {
+      return null;
+    }
+    const ticket = parseTicket(attributes.filesByPath[ticketPath], ticketPath, ticketPath === closedPath);
+    const journalPath = relativeOrAbsolute(this.cwd, getJournalPath(this.cwd, ticketId));
+    const attachmentsPath = relativeOrAbsolute(this.cwd, getAttachmentsIndexPath(this.cwd, ticketId));
+    const checkpointIndexPath = relativeOrAbsolute(this.cwd, getCheckpointIndexPath(this.cwd, ticketId));
+    const checkpointIds = readCheckpointIdsFromRecord(parseJsonText<unknown>(attributes.filesByPath[checkpointIndexPath] ?? "[]"));
+    const checkpoints = checkpointIds.flatMap((checkpointId) => {
+      const checkpointPath = relativeOrAbsolute(this.cwd, getCheckpointPath(this.cwd, checkpointId));
+      const checkpointText =
+        attributes.filesByPath?.[checkpointPath] ??
+        (existsSync(resolve(this.cwd, checkpointPath)) ? readFileSync(resolve(this.cwd, checkpointPath), "utf-8") : null);
+      return checkpointText ? [withCheckpointPath(parseCheckpoint(checkpointText, checkpointPath), checkpointPath)] : [];
+    });
+    return {
+      ticket,
+      summary: summarizeTicket(ticket, ticket.closed ? "closed" : ticket.frontmatter.status),
+      journal: parseJournalEntriesText(ticketId, attributes.filesByPath[journalPath] ?? ""),
+      attachments: parseAttachmentsText(ticketId, attributes.filesByPath[attachmentsPath] ?? "[]"),
+      checkpoints,
+      children: [],
+      blockers: [],
+    };
+  }
+
+  private async repairTicketToCanonical(ticketId: string, attributes?: unknown): Promise<TicketReadResult> {
+    const imported = this.readImportedEntityRecord(ticketId, attributes);
+    if (imported) {
+      return this.upsertCanonicalRecord(imported);
+    }
+    const openPath = getTicketPath(this.cwd, ticketId, false);
+    const closedPath = getTicketPath(this.cwd, ticketId, true);
+    if (existsSync(openPath) || existsSync(closedPath)) {
+      return this.upsertCanonicalRecord(this.readTicketProjection(ticketId));
+    }
+    throw new Error(`Ticket entity ${ticketId} is missing structured attributes`);
   }
 
   private materializeCanonicalRecord(record: TicketReadResult): void {
@@ -193,9 +308,15 @@ export class TicketStore {
       `${record.journal.map((entry) => JSON.stringify(entry)).join("\n")}${record.journal.length > 0 ? "\n" : ""}`,
     );
     this.writeAttachments(ticketId, record.attachments);
-    this.writeCheckpointIndex(ticketId, record.checkpoints.map((checkpoint) => checkpoint.id));
+    this.writeCheckpointIndex(
+      ticketId,
+      record.checkpoints.map((checkpoint) => checkpoint.id),
+    );
     for (const checkpoint of record.checkpoints) {
-      writeFileAtomic(resolve(this.cwd, checkpoint.path), serializeCheckpoint({ ...checkpoint, path: resolve(this.cwd, checkpoint.path) }));
+      writeFileAtomic(
+        resolve(this.cwd, checkpoint.path),
+        serializeCheckpoint({ ...checkpoint, path: resolve(this.cwd, checkpoint.path) }),
+      );
     }
   }
 
@@ -207,7 +328,11 @@ export class TicketStore {
     return buildTicketGraph(this.canonicalSummaries(records));
   }
 
-  private toCanonicalReadResult(record: TicketReadResult, summaries: TicketSummary[], graph: TicketGraphResult): TicketReadResult {
+  private toCanonicalReadResult(
+    record: TicketReadResult,
+    summaries: TicketSummary[],
+    graph: TicketGraphResult,
+  ): TicketReadResult {
     const summary = summaries.find((entry) => entry.id === record.summary.id);
     if (!summary) {
       throw new Error(`Unknown ticket: ${record.summary.id}`);
@@ -225,9 +350,16 @@ export class TicketStore {
   }
 
   private async canonicalRecords(): Promise<TicketReadResult[]> {
-    await this.syncProjectionTicketsToCanonical();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    return (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity));
+    const records = new Map<string, TicketReadResult>();
+    for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
+      const ticketId = this.resolveTicketRef(entity.displayId);
+      const record = hasStructuredTicketAttributes(entity.attributes)
+        ? this.entityRecord(entity)
+        : await this.repairTicketToCanonical(ticketId, entity.attributes);
+      records.set(ticketId, record);
+    }
+    return [...records.values()].sort((left, right) => left.summary.id.localeCompare(right.summary.id));
   }
 
   private readTicketFile(path: string, closed: boolean): TicketRecord {
@@ -489,7 +621,7 @@ export class TicketStore {
     const ticketId = this.resolveTicketRef(ref);
     const record = this.loadTicketById(ticketId);
     if (record.closed) {
-      throw new Error(`Closed ticket ${ticketId} cannot be updated; reopen by moving it manually if needed.`);
+      throw new Error(`Closed ticket ${ticketId} cannot be updated; use reopen before editing it.`);
     }
     const timestamp = currentTimestamp();
     if (updates.title !== undefined) record.frontmatter.title = updates.title.trim();
@@ -613,6 +745,27 @@ export class TicketStore {
       action: "close",
     });
     this.appendAudit("close_ticket", ticketId, timestamp, { verificationNote: verificationNote ?? null });
+    return this.readTicket(ticketId);
+  }
+
+  reopenTicket(ref: string): TicketReadResult {
+    const ticketId = this.resolveTicketRef(ref);
+    const record = this.loadTicketById(ticketId);
+    if (!record.closed) {
+      throw new Error(`Ticket ${ticketId} is not closed.`);
+    }
+    const timestamp = currentTimestamp();
+    record.frontmatter.status = "open";
+    record.frontmatter["updated-at"] = timestamp;
+    const openPath = getTicketPath(this.cwd, ticketId, false);
+    writeFileAtomic(openPath, serializeTicket({ frontmatter: record.frontmatter, body: record.body }));
+    if (record.path !== openPath) {
+      rmSync(record.path, { force: true });
+    }
+    record.path = openPath;
+    record.closed = false;
+    this.appendJournal(ticketId, "state", "Reopened ticket", timestamp, { action: "reopen", status: "open" });
+    this.appendAudit("reopen_ticket", ticketId, timestamp, {});
     return this.readTicket(ticketId);
   }
 
@@ -807,8 +960,13 @@ export class TicketStore {
 
   async readTicketAsync(ref: string): Promise<TicketReadResult> {
     const ticketId = this.resolveTicketRef(ref);
-    const records = await this.canonicalRecords();
-    const record = records.find((entry) => entry.summary.id === ticketId);
+    let records = await this.canonicalRecords();
+    let record = records.find((entry) => entry.summary.id === ticketId);
+    if (!record) {
+      await this.repairTicketToCanonical(ticketId);
+      records = await this.canonicalRecords();
+      record = records.find((entry) => entry.summary.id === ticketId);
+    }
     if (!record) {
       throw new Error(`Unknown ticket: ${ticketId}`);
     }
@@ -869,7 +1027,7 @@ export class TicketStore {
   async updateTicketAsync(ref: string, updates: UpdateTicketInput): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
     if (current.ticket.closed) {
-      throw new Error(`Closed ticket ${current.summary.id} cannot be updated; reopen by moving it manually if needed.`);
+      throw new Error(`Closed ticket ${current.summary.id} cannot be updated; use reopen before editing it.`);
     }
     const timestamp = currentTimestamp();
     const record: TicketRecord = { ...current.ticket, frontmatter: { ...current.ticket.frontmatter }, body: { ...current.ticket.body } };
@@ -941,6 +1099,23 @@ export class TicketStore {
     current.journal = [...current.journal, createJournalEntry(current.summary.id, "verification", verificationNote?.trim() || "Closed ticket", timestamp, { action: "close" }, current.journal.length + 1)];
     this.materializeCanonicalRecord(current);
     this.appendAudit("close_ticket", current.summary.id, timestamp, { verificationNote: verificationNote ?? null });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async reopenTicketAsync(ref: string): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    if (!current.ticket.closed) {
+      throw new Error(`Ticket ${current.summary.id} is not closed.`);
+    }
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter.status = "open";
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.ticket.closed = false;
+    current.ticket.path = getTicketPath(this.cwd, current.summary.id, false);
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "state", "Reopened ticket", timestamp, { action: "reopen", status: "open" }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("reopen_ticket", current.summary.id, timestamp, {});
     await this.upsertCanonicalRecord(current);
     return this.readTicketAsync(current.summary.id);
   }
