@@ -15,10 +15,10 @@ Coordinate the first implementation slice for the finalized Ralph orchestration 
 
 ## Planning Boundaries
 
-- Keep `plan.md` thin and navigational; it should point at tickets instead of duplicating full implementation detail.
-- Use `pi-ticketing` to create or update high-fidelity tickets; do not fabricate tickets by scraping markdown.
-- Treat linked tickets as the live execution system of record for status, dependencies, verification, and checkpoints.
-- Preserve truthful source refs, ticket roles, risks, and validation intent so a fresh planner can resume from durable context.
+- Keep `plan.md` deeply detailed at the execution-strategy layer; it should explain sequencing, rationale, risks, and validation without duplicating ticket-by-ticket live state.
+- Use `pi-ticketing` to create, refine, or link tickets explicitly. Plans provide coordination context around those tickets, and linked tickets stay fully detailed and executable in their own right.
+- Treat linked tickets as the live execution system of record for status, dependencies, verification, and checkpoints, and as self-contained units of work with their own acceptance criteria and execution context.
+- Preserve truthful source refs, ticket roles, assumptions, risks, and validation intent so a fresh planner can resume from durable context.
 
 ## Linked Tickets
 
@@ -41,7 +41,10 @@ Coordinate the first implementation slice for the finalized Ralph orchestration 
 
 ## Constitutional Context
 
-(none)
+Project: Pi Loom
+Strategic direction: (empty)
+Current focus: none
+Open constitutional questions: Capture the architectural and business constraints.; Capture the guiding decision principles.; Capture the strategic direction and roadmap.; Define the durable project vision.
 
 ## Roadmap Items
 
@@ -71,7 +74,7 @@ Coordinate the first implementation slice for the finalized Ralph orchestration 
 
 ## Critiques
 
-- critique-pi-ralph-implementation-rollout [active/concerns] Critique pi-ralph implementation rollout — open findings: 0
+- critique-pi-ralph-implementation-rollout [resolved/pass] Critique pi-ralph implementation rollout — open findings: 0
 
 ## Documentation
 

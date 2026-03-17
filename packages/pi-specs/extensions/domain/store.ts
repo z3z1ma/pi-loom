@@ -297,7 +297,7 @@ export class SpecStore {
     }
     return readdirSync(directory)
       .map((entry) => join(directory, entry))
-      .filter((path) => statSync(path).isDirectory())
+      .filter((path) => statSync(path).isDirectory() && existsSync(join(path, "state.json")))
       .sort((left, right) => basename(left).localeCompare(basename(right)));
   }
 
@@ -308,7 +308,7 @@ export class SpecStore {
     }
     return readdirSync(directory)
       .map((entry) => join(directory, entry))
-      .filter((path) => statSync(path).isDirectory())
+      .filter((path) => statSync(path).isDirectory() && existsSync(join(path, "state.json")))
       .sort((left, right) => basename(left).localeCompare(basename(right)));
   }
 

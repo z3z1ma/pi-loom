@@ -4,9 +4,9 @@
 
 ## Planning Target
 
-workspace-package-reliability-scrub [active] Workspace package reliability scrub
+workspace-package-reliability-scrub [completed] Workspace package reliability scrub
 Objective: Improve the correctness, robustness, and internal cohesion of all shipped Pi Loom packages through a manager-led cross-package audit and remediation pass.
-Status summary: Manager-led scrub is active with plan `workspace-package-reliability-scrub-execution`, manager ticket t-0027, and cluster tickets t-0028 through t-0030.
+Status summary: Completed manager-led scrub across all ten shipped packages. Ten latent issues were fixed, all cluster tickets closed, and workspace verification passed.
 Milestones: 1
 
 ## Current Plan Summary
@@ -22,10 +22,10 @@ Manager led execution strategy for auditing all Pi Loom packages and landing val
 
 ## Linked Tickets
 
-- t-0027 [in_progress] Manage workspace package reliability scrub — manager
-- t-0028 [in_progress] Scrub foundation memory packages for robustness issues — foundation-cluster
-- t-0029 [in_progress] Scrub ticketing and worker execution packages — execution-cluster
-- t-0030 [in_progress] Scrub critique Ralph and docs packages — orchestration-cluster
+- t-0027 [closed] Manage workspace package reliability scrub — manager
+- t-0028 [closed] Scrub foundation memory packages for robustness issues — foundation-cluster
+- t-0029 [closed] Scrub ticketing and worker execution packages — execution-cluster
+- t-0030 [closed] Scrub critique Ralph and docs packages — orchestration-cluster
 
 ## Scope Paths
 
@@ -43,17 +43,17 @@ Manager led execution strategy for auditing all Pi Loom packages and landing val
 ## Constitutional Context
 
 Project: Pi Loom
-Strategic direction: Turn Pi Loom into a repo-truthful, composable, local operating system for long-horizon technical work by grounding every layer in durable constitutional policy, explicit graph relationships, observable artifacts, and bounded orchestration.
-Current focus: Deepen Ralph’s bounded verifier and critique loop without erasing the surrounding Loom layer boundaries.; Derive constitutional memory directly from the root constitution, README, and shipped repository behavior instead of maintaining a thin summary that drifts from source truth.; Harden the observable graph across constitution, research, initiatives, specs, plans, tickets, workers, critique, Ralph, and docs so state is recoverable from durable artifacts.
-Open constitutional questions: How much explicit hypothesis and rejected-path structure should the research layer carry before it becomes ceremony?; What verifier and policy contracts should Ralph support before any broader orchestration is considered?; When, if ever, should broader worker coordination or multi-repository execution become first-class in Pi Loom?; Which external sync or publishing surfaces are worth adding after local-first durability is complete?; Which process-memory concerns deserve first-class Loom artifacts rather than remaining in AGENTS, critique, or documentation?
+Strategic direction: (empty)
+Current focus: none
+Open constitutional questions: Capture the architectural and business constraints.; Capture the guiding decision principles.; Capture the strategic direction and roadmap.; Define the durable project vision.
 
 ## Roadmap Items
 
-- item-002 [active/now] Harden cross-layer provenance, packets, dashboards, and queryability — Make the graph linking constitution, research, initiatives, specs, plans, tickets, workers, critiques, Ralph runs, and docs easier to recover, inspect, and trust from durable artifacts.
+(none)
 
 ## Initiatives
 
-- workspace-package-reliability-scrub [active] Workspace package reliability scrub — Improve the correctness, robustness, and internal cohesion of all shipped Pi Loom packages through a manager-led cross-package audit and remediation pass.
+- workspace-package-reliability-scrub [completed] Workspace package reliability scrub — Improve the correctness, robustness, and internal cohesion of all shipped Pi Loom packages through a manager-led cross-package audit and remediation pass.
 
 ## Research
 
@@ -66,10 +66,10 @@ Open constitutional questions: How much explicit hypothesis and rejected-path st
 
 ## Tickets
 
-- t-0027 [in_progress] Manage workspace package reliability scrub — Coordinate the repo-wide package scrub, keep durable execution state truthful, and consolidate validated fixes from the package-cluster workstreams.
-- t-0028 [in_progress] Scrub foundation memory packages for robustness issues — Audit and remediate latent correctness, robustness, and cohesion issues in the foundation memory packages: constitution, research, initiatives, specs, and plans.
-- t-0029 [in_progress] Scrub ticketing and worker execution packages — Audit and remediate latent correctness, robustness, and cohesion issues in the execution substrate packages: ticketing and workers.
-- t-0030 [in_progress] Scrub critique Ralph and docs packages — Audit and remediate latent correctness, robustness, and cohesion issues in the review/orchestration packages: critique, Ralph, and docs.
+- t-0027 [closed] Manage workspace package reliability scrub — Coordinate the repo-wide package scrub, keep durable execution state truthful, and consolidate validated fixes from the package-cluster workstreams.
+- t-0028 [closed] Scrub foundation memory packages for robustness issues — Audit and remediate latent correctness, robustness, and cohesion issues in the foundation memory packages: constitution, research, initiatives, specs, and plans.
+- t-0029 [closed] Scrub ticketing and worker execution packages — Audit and remediate latent correctness, robustness, and cohesion issues in the execution substrate packages: ticketing and workers.
+- t-0030 [closed] Scrub critique Ralph and docs packages — Audit and remediate latent correctness, robustness, and cohesion issues in the review/orchestration packages: critique, Ralph, and docs.
 
 ## Critiques
 

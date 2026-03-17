@@ -272,7 +272,7 @@ export class DocumentationStore {
         }
         return readdirSync(sectionDir)
           .map((entry) => join(sectionDir, entry))
-          .filter((path) => statSync(path).isDirectory());
+          .filter((path) => statSync(path).isDirectory() && existsSync(join(path, "state.json")));
       })
       .sort((left, right) => basename(left).localeCompare(basename(right)));
   }

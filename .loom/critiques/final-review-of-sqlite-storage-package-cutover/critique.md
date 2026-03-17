@@ -18,7 +18,7 @@ followup-tickets: []
 After the SQLite-first storage migration, do the operational Loom layers now use shared storage as canonical truth with only deliberate markdown projections and accepted local runtime carve-outs remaining, or are there still stale file-canonical assumptions and misleading persisted artifacts?
 
 ## Packet Summary
-workspace:pi-loom-storage-cutover; 4 focus area(s); 1 roadmap; 1 initiative; 1 research; 1 spec; 1 ticket
+workspace:pi-loom-storage-cutover; 4 focus area(s); 0 roadmap; 0 initiative; 0 research; 0 spec; 1 ticket
 
 ## Focus Areas
 architecture, correctness, maintainability, process

@@ -18,7 +18,7 @@ followup-tickets: []
 Does the implemented SQLite-first storage package, sync bundle flow, runtime carve-out, and policy update truthfully satisfy tickets t-0044 through t-0049 without hiding important gaps or unsafe assumptions?
 
 ## Packet Summary
-workspace:sqlite-first-canonical-storage-substrate; 4 focus area(s); 1 roadmap; 1 initiative; 1 research; 1 spec; 6 ticket
+workspace:sqlite-first-canonical-storage-substrate; 4 focus area(s); 0 roadmap; 0 initiative; 0 research; 0 spec; 6 ticket
 
 ## Focus Areas
 architecture, correctness, maintainability, roadmap_alignment

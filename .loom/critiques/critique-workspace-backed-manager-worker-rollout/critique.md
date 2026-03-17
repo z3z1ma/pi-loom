@@ -20,7 +20,7 @@ followup-tickets: []
 Does the implemented workspace-backed manager-worker substrate satisfy the finalized spec and all closed rollout tickets while preserving ticket/plan/Ralph boundaries, portability constraints, and recovery/supervision semantics?
 
 ## Packet Summary
-workspace:workspace-backed-manager-worker-substrate-rollout; 6 focus area(s); 1 roadmap; 1 initiative; 1 research; 1 spec; 12 ticket
+workspace:workspace-backed-manager-worker-substrate-rollout; 6 focus area(s); 0 roadmap; 0 initiative; 0 research; 0 spec; 12 ticket
 
 ## Focus Areas
 architecture, correctness, docs, edge_cases, maintainability, process

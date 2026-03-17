@@ -4,10 +4,10 @@
 Turn the broad package scrub into durable, reviewable execution slices so package-cluster work can proceed in parallel without losing layer context.
 
 ## Progress
-- [ ] Ticket t-0027 [in_progress] — Manage workspace package reliability scrub (manager)
-- [ ] Ticket t-0028 [in_progress] — Scrub foundation memory packages for robustness issues (foundation-cluster)
-- [ ] Ticket t-0029 [in_progress] — Scrub ticketing and worker execution packages (execution-cluster)
-- [ ] Ticket t-0030 [in_progress] — Scrub critique Ralph and docs packages (orchestration-cluster)
+- [x] Ticket t-0027 — Manage workspace package reliability scrub (manager)
+- [x] Ticket t-0028 — Scrub foundation memory packages for robustness issues (foundation-cluster)
+- [x] Ticket t-0029 — Scrub ticketing and worker execution packages (execution-cluster)
+- [x] Ticket t-0030 — Scrub critique Ralph and docs packages (orchestration-cluster)
 
 ## Surprises & Discoveries
 - Observation: Every package task found at least one concrete latent issue despite a fully green baseline.
@@ -42,10 +42,10 @@ Created initiative/research/plan/tickets/workers, launched package-level scrub t
 Targeted package tests landed for each fix, then `npm run check && npm test` passed from the repo root.
 
 ## Tickets
-- t-0027 [in_progress] Manage workspace package reliability scrub — manager
-- t-0028 [in_progress] Scrub foundation memory packages for robustness issues — foundation-cluster
-- t-0029 [in_progress] Scrub ticketing and worker execution packages — execution-cluster
-- t-0030 [in_progress] Scrub critique Ralph and docs packages — orchestration-cluster
+- t-0027 [closed] Manage workspace package reliability scrub — manager
+- t-0028 [closed] Scrub foundation memory packages for robustness issues — foundation-cluster
+- t-0029 [closed] Scrub ticketing and worker execution packages — execution-cluster
+- t-0030 [closed] Scrub critique Ralph and docs packages — orchestration-cluster
 
 ## Risks and open questions
 Remaining question: whether any unaudited package surfaces outside the inspected file set still need path/canonicalization hardening.

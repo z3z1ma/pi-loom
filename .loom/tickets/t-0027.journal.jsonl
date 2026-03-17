@@ -1,4 +1,0 @@
-{"id":"t-0027-journal-0001","ticketId":"t-0027","createdAt":"2026-03-16T01:36:01.013Z","kind":"state","text":"Created ticket Manage workspace package reliability scrub","metadata":{"action":"create"}}
-{"id":"t-0027-journal-0002","ticketId":"t-0027","createdAt":"2026-03-16T01:36:36.303Z","kind":"state","text":"Added external reference plan:workspace-package-reliability-scrub-execution","metadata":{"externalRef":"plan:workspace-package-reliability-scrub-execution"}}
-{"id":"t-0027-journal-0003","ticketId":"t-0027","createdAt":"2026-03-16T01:37:56.825Z","kind":"state","text":"Started work","metadata":{"status":"in_progress"}}
-{"id":"t-0027-journal-0004","ticketId":"t-0027","createdAt":"2026-03-16T01:47:58.005Z","kind":"verification","text":"npm run check && npm test","metadata":{"action":"close"}}

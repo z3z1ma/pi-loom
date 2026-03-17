@@ -28,11 +28,11 @@ Execution strategy for migrating Pi Loom from file backed repo .loom state to a 
 - t-0047 [closed] Design reserved-branch export and hydration — sync-hydration
 - t-0048 [closed] Separate durable worker history from local runtime state — worker-runtime-carveout
 - t-0049 [closed] Validate backend portability and prepare PostgreSQL path — postgres-portability
-- t-0050 [ready] Migrate constitution, research, and initiative stores to shared storage — upstream-package-cutover
-- t-0051 [ready] Migrate specs, plans, and ticketing stores to shared storage — execution-package-cutover
-- t-0052 [ready] Migrate critique, Ralph, and docs stores to shared storage — review-docs-package-cutover
-- t-0053 [ready] Migrate worker package and tool surfaces onto shared storage — worker-package-cutover
-- t-0054 [ready] Cut remaining package tools over and remove stale file-canonical assumptions — final-cutover-and-critique
+- t-0050 [closed] Migrate constitution, research, and initiative stores to shared storage — upstream-package-cutover
+- t-0051 [closed] Migrate specs, plans, and ticketing stores to shared storage — execution-package-cutover
+- t-0052 [closed] Migrate critique, Ralph, and docs stores to shared storage — review-docs-package-cutover
+- t-0053 [closed] Migrate worker package and tool surfaces onto shared storage — worker-package-cutover
+- t-0054 [closed] Cut remaining package tools over and remove stale file-canonical assumptions — final-cutover-and-critique
 
 ## Scope Paths
 
@@ -53,13 +53,13 @@ Execution strategy for migrating Pi Loom from file backed repo .loom state to a 
 ## Constitutional Context
 
 Project: Pi Loom
-Strategic direction: Turn Pi Loom into a repo-truthful, composable, local operating system for long-horizon technical work by grounding every layer in durable constitutional policy, explicit graph relationships, observable artifacts, and bounded orchestration.
-Current focus: Deepen Ralph’s bounded verifier and critique loop without erasing the surrounding Loom layer boundaries.; Derive constitutional memory directly from the root constitution, README, and shipped repository behavior instead of maintaining a thin summary that drifts from source truth.; Harden the observable graph across constitution, research, initiatives, specs, plans, tickets, workers, critique, Ralph, and docs so state is recoverable from durable artifacts.
-Open constitutional questions: How much explicit hypothesis and rejected-path structure should the research layer carry before it becomes ceremony?; What verifier and policy contracts should Ralph support before any broader orchestration is considered?; When, if ever, should broader worker coordination or multi-repository execution become first-class in Pi Loom?; Which external sync or publishing surfaces are worth adding after local-first durability is complete?; Which process-memory concerns deserve first-class Loom artifacts rather than remaining in AGENTS, critique, or documentation?
+Strategic direction: (empty)
+Current focus: none
+Open constitutional questions: Capture the architectural and business constraints.; Capture the guiding decision principles.; Capture the strategic direction and roadmap.; Define the durable project vision.
 
 ## Roadmap Items
 
-- item-008 [active/now] Migrate Loom storage to a shared database substrate with repo projection sync — Replace per-repo file-backed canonical state with a local shared database substrate that supports cross-repo Loom coordination, repo/worktree-aware execution, deterministic repo projection, and future PostgreSQL backends.
+(none)
 
 ## Initiatives
 
@@ -81,11 +81,11 @@ Open constitutional questions: How much explicit hypothesis and rejected-path st
 - t-0047 [closed] Design reserved-branch export and hydration — Define and implement deterministic sync exports, content-addressed artifact manifests, hydration/import flows, and explicit conflict handling for SQLite users.
 - t-0048 [closed] Separate durable worker history from local runtime state — Define and implement the boundary between canonical shared worker history and clone-local worktree/runtime control-plane state, including leases and heartbeats for any canonical worker liveness state.
 - t-0049 [closed] Validate backend portability and prepare PostgreSQL path — Build backend-contract tests and backend-neutral semantics so PostgreSQL can later replace or complement SQLite without redesigning domain behavior.
-- t-0050 [ready] Migrate constitution, research, and initiative stores to shared storage — Replace direct file-backed canonical reads/writes in `pi-constitution`, `pi-research`, and `pi-initiatives` with the shared storage contract while preserving repo-materialized constitution markdown bodies and any deliberate projections.
-- t-0051 [ready] Migrate specs, plans, and ticketing stores to shared storage — Cut `pi-specs`, `pi-plans`, and `pi-ticketing` over to the shared storage contract while keeping the main spec markdown bodies and selected review projections repo-materialized.
-- t-0052 [ready] Migrate critique, Ralph, and docs stores to shared storage — Move `pi-critique`, `pi-ralph`, and `pi-docs` onto the shared storage contract while preserving repo-materialized main docs markdown bodies and deliberate review packet/projection behavior.
-- t-0053 [ready] Migrate worker package and tool surfaces onto shared storage — Rewire `pi-workers` so durable worker history uses the shared storage contract while clone-local runtime attachments remain local, then cut worker/manager tools over to the new canonical path.
-- t-0054 [ready] Cut remaining package tools over and remove stale file-canonical assumptions — Finish the migration by rewiring any remaining package tools/commands to the shared storage contract, cleaning up obsolete file-canonical assumptions, and re-running a full critique over the package-level cutover.
+- t-0050 [closed] Migrate constitution, research, and initiative stores to shared storage — Replace direct file-backed canonical reads/writes in `pi-constitution`, `pi-research`, and `pi-initiatives` with the shared storage contract while preserving repo-materialized constitution markdown bodies and any deliberate projections.
+- t-0051 [closed] Migrate specs, plans, and ticketing stores to shared storage — Cut `pi-specs`, `pi-plans`, and `pi-ticketing` over to the shared storage contract while keeping the main spec markdown bodies and selected review projections repo-materialized.
+- t-0052 [closed] Migrate critique, Ralph, and docs stores to shared storage — Move `pi-critique`, `pi-ralph`, and `pi-docs` onto the shared storage contract while preserving repo-materialized main docs markdown bodies and deliberate review packet/projection behavior.
+- t-0053 [closed] Migrate worker package and tool surfaces onto shared storage — Rewire `pi-workers` so durable worker history uses the shared storage contract while clone-local runtime attachments remain local, then cut worker/manager tools over to the new canonical path.
+- t-0054 [closed] Cut remaining package tools over and remove stale file-canonical assumptions — Finish the migration by rewiring any remaining package tools/commands to the shared storage contract, cleaning up obsolete file-canonical assumptions, and re-running a full critique over the package-level cutover.
 
 ## Critiques
 

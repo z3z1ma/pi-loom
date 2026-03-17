@@ -10,11 +10,11 @@ Track the full multi-phase storage migration, not just the foundational storage 
 - [x] Ticket t-0047 — Design reserved-branch export and hydration (sync-hydration)
 - [x] Ticket t-0048 — Separate durable worker history from local runtime state (worker-runtime-carveout)
 - [x] Ticket t-0049 — Validate backend portability and prepare PostgreSQL path (postgres-portability)
-- [ ] Ticket t-0050 [ready] — Migrate constitution, research, and initiative stores to shared storage (upstream-package-cutover)
-- [ ] Ticket t-0051 [ready] — Migrate specs, plans, and ticketing stores to shared storage (execution-package-cutover)
-- [ ] Ticket t-0052 [ready] — Migrate critique, Ralph, and docs stores to shared storage (review-docs-package-cutover)
-- [ ] Ticket t-0053 [ready] — Migrate worker package and tool surfaces onto shared storage (worker-package-cutover)
-- [ ] Ticket t-0054 [ready] — Cut remaining package tools over and remove stale file-canonical assumptions (final-cutover-and-critique)
+- [x] Ticket t-0050 — Migrate constitution, research, and initiative stores to shared storage (upstream-package-cutover)
+- [x] Ticket t-0051 — Migrate specs, plans, and ticketing stores to shared storage (execution-package-cutover)
+- [x] Ticket t-0052 — Migrate critique, Ralph, and docs stores to shared storage (review-docs-package-cutover)
+- [x] Ticket t-0053 — Migrate worker package and tool surfaces onto shared storage (worker-package-cutover)
+- [x] Ticket t-0054 — Cut remaining package tools over and remove stale file-canonical assumptions (final-cutover-and-critique)
 
 ## Surprises & Discoveries
 - Observation: The first closed ticket set implemented only the shared storage substrate, not package-level cutover.
@@ -66,11 +66,11 @@ The foundation slice is verified. Remaining migration must be validated package-
 - t-0047 [closed] Design reserved-branch export and hydration — sync-hydration
 - t-0048 [closed] Separate durable worker history from local runtime state — worker-runtime-carveout
 - t-0049 [closed] Validate backend portability and prepare PostgreSQL path — postgres-portability
-- t-0050 [ready] Migrate constitution, research, and initiative stores to shared storage — upstream-package-cutover
-- t-0051 [ready] Migrate specs, plans, and ticketing stores to shared storage — execution-package-cutover
-- t-0052 [ready] Migrate critique, Ralph, and docs stores to shared storage — review-docs-package-cutover
-- t-0053 [ready] Migrate worker package and tool surfaces onto shared storage — worker-package-cutover
-- t-0054 [ready] Cut remaining package tools over and remove stale file-canonical assumptions — final-cutover-and-critique
+- t-0050 [closed] Migrate constitution, research, and initiative stores to shared storage — upstream-package-cutover
+- t-0051 [closed] Migrate specs, plans, and ticketing stores to shared storage — execution-package-cutover
+- t-0052 [closed] Migrate critique, Ralph, and docs stores to shared storage — review-docs-package-cutover
+- t-0053 [closed] Migrate worker package and tool surfaces onto shared storage — worker-package-cutover
+- t-0054 [closed] Cut remaining package tools over and remove stale file-canonical assumptions — final-cutover-and-critique
 
 ## Risks and open questions
 The main risk is false completion: a shared storage package existing does not mean the migration is done. Until package stores, tools, and commands are rewired, the system remains mostly file-backed in practice. Open questions remain about package migration batching, projection cleanup timing, and exactly when auxiliary `.loom` metadata should stop being committed.

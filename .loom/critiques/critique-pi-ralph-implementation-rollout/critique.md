@@ -18,7 +18,7 @@ followup-tickets: []
 Is the implemented pi-ralph package structurally complete, correctly scoped as a Ralph-specific orchestration layer over Loom primitives, and adequately verified for the landed feature set?
 
 ## Packet Summary
-artifact:packages/pi-ralph; 4 focus area(s); 0 roadmap; 0 initiative; 1 research; 1 spec; 7 ticket
+artifact:packages/pi-ralph; 4 focus area(s); 0 roadmap; 0 initiative; 0 research; 0 spec; 7 ticket
 
 ## Focus Areas
 architecture, maintainability, process, tests

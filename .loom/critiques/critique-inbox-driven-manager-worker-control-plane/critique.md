@@ -19,7 +19,7 @@ followup-tickets: []
 Does the implemented inbox-driven manager-worker control plane satisfy the finalized successor spec and closed tickets t-0031 through t-0039 while preserving ticket primacy, bounded manager scheduling, runtime portability, and the intended SDK-first/RPC-fallback architecture?
 
 ## Packet Summary
-workspace:manager-worker-control-plane-next-phase; 5 focus area(s); 1 roadmap; 1 initiative; 2 research; 1 spec; 9 ticket
+workspace:manager-worker-control-plane-next-phase; 5 focus area(s); 0 roadmap; 0 initiative; 0 research; 0 spec; 9 ticket
 
 ## Focus Areas
 architecture, correctness, docs, edge_cases, maintainability

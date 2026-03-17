@@ -43,7 +43,10 @@ architecture, maintainability, process, tests
 - Persist the result with critique_run and critique_finding so findings survive the session.
 
 ## Constitutional Context
-(none)
+Project: Pi Loom
+Strategic direction: (empty)
+Current focus: none
+Open constitutional questions: Capture the architectural and business constraints.; Capture the guiding decision principles.; Capture the strategic direction and roadmap.; Define the durable project vision.
 
 ## Roadmap Items
 (none)
@@ -52,10 +55,10 @@ architecture, maintainability, process, tests
 (none)
 
 ## Research
-- state-of-the-art-for-ralph-loop-orchestration [synthesized] State of the art for Ralph loop orchestration — conclusions: 'Ralph loop' / 'Ralph Wiggum loop' is not a canonical academic/framework term; it is an emerging community label used in practitioner articles, repos, and tooling docs.; For coding-agent systems, scaffold design and verifier wiring matter materially; current benchmark ecosystems increasingly measure the combined agent-plus-scaffold rather than the base model in isolation.; Modern production frameworks treat loop orchestration as explicit runtime control with persistence/checkpointing, interrupt-resume boundaries, human approval hooks, tracing, and bounded stop policies.; Recent surveys and papers indicate that pure prompted self-correction is unreliable in general; loops become materially stronger when critique is grounded in reliable external feedback such as tests, tool outputs, environment signals, or trained evaluators.; The closest established patterns are ReAct, Self-Refine, Reflexion, CRITIC, Tree-of-Thoughts, Constitutional AI, and evaluator-optimizer / planner-executor-critic workflows.; The repo's current doctrine—plan/execution/critique/revision loop with critique kept as a reusable durable layer distinct from the loop itself—is directionally aligned with stronger state-of-the-art patterns.
+(none)
 
 ## Specs
-- add-ralph-loop-orchestration-extension [finalized] Add Ralph loop orchestration extension — reqs=12 tasks=7
+(none)
 
 ## Tickets
 - t-0001 [closed] Scaffold pi-ralph package and run ledger — Create the new extension package, package metadata, README, lifecycle hooks, and durable `.loom/ralph/` ledger initialization with synced per-run artifact writes.

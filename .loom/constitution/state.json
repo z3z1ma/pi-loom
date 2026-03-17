@@ -1,251 +1,32 @@
 {
   "projectId": "pi-loom",
   "title": "Pi Loom",
-  "createdAt": "2026-03-15T18:32:51.617Z",
-  "updatedAt": "2026-03-16T17:28:05.892Z",
-  "visionSummary": "Build Pi Loom into a repo-visible, local-first, composable coordination and memory system for long-horizon technical work by humans and AI.",
-  "visionNarrative": "Pi Loom turns the ideas in the root CONSTITUTION.md into concrete Loom layers that survive session turnover. It should preserve constitutional policy, research, initiatives, specs, plans, tickets, workers, critique, Ralph orchestration, and documentation as distinct but explicitly linked artifacts under .loom/ so work can be resumed, inspected, critiqued, and improved without transcript archaeology. The project should provide durable primitives and bounded orchestration rather than one rigid workflow, keeping project truth in the repository itself while leaving room for multiple operating modes to emerge from shared building blocks.",
-  "principles": [
-    {
-      "id": "principle-001",
-      "title": "Minimal composable core",
-      "summary": "Pi Loom should provide durable primitives and layer boundaries that compose into workflows instead of collapsing into a single mandatory methodology.",
-      "rationale": "The root constitution describes a minimal, composable harness, and the current repository implements Loom as linked layers rather than one monolith."
-    },
-    {
-      "id": "principle-002",
-      "title": "Durable work beyond chat",
-      "summary": "Strategic, research, planning, execution, review, and documentation context must survive session turnover in canonical Loom artifacts rather than living only in prompts or transcripts.",
-      "rationale": "The root constitution emphasizes persistent cognition and continuous knowledge accumulation, while the README grounds Pi Loom in repo-visible durable state under .loom/."
-    },
-    {
-      "id": "principle-003",
-      "title": "Work as an explicit graph",
-      "summary": "Relationships across roadmap items, initiatives, research, specs, plans, tickets, workers, critiques, Ralph runs, and docs should be first-class and queryable.",
-      "rationale": "The root constitution treats work as a graph, and the shipped Loom stack already exposes explicit ids, linkage fields, packets, and dashboards across layers."
-    },
-    {
-      "id": "principle-004",
-      "title": "Tickets anchor live execution",
-      "summary": "Tickets remain the durable source of truth for live execution even when workers, plans, critique, Ralph, and docs surround or summarize the work.",
-      "rationale": "The root constitution centers ticket-based persistence, and the current repository explicitly keeps tickets as the live execution ledger."
-    },
-    {
-      "id": "principle-005",
-      "title": "Truthful layer boundaries",
-      "summary": "Each Loom layer must own one level of abstraction and tell the truth about its role instead of masquerading as a neighboring layer.",
-      "rationale": "Pi Loom only stays understandable if constitution, research, initiatives, specs, plans, tickets, workers, critique, Ralph, and docs remain distinct and explicit about their responsibilities."
-    },
-    {
-      "id": "principle-006",
-      "title": "Fresh-context over transcript accretion",
-      "summary": "Long-horizon work should rehydrate from bounded packets, ledgers, and artifacts instead of relying on one ever-growing transcript.",
-      "rationale": "The root constitution describes persistent, inspectable work, and the shipped plans, workers, critique, Ralph, and docs packages already use packets and fresh-process handoffs."
-    },
-    {
-      "id": "principle-007",
-      "title": "Observability over transcript archaeology",
-      "summary": "Humans and agents should be able to recover current system truth from dashboards, packets, ledgers, and durable artifacts without reconstructing it from chat history.",
-      "rationale": "The root constitution names observability as a core capability, and Pi Loom already ships dashboard and packet surfaces across layers that should become authoritative."
-    },
-    {
-      "id": "principle-008",
-      "title": "Continuous self-improvement",
-      "summary": "Pi Loom should be able to critique, document, and improve itself through its own durable layers so improvements carry evidence, rationale, and follow-up work forward.",
-      "rationale": "The root constitution treats critique, documentation, and system improvement as first-class, and the repository now has dedicated Loom layers for each of those responsibilities."
-    }
-  ],
-  "constraints": [
-    {
-      "id": "constraint-001",
-      "title": "Local-first canonical state",
-      "summary": "Canonical project truth must live in repo-visible local Loom artifacts before any external service, sync surface, or hosted coordination layer.",
-      "rationale": "The root constitution values persistent system state, and the current repository implements every Loom layer under .loom/ as the canonical source of truth."
-    },
-    {
-      "id": "constraint-002",
-      "title": "Durable paths must be portable",
-      "summary": "Committed Loom references should stay workspace-relative and portable across clones instead of baking clone-local absolute paths into durable records.",
-      "rationale": "The README’s Loom artifact commit policy requires repo-relative durable paths so committed state remains shareable and truthful outside one machine."
-    },
-    {
-      "id": "constraint-003",
-      "title": "Append-only histories are evidence",
-      "summary": "Decision logs, journals, revisions, iterations, findings, and similar append-only histories are canonical evidence and should not be replaced by ephemeral handoff scaffolding.",
-      "rationale": "The root constitution treats knowledge accumulation as cumulative, and the README explicitly distinguishes durable append-only records from disposable launch descriptors."
-    },
-    {
-      "id": "constraint-004",
-      "title": "Tickets stay the live execution ledger",
-      "summary": "Workers, plans, critique, Ralph, and docs must not replace tickets as the durable source of truth for in-flight execution state.",
-      "rationale": "The root constitution centers ticket-based persistence, and the current repository repeatedly narrows surrounding layers so tickets retain execution fidelity."
-    },
-    {
-      "id": "constraint-005",
-      "title": "Constitution stays distinct from operations",
-      "summary": "Constitutional memory defines durable project identity, policy, and roadmap, while AGENTS, prompts, and runtime guidance define operational behavior.",
-      "rationale": "The README explicitly separates .loom/constitution from AGENTS.md so durable policy does not dissolve into session-specific tactics."
-    },
-    {
-      "id": "constraint-006",
-      "title": "Bounded Ralph scope",
-      "summary": "Ralph remains a bounded orchestration layer over plans, tickets, workers, critique, and docs rather than expanding into an underspecified general workflow engine.",
-      "rationale": "The root constitution includes many possible operating modes, but the current repository intentionally ships a narrower Ralph surface and documents broader orchestration as deferred."
-    },
-    {
-      "id": "constraint-007",
-      "title": "Outward mutation is explicit and opt-in",
-      "summary": "External synchronization, output publishing, or integration surfaces must remain explicit and opt-in rather than silently mutating outward systems or repo topology.",
-      "rationale": "The README and current docs layer keep outward sync as future-facing metadata rather than a silent side effect, matching the project’s local-first posture."
-    },
-    {
-      "id": "constraint-008",
-      "title": "Present-tense truth over aspirational scope",
-      "summary": "Constitutional memory should only claim capabilities that are grounded in the current repository, keeping broader worker coordination, multi-repository work, and model routing as future possibilities until they exist.",
-      "rationale": "The root constitution is broader than Pi Loom’s current implementation, so the dogfooded constitution must be a repo-truthful narrowing rather than an aspirational copy."
-    }
-  ],
-  "roadmapItems": [
-    {
-      "id": "item-001",
-      "title": "Derive and rely on repo-truthful constitutional memory",
-      "status": "active",
-      "horizon": "now",
-      "summary": "Replace placeholder constitutional state with a constitution that is substantively derived from the root CONSTITUTION.md, the README, and shipped Loom behavior.",
-      "rationale": "Dogfooding fails if constitutional memory is thinner or less truthful than the project-defining documents it is meant to preserve.",
-      "initiativeIds": [],
-      "researchIds": [],
-      "specChangeIds": [],
-      "updatedAt": "2026-03-15T22:18:55.000Z"
-    },
-    {
-      "id": "item-002",
-      "title": "Harden cross-layer provenance, packets, dashboards, and queryability",
-      "status": "active",
-      "horizon": "now",
-      "summary": "Make the graph linking constitution, research, initiatives, specs, plans, tickets, workers, critiques, Ralph runs, and docs easier to recover, inspect, and trust from durable artifacts.",
-      "rationale": "The root constitution treats work as an observable graph, and Pi Loom’s value depends on recovering that graph without transcript archaeology.",
-      "initiativeIds": [
-        "workspace-package-reliability-scrub"
-      ],
-      "researchIds": [],
-      "specChangeIds": [],
-      "updatedAt": "2026-03-16T01:35:27.968Z"
-    },
-    {
-      "id": "item-003",
-      "title": "Mature bounded Ralph orchestration and verifier contracts",
-      "status": "active",
-      "horizon": "now",
-      "summary": "Deepen Ralph’s bounded plan-execute-critique-revise loop with stronger verifier evidence, stop policies, and review integration while preserving layer boundaries.",
-      "rationale": "The root constitution includes iterative looping and adversarial review, and the current Ralph package is explicitly the place where that narrower orchestration should mature.",
-      "initiativeIds": [],
-      "researchIds": [],
-      "specChangeIds": [],
-      "updatedAt": "2026-03-15T22:18:55.000Z"
-    },
-    {
-      "id": "item-004",
-      "title": "Tighten durable artifact portability and auditability across Loom",
-      "status": "candidate",
-      "horizon": "next",
-      "summary": "Enforce portable durable references, stable inventories, canonical summaries, and evidence-preserving histories consistently across all Loom layers.",
-      "rationale": "A durable local system is only trustworthy if its committed artifacts remain portable, inspectable, and auditable across clones and sessions.",
-      "initiativeIds": [],
-      "researchIds": [],
-      "specChangeIds": [],
-      "updatedAt": "2026-03-15T22:18:55.000Z"
-    },
-    {
-      "id": "item-005",
-      "title": "Deepen evidence-rich research, critique, and documentation loops",
-      "status": "candidate",
-      "horizon": "next",
-      "summary": "Improve how hypotheses, rejected paths, critique findings, verification evidence, and documentation updates feed one another across the durable Loom stack.",
-      "rationale": "The root constitution emphasizes hypotheses, critique, correctness, and continuous improvement, and Pi Loom already ships distinct layers that should make that evidence durable.",
-      "initiativeIds": [],
-      "researchIds": [],
-      "specChangeIds": [],
-      "updatedAt": "2026-03-15T22:18:55.000Z"
-    },
-    {
-      "id": "item-006",
-      "title": "Add outward sync only by explicit opt-in",
-      "status": "candidate",
-      "horizon": "later",
-      "summary": "Evaluate external synchronization or publishing surfaces only after the local-first Loom core is durable, queryable, portable, and trustworthy.",
-      "rationale": "The repository already defers outward mutation, so any future sync surface should be additive and explicit rather than a hidden dependency.",
-      "initiativeIds": [],
-      "researchIds": [],
-      "specChangeIds": []
-    },
-    {
-      "id": "item-007",
-      "title": "Explore broader coordination surfaces only after the core proves out",
-      "status": "candidate",
-      "horizon": "later",
-      "summary": "Consider richer worker coordination, multi-repository work, or role-specialized model routing only after Pi Loom’s current local durable core demonstrates clear need and strong boundaries.",
-      "rationale": "The root constitution imagines broader harness capabilities, but Pi Loom should earn those surfaces from current repo truth instead of importing them wholesale.",
-      "initiativeIds": [
-        "workspace-backed-manager-worker-coordination"
-      ],
-      "researchIds": [],
-      "specChangeIds": [],
-      "updatedAt": "2026-03-15T23:55:42.574Z"
-    },
-    {
-      "id": "item-008",
-      "title": "Migrate Loom storage to a shared database substrate with repo projection sync",
-      "status": "active",
-      "horizon": "now",
-      "summary": "Replace per-repo file-backed canonical state with a local shared database substrate that supports cross-repo Loom coordination, repo/worktree-aware execution, deterministic repo projection, and future PostgreSQL backends.",
-      "rationale": "The current file-backed `.loom` model hard-codes repo-local identity and direct file reads across packages, which prevents first-class cross-repo tickets, plans, and initiatives. A shared database substrate is now a user-directed architectural shift, but it must preserve local-first operation, human-reviewable projections, repo-native docs, and an explicit sync/hydration path for SQLite users.",
-      "initiativeIds": [
-        "loom-storage-substrate-migration"
-      ],
-      "researchIds": [
-        "sqlite-first-storage-substrate-and-sync-architecture"
-      ],
-      "specChangeIds": [
-        "sqlite-first-canonical-storage-substrate"
-      ],
-      "updatedAt": "2026-03-16T17:28:05.892Z"
-    }
-  ],
-  "roadmapItemIds": [
-    "item-001",
-    "item-002",
-    "item-003",
-    "item-004",
-    "item-005",
-    "item-006",
-    "item-007",
-    "item-008"
-  ],
-  "strategicDirectionSummary": "Turn Pi Loom into a repo-truthful, composable, local operating system for long-horizon technical work by grounding every layer in durable constitutional policy, explicit graph relationships, observable artifacts, and bounded orchestration.",
-  "currentFocus": [
-    "Deepen Ralph’s bounded verifier and critique loop without erasing the surrounding Loom layer boundaries.",
-    "Derive constitutional memory directly from the root constitution, README, and shipped repository behavior instead of maintaining a thin summary that drifts from source truth.",
-    "Harden the observable graph across constitution, research, initiatives, specs, plans, tickets, workers, critique, Ralph, and docs so state is recoverable from durable artifacts."
-  ],
+  "createdAt": "2026-03-17T01:18:21.356Z",
+  "updatedAt": "2026-03-17T01:18:21.356Z",
+  "visionSummary": "",
+  "visionNarrative": "",
+  "principles": [],
+  "constraints": [],
+  "roadmapItems": [],
+  "roadmapItemIds": [],
+  "strategicDirectionSummary": "",
+  "currentFocus": [],
   "openConstitutionQuestions": [
-    "How much explicit hypothesis and rejected-path structure should the research layer carry before it becomes ceremony?",
-    "What verifier and policy contracts should Ralph support before any broader orchestration is considered?",
-    "When, if ever, should broader worker coordination or multi-repository execution become first-class in Pi Loom?",
-    "Which external sync or publishing surfaces are worth adding after local-first durability is complete?",
-    "Which process-memory concerns deserve first-class Loom artifacts rather than remaining in AGENTS, critique, or documentation?"
+    "Capture the architectural and business constraints.",
+    "Capture the guiding decision principles.",
+    "Capture the strategic direction and roadmap.",
+    "Define the durable project vision."
   ],
-  "initiativeIds": [
-    "loom-storage-substrate-migration",
-    "workspace-backed-manager-worker-coordination",
-    "workspace-package-reliability-scrub"
-  ],
-  "researchIds": [
-    "sqlite-first-storage-substrate-and-sync-architecture"
-  ],
-  "specChangeIds": [
-    "sqlite-first-canonical-storage-substrate"
-  ],
+  "initiativeIds": [],
+  "researchIds": [],
+  "specChangeIds": [],
+  "completeness": {
+    "vision": false,
+    "principles": false,
+    "constraints": false,
+    "roadmap": false,
+    "brief": true
+  },
   "artifactPaths": {
     "root": "/Users/alexanderbutler/code_projects/pi-loom/.loom/constitution",
     "state": "/Users/alexanderbutler/code_projects/pi-loom/.loom/constitution/state.json",
@@ -256,12 +37,5 @@
     "roadmap": "/Users/alexanderbutler/code_projects/pi-loom/.loom/constitution/roadmap.md",
     "decisions": "/Users/alexanderbutler/code_projects/pi-loom/.loom/constitution/decisions.jsonl",
     "roadmapDir": "/Users/alexanderbutler/code_projects/pi-loom/.loom/constitution/roadmap"
-  },
-  "completeness": {
-    "vision": true,
-    "principles": true,
-    "constraints": true,
-    "roadmap": true,
-    "brief": true
   }
 }
