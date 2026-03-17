@@ -1,9 +1,10 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { handleSpecCommand } from "../extensions/commands/spec.js";
+import { createSpecStore } from "../extensions/domain/store.js";
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-specs-commands-"));
@@ -26,10 +27,11 @@ describe("/spec command handler", () => {
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const ctx = createContext(cwd);
+      const store = createSpecStore(cwd);
 
       const initialized = await handleSpecCommand("init", ctx);
       expect(initialized).toContain(`Initialized spec memory at ${join(cwd, ".loom", "specs")}`);
-      expect(existsSync(join(cwd, ".loom", "specs", "changes"))).toBe(true);
+      expect(await store.listChanges({ includeArchived: true })).toEqual([]);
 
       const created = await handleSpecCommand("propose Add dark mode", ctx);
       expect(created).toContain("add-dark-mode [proposed]");
@@ -47,12 +49,12 @@ describe("/spec command handler", () => {
       expect(finalized).toContain("add-dark-mode [finalized]");
 
       const projected = await handleSpecCommand("tickets add-dark-mode", ctx);
-      expect(projected).toContain("Projected tickets: 1");
-      expect(existsSync(join(cwd, ".loom", "tickets", "t-0001.md"))).toBe(true);
+      expect(projected).toContain("Synchronized tickets: 1");
+      expect((await store.readChange("add-dark-mode")).ticketSync?.links).toHaveLength(1);
 
       const archived = await handleSpecCommand("archive add-dark-mode", ctx);
       expect(archived).toContain("add-dark-mode [archived]");
-      expect(existsSync(join(cwd, ".loom", "specs", "capabilities", "theme-toggling.md"))).toBe(true);
+      expect((await store.readCapability("theme-toggling")).id).toBe("theme-toggling");
     } finally {
       cleanup();
     }

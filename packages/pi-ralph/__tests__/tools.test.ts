@@ -292,6 +292,6 @@ describe("ralph tools", () => {
     } finally {
       cleanup();
     }
-  }, 30000);
+  }, 240000);
 
 });

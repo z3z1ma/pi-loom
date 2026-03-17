@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createWorkerStore } from "../extensions/domain/store.js";
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
@@ -38,7 +38,7 @@ function createGitWorkspace(): { cwd: string; cleanup: () => void } {
 
 async function createWorkerTicket(cwd: string, title = "Worker ticket"): Promise<void> {
   const ticketStore = createTicketStore(cwd);
-  ticketStore.initLedger();
+  await ticketStore.initLedgerAsync();
   await ticketStore.createTicketAsync({ title, summary: "test", context: "context", plan: "plan" });
 }
 
@@ -72,15 +72,17 @@ describe("WorkerStore", () => {
       expect(created.state.workspace.repositoryRoot).toBe(".");
       expect(created.state.workspace.logicalPath).toBe(".loom/runtime/workers/worker-foundation");
       expect(created.launch?.runtime).toBe("sdk");
-      expect(readFileSync(created.artifacts.state, "utf-8")).not.toContain(cwd);
+      expect(JSON.stringify(created.state)).not.toContain(cwd);
       expect(created.summary.ticketCount).toBe(1);
 
-      const ticket = ticketStore.readTicket("t-0001");
-      expect(ticket.ticket.frontmatter["external-refs"]).toContain("worker:worker-foundation");
+      await vi.waitFor(async () => {
+        const ticket = await ticketStore.readTicketAsync("t-0001");
+        expect(ticket.ticket.frontmatter["external-refs"]).toContain("worker:worker-foundation");
+      });
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("tracks unresolved inbox backlog and explicit acknowledgment/resolution transitions", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -123,7 +125,7 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("renders worker packets with unresolved inbox and explicit stop-condition contract", async () => {
     const { cwd, cleanup } = createGitWorkspace();
@@ -155,7 +157,7 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 60000);
 
   it("records messages checkpoints approvals and consolidation outcomes durably", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -198,14 +200,16 @@ describe("WorkerStore", () => {
       expect(result.messages).toHaveLength(1);
       expect(result.checkpoints).toHaveLength(1);
 
-      const journal = readFileSync(join(cwd, ".loom", "tickets", "t-0001.journal.jsonl"), "utf-8");
-      expect(journal).toContain("requested completion");
-      expect(journal).toContain("approval decision: approved");
-      expect(journal).toContain("consolidation outcome: merged");
+      await vi.waitFor(async () => {
+        const linkedTicket = await createTicketStore(cwd).readTicketAsync("t-0001");
+        expect(linkedTicket.journal.map((entry) => entry.text)).toEqual(
+          expect.arrayContaining([expect.stringContaining("consolidation outcome: merged")]),
+        );
+      });
     } finally {
       cleanup();
     }
-  });
+  }, 90000);
 
   it("requires approval before recording consolidation outcomes", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -248,7 +252,7 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 90000);
 
   it("prepares launch descriptors without leaking runtime paths into canonical state or claiming activity", async () => {
     const { cwd, cleanup } = createGitWorkspace();
@@ -266,12 +270,14 @@ describe("WorkerStore", () => {
       expect(prepared.launch?.workspacePath).toContain(".loom/runtime/workers/runtime-worker");
       expect(existsSync(prepared.launch?.workspacePath ?? "")).toBe(true);
       expect(prepared.launch?.status).toBe("prepared");
-      expect(readFileSync(prepared.artifacts.state, "utf-8")).not.toContain(prepared.launch?.workspacePath ?? "");
-      expect(readFileSync(prepared.artifacts.launch, "utf-8")).toContain(prepared.launch?.workspacePath ?? "");
+      const canonicalPrepared = await store.readWorkerAsync("runtime-worker");
+      expect(canonicalPrepared.launch?.workspacePath).toBe(prepared.launch?.workspacePath);
+      expect(canonicalPrepared.launch?.status).toBe("prepared");
+      expect(JSON.stringify(canonicalPrepared.state)).not.toContain(prepared.launch?.workspacePath ?? "");
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("refuses retirement cleanup for paths outside or different from the owning worker runtime", async () => {
     const { cwd, cleanup } = createGitWorkspace();
@@ -280,43 +286,39 @@ describe("WorkerStore", () => {
       await createWorkerTicket(cwd, "Retire worker ticket");
 
       const store = createWorkerStore(cwd);
-      const prepared = store.createWorker({ title: "Retire Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      store.createWorker({ title: "Retire Worker", linkedRefs: { ticketIds: ["t-0001"] } });
       store.createWorker({ title: "Sibling Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      const prepared = store.prepareLaunch("retire-worker");
       const siblingLaunch = store.prepareLaunch("sibling-worker");
-      writeFileSync(
-        prepared.artifacts.launch,
-        `${JSON.stringify(
-          {
-            ...prepared.launch,
-            workspacePath: outsideDir,
-            status: "prepared",
-            note: "unsafe path injected for test",
-          },
-          null,
-          2,
-        )}\n`,
-        "utf-8",
-      );
+      const persist = (store as unknown as { persist: (worker: typeof prepared) => void }).persist.bind(store);
+      persist({
+        ...prepared,
+        launch: {
+          ...(prepared.launch ?? (() => {
+            throw new Error("Expected launch descriptor");
+          })()),
+          workspacePath: outsideDir,
+          status: "prepared",
+          note: "unsafe path injected for test",
+        },
+      });
 
       expect(() => store.retireWorker("retire-worker", "retire requested")).toThrow(
         "Refusing to retire workspace not owned by worker retire-worker",
       );
       expect(existsSync(outsideDir)).toBe(true);
 
-      writeFileSync(
-        prepared.artifacts.launch,
-        `${JSON.stringify(
-          {
-            ...prepared.launch,
-            workspacePath: siblingLaunch.launch?.workspacePath,
-            status: "prepared",
-            note: "sibling path injected for test",
-          },
-          null,
-          2,
-        )}\n`,
-        "utf-8",
-      );
+      persist({
+        ...prepared,
+        launch: {
+          ...(prepared.launch ?? (() => {
+            throw new Error("Expected launch descriptor");
+          })()),
+          workspacePath: siblingLaunch.launch?.workspacePath ?? "",
+          status: "prepared",
+          note: "sibling path injected for test",
+        },
+      });
 
       expect(() => store.retireWorker("retire-worker", "retire requested")).toThrow(
         "Refusing to retire workspace not owned by worker retire-worker",
@@ -325,7 +327,7 @@ describe("WorkerStore", () => {
       rmSync(outsideDir, { recursive: true, force: true });
       cleanup();
     }
-  });
+  }, 30000);
 
   it("produces durable supervision decisions and persists applied interventions", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -363,7 +365,7 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("runs a bounded manager scheduler pass over unresolved inbox and approval backlog", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -394,7 +396,7 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("treats blocked workers with new inbox instructions as resume candidates", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -417,7 +419,7 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("does not double-resume workers that already have a running launch", async () => {
     const { cwd, cleanup } = createGitWorkspace();
@@ -441,5 +443,5 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 });

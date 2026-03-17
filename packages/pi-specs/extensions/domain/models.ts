@@ -81,7 +81,7 @@ export interface SpecArtifactStatus {
   updatedAt: string | null;
 }
 
-export interface TicketProjectionEntry {
+export interface SpecTicketSyncEntry {
   taskId: string;
   ticketId: string;
   signature: string;
@@ -90,12 +90,12 @@ export interface TicketProjectionEntry {
   dependencyTaskIds: string[];
 }
 
-export interface SpecTicketProjection {
+export interface SpecTicketSyncState {
   changeId: string;
-  projectedAt: string;
+  syncedAt: string;
   mode: "initial" | "refresh";
   capabilityIds: string[];
-  tickets: TicketProjectionEntry[];
+  links: SpecTicketSyncEntry[];
 }
 
 export interface SpecChangeSummary {
@@ -136,14 +136,14 @@ export interface SpecChangeRecord {
   checklist: string;
   decisions: SpecDecisionRecord[];
   capabilitySpecs: CanonicalCapabilityRecord[];
-  projection: SpecTicketProjection | null;
+  ticketSync: SpecTicketSyncState | null;
 }
 
 export interface SpecAnalysisFinding {
   id: string;
   severity: SpecAnalysisSeverity;
   blocking: boolean;
-  artifact: SpecArtifactName | "change" | "capability" | "projection";
+  artifact: SpecArtifactName | "change" | "capability" | "ticket-sync";
   message: string;
 }
 

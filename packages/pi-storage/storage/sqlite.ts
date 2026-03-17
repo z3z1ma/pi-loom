@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import type {
   LoomCanonicalStorage,
@@ -6,8 +5,8 @@ import type {
   LoomEntityEventRecord,
   LoomEntityLinkRecord,
   LoomEntityRecord,
-  LoomProjectionRecord,
   LoomRepositoryRecord,
+  LoomRuntimeAttachment,
   LoomSpaceRecord,
   LoomWorktreeRecord,
 } from "./contract.js";
@@ -40,9 +39,7 @@ async function resolveDatabaseCtor(): Promise<SqliteDatabaseCtor> {
     return bunSqlite.Database;
   }
 
-  const betterSqlite = require("better-sqlite3") as
-    | SqliteDatabaseCtor
-    | { default?: SqliteDatabaseCtor };
+  const betterSqlite = require("better-sqlite3") as SqliteDatabaseCtor | { default?: SqliteDatabaseCtor };
   const ctor =
     typeof betterSqlite === "function"
       ? (betterSqlite as SqliteDatabaseCtor)
@@ -54,13 +51,6 @@ async function resolveDatabaseCtor(): Promise<SqliteDatabaseCtor> {
 }
 
 const LoadedSqliteDatabase = await resolveDatabaseCtor();
-
-function hashContent(content: string | null): string | null {
-  if (content === null) {
-    return null;
-  }
-  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
-}
 
 function encode(value: unknown): string {
   return JSON.stringify(value ?? null);
@@ -76,7 +66,6 @@ function decode<T>(value: unknown, fallback: T): T {
 type SqliteNamedParams = Record<string, unknown>;
 
 export function toSqliteNamedParams(params: SqliteNamedParams): SqliteNamedParams {
-  // better-sqlite3 reads bare names while Bun requires the exact placeholder prefix unless strict mode is enabled.
   return Object.entries(params).reduce<SqliteNamedParams>((bindings, [key, value]) => {
     const bareKey = key.startsWith("@") || key.startsWith(":") || key.startsWith("$") ? key.slice(1) : key;
     bindings[bareKey] = value;
@@ -171,20 +160,17 @@ function migrate(db: SqliteDatabaseLike): void {
       FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS projections (
+    CREATE TABLE IF NOT EXISTS runtime_attachments (
       id TEXT PRIMARY KEY,
-      entity_id TEXT NOT NULL,
+      worktree_id TEXT NOT NULL,
       kind TEXT NOT NULL,
-      materialization TEXT NOT NULL,
-      repository_id TEXT,
-      relative_path TEXT,
-      content_hash TEXT,
-      version INTEGER NOT NULL,
-      content TEXT,
+      local_path TEXT NOT NULL,
+      process_id INTEGER,
+      lease_expires_at TEXT,
+      metadata_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE,
-      FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE SET NULL
+      FOREIGN KEY (worktree_id) REFERENCES worktrees(id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_repositories_space ON repositories(space_id);
@@ -193,8 +179,10 @@ function migrate(db: SqliteDatabaseLike): void {
     CREATE INDEX IF NOT EXISTS idx_entities_display_id ON entities(display_id);
     CREATE INDEX IF NOT EXISTS idx_links_from_entity ON links(from_entity_id);
     CREATE INDEX IF NOT EXISTS idx_events_entity_sequence ON events(entity_id, sequence);
-    CREATE INDEX IF NOT EXISTS idx_projections_entity ON projections(entity_id);
+    CREATE INDEX IF NOT EXISTS idx_runtime_attachments_worktree ON runtime_attachments(worktree_id);
   `);
+
+  db.exec("DROP TABLE IF EXISTS projections");
 }
 
 function rowToSpace(row: Record<string, unknown>): LoomSpaceRecord {
@@ -278,17 +266,15 @@ function rowToEvent(row: Record<string, unknown>): LoomEntityEventRecord {
   };
 }
 
-function rowToProjection(row: Record<string, unknown>): LoomProjectionRecord {
+function rowToRuntimeAttachment(row: Record<string, unknown>): LoomRuntimeAttachment {
   return {
     id: String(row.id),
-    entityId: String(row.entity_id),
-    kind: row.kind as LoomProjectionRecord["kind"],
-    materialization: row.materialization as LoomProjectionRecord["materialization"],
-    repositoryId: row.repository_id ? String(row.repository_id) : null,
-    relativePath: row.relative_path ? String(row.relative_path) : null,
-    contentHash: row.content_hash ? String(row.content_hash) : null,
-    version: Number(row.version),
-    content: row.content ? String(row.content) : null,
+    worktreeId: String(row.worktree_id),
+    kind: row.kind as LoomRuntimeAttachment["kind"],
+    localPath: String(row.local_path),
+    processId: typeof row.process_id === "number" ? Number(row.process_id) : null,
+    leaseExpiresAt: row.lease_expires_at ? String(row.lease_expires_at) : null,
+    metadata: decode(row.metadata_json, {} as Record<string, unknown>),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -380,11 +366,17 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
       .map((row: unknown) => rowToEvent(row as Record<string, unknown>));
   }
 
-  async listProjections(entityId: string): Promise<LoomProjectionRecord[]> {
+  async listRuntimeAttachments(worktreeId?: string): Promise<LoomRuntimeAttachment[]> {
+    if (worktreeId) {
+      return this.db
+        .prepare("SELECT * FROM runtime_attachments WHERE worktree_id = ? ORDER BY id")
+        .all(worktreeId)
+        .map((row: unknown) => rowToRuntimeAttachment(row as Record<string, unknown>));
+    }
     return this.db
-      .prepare("SELECT * FROM projections WHERE entity_id = ? ORDER BY kind, relative_path")
-      .all(entityId)
-      .map((row: unknown) => rowToProjection(row as Record<string, unknown>));
+      .prepare("SELECT * FROM runtime_attachments ORDER BY id")
+      .all()
+      .map((row: unknown) => rowToRuntimeAttachment(row as Record<string, unknown>));
   }
 
   async upsertSpace(record: LoomSpaceRecord): Promise<void> {
@@ -548,37 +540,36 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
     );
   }
 
-  async upsertProjection(record: LoomProjectionRecord): Promise<void> {
-    const contentHash = record.contentHash ?? hashContent(record.content);
+  async upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void> {
     runNamed(
       this.db.prepare(`
-        INSERT INTO projections (id, entity_id, kind, materialization, repository_id, relative_path, content_hash, version, content, created_at, updated_at)
-        VALUES (@id, @entity_id, @kind, @materialization, @repository_id, @relative_path, @content_hash, @version, @content, @created_at, @updated_at)
+        INSERT INTO runtime_attachments (id, worktree_id, kind, local_path, process_id, lease_expires_at, metadata_json, created_at, updated_at)
+        VALUES (@id, @worktree_id, @kind, @local_path, @process_id, @lease_expires_at, @metadata_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
-          entity_id = excluded.entity_id,
+          worktree_id = excluded.worktree_id,
           kind = excluded.kind,
-          materialization = excluded.materialization,
-          repository_id = excluded.repository_id,
-          relative_path = excluded.relative_path,
-          content_hash = excluded.content_hash,
-          version = excluded.version,
-          content = excluded.content,
+          local_path = excluded.local_path,
+          process_id = excluded.process_id,
+          lease_expires_at = excluded.lease_expires_at,
+          metadata_json = excluded.metadata_json,
           updated_at = excluded.updated_at
       `),
       {
         id: record.id,
-        entity_id: record.entityId,
+        worktree_id: record.worktreeId,
         kind: record.kind,
-        materialization: record.materialization,
-        repository_id: record.repositoryId,
-        relative_path: record.relativePath,
-        content_hash: contentHash,
-        version: record.version,
-        content: record.content,
+        local_path: record.localPath,
+        process_id: record.processId,
+        lease_expires_at: record.leaseExpiresAt,
+        metadata_json: encode(record.metadata),
         created_at: record.createdAt,
         updated_at: record.updatedAt,
       },
     );
+  }
+
+  async removeRuntimeAttachment(id: string): Promise<void> {
+    this.db.prepare("DELETE FROM runtime_attachments WHERE id = ?").run(id);
   }
 
   async transact<T>(run: (tx: LoomCanonicalTransaction) => Promise<T>): Promise<T> {
@@ -596,7 +587,7 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
 }
 
 export class SqliteLoomCatalog extends SqliteLoomCatalogTx implements LoomCanonicalStorage {
-  readonly db: SqliteDatabaseLike;
+  declare readonly db: SqliteDatabaseLike;
 
   constructor(databasePath = ensureLoomCatalogDirs(getLoomCatalogPaths()).catalogPath) {
     const db = new LoadedSqliteDatabase(databasePath);

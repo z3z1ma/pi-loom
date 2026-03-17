@@ -1,8 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { describe, expect, it, vi } from "vitest";
+import { createResearchStore } from "../extensions/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -212,7 +215,7 @@ describe("research tools", () => {
     }
   }, 15000);
 
-  it("preserves canonical artifact body when metadata is updated without a new body", async () => {
+  it("persists artifact metadata canonically when metadata is updated without a new body", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
@@ -222,6 +225,7 @@ describe("research tools", () => {
       const ctx = createContext(cwd);
 
       const researchWrite = getTool(mockPi, "research_write");
+      const researchRead = getTool(mockPi, "research_read");
       const researchArtifact = getTool(mockPi, "research_artifact");
 
       await researchWrite.execute(
@@ -265,12 +269,43 @@ describe("research tools", () => {
         ctx,
       );
 
-      const artifactMarkdown = readFileSync(
-        join(cwd, ".loom", "research", "evaluate-theme-architecture", "experiments", "artifact-001.md"),
-        "utf-8",
+      const read = await researchRead.execute(
+        "call-4",
+        { ref: "evaluate-theme-architecture" },
+        undefined,
+        undefined,
+        ctx,
       );
-      expect(artifactMarkdown).toContain("## Summary\nRevised summary only.");
-      expect(artifactMarkdown).toContain("## Body\nOriginal prototype notes");
+      expect(read.details).toMatchObject({
+        research: {
+          artifacts: [
+            expect.objectContaining({
+              id: "artifact-001",
+              kind: "experiment",
+              summary: "Revised summary only.",
+              tags: ["updated"],
+            }),
+          ],
+        },
+      });
+
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const entity = await findEntityByDisplayId(storage, identity.space.id, "research", "evaluate-theme-architecture");
+      expect(entity).toBeTruthy();
+      if (!entity) {
+        throw new Error("Expected research entity to exist");
+      }
+      expect(entity.attributes).toMatchObject({
+        artifacts: [
+          {
+            id: "artifact-001",
+            kind: "experiment",
+            summary: "Revised summary only.",
+            tags: ["updated"],
+          },
+        ],
+      });
+      expect(entity.attributes).not.toHaveProperty("artifacts.0.body");
     } finally {
       cleanup();
     }
@@ -302,31 +337,8 @@ describe("research tools", () => {
         ctx,
       );
 
-      const statePath = join(cwd, ".loom", "research", "evaluate-control-surfaces", "state.json");
-      const state = JSON.parse(readFileSync(statePath, "utf-8")) as {
-        initiativeIds: string[];
-        specChangeIds: string[];
-        ticketIds: string[];
-      };
-      writeFileSync(
-        statePath,
-        `${JSON.stringify(
-          {
-            ...state,
-            initiativeIds: ["workspace-backed-manager-worker-coordination"],
-            specChangeIds: ["manager-worker-runtime-contract"],
-            ticketIds: ["ticket-404"],
-          },
-          null,
-          2,
-        )}\n`,
-        "utf-8",
-      );
+      const canonical = await createResearchStore(cwd).readResearch("evaluate-control-surfaces");
 
-      const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
-        import("../../pi-storage/storage/entities.js"),
-        import("../../pi-storage/storage/workspace.js"),
-      ]);
       const { storage, identity } = await openWorkspaceStorage(cwd);
       const entity = await findEntityByDisplayId(storage, identity.space.id, "research", "evaluate-control-surfaces");
       expect(entity).toBeTruthy();
@@ -337,7 +349,7 @@ describe("research tools", () => {
         kind: entity.kind,
         spaceId: entity.spaceId,
         owningRepositoryId: entity.owningRepositoryId,
-        displayId: entity.displayId,
+        displayId: entity.displayId ?? entity.id,
         title: entity.title,
         summary: entity.summary,
         status: entity.status,
@@ -347,7 +359,7 @@ describe("research tools", () => {
         attributes: {
           ...(entity.attributes as Record<string, unknown>),
           state: {
-            ...(entity.attributes as { state: Record<string, unknown> }).state,
+            ...canonical.state,
             initiativeIds: ["workspace-backed-manager-worker-coordination"],
             specChangeIds: ["manager-worker-runtime-contract"],
             ticketIds: ["ticket-404"],

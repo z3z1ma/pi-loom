@@ -3,11 +3,10 @@ import {
   assertRepoRelativePath,
   isRepoRelativePath,
   LOOM_ENTITY_KINDS,
-  LOOM_PROJECTION_KINDS,
+  LOOM_RUNTIME_ATTACHMENT_KINDS,
   LOOM_STORAGE_CONTRACT_VERSION,
   type LoomCanonicalStorage,
   type LoomEntityRecord,
-  type LoomProjectionRecord,
   type LoomRuntimeAttachment,
   type LoomSpaceRecord,
 } from "../storage/contract.js";
@@ -31,21 +30,21 @@ describe("pi-storage contract", () => {
     );
   });
 
-  it("keeps constitution, docs, and specs markdown bodies representable as repo materialized projections", () => {
-    expect(LOOM_PROJECTION_KINDS).toEqual(
-      expect.arrayContaining(["constitution_markdown_body", "documentation_markdown_body", "spec_markdown_body"]),
+  it("keeps runtime attachment kinds representable in the sqlite-backed contract", () => {
+    expect(LOOM_RUNTIME_ATTACHMENT_KINDS).toEqual(
+      expect.arrayContaining(["worker_runtime", "manager_runtime", "launch_descriptor", "local_process"]),
     );
   });
 
   it("accepts repo-relative path scopes and rejects absolute or parent-escaping paths", () => {
-    expect(isRepoRelativePath(".loom/specs/changes/change-1/proposal.md")).toBe(true);
+    expect(isRepoRelativePath(".loom/specs/changes/change-1/state.json")).toBe(true);
     expect(isRepoRelativePath(".")).toBe(true);
     expect(isRepoRelativePath("../outside.md")).toBe(false);
     expect(isRepoRelativePath("/tmp/absolute.md")).toBe(false);
     expect(() => assertRepoRelativePath("../outside.md")).toThrow("Expected repo-relative path");
   });
 
-  it("separates canonical storage records from clone-local runtime attachments", async () => {
+  it("keeps canonical entities and runtime attachments in the same storage contract", async () => {
     const space: LoomSpaceRecord = {
       id: "space-001",
       slug: "core-platform",
@@ -70,25 +69,11 @@ describe("pi-storage contract", () => {
       pathScopes: [
         {
           repositoryId: "repo-001",
-          relativePath: assertRepoRelativePath(".loom/tickets/t-0044.md"),
-          role: "projection",
+          relativePath: assertRepoRelativePath(".loom/tickets/t-0044/state.json"),
+          role: "canonical",
         },
       ],
       attributes: { source: "test" },
-      createdAt: "2026-03-16T00:00:00.000Z",
-      updatedAt: "2026-03-16T00:00:00.000Z",
-    };
-
-    const projection: LoomProjectionRecord = {
-      id: "projection-001",
-      entityId: entity.id,
-      kind: "spec_markdown_body",
-      materialization: "repo_materialized",
-      repositoryId: "repo-001",
-      relativePath: assertRepoRelativePath(".loom/specs/changes/sqlite-first-canonical-storage-substrate/design.md"),
-      contentHash: "sha256:abc",
-      version: 1,
-      content: "# Design\n\nProjection body.\n",
       createdAt: "2026-03-16T00:00:00.000Z",
       updatedAt: "2026-03-16T00:00:00.000Z",
     };
@@ -101,11 +86,13 @@ describe("pi-storage contract", () => {
       processId: 1234,
       leaseExpiresAt: "2026-03-16T01:00:00.000Z",
       metadata: { host: "dev-machine" },
+      createdAt: "2026-03-16T00:00:00.000Z",
+      updatedAt: "2026-03-16T00:30:00.000Z",
     };
 
     const storage: LoomCanonicalStorage = {
       contractVersion: LOOM_STORAGE_CONTRACT_VERSION,
-      backendKind: "test",
+      backendKind: "sqlite",
       async getSpace() {
         return space;
       },
@@ -127,8 +114,8 @@ describe("pi-storage contract", () => {
       async listEvents() {
         return [];
       },
-      async listProjections() {
-        return [projection];
+      async listRuntimeAttachments() {
+        return [runtimeAttachment];
       },
       async upsertSpace() {},
       async upsertRepository() {},
@@ -136,7 +123,8 @@ describe("pi-storage contract", () => {
       async upsertEntity() {},
       async upsertLink() {},
       async appendEvent() {},
-      async upsertProjection() {},
+      async upsertRuntimeAttachment() {},
+      async removeRuntimeAttachment() {},
       async transact(run) {
         return run({
           ...storage,
@@ -146,11 +134,12 @@ describe("pi-storage contract", () => {
       },
     };
 
-    expect(storage.contractVersion).toBe(1);
+    expect(storage.contractVersion).toBe(LOOM_STORAGE_CONTRACT_VERSION);
     expect((await storage.getEntity(entity.id))?.displayId).toBe("t-0044");
-    expect((await storage.listProjections(entity.id))[0]?.relativePath).toContain(
-      "sqlite-first-canonical-storage-substrate",
-    );
+    expect((await storage.listRuntimeAttachments(runtimeAttachment.worktreeId))[0]).toMatchObject({
+      id: runtimeAttachment.id,
+      updatedAt: "2026-03-16T00:30:00.000Z",
+    });
     expect(runtimeAttachment.localPath).toContain(".loom/runtime/workers");
   });
 });

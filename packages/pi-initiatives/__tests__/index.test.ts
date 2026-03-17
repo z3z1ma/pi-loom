@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -9,6 +9,7 @@ import type {
   RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
+import { createInitiativeStore } from "../extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@mariozechner/pi-ai", () => ({
@@ -134,12 +135,14 @@ describe("pi-initiatives extension", () => {
       const { ctx, ui } = createCommandContext(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(existsSync(join(cwd, ".loom", "initiatives"))).toBe(true);
 
       await command.handler("create Platform modernization", ctx);
 
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("platform-modernization [proposed]"), "info");
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Platform modernization"), "info");
+      await expect(createInitiativeStore(cwd).readInitiative("platform-modernization")).resolves.toMatchObject({
+        summary: { id: "platform-modernization", title: "Platform modernization", status: "proposed" },
+      });
     } finally {
       cleanup();
     }
@@ -165,7 +168,6 @@ describe("pi-initiatives extension", () => {
       expect(result.systemPrompt).toContain(
         "Prefer initiative tools before ad-hoc strategic tracking for program-level work.",
       );
-      expect(existsSync(join(cwd, ".loom", "initiatives"))).toBe(true);
     } finally {
       cleanup();
     }

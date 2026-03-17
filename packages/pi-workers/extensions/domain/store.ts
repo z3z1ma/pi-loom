@@ -1,6 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { findEntityByDisplayId, upsertEntityByDisplayId, upsertProjectionForEntity } from "@pi-loom/pi-storage/storage/entities.js";
+import { relative, resolve } from "node:path";
+import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
+import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
+import { SqliteLoomCatalog } from "@pi-loom/pi-storage/storage/sqlite.js";
+import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildWorkerDashboard, filterWorkersByTelemetry, filterWorkersByText } from "./dashboard.js";
@@ -68,7 +70,6 @@ import {
   runWorkerLaunch,
   type WorkerExecutionResult,
   type WorkerSdkSessionConfig,
-  writeRuntimeDescriptor,
 } from "./runtime.js";
 
 const ENTITY_KIND = "worker" as const;
@@ -81,33 +82,51 @@ function hasStructuredWorkerAttributes(attributes: unknown): attributes is Worke
   return Boolean(attributes && typeof attributes === "object" && "worker" in attributes);
 }
 
-function ensureDir(filePath: string): void {
-  mkdirSync(filePath, { recursive: true });
+interface StoredWorkerEntityRow {
+  id: string;
+  display_id: string | null;
+  version: number;
+  created_at: string;
+  attributes_json: string;
 }
 
-function writeFileAtomic(filePath: string, content: string): void {
-  ensureDir(dirname(filePath));
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tempPath, content, "utf-8");
-  renameSync(tempPath, filePath);
+function openWorkerCatalogSync(cwd: string): { storage: SqliteLoomCatalog; identity: ReturnType<typeof resolveWorkspaceIdentity> } {
+  const storage = new SqliteLoomCatalog();
+  const identity = resolveWorkspaceIdentity(cwd);
+  void storage.upsertSpace(identity.space);
+  void storage.upsertRepository(identity.repository);
+  void storage.upsertWorktree(identity.worktree);
+  return { storage, identity };
 }
 
-function writeJson(filePath: string, value: unknown): void {
-  writeFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function readJson<T>(filePath: string): T {
-  return JSON.parse(readFileSync(filePath, "utf-8")) as T;
-}
-
-function readJsonl<T>(filePath: string): T[] {
-  if (!existsSync(filePath)) {
-    return [];
+function parseStoredJson<T>(value: string, fallback: T): T {
+  if (!value.trim()) {
+    return fallback;
   }
-  return readFileSync(filePath, "utf-8")
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as T);
+  return JSON.parse(value) as T;
+}
+
+function findStoredWorkerRow(cwd: string, workerId: string): StoredWorkerEntityRow | null {
+  const { storage, identity } = openWorkerCatalogSync(cwd);
+  return (storage.db
+    .prepare(
+      "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1",
+    )
+    .get(identity.space.id, ENTITY_KIND, workerId) ?? null) as StoredWorkerEntityRow | null;
+}
+
+function listStoredWorkerRecords(cwd: string): WorkerReadResult[] {
+  const { storage, identity } = openWorkerCatalogSync(cwd);
+  const rows = storage.db
+    .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id")
+    .all(identity.space.id, ENTITY_KIND) as Array<{ attributes_json: string }>;
+  return rows.map((row) => {
+    const attributes = parseStoredJson<WorkerEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
+    if (!hasStructuredWorkerAttributes(attributes)) {
+      throw new Error("Worker entity is missing structured attributes");
+    }
+    return attributes.worker;
+  });
 }
 
 function relativePath(cwd: string, filePath: string): string {
@@ -422,7 +441,7 @@ function normalizeWorkerState(state: WorkerState): WorkerState {
   return normalized;
 }
 
-function buildSummary(cwd: string, state: WorkerState, artifactPath: string): WorkerSummary {
+function buildSummary(_cwd: string, state: WorkerState, artifactPath: string): WorkerSummary {
   return {
     id: state.workerId,
     title: state.title,
@@ -439,7 +458,7 @@ function buildSummary(cwd: string, state: WorkerState, artifactPath: string): Wo
     unresolvedInboxCount: state.latestTelemetry.pendingMessages,
     pendingManagerActionCount: 0,
     pendingApproval: state.approval.status === "pending",
-    path: relativePath(cwd, artifactPath),
+    path: state.workspace.logicalPath || artifactPath,
   };
 }
 
@@ -457,6 +476,24 @@ function syncDerivedViews(cwd: string, worker: WorkerReadResult): void {
     pendingManagerActionCount: pendingManagerActions(worker.messages).length,
   };
   worker.dashboard = buildWorkerDashboard(cwd, worker);
+}
+
+function materializeWorkerRecord(cwd: string, worker: WorkerReadResult): WorkerReadResult {
+  const artifacts = getWorkerArtifactPaths(cwd, worker.state.workerId);
+  const materialized: WorkerReadResult = {
+    state: normalizeWorkerState(worker.state),
+    summary: worker.summary,
+    worker: worker.worker,
+    messages: [...worker.messages],
+    checkpoints: [...worker.checkpoints],
+    launch: worker.launch ? { ...worker.launch } : null,
+    dashboard: worker.dashboard,
+    packet: worker.packet,
+    artifacts,
+  };
+  syncDerivedViews(cwd, materialized);
+  materialized.worker = renderWorkerMarkdown(materialized);
+  return materialized;
 }
 
 function renderWorkerMarkdown(result: WorkerReadResult): string {
@@ -500,20 +537,11 @@ export class WorkerStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    const paths = getWorkerPaths(this.cwd);
-    ensureDir(paths.workersDir);
-    ensureDir(paths.runtimeDir);
-    return { initialized: true, root: paths.workersDir };
+    return { initialized: true, root: getWorkerPaths(this.cwd).runtimeDir };
   }
 
   private workerIds(): string[] {
-    const paths = getWorkerPaths(this.cwd);
-    if (!existsSync(paths.workersDir)) {
-      return [];
-    }
-    return readdirSync(paths.workersDir)
-      .filter((entry) => existsSync(join(paths.workersDir, entry, "state.json")))
-      .sort((left, right) => left.localeCompare(right));
+    return listStoredWorkerRecords(this.cwd).map((worker) => worker.state.workerId);
   }
 
   private nextWorkerId(title: string): string {
@@ -533,108 +561,64 @@ export class WorkerStore {
     return normalizeWorkerRef(ref);
   }
 
-  private readLaunch(artifacts: ReturnType<typeof getWorkerArtifactPaths>): WorkerRuntimeDescriptor | null {
-    if (!existsSync(artifacts.launch)) {
-      return null;
-    }
-    return readJson<WorkerRuntimeDescriptor>(artifacts.launch);
-  }
-
-  private readState(workerId: string): WorkerState {
-    const state = readJson<WorkerState>(getWorkerArtifactPaths(this.cwd, workerId).state);
-    return normalizeWorkerState(state);
-  }
-
-  private readWorkerArtifacts(workerId: string): WorkerReadResult {
-    const artifacts = getWorkerArtifactPaths(this.cwd, workerId);
-    const state = this.readState(workerId);
-    const messages = readJsonl<WorkerMessageRecord>(artifacts.messages);
-    const checkpoints = readJsonl<WorkerCheckpointRecord>(artifacts.checkpoints);
-    const launch = this.readLaunch(artifacts);
-    const worker: WorkerReadResult = {
-      state,
-      summary: buildSummary(this.cwd, state, artifacts.worker),
-      worker: existsSync(artifacts.worker) ? readFileSync(artifacts.worker, "utf-8") : "",
-      messages,
-      checkpoints,
-      launch,
-      dashboard: {} as WorkerDashboard,
-      packet: "",
-      artifacts,
-    };
-    syncDerivedViews(this.cwd, worker);
-    return worker;
-  }
-
   private persist(worker: WorkerReadResult): void {
-    const artifacts = worker.artifacts;
-    writeJson(artifacts.state, normalizeWorkerState(worker.state));
-    writeFileAtomic(artifacts.worker, renderWorkerMarkdown(worker));
-    writeFileAtomic(
-      artifacts.messages,
-      `${worker.messages.map((entry) => JSON.stringify(entry)).join("\n")}${worker.messages.length > 0 ? "\n" : ""}`,
-    );
-    writeFileAtomic(
-      artifacts.checkpoints,
-      `${worker.checkpoints.map((entry) => JSON.stringify(entry)).join("\n")}${worker.checkpoints.length > 0 ? "\n" : ""}`,
-    );
-    if (worker.launch) {
-      writeRuntimeDescriptor(artifacts.launch, worker.launch);
-    }
-  }
-
-  private async upsertCanonicalWorker(worker: WorkerReadResult): Promise<WorkerReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, worker.summary.id);
-    const version = (existing?.version ?? 0) + 1;
-    const entity = await upsertEntityByDisplayId(storage, {
+    const materialized = materializeWorkerRecord(this.cwd, worker);
+    const { storage, identity } = openWorkerCatalogSync(this.cwd);
+    const existing = findStoredWorkerRow(this.cwd, materialized.summary.id);
+    void storage.upsertEntity({
+      id: existing?.id ?? createEntityId(ENTITY_KIND, identity.space.id, materialized.summary.id, `${ENTITY_KIND}:${materialized.summary.id}`),
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
-      displayId: worker.summary.id,
-      title: worker.summary.title,
-      summary: worker.state.summary || worker.state.objective,
-      status: worker.summary.status,
-      version,
-      tags: [worker.summary.telemetryState, ...(worker.state.linkedRefs.ticketIds ?? [])],
-      pathScopes: [
-        { repositoryId: identity.repository.id, relativePath: worker.summary.path, role: "canonical" },
-        { repositoryId: identity.repository.id, relativePath: relativePath(this.cwd, worker.artifacts.worker), role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: relativePath(this.cwd, worker.artifacts.messages), role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: relativePath(this.cwd, worker.artifacts.checkpoints), role: "projection" },
-      ],
-      attributes: { worker },
-      createdAt: existing?.createdAt ?? worker.state.createdAt,
-      updatedAt: worker.state.updatedAt,
+      displayId: materialized.summary.id,
+      title: materialized.summary.title,
+      summary: materialized.state.summary || materialized.state.objective,
+      status: materialized.summary.status,
+      version: (existing?.version ?? 0) + 1,
+      tags: [materialized.summary.telemetryState, ...(materialized.state.linkedRefs.ticketIds ?? [])],
+      pathScopes: [],
+      attributes: { worker: materialized },
+      createdAt: existing?.created_at ?? materialized.state.createdAt,
+      updatedAt: materialized.state.updatedAt,
     });
-    await upsertProjectionForEntity(
-      storage,
-      entity.id,
-      "packet_markdown_projection",
-      "repo_materialized",
-      identity.repository.id,
-      relativePath(this.cwd, worker.artifacts.worker),
-      worker.worker,
+  }
+
+  private async upsertCanonicalWorker(worker: WorkerReadResult): Promise<WorkerReadResult> {
+    const materialized = materializeWorkerRecord(this.cwd, worker);
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, materialized.summary.id);
+    const version = (existing?.version ?? 0) + 1;
+    await upsertEntityByDisplayId(storage, {
+      kind: ENTITY_KIND,
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: materialized.summary.id,
+      title: materialized.summary.title,
+      summary: materialized.state.summary || materialized.state.objective,
+      status: materialized.summary.status,
       version,
-      worker.state.createdAt,
-      worker.state.updatedAt,
-    );
-    return worker;
+      tags: [materialized.summary.telemetryState, ...(materialized.state.linkedRefs.ticketIds ?? [])],
+      pathScopes: [],
+      attributes: { worker: materialized },
+      createdAt: existing?.createdAt ?? materialized.state.createdAt,
+      updatedAt: materialized.state.updatedAt,
+    });
+    return materialized;
   }
 
   private entityWorker(entity: { attributes: unknown }): WorkerReadResult {
-    return (entity.attributes as WorkerEntityAttributes).worker;
+    return materializeWorkerRecord(this.cwd, (entity.attributes as WorkerEntityAttributes).worker);
   }
 
   private linkWorkerIntoTickets(worker: WorkerState): void {
     const ticketStore = createTicketStore(this.cwd);
     for (const ticketId of worker.linkedRefs.ticketIds) {
-      ticketStore.addExternalRef(ticketId, `worker:${worker.workerId}`);
+      void ticketStore.addExternalRefAsync(ticketId, `worker:${worker.workerId}`).catch(() => undefined);
     }
   }
 
   listWorkers(filter: WorkerListFilter = {}): WorkerSummary[] {
-    const workers = this.workerIds().map((workerId) => this.readWorkerArtifacts(workerId).summary);
+    const workers = listStoredWorkerRecords(this.cwd).map((worker) => materializeWorkerRecord(this.cwd, worker).summary);
     const filteredByText = filterWorkersByText(workers, filter.text);
     const filteredByTelemetry = filterWorkersByTelemetry(filteredByText, filter.telemetryState);
     return filteredByTelemetry.filter((worker) => {
@@ -649,7 +633,16 @@ export class WorkerStore {
   }
 
   readWorker(ref: string): WorkerReadResult {
-    return this.readWorkerArtifacts(this.resolveWorkerRef(ref));
+    const workerId = this.resolveWorkerRef(ref);
+    const row = findStoredWorkerRow(this.cwd, workerId);
+    if (!row) {
+      throw new Error(`Unknown worker: ${workerId}`);
+    }
+    const attributes = parseStoredJson<WorkerEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
+    if (!hasStructuredWorkerAttributes(attributes)) {
+      throw new Error(`Worker entity ${workerId} is missing structured attributes`);
+    }
+    return materializeWorkerRecord(this.cwd, attributes.worker);
   }
 
   managerOverview(): ManagerOverview {
@@ -1059,7 +1052,7 @@ export class WorkerStore {
 
     const ticketStore = createTicketStore(this.cwd);
     for (const ticketId of worker.state.linkedRefs.ticketIds) {
-      ticketStore.addJournalEntry(
+      void ticketStore.addJournalEntryAsync(
         ticketId,
         "checkpoint",
         `Worker ${worker.state.workerId} recorded checkpoint ${checkpoint.id}: ${checkpoint.summary}`,
@@ -1067,7 +1060,7 @@ export class WorkerStore {
           workerId: worker.state.workerId,
           checkpointId: checkpoint.id,
         },
-      );
+      ).catch(() => undefined);
     }
     return this.readWorker(worker.state.workerId);
   }
@@ -1121,10 +1114,10 @@ export class WorkerStore {
 
     const ticketStore = createTicketStore(this.cwd);
     for (const ticketId of worker.state.linkedRefs.ticketIds) {
-      ticketStore.addJournalEntry(ticketId, "state", `Worker ${worker.state.workerId} requested completion`, {
+      void ticketStore.addJournalEntryAsync(ticketId, "state", `Worker ${worker.state.workerId} requested completion`, {
         workerId: worker.state.workerId,
         summary: worker.state.completionRequest.summary,
-      });
+      }).catch(() => undefined);
     }
     return this.readWorker(worker.state.workerId);
   }
@@ -1167,10 +1160,10 @@ export class WorkerStore {
 
     const ticketStore = createTicketStore(this.cwd);
     for (const ticketId of worker.state.linkedRefs.ticketIds) {
-      ticketStore.addJournalEntry(ticketId, "state", `Worker ${worker.state.workerId} approval decision: ${status}`, {
+      void ticketStore.addJournalEntryAsync(ticketId, "state", `Worker ${worker.state.workerId} approval decision: ${status}`, {
         workerId: worker.state.workerId,
         approval: status,
-      });
+      }).catch(() => undefined);
     }
     return this.readWorker(worker.state.workerId);
   }
@@ -1214,12 +1207,12 @@ export class WorkerStore {
 
     const ticketStore = createTicketStore(this.cwd);
     for (const ticketId of worker.state.linkedRefs.ticketIds) {
-      ticketStore.addJournalEntry(
+      void ticketStore.addJournalEntryAsync(
         ticketId,
         isSuccessfulConsolidationStatus(status) ? "verification" : "state",
         `Worker ${worker.state.workerId} consolidation outcome: ${status}`,
         { workerId: worker.state.workerId, consolidationStatus: status, strategy: input.strategy ?? null },
-      );
+      ).catch(() => undefined);
     }
     return this.readWorker(worker.state.workerId);
   }
@@ -1484,23 +1477,11 @@ export class WorkerStore {
     return Promise.resolve(this.initLedger());
   }
 
-  listWorkersProjection(filter: WorkerListFilter = {}): WorkerSummary[] {
-    return this.listWorkers(filter);
-  }
-
-  readWorkerProjection(ref: string): WorkerReadResult {
-    return this.readWorker(ref);
-  }
-
-  managerOverviewProjection(): ManagerOverview {
-    return this.managerOverview();
-  }
-
   async listWorkersAsync(filter: WorkerListFilter = {}): Promise<WorkerSummary[]> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const workers = await Promise.all(
       (await storage.listEntities(identity.space.id, ENTITY_KIND)).map(async (entity) => {
-        const workerId = this.resolveWorkerRef(entity.displayId);
+        const workerId = this.resolveWorkerRef(entity.displayId ?? entity.id);
         if (!hasStructuredWorkerAttributes(entity.attributes)) {
           throw new Error(`Worker entity ${workerId} is missing structured attributes`);
         }

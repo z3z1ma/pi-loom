@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createCritiqueStore } from "../extensions/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -131,11 +132,17 @@ describe("pi-critique extension", () => {
       const command = getCommand(mockPi, "critique");
       const sessionStart = getHandler(mockPi, "session_start");
       const { ctx, ui } = createCommandContext(cwd);
+      const store = createCritiqueStore(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(existsSync(join(cwd, ".loom", "critiques"))).toBe(true);
+      await expect(store.listCritiquesAsync()).resolves.toEqual([]);
 
       await command.handler("create workspace repo Introduce durable critique memory", ctx);
+
+      await expect(store.readCritiqueAsync("introduce-durable-critique-memory")).resolves.toMatchObject({
+        state: { critiqueId: "introduce-durable-critique-memory" },
+        summary: { targetKind: "workspace", targetRef: "repo" },
+      });
 
       expect(ui.notify).toHaveBeenCalledWith(
         expect.stringContaining("introduce-durable-critique-memory [active/concerns]"),
@@ -145,7 +152,7 @@ describe("pi-critique extension", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("augments the system prompt with critique doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();

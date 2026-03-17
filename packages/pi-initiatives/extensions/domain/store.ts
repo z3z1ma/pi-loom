@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import {
@@ -9,7 +8,7 @@ import {
 } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { buildInitiativeDashboard, buildInitiativeDashboardProjection } from "./dashboard.js";
+import { buildInitiativeDashboard } from "./dashboard.js";
 import type {
   CreateInitiativeInput,
   InitiativeDecisionKind,
@@ -34,7 +33,7 @@ import {
   normalizeStringList,
   slugifyTitle,
 } from "./normalize.js";
-import { getInitiativeBriefPath, getInitiativeDecisionsPath, getInitiativeDir, getInitiativesPaths } from "./paths.js";
+import { getInitiativeDir, getInitiativesPaths } from "./paths.js";
 import { renderInitiativeMarkdown } from "./render.js";
 
 const ENTITY_KIND = "initiative" as const;
@@ -46,29 +45,6 @@ interface InitiativeEntityAttributes {
 
 function hasStructuredInitiativeAttributes(attributes: unknown): attributes is InitiativeEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
-}
-
-function ensureDir(path: string): void {
-  mkdirSync(path, { recursive: true });
-}
-
-function writeFileAtomic(path: string, content: string): void {
-  ensureDir(dirname(path));
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tempPath, content, "utf-8");
-  renameSync(tempPath, path);
-}
-
-function writeJson(path: string, value: unknown): void {
-  writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function readJson<T>(path: string): T {
-  return JSON.parse(readFileSync(path, "utf-8")) as T;
-}
-
-function readText(path: string): string {
-  return existsSync(path) ? readFileSync(path, "utf-8") : "";
 }
 
 function relativeOrAbsolute(cwd: string, filePath: string): string {
@@ -116,7 +92,6 @@ export class InitiativeStore {
 
   initLedger(): { initialized: true; root: string } {
     const paths = getInitiativesPaths(this.cwd);
-    ensureDir(paths.initiativesDir);
     return { initialized: true, root: paths.initiativesDir };
   }
 
@@ -151,113 +126,19 @@ export class InitiativeStore {
     };
   }
 
-  private initiativeDirectories(): string[] {
-    const directory = getInitiativesPaths(this.cwd).initiativesDir;
-    if (!existsSync(directory)) {
-      return [];
-    }
-    return readdirSync(directory)
-      .map((entry) => join(directory, entry))
-      .filter((pathValue) => statSync(pathValue).isDirectory())
-      .sort((left, right) => basename(left).localeCompare(basename(right)));
-  }
-
-  private readStateFromFiles(initiativeId: string): InitiativeState {
-    const state = readJson<InitiativeState>(join(getInitiativeDir(this.cwd, initiativeId), "state.json"));
-    return {
-      ...state,
-      status: normalizeStatus(state.status),
-      objective: state.objective ?? "",
-      outcomes: normalizeStringList(state.outcomes),
-      scope: normalizeStringList(state.scope),
-      nonGoals: normalizeStringList(state.nonGoals),
-      successMetrics: normalizeStringList(state.successMetrics),
-      milestones: state.milestones.map((milestone) => ({
-        id: normalizeMilestoneId(milestone.id),
-        title: milestone.title.trim(),
-        status: normalizeMilestoneStatus(milestone.status),
-        description: milestone.description ?? "",
-        specChangeIds: normalizeStringList(milestone.specChangeIds),
-        ticketIds: normalizeStringList(milestone.ticketIds),
-      })),
-      risks: normalizeStringList(state.risks),
-      statusSummary: state.statusSummary ?? "",
-      targetWindow: normalizeOptionalString(state.targetWindow),
-      owners: normalizeStringList(state.owners),
-      tags: normalizeStringList(state.tags),
-      researchIds: normalizeStringList(state.researchIds),
-      specChangeIds: normalizeStringList(state.specChangeIds),
-      ticketIds: normalizeStringList(state.ticketIds),
-      capabilityIds: normalizeStringList(state.capabilityIds),
-      supersedes: normalizeStringList(state.supersedes),
-      roadmapRefs: normalizeStringList(state.roadmapRefs),
-    };
-  }
-
-  private readDecisionLogFromFiles(initiativeId: string): InitiativeDecisionRecord[] {
-    const decisionPath = getInitiativeDecisionsPath(this.cwd, initiativeId);
-    if (!existsSync(decisionPath)) {
-      return [];
-    }
-    return readFileSync(decisionPath, "utf-8")
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as InitiativeDecisionRecord);
-  }
-
-  private writeArtifacts(
-    state: InitiativeState,
-    decisions: InitiativeDecisionRecord[],
-    dashboard: InitiativeRecord["dashboard"],
-  ): InitiativeRecord {
-    const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
-    writeFileAtomic(
-      getInitiativeBriefPath(this.cwd, state.initiativeId),
-      renderInitiativeMarkdown(state, decisions, dashboard),
-    );
-    writeJson(join(initiativeDir, "state.json"), state);
-    writeFileAtomic(
-      getInitiativeDecisionsPath(this.cwd, state.initiativeId),
-      `${decisions.map((decision) => JSON.stringify(decision)).join("\n")}${decisions.length > 0 ? "\n" : ""}`,
-    );
-    return {
-      state,
-      summary: summarizeInitiative(this.cwd, state, initiativeDir),
-      brief: readText(getInitiativeBriefPath(this.cwd, state.initiativeId)),
-      decisions,
-      dashboard,
-    };
-  }
-
-  private async materializeCanonicalArtifacts(
+  private async buildRecord(
     state: InitiativeState,
     decisions: InitiativeDecisionRecord[],
   ): Promise<InitiativeRecord> {
-    return this.writeArtifacts(state, decisions, await buildInitiativeDashboard(this.cwd, state));
-  }
-
-  private materializeProjectionArtifacts(
-    state: InitiativeState,
-    decisions: InitiativeDecisionRecord[],
-  ): InitiativeRecord {
-    return this.writeArtifacts(state, decisions, buildInitiativeDashboardProjection(this.cwd, state));
-  }
-
-  listInitiativesProjection(filter: InitiativeListFilter = {}): InitiativeSummary[] {
-    this.initLedger();
-    return this.initiativeDirectories()
-      .map((pathValue) => summarizeInitiative(this.cwd, this.readStateFromFiles(basename(pathValue)), pathValue))
-      .filter((summary) => {
-        if (!filter.includeArchived && summary.status === "archived") return false;
-        if (filter.status && summary.status !== filter.status) return false;
-        if (filter.tag && !summary.tags.includes(filter.tag)) return false;
-        if (filter.text) {
-          const haystack = `${summary.id} ${summary.title}`.toLowerCase();
-          if (!haystack.includes(filter.text.toLowerCase())) return false;
-        }
-        return true;
-      })
-      .sort((left, right) => left.id.localeCompare(right.id));
+    const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
+    const dashboard = await buildInitiativeDashboard(this.cwd, state);
+    return {
+      state,
+      summary: summarizeInitiative(this.cwd, state, initiativeDir),
+      brief: renderInitiativeMarkdown(state, decisions, dashboard),
+      decisions,
+      dashboard,
+    };
   }
 
   private async loadRecord(ref: string): Promise<InitiativeRecord> {
@@ -278,13 +159,7 @@ export class InitiativeStore {
         status: state.status,
         version: 1,
         tags: state.tags,
-        pathScopes: [
-          {
-            repositoryId: identity.repository.id,
-            relativePath: `.loom/initiatives/${state.initiativeId}/initiative.md`,
-            role: "projection",
-          },
-        ],
+        pathScopes: [{ repositoryId: identity.repository.id, relativePath: `.loom/initiatives/${state.initiativeId}`, role: "canonical" }],
         attributes: { state, decisions: [] },
         createdAt: state.createdAt,
         updatedAt: state.updatedAt,
@@ -294,7 +169,7 @@ export class InitiativeStore {
       throw new Error(`Initiative entity ${initiativeId} is missing structured attributes`);
     }
     const attributes = entity.attributes;
-    return this.materializeCanonicalArtifacts(
+    return this.buildRecord(
       attributes.state ?? this.defaultState({ title: initiativeId, initiativeId }, currentTimestamp()),
       attributes.decisions ?? [],
     );
@@ -307,7 +182,7 @@ export class InitiativeStore {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.initiativeId);
     const version = (existing?.version ?? 0) + 1;
-    const record = await this.materializeCanonicalArtifacts(state, decisions);
+    const record = await this.buildRecord(state, decisions);
     await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
@@ -319,11 +194,7 @@ export class InitiativeStore {
       version,
       tags: record.state.tags,
       pathScopes: [
-        {
-          repositoryId: identity.repository.id,
-          relativePath: `.loom/initiatives/${record.state.initiativeId}/initiative.md`,
-          role: "projection",
-        },
+        { repositoryId: identity.repository.id, relativePath: `.loom/initiatives/${record.state.initiativeId}`, role: "canonical" },
       ],
       attributes: { state: record.state, decisions: record.decisions },
       createdAt: existing?.createdAt ?? record.state.createdAt,
@@ -425,22 +296,11 @@ export class InitiativeStore {
     return this.loadRecord(ref);
   }
 
-  readInitiativeProjection(ref: string): InitiativeRecord {
-    this.initLedger();
-    const initiativeId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
-    return this.materializeProjectionArtifacts(
-      this.readStateFromFiles(initiativeId),
-      this.readDecisionLogFromFiles(initiativeId),
-    );
-  }
-
   async createInitiative(input: CreateInitiativeInput): Promise<InitiativeRecord> {
     this.initLedger();
     const timestamp = currentTimestamp();
     const state = this.defaultState(input, timestamp);
     state.roadmapRefs = await createConstitutionalStore(this.cwd).validateRoadmapRefs(input.roadmapRefs ?? []);
-    const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
-    ensureDir(initiativeDir);
     await this.syncLinkedEntities(
       state.initiativeId,
       [],
@@ -499,12 +359,6 @@ export class InitiativeStore {
     const record = await this.loadRecord(ref);
     const state = { ...record.state, researchIds: normalizeStringList(researchIds), updatedAt: currentTimestamp() };
     return this.persistRecord(state, record.decisions);
-  }
-
-  setResearchIdsProjection(ref: string, researchIds: string[]): InitiativeRecord {
-    const record = this.readInitiativeProjection(ref);
-    const state = { ...record.state, researchIds: normalizeStringList(researchIds), updatedAt: currentTimestamp() };
-    return this.materializeProjectionArtifacts(state, record.decisions);
   }
 
   async recordDecision(

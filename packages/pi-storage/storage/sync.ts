@@ -5,11 +5,12 @@ import type {
   LoomEntityEventRecord,
   LoomEntityLinkRecord,
   LoomEntityRecord,
-  LoomProjectionRecord,
   LoomRepositoryRecord,
+  LoomRuntimeAttachment,
   LoomSpaceRecord,
+  LoomWorktreeRecord,
 } from "./contract.js";
-import { assertRepoRelativePath, LOOM_STORAGE_CONTRACT_VERSION } from "./contract.js";
+import { LOOM_STORAGE_CONTRACT_VERSION } from "./contract.js";
 import { resolveWorkspaceIdentity } from "./repository.js";
 
 export interface LoomSyncBundle {
@@ -36,58 +37,6 @@ function serializeComparable(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function collectProjectionFiles(
-  projections: LoomProjectionRecord[],
-): Array<{ repositoryId: string | null; relativePath: string; content: string }> {
-  return projections
-    .filter((projection) => projection.relativePath && projection.content !== null)
-    .map((projection) => ({
-      repositoryId: projection.repositoryId,
-      relativePath: assertRepoRelativePath(projection.relativePath ?? ""),
-      content: projection.content ?? "",
-    }))
-    .sort((left, right) =>
-      `${left.repositoryId ?? ""}:${left.relativePath}`.localeCompare(
-        `${right.repositoryId ?? ""}:${right.relativePath}`,
-      ),
-    );
-}
-
-function writeProjectionFiles(bundleDir: string, projections: LoomProjectionRecord[]): void {
-  for (const projection of collectProjectionFiles(projections)) {
-    const targetPath = path.join(
-      bundleDir,
-      "repo-materialized",
-      projection.repositoryId ?? "unscoped",
-      projection.relativePath,
-    );
-    ensureDir(path.dirname(targetPath));
-    writeFileSync(targetPath, projection.content, "utf-8");
-  }
-}
-
-function readProjectionFile(
-  bundleDir: string,
-  repositoryId: string | null,
-  relativePath: string | null,
-  fallbackContent: string | null,
-): string | null {
-  if (!relativePath) {
-    return fallbackContent;
-  }
-  const projectionPath = path.join(
-    bundleDir,
-    "repo-materialized",
-    repositoryId ?? "unscoped",
-    assertRepoRelativePath(relativePath),
-  );
-  try {
-    return readFileSync(projectionPath, "utf-8");
-  } catch {
-    return fallbackContent;
-  }
-}
-
 function conflictError(kind: string, id: string): Error {
   return new Error(`Sync conflict detected for ${kind} ${id}`);
 }
@@ -105,21 +54,19 @@ async function assertEntityCompatible(storage: LoomCanonicalStorage, incoming: L
   }
 }
 
-async function assertProjectionCompatible(
+async function assertRuntimeAttachmentCompatible(
   storage: LoomCanonicalStorage,
-  incoming: LoomProjectionRecord,
+  incoming: LoomRuntimeAttachment,
 ): Promise<void> {
-  const existing = (await storage.listProjections(incoming.entityId)).find(
-    (projection) => projection.id === incoming.id,
-  );
+  const existing = (await storage.listRuntimeAttachments(incoming.worktreeId)).find((record) => record.id === incoming.id);
   if (!existing) {
     return;
   }
-  if (existing.version > incoming.version) {
-    throw conflictError("projection", incoming.id);
+  if (existing.updatedAt > incoming.updatedAt) {
+    throw conflictError("runtime_attachment", incoming.id);
   }
-  if (existing.version === incoming.version && serializeComparable(existing) !== serializeComparable(incoming)) {
-    throw conflictError("projection", incoming.id);
+  if (existing.updatedAt === incoming.updatedAt && serializeComparable(existing) !== serializeComparable(incoming)) {
+    throw conflictError("runtime_attachment", incoming.id);
   }
 }
 
@@ -148,6 +95,7 @@ export async function exportSyncBundle(
   }
 
   const repositories = await storage.listRepositories(space.id);
+  const worktrees = await storage.listWorktrees(identity.repository.id);
   const entities = await storage.listEntities(space.id);
   const links = (
     await Promise.all(entities.map((entity) => storage.listLinks(entity.id)))
@@ -155,9 +103,9 @@ export async function exportSyncBundle(
   const events = (
     await Promise.all(entities.map((entity) => storage.listEvents(entity.id)))
   ).flat() as LoomEntityEventRecord[];
-  const projections = (
-    await Promise.all(entities.map((entity) => storage.listProjections(entity.id)))
-  ).flat() as LoomProjectionRecord[];
+  const runtimeAttachments = (
+    await Promise.all(worktrees.map((worktree) => storage.listRuntimeAttachments(worktree.id)))
+  ).flat() as LoomRuntimeAttachment[];
 
   const bundle: LoomSyncBundle = {
     contractVersion: LOOM_STORAGE_CONTRACT_VERSION,
@@ -169,17 +117,11 @@ export async function exportSyncBundle(
   writeJson(path.join(bundleDir, "bundle.json"), bundle);
   writeJson(path.join(bundleDir, "spaces.json"), [space] satisfies LoomSpaceRecord[]);
   writeJson(path.join(bundleDir, "repositories.json"), repositories satisfies LoomRepositoryRecord[]);
+  writeJson(path.join(bundleDir, "worktrees.json"), worktrees satisfies LoomWorktreeRecord[]);
   writeJson(path.join(bundleDir, "entities.json"), entities satisfies LoomEntityRecord[]);
   writeJson(path.join(bundleDir, "links.json"), links);
   writeJson(path.join(bundleDir, "events.json"), events);
-  writeJson(
-    path.join(bundleDir, "projections.json"),
-    projections.map((projection) => ({
-      ...projection,
-      content: projection.relativePath ? null : projection.content,
-    })),
-  );
-  writeProjectionFiles(bundleDir, projections);
+  writeJson(path.join(bundleDir, "runtime-attachments.json"), runtimeAttachments);
 
   const files = walkFiles(bundleDir).map((absolutePath) =>
     path.relative(bundleDir, absolutePath).split(path.sep).join("/"),
@@ -193,19 +135,20 @@ export async function hydrateSyncBundle(
 ): Promise<{ hydratedEntityIds: string[] }> {
   const spaces = readJson<LoomSpaceRecord[]>(path.join(bundleDir, "spaces.json"));
   const repositories = readJson<LoomRepositoryRecord[]>(path.join(bundleDir, "repositories.json"));
+  const worktrees = readJson<LoomWorktreeRecord[]>(path.join(bundleDir, "worktrees.json"));
   const entities = readJson<LoomEntityRecord[]>(path.join(bundleDir, "entities.json"));
   const links = readJson<LoomEntityLinkRecord[]>(path.join(bundleDir, "links.json"));
   const events = readJson<LoomEntityEventRecord[]>(path.join(bundleDir, "events.json"));
-  const projections = readJson<LoomProjectionRecord[]>(path.join(bundleDir, "projections.json")).map((projection) => ({
-    ...projection,
-    content: readProjectionFile(bundleDir, projection.repositoryId, projection.relativePath, projection.content),
-  }));
+  const runtimeAttachments = readJson<LoomRuntimeAttachment[]>(path.join(bundleDir, "runtime-attachments.json"));
 
   for (const space of spaces) {
     await storage.upsertSpace(space);
   }
   for (const repository of repositories) {
     await storage.upsertRepository(repository);
+  }
+  for (const worktree of worktrees) {
+    await storage.upsertWorktree(worktree);
   }
   for (const entity of entities) {
     await assertEntityCompatible(storage, entity);
@@ -217,9 +160,9 @@ export async function hydrateSyncBundle(
   for (const event of events) {
     await storage.appendEvent(event);
   }
-  for (const projection of projections) {
-    await assertProjectionCompatible(storage, projection);
-    await storage.upsertProjection(projection);
+  for (const runtimeAttachment of runtimeAttachments) {
+    await assertRuntimeAttachmentCompatible(storage, runtimeAttachment);
+    await storage.upsertRuntimeAttachment(runtimeAttachment);
   }
 
   return { hydratedEntityIds: entities.map((entity) => entity.id).sort((left, right) => left.localeCompare(right)) };

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createPlanStore } from "../extensions/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -126,18 +127,23 @@ describe("pi-plans extension", () => {
       const mockPi = createMockPi();
       const { default: piPlans } = await import("../extensions/index.js");
       piPlans(mockPi as unknown as ExtensionAPI);
+      const planStore = createPlanStore(cwd);
 
       const command = getCommand(mockPi, "workplan");
       const sessionStart = getHandler(mockPi, "session_start");
       const { ctx, ui } = createCommandContext(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(existsSync(join(cwd, ".loom", "plans"))).toBe(true);
+      await expect(planStore.listPlans()).resolves.toEqual([]);
 
       await command.handler(
         "create workspace repo Planning layer :: Bridge bounded specs into linked ticket execution",
         ctx,
       );
+
+      await expect(planStore.readPlan("planning-layer")).resolves.toMatchObject({
+        summary: { id: "planning-layer", status: "active" },
+      });
 
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("planning-layer [active] Planning layer"), "info");
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Source target: workspace:repo"), "info");

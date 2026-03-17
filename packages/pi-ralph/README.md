@@ -1,17 +1,17 @@
 # @pi-loom/pi-ralph
 
-Durable Ralph loop orchestration for pi.
+SQLite-backed Ralph loop orchestration for pi.
 
-This package adds a bounded Ralph-specific orchestration layer under `.loom/ralph/` so long-horizon plan → execute → critique → revise loops can persist durable run state, iteration history, dashboards, and fresh-context launch descriptors without replacing the existing Loom plan, ticket, critique, and docs layers.
+This package adds a bounded Ralph-specific orchestration layer with canonical run state stored in SQLite via pi-storage, allowing long-horizon plan → execute → critique → revise loops to track state, iteration history, and fresh-context launch descriptors without replacing the existing Loom plan, ticket, critique, and docs layers.
 
 ## Capabilities
 
 - `/ralph` command surface for init/create/list/show/packet/update/iteration/verifier/critique/decide/launch/resume/dashboard flows
 - `ralph_*` tools for list/read/write/launch/resume/dashboard workflows
-- durable Ralph run records with canonical `state.json` and `iterations.jsonl`, plus repo-materialized `packet.md` and `run.md`; dashboard views are computed from canonical state instead of written as `dashboard.json`, and `launch.json` remains runtime-only
+- canonical run records stored in SQLite with iteration history; packets and dashboards are rendered on demand from the SQLite store
 - policy-aware run state that records linked Loom refs, verifier summaries, critique links, and explicit continuation decisions
 - fresh-context launch descriptors plus a default subprocess runtime for bounded Ralph launch and resume execution
-- extension lifecycle hooks that initialize the Ralph ledger and teach the agent to treat `.loom/ralph/` as canonical orchestration state
+- extension lifecycle hooks that initialize the Ralph ledger for orchestration state management
 
 ## Design boundaries
 
@@ -20,32 +20,19 @@ This package adds a bounded Ralph-specific orchestration layer under `.loom/ralp
 - Ralph is a bounded orchestration primitive, not a replacement for plans, tickets, or critique
 - plans remain the execution-strategy layer
 - tickets remain the live execution ledger and the comprehensive definition of each unit of work
-- critique remains the durable review layer
+- critique remains the review layer backed by canonical SQLite records
 - docs remain the post-completion explanatory layer
 - future broader worker orchestration stays outside this package unless explicitly specified
 
 ## Artifact policy
 
-- commit canonical Ralph state: `state.json`, `packet.md`, `run.md`, and `iterations.jsonl`; dashboards are computed from canonical state and should not be committed as `dashboard.json`
-- treat stored path fields inside Ralph artifacts as repo-relative from the workspace root
-- do not commit `launch.json`; it is a runtime handoff descriptor for a specific fresh-session or subprocess launch, not the source of truth for the run
+- `launch.json` is a runtime-only handoff descriptor for a specific fresh-session or subprocess launch; it should not be treated as durable
+- rendered run records and dashboards are derived views computed on demand from the SQLite store
 
 ## Current implementation status
 
-The package already ships the `/ralph` command namespace, `ralph_*` tools, durable run storage, policy-aware iteration tracking, dashboard rendering, interactive fresh-session handoff preparation, and subprocess-backed launch/resume execution rooted in the package extension workspace.
+The package already ships the `/ralph` command namespace, `ralph_*` tools, SQLite-backed run tracking, policy-aware iteration tracking, dashboard rendering, interactive fresh-session handoff preparation, and subprocess-backed launch/resume execution rooted in the package extension workspace.
 
-## Layout
-
-```text
-.loom/
-  ralph/
-    <run-id>/
-      state.json
-      packet.md
-      run.md
-      iterations.jsonl
-      launch.json
-```
 
 ## Local use
 

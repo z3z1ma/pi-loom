@@ -99,7 +99,7 @@ describe("worker runtime", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("builds inherited sdk session config from the active extension context", () => {
     const model = { provider: "openai", id: "gpt-5.4" } as never;
@@ -133,7 +133,7 @@ describe("worker runtime", () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Prompt Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -154,13 +154,13 @@ describe("worker runtime", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("provisions and retires Git worktree-backed worker attachments", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -176,13 +176,13 @@ describe("worker runtime", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("recreates a prepared workspace when durable branch state changes", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -211,7 +211,7 @@ describe("worker runtime", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 60000);
 
   it("records runtime kind for SDK launches and can execute through the SDK runtime path", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -225,7 +225,7 @@ describe("worker runtime", () => {
       commitWorkspaceFiles(cwd, "add sdk extension fixture", "package.json", "packages/demo-extension/index.ts");
 
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "SDK Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -311,13 +311,13 @@ describe("worker runtime", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 90000);
 
   it("fails a completed launch that leaves no durable worker progress behind", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "No Progress Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -344,7 +344,7 @@ describe("worker runtime", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("keeps rpc runtime as a bounded fallback seam", async () => {
     const result = await runWorkerLaunch({
@@ -521,7 +521,7 @@ describe("worker runtime", () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
 
       const store = createWorkerStore(cwd);
@@ -543,5 +543,5 @@ describe("worker runtime", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 });

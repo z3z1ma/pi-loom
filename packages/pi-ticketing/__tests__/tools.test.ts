@@ -1,17 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
-import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { describe, expect, it, vi } from "vitest";
-import {
-  getAttachmentsIndexPath,
-  getCheckpointIndexPath,
-  getCheckpointPath,
-  getJournalPath,
-  getTicketPath,
-} from "../extensions/domain/paths.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -290,8 +283,36 @@ describe("ticket tools", () => {
             expect.objectContaining({
               label: "evidence",
               sourcePath: "evidence.txt",
-              artifactPath: expect.stringMatching(/^\.loom\/artifacts\//),
+              artifactPath: null,
+              metadata: expect.objectContaining({
+                inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
+                inlineEncoding: "base64",
+                inlineSourceType: "filesystem",
+              }),
             }),
+          ],
+        },
+      });
+
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const ticketEntity = await findEntityByDisplayId(storage, identity.space.id, "ticket", ticketId);
+      expect(ticketEntity).toBeTruthy();
+      if (!ticketEntity) {
+        throw new Error("Expected ticket entity to exist");
+      }
+      expect(ticketEntity.attributes).toMatchObject({
+        record: {
+          attachments: [
+            {
+              label: "evidence",
+              sourcePath: "evidence.txt",
+              artifactPath: null,
+              metadata: {
+                inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
+                inlineEncoding: "base64",
+                inlineSourceType: "filesystem",
+              },
+            },
           ],
         },
       });
@@ -337,6 +358,36 @@ describe("ticket tools", () => {
       );
       expect(reopenedList.details).toMatchObject({
         tickets: expect.arrayContaining([expect.objectContaining({ id: ticketId, status: "ready", closed: false })]),
+      });
+
+      const reopenedRead = await getTool(mockPi, "ticket_read").execute(
+        "call-7",
+        { ref: ticketId },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(reopenedRead.details).toMatchObject({
+        ticket: {
+          summary: { id: ticketId, status: "ready", closed: false },
+          journal: expect.arrayContaining([
+            expect.objectContaining({ kind: "attachment", text: "Attached evidence" }),
+            expect.objectContaining({ kind: "verification", text: "verified by targeted tool test" }),
+            expect.objectContaining({ kind: "state", text: "Reopened ticket" }),
+          ]),
+        },
+      });
+
+      const reopenedEntity = await findEntityByDisplayId(storage, identity.space.id, "ticket", ticketId);
+      expect(reopenedEntity).toBeTruthy();
+      if (!reopenedEntity) {
+        throw new Error("Expected reopened ticket entity to exist");
+      }
+      expect(reopenedEntity.attributes).toMatchObject({
+        record: {
+          attachments: [expect.objectContaining({ label: "evidence", artifactPath: null })],
+          ticket: { frontmatter: { status: "open" }, closed: false },
+        },
       });
     } finally {
       cleanup();

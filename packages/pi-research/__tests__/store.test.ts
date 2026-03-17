@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,7 +30,7 @@ describe("research store", () => {
 
     await initiativeStore.createInitiative({ title: "Theme modernization" });
     await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" })
+    const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" });
 
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
     const created = await store.createResearch({
@@ -43,11 +43,6 @@ describe("research store", () => {
       openQuestions: ["How should SSR hydration work?"],
     });
 
-    expect(existsSync(join(workspace, ".loom", "research", "evaluate-theme-architecture", "state.json"))).toBe(true);
-    expect(existsSync(join(workspace, ".loom", "research", "evaluate-theme-architecture", "research.md"))).toBe(true);
-    expect(existsSync(join(workspace, ".loom", "research", "evaluate-theme-architecture", "dashboard.json"))).toBe(
-      false,
-    );
     expect(created.summary).toMatchObject({
       id: "evaluate-theme-architecture",
       hypothesisCount: 0,
@@ -110,9 +105,6 @@ describe("research store", () => {
         path: ".loom/research/evaluate-theme-architecture/experiments/artifact-001.md",
       }),
     ]);
-    expect(
-      existsSync(join(workspace, ".loom", "research", "evaluate-theme-architecture", "experiments", "artifact-001.md")),
-    ).toBe(true);
     expect(withArtifact.dashboard).toMatchObject({
       hypotheses: { counts: { supported: 1, rejected: 1 } },
       artifacts: { counts: { experiment: 1 } },
@@ -136,25 +128,25 @@ describe("research store", () => {
       linkedSpecs: { total: 1, items: [expect.objectContaining({ id: "add-dark-mode" })] },
       linkedTickets: { total: 1, items: [expect.objectContaining({ id: ticket.summary.id })] },
     });
-    expect(initiativeStore.readInitiativeProjection("theme-modernization").state.researchIds).toEqual([
+    expect((await initiativeStore.readInitiative("theme-modernization")).state.researchIds).toEqual([
       "evaluate-theme-architecture",
     ]);
-    expect(specStore.readChangeProjection("add-dark-mode").state.researchIds).toEqual(["evaluate-theme-architecture"]);
-    expect(ticketStore.readTicket(ticket.summary.id).summary.researchIds).toEqual(["evaluate-theme-architecture"]);
+    expect((await specStore.readChange("add-dark-mode")).state.researchIds).toEqual(["evaluate-theme-architecture"]);
+    expect((await ticketStore.readTicketAsync(ticket.summary.id)).summary.researchIds).toEqual([
+      "evaluate-theme-architecture",
+    ]);
 
-    const hypothesisLog = readFileSync(
-      join(workspace, ".loom", "research", "evaluate-theme-architecture", "hypotheses.jsonl"),
-      "utf-8",
+    expect(linked.hypothesisHistory).toHaveLength(3);
+    expect(linked.hypothesisHistory).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "hyp-002", status: "rejected" })]),
     );
-    expect(hypothesisLog.trim().split(/\r?\n/)).toHaveLength(3);
-    expect(hypothesisLog).toContain('"status":"rejected"');
 
     expect(withArtifact.dashboard.hypotheses.counts.supported).toBe(1);
     expect(withArtifact.dashboard.artifacts.counts.experiment).toBe(1);
     expect(withArtifact.dashboard).not.toHaveProperty("generatedAt");
   }, 30000);
 
-  it("skips malformed research directories while listing valid records", async () => {
+  it("lists canonical research records without relying on repo files", async () => {
     const store = createResearchStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T09:00:00.000Z"));
@@ -168,10 +160,6 @@ describe("research store", () => {
       title: "Zulu research",
       question: "What should zulu validate?",
     });
-
-    const malformedDir = join(workspace, ".loom", "research", "broken-record");
-    mkdirSync(malformedDir, { recursive: true });
-    writeFileSync(join(malformedDir, "research.md"), "incomplete projection\n", "utf-8");
 
     await expect(store.listResearch()).resolves.toEqual([
       expect.objectContaining({

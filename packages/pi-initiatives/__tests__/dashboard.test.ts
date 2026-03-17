@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -103,7 +103,7 @@ describe("initiative dashboard", () => {
       unlinkedReferences: { roadmapRefs: [], specChangeIds: [], ticketIds: [] },
     });
     expect(initiative.state.researchIds).toEqual(["investigate-observability-gaps"]);
-    expect(constitutionalStore.readRoadmapItemProjection("item-001").initiativeIds).toEqual(["observability-program"]);
+    expect((await constitutionalStore.readRoadmapItem("item-001")).initiativeIds).toEqual(["observability-program"]);
 
     expect(initiative.dashboard.linkedRoadmap.total).toBe(1);
     expect(initiative.dashboard.linkedResearch.total).toBe(1);
@@ -134,27 +134,6 @@ describe("initiative dashboard", () => {
       roadmapRefs: ["item-001"],
     });
 
-    const initiativeDir = join(workspace, ".loom", "initiatives", "roadmap-resilience");
-    const statePath = join(initiativeDir, "state.json");
-    const state = JSON.parse(readFileSync(statePath, "utf-8")) as {
-      specChangeIds: string[];
-      ticketIds: string[];
-      roadmapRefs: string[];
-    } & Record<string, unknown>;
-    state.specChangeIds = ["missing-spec"];
-    state.ticketIds = ["missing-ticket"];
-    state.roadmapRefs = ["item-404"];
-
-    const constitutionalDir = join(workspace, ".loom", "constitution");
-    const constitutionalStatePath = join(constitutionalDir, "state.json");
-    const constitutionalState = {
-      ...JSON.parse(readFileSync(constitutionalStatePath, "utf-8")),
-      roadmapItems: [],
-    };
-
-    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
-    writeFileSync(constitutionalStatePath, `${JSON.stringify(constitutionalState, null, 2)}\n`, "utf-8");
-
     const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
       import("../../pi-storage/storage/entities.js"),
       import("../../pi-storage/storage/workspace.js"),
@@ -176,7 +155,7 @@ describe("initiative dashboard", () => {
       kind: initiativeEntity.kind,
       spaceId: initiativeEntity.spaceId,
       owningRepositoryId: initiativeEntity.owningRepositoryId,
-      displayId: initiativeEntity.displayId,
+      displayId: initiativeEntity.displayId ?? initiativeEntity.id,
       title: initiativeEntity.title,
       summary: initiativeEntity.summary,
       status: initiativeEntity.status,
@@ -185,7 +164,12 @@ describe("initiative dashboard", () => {
       pathScopes: initiativeEntity.pathScopes,
       attributes: {
         ...(initiativeEntity.attributes as Record<string, unknown>),
-        state: JSON.parse(readFileSync(statePath, "utf-8")),
+        state: {
+          ...((initiativeEntity.attributes as { state: Record<string, unknown> }).state ?? {}),
+          specChangeIds: ["missing-spec"],
+          ticketIds: ["missing-ticket"],
+          roadmapRefs: ["item-404"],
+        },
       },
       createdAt: initiativeEntity.createdAt,
       updatedAt: new Date().toISOString(),
@@ -194,7 +178,7 @@ describe("initiative dashboard", () => {
       kind: constitutionEntity.kind,
       spaceId: constitutionEntity.spaceId,
       owningRepositoryId: constitutionEntity.owningRepositoryId,
-      displayId: constitutionEntity.displayId,
+      displayId: constitutionEntity.displayId ?? constitutionEntity.id,
       title: constitutionEntity.title,
       summary: constitutionEntity.summary,
       status: constitutionEntity.status,
@@ -203,7 +187,10 @@ describe("initiative dashboard", () => {
       pathScopes: constitutionEntity.pathScopes,
       attributes: {
         ...(constitutionEntity.attributes as Record<string, unknown>),
-        state: JSON.parse(readFileSync(constitutionalStatePath, "utf-8")),
+        state: {
+          ...((constitutionEntity.attributes as { state: Record<string, unknown> }).state ?? {}),
+          roadmapItems: [],
+        },
       },
       createdAt: constitutionEntity.createdAt,
       updatedAt: new Date().toISOString(),

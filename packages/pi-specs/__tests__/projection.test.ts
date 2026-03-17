@@ -1,13 +1,13 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createResearchStore } from "../../pi-research/extensions/domain/store.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
-import { projectSpecTickets } from "../extensions/domain/projection.js";
+import { syncSpecTickets } from "../extensions/domain/ticket-sync.js";
 import { createSpecStore } from "../extensions/domain/store.js";
 
-describe("spec to ticket projection", () => {
+describe("spec to ticket synchronization", () => {
   let workspace: string;
 
   beforeEach(() => {
@@ -22,7 +22,7 @@ describe("spec to ticket projection", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("projects finalized specs into deterministic tickets with explicit provenance", async () => {
+  it("synchronizes finalized specs into deterministic tickets with explicit provenance", async () => {
     const researchStore = createResearchStore(workspace);
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
@@ -64,40 +64,43 @@ describe("spec to ticket projection", () => {
     await researchStore.linkSpec("evaluate-theme-architecture", "add-dark-mode");
     await specStore.finalizeChange("add-dark-mode");
 
-    const firstProjection = await projectSpecTickets(workspace, "add-dark-mode");
-    expect(firstProjection.projection?.tickets).toHaveLength(2);
-    expect(existsSync(join(workspace, ".loom", "specs", "changes", "add-dark-mode", "ticket-projection.json"))).toBe(
-      true,
-    );
+    const firstSync = await syncSpecTickets(workspace, "add-dark-mode");
+    expect(firstSync.ticketSync?.mode).toBe("initial");
+    expect(firstSync.ticketSync?.links).toHaveLength(2);
 
-    const tickets = ticketStore.listTickets();
+    const tickets = await ticketStore.listTicketsAsync();
     expect(tickets).toHaveLength(2);
-    const foundationTicket = ticketStore.readTicket(firstProjection.projection?.tickets[0]?.ticketId ?? "t-0001");
-    const persistTicket = ticketStore.readTicket(firstProjection.projection?.tickets[1]?.ticketId ?? "t-0002");
+    const foundationTicket = await ticketStore.readTicketAsync(firstSync.ticketSync?.links[0]?.ticketId ?? "t-0001");
+    const persistTicket = await ticketStore.readTicketAsync(firstSync.ticketSync?.links[1]?.ticketId ?? "t-0002");
 
     expect(foundationTicket.ticket.frontmatter["spec-change"]).toBe("add-dark-mode");
     expect(foundationTicket.ticket.frontmatter["initiative-ids"]).toEqual(["platform-modernization"]);
     expect(foundationTicket.ticket.frontmatter["research-ids"]).toEqual(["evaluate-theme-architecture"]);
     expect(foundationTicket.ticket.frontmatter["spec-capabilities"]).toEqual(["theme-toggling"]);
     expect(foundationTicket.ticket.frontmatter["spec-requirements"]).toEqual([reqToggle]);
-    expect(firstProjection.state.researchIds).toEqual(["evaluate-theme-architecture"]);
-    expect(firstProjection.summary.researchIds).toEqual(["evaluate-theme-architecture"]);
+    expect(firstSync.state.researchIds).toEqual(["evaluate-theme-architecture"]);
+    expect(firstSync.summary.researchIds).toEqual(["evaluate-theme-architecture"]);
     expect(persistTicket.summary.deps).toEqual([foundationTicket.summary.id]);
 
-    const secondProjection = await projectSpecTickets(workspace, "add-dark-mode");
-    expect(secondProjection.projection?.tickets.map((entry) => entry.ticketId)).toEqual(
-      firstProjection.projection?.tickets.map((entry) => entry.ticketId),
+    const secondSync = await syncSpecTickets(workspace, "add-dark-mode");
+    expect(secondSync.ticketSync?.mode).toBe("refresh");
+    expect(secondSync.ticketSync?.links.map((entry) => entry.ticketId)).toEqual(
+      firstSync.ticketSync?.links.map((entry) => entry.ticketId),
     );
-    expect(ticketStore.listTickets()).toHaveLength(2);
+    await expect(ticketStore.listTicketsAsync()).resolves.toHaveLength(2);
 
-    const projectionFile = readFileSync(
-      join(workspace, ".loom", "specs", "changes", "add-dark-mode", "ticket-projection.json"),
-      "utf-8",
-    );
-    expect(projectionFile).toContain('"mode": "refresh"');
+    await expect(specStore.readChange("add-dark-mode")).resolves.toMatchObject({
+      ticketSync: {
+        mode: "refresh",
+        links: [
+          expect.objectContaining({ taskId: "task-001", ticketId: foundationTicket.summary.id }),
+          expect.objectContaining({ taskId: "task-002", ticketId: persistTicket.summary.id }),
+        ],
+      },
+    });
   }, 15000);
 
-  it("refreshes projected tickets when capability details change after reprojection", async () => {
+  it("refreshes synchronized tickets when capability details change after re-sync", async () => {
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
 
@@ -131,10 +134,12 @@ describe("spec to ticket projection", () => {
     });
     await specStore.finalizeChange("add-dark-mode");
 
-    const firstProjection = await projectSpecTickets(workspace, "add-dark-mode");
-    const projectedTicketId = firstProjection.projection?.tickets[0]?.ticketId;
-    expect(projectedTicketId).toBeTruthy();
-    expect(ticketStore.readTicket(projectedTicketId ?? "t-0001").ticket.body.context).toContain("Theme toggling");
+    const firstSync = await syncSpecTickets(workspace, "add-dark-mode");
+    const synchronizedTicketId = firstSync.ticketSync?.links[0]?.ticketId;
+    expect(synchronizedTicketId).toBeTruthy();
+    await expect(ticketStore.readTicketAsync(synchronizedTicketId ?? "t-0001")).resolves.toMatchObject({
+      ticket: { body: { context: expect.stringContaining("Theme toggling") } },
+    });
 
     vi.setSystemTime(new Date("2026-03-15T12:10:00.000Z"));
     await specStore.updatePlan("add-dark-mode", {
@@ -151,7 +156,10 @@ describe("spec to ticket projection", () => {
     });
     await specStore.finalizeChange("add-dark-mode");
 
-    await projectSpecTickets(workspace, "add-dark-mode");
-    expect(ticketStore.readTicket(projectedTicketId ?? "t-0001").ticket.body.context).toContain("Theme switching");
+    const refreshed = await syncSpecTickets(workspace, "add-dark-mode");
+    expect(refreshed.ticketSync?.mode).toBe("refresh");
+    await expect(ticketStore.readTicketAsync(synchronizedTicketId ?? "t-0001")).resolves.toMatchObject({
+      ticket: { body: { context: expect.stringContaining("Theme switching") } },
+    });
   }, 30000);
 });

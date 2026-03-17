@@ -1,6 +1,6 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { SpecPlanInput, SpecTasksInput } from "../domain/models.js";
-import { projectSpecTickets } from "../domain/projection.js";
+import { syncSpecTickets } from "../domain/ticket-sync.js";
 import { renderCapabilityDetail, renderSpecDetail, renderSpecSummary } from "../domain/render.js";
 import { createSpecStore } from "../domain/store.js";
 
@@ -152,7 +152,7 @@ export async function handleSpecCommand(args: string, ctx: ExtensionCommandConte
     case "tickets": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /spec tickets <change>");
-      return renderSpecDetail(await projectSpecTickets(ctx.cwd, ref));
+      return renderSpecDetail(await syncSpecTickets(ctx.cwd, ref));
     }
     case "archive": {
       const ref = rest[0];

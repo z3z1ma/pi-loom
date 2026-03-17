@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type {
   TicketGraphResult,
   TicketReadResult,
@@ -82,6 +82,7 @@ interface WorkbenchState {
   boardFilter?: TicketWorkspaceFilter;
   selectedByTab: Partial<Record<TicketWorkbenchTabId, string | null>>;
   detailRef: string | null;
+  detailScrollOffset: number;
   menu: WorkbenchMenu;
 }
 
@@ -106,6 +107,32 @@ const TAB_LABELS: Record<TicketWorkbenchTabId, string> = {
   detail: "Detail",
 };
 
+const TAB_ICONS: Record<TicketWorkbenchTabId, string> = {
+  overview: "✨",
+  inbox: "📥",
+  list: "📚",
+  board: "🗂",
+  timeline: "🕒",
+  detail: "🧾",
+};
+
+const STATUS_ICONS: Record<TicketStatus, string> = {
+  open: "⚪",
+  ready: "🟢",
+  in_progress: "🛠",
+  blocked: "⛔",
+  review: "👀",
+  closed: "✅",
+};
+
+const OVERLAY_WIDTH = 96;
+const OVERLAY_MAX_HEIGHT = 28;
+const MAIN_BOX_LINES = 16;
+const SIDEBAR_LINES = 14;
+const MENU_LINES = 8;
+const NARROW_MAIN_BOX_LINES = 10;
+const NARROW_SIDEBAR_LINES = 6;
+
 const EDITABLE_FIELDS: TicketWorkspaceField[] = [
   "title",
   "assignee",
@@ -127,18 +154,51 @@ function describeFilter(filter?: TicketWorkspaceFilter): string {
   return "full backlog";
 }
 
-function box(title: string, lines: string[], width: number, theme: Theme): string[] {
+function viewportRange(total: number, selectedIndex: number, maxVisible: number): { start: number; end: number } {
+  if (total <= maxVisible) {
+    return { start: 0, end: total };
+  }
+  const start = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), total - maxVisible));
+  return { start, end: Math.min(total, start + maxVisible) };
+}
+
+function viewportLines(lines: string[], maxVisible: number, offset = 0): string[] {
+  const overflowing = lines.length > maxVisible;
+  const visibleBudget = overflowing ? Math.max(1, maxVisible - 1) : maxVisible;
+  const safeOffset = Math.max(0, Math.min(offset, Math.max(0, lines.length - visibleBudget)));
+  const visible = lines.slice(safeOffset, safeOffset + visibleBudget);
+  if (overflowing) {
+    visible.push(`… ${safeOffset + 1}-${Math.min(lines.length, safeOffset + visibleBudget)} / ${lines.length}`);
+  }
+  return visible;
+}
+
+function statusLabel(status: TicketStatus): string {
+  return `${STATUS_ICONS[status]} ${status.replaceAll("_", " ")}`;
+}
+
+function statChip(
+  label: string,
+  value: number,
+  color: "accent" | "success" | "warning" | "dim" | "muted",
+  theme: Theme,
+): string {
+  return theme.fg(color, `${label} ${value}`);
+}
+
+function box(title: string, lines: string[], width: number, theme: Theme, maxBodyLines?: number): string[] {
   const innerWidth = Math.max(10, width - 2);
   const titleText = ` ${title} `;
   const ruleWidth = Math.max(0, innerWidth - visibleWidth(titleText));
   const leftRule = "─".repeat(Math.floor(ruleWidth / 2));
   const rightRule = "─".repeat(Math.max(0, ruleWidth - leftRule.length));
-  const top = `${theme.fg("dim", "╭")}${theme.fg("dim", leftRule)}${theme.fg("accent", titleText)}${theme.fg("dim", rightRule)}${theme.fg("dim", "╮")}`;
-  const bottom = `${theme.fg("dim", "╰")}${theme.fg("dim", "─".repeat(innerWidth))}${theme.fg("dim", "╯")}`;
-  const body = lines.map((line) => {
+  const top = `${theme.fg("borderAccent", "╭")}${theme.fg("borderMuted", leftRule)}${theme.fg("accent", theme.bold(titleText))}${theme.fg("borderMuted", rightRule)}${theme.fg("borderAccent", "╮")}`;
+  const bottom = `${theme.fg("borderAccent", "╰")}${theme.fg("borderMuted", "─".repeat(innerWidth))}${theme.fg("borderAccent", "╯")}`;
+  const bodyLines = maxBodyLines ? viewportLines(lines, maxBodyLines) : lines;
+  const body = bodyLines.map((line) => {
     const content = truncateToWidth(line, innerWidth, "…", true);
     const padding = Math.max(0, innerWidth - visibleWidth(content));
-    return `${theme.fg("dim", "│")}${content}${" ".repeat(padding)}${theme.fg("dim", "│")}`;
+    return `${theme.fg("borderMuted", "│")}${content}${" ".repeat(padding)}${theme.fg("borderMuted", "│")}`;
   });
   return [top, ...body, bottom];
 }
@@ -156,7 +216,7 @@ function combineColumns(left: string[], right: string[], leftWidth: number, righ
 }
 
 function formatStatus(ticket: TicketSummary): string {
-  return `${ticket.status.replaceAll("_", " ")} • ${ticket.type}/${ticket.priority}`;
+  return `${statusLabel(ticket.status)} • ${ticket.type}/${ticket.priority}`;
 }
 
 function ticketRows(
@@ -164,34 +224,54 @@ function ticketRows(
   selectedRef: string | null,
   theme: Theme,
   width: number,
+  maxTickets: number,
   extras?: Map<string, string>,
 ): string[] {
   if (tickets.length === 0) {
     return [theme.fg("dim", "(none)")];
   }
 
+  const selectedIndex = Math.max(
+    0,
+    tickets.findIndex((ticket) => ticket.id === selectedRef),
+  );
+  const { start, end } = viewportRange(tickets.length, selectedIndex, maxTickets);
   const lines: string[] = [];
-  for (const ticket of tickets) {
+  for (const ticket of tickets.slice(start, end)) {
     const selected = ticket.id === selectedRef;
-    const prefix = selected ? theme.fg("accent", ">") : " ";
-    const title = selected ? theme.fg("accent", `${ticket.id} ${ticket.title}`) : `${ticket.id} ${ticket.title}`;
+    const prefix = selected ? theme.fg("accent", "❯") : theme.fg("dim", "•");
+    const titleText = `${STATUS_ICONS[ticket.status]} ${ticket.id} ${ticket.title}`;
+    const title = selected ? theme.bg("selectedBg", theme.fg("text", titleText)) : titleText;
     lines.push(`${prefix} ${truncateToWidth(title, Math.max(12, width - 2), "…", true)}`);
     const extra = extras?.get(ticket.id) ?? `${formatStatus(ticket)} • ${ticket.updatedAt}`;
     lines.push(`  ${theme.fg("dim", truncateToWidth(extra, Math.max(10, width - 2), "…", true))}`);
+  }
+  if (start > 0 || end < tickets.length) {
+    lines.push(theme.fg("dim", `… ${selectedIndex + 1}/${tickets.length}`));
   }
   return lines;
 }
 
 function renderTabBar(activeTab: TicketWorkbenchTabId, theme: Theme, width: number): string {
   const pieces = TAB_ORDER.map((tab) => {
-    const label = ` ${TAB_LABELS[tab]} `;
-    return tab === activeTab ? theme.fg("accent", theme.bold(label)) : theme.fg("dim", label);
+    const label = ` ${TAB_ICONS[tab]} ${TAB_LABELS[tab]} `;
+    return tab === activeTab ? theme.bg("selectedBg", theme.fg("text", theme.bold(label))) : theme.fg("muted", label);
   });
-  const suffix = theme.fg("dim", "(tab/←/→ to cycle)");
-  return truncateToWidth(`Tickets  ${pieces.join(" ")}  ${suffix}`, width, "…", true);
+  const suffix = theme.fg("dim", "(Tab / ← →)");
+  return truncateToWidth(`🎫 Tickets  ${pieces.join(" ")}  ${suffix}`, width, "…", true);
 }
 
-function renderWidgetCounts(model: TicketWorkbenchModel): string {
+function renderWidgetCounts(model: TicketWorkbenchModel, theme: Theme): string {
+  return [
+    statChip("🧮", model.counts.total, "accent", theme),
+    statChip("🟢", model.counts.ready, "success", theme),
+    statChip("⛔", model.counts.blocked, "warning", theme),
+    statChip("🛠", model.counts.inProgress, "accent", theme),
+    statChip("👀", model.counts.review, "muted", theme),
+  ].join(" ");
+}
+
+function renderWidgetCountsText(model: TicketWorkbenchModel): string {
   return `Tickets ${model.counts.total} total • Ready ${model.counts.ready} • Blocked ${model.counts.blocked} • Active ${model.counts.inProgress} • Review ${model.counts.review}`;
 }
 
@@ -256,6 +336,10 @@ function moveSelection(state: WorkbenchState, model: TicketWorkbenchModel, delta
   state.selectedByTab[state.activeTab] = tickets[nextIndex]?.id ?? null;
 }
 
+function moveDetailScroll(state: WorkbenchState, delta: number): void {
+  state.detailScrollOffset = Math.max(0, state.detailScrollOffset + delta);
+}
+
 function setActiveTab(state: WorkbenchState, tab: TicketWorkbenchTabId, model: TicketWorkbenchModel): void {
   const previouslySelected =
     state.activeTab === "detail"
@@ -266,8 +350,10 @@ function setActiveTab(state: WorkbenchState, tab: TicketWorkbenchTabId, model: T
   if (tab === "detail") {
     state.detailRef = previouslySelected ?? state.detailRef ?? model.tickets[0]?.id ?? null;
     state.selectedByTab.detail = state.detailRef;
+    state.detailScrollOffset = 0;
     return;
   }
+  state.detailScrollOffset = 0;
   if (!state.selectedByTab[tab]) {
     state.selectedByTab[tab] = currentTabTickets(state, model)[0]?.id ?? null;
   }
@@ -305,35 +391,67 @@ function previewLines(
   return lines;
 }
 
-function renderOverview(state: WorkbenchState, model: TicketWorkbenchModel, theme: Theme, width: number): string[] {
+function renderOverview(
+  state: WorkbenchState,
+  model: TicketWorkbenchModel,
+  theme: Theme,
+  width: number,
+  maxLines: number,
+): string[] {
   const selectedRef = selectedTicketRef(state, model);
-  const highlightTickets = getOverviewTickets(model);
   const blockers = new Map(
     model.blocked.map((entry) => [entry.ticket.id, `blocked by ${entry.blockers.join(", ") || "unknown"}`]),
   );
+  if (maxLines <= 10) {
+    return [
+      renderWidgetCounts(model, theme),
+      theme.fg("dim", `Next: ${nextActionLines(model.tickets).join(" • ")}`),
+      "",
+      theme.fg("dim", "🟢 Ready now"),
+      ...ticketRows(model.ready.slice(0, 1), selectedRef, theme, width, 1),
+      "",
+      theme.fg("dim", "⛔ Blocked attention"),
+      ...ticketRows(
+        model.blocked.slice(0, 1).map((entry) => entry.ticket),
+        selectedRef,
+        theme,
+        width,
+        1,
+        blockers,
+      ),
+    ];
+  }
+
+  const compactTickets = Math.max(1, Math.min(2, Math.floor((maxLines - 7) / 6) || 1));
   return [
-    theme.fg("accent", renderWidgetCounts(model)),
+    renderWidgetCounts(model, theme),
+    theme.fg("dim", `Next: ${nextActionLines(model.tickets).join(" • ")}`),
     "",
-    theme.fg("dim", "Ready now"),
-    ...ticketRows(model.ready.slice(0, 4), selectedRef, theme, width, undefined),
+    theme.fg("dim", "🟢 Ready now"),
+    ...ticketRows(model.ready.slice(0, compactTickets), selectedRef, theme, width, compactTickets),
     "",
-    theme.fg("dim", "Blocked attention"),
+    theme.fg("dim", "⛔ Blocked attention"),
     ...ticketRows(
-      model.blocked.slice(0, 4).map((entry) => entry.ticket),
+      model.blocked.slice(0, compactTickets).map((entry) => entry.ticket),
       selectedRef,
       theme,
       width,
+      compactTickets,
       blockers,
     ),
     "",
-    theme.fg("dim", "Recent movement"),
-    ...ticketRows(model.recent.slice(0, 4), selectedRef, theme, width),
-    "",
-    theme.fg("dim", `Spotlight queue: ${highlightTickets.length} ticket(s)`),
+    theme.fg("dim", "🕒 Recent movement"),
+    ...ticketRows(model.recent.slice(0, compactTickets), selectedRef, theme, width, compactTickets),
   ];
 }
 
-function renderInbox(state: WorkbenchState, model: TicketWorkbenchModel, theme: Theme, width: number): string[] {
+function renderInbox(
+  state: WorkbenchState,
+  model: TicketWorkbenchModel,
+  theme: Theme,
+  width: number,
+  maxLines: number,
+): string[] {
   const selectedRef = selectedTicketRef(state, model);
   const blockedMap = new Map(
     model.blocked.map((entry) => [entry.ticket.id, `blocked by ${entry.blockers.join(", ") || "unknown"}`]),
@@ -341,50 +459,90 @@ function renderInbox(state: WorkbenchState, model: TicketWorkbenchModel, theme: 
   const blockedTickets = getInboxTickets(model, "blocked");
   const readyTickets = getInboxTickets(model, "ready");
   const filterLabel = state.inboxFilter ? `Focus: ${describeFilter(state.inboxFilter)}` : "Focus: all review lanes";
+  const filteredVisible = Math.max(1, Math.floor((maxLines - 4) / 2));
+  const combinedVisible = Math.max(1, Math.floor((maxLines - 7) / 4));
   return [
-    theme.fg("accent", filterLabel),
-    theme.fg("dim", "Keys: [b] blocked • [r] ready • [i] all"),
+    theme.fg("accent", `📥 ${filterLabel}`),
+    theme.fg("dim", "Keys: b blocked • r ready • i all"),
     "",
     ...(state.inboxFilter === "ready"
-      ? [theme.fg("dim", "Ready review"), ...ticketRows(readyTickets, selectedRef, theme, width)]
+      ? [theme.fg("dim", "🟢 Ready review"), ...ticketRows(readyTickets, selectedRef, theme, width, filteredVisible)]
       : state.inboxFilter === "blocked"
-        ? [theme.fg("dim", "Blocked review"), ...ticketRows(blockedTickets, selectedRef, theme, width, blockedMap)]
+        ? [
+            theme.fg("dim", "⛔ Blocked review"),
+            ...ticketRows(blockedTickets, selectedRef, theme, width, filteredVisible, blockedMap),
+          ]
         : [
-            theme.fg("dim", "Blocked review"),
-            ...ticketRows(blockedTickets, selectedRef, theme, width, blockedMap),
+            theme.fg("dim", "⛔ Blocked review"),
+            ...ticketRows(blockedTickets, selectedRef, theme, width, combinedVisible, blockedMap),
             "",
-            theme.fg("dim", "Ready review"),
-            ...ticketRows(readyTickets, selectedRef, theme, width),
+            theme.fg("dim", "🟢 Ready review"),
+            ...ticketRows(readyTickets, selectedRef, theme, width, combinedVisible),
           ]),
   ];
 }
 
-function renderList(state: WorkbenchState, model: TicketWorkbenchModel, theme: Theme, width: number): string[] {
+function renderList(
+  state: WorkbenchState,
+  model: TicketWorkbenchModel,
+  theme: Theme,
+  width: number,
+  maxLines: number,
+): string[] {
   const selectedRef = selectedTicketRef(state, model);
+  const visibleTickets = Math.max(1, Math.floor((maxLines - 3) / 2));
   return [
-    theme.fg("accent", `Full backlog • ${model.tickets.length} ticket(s)`),
+    theme.fg("accent", `📚 Full backlog • ${model.tickets.length} ticket(s)`),
     "",
-    ...ticketRows(model.tickets, selectedRef, theme, width),
+    ...ticketRows(model.tickets, selectedRef, theme, width, visibleTickets),
   ];
 }
 
-function renderBoard(state: WorkbenchState, model: TicketWorkbenchModel, theme: Theme, width: number): string[] {
+function renderBoard(
+  state: WorkbenchState,
+  model: TicketWorkbenchModel,
+  theme: Theme,
+  width: number,
+  maxLines: number,
+): string[] {
   const selectedRef = selectedTicketRef(state, model);
-  const lines = [theme.fg("accent", "Status board"), ""];
   const statusOrder: TicketStatus[] = ["ready", "in_progress", "review", "blocked", "open", "closed"];
-  for (const status of statusOrder) {
-    const tickets = model.byStatus[status];
-    lines.push(theme.fg("dim", `${status.replaceAll("_", " ")} (${tickets.length})`));
-    lines.push(...ticketRows(tickets, selectedRef, theme, width));
-    lines.push("");
-  }
+  const orderedBoardTickets = statusOrder.flatMap((status) => model.byStatus[status]);
+  const extras = new Map(
+    orderedBoardTickets.map((ticket) => [ticket.id, `${formatStatus(ticket)} • ${ticket.updatedAt}`]),
+  );
+  const visibleTickets = Math.max(1, Math.floor((maxLines - 5) / 2));
+  const lines = [
+    theme.fg("accent", "🗂 Status board"),
+    theme.fg(
+      "dim",
+      `${statusLabel("ready")} ${model.byStatus.ready.length} • ${statusLabel("in_progress")} ${model.byStatus.in_progress.length} • ${statusLabel("review")} ${model.byStatus.review.length}`,
+    ),
+    theme.fg(
+      "dim",
+      `${statusLabel("blocked")} ${model.byStatus.blocked.length} • ${statusLabel("open")} ${model.byStatus.open.length} • ${statusLabel("closed")} ${model.byStatus.closed.length}`,
+    ),
+    "",
+    ...ticketRows(orderedBoardTickets, selectedRef, theme, width, visibleTickets, extras),
+  ];
   return lines;
 }
 
-function renderTimeline(state: WorkbenchState, model: TicketWorkbenchModel, theme: Theme, width: number): string[] {
+function renderTimeline(
+  state: WorkbenchState,
+  model: TicketWorkbenchModel,
+  theme: Theme,
+  width: number,
+  maxLines: number,
+): string[] {
   const selectedRef = selectedTicketRef(state, model);
   const extras = new Map(model.timeline.map((ticket) => [ticket.id, `${ticket.updatedAt} • ${ticket.status}`]));
-  return [theme.fg("accent", "Recent timeline"), "", ...ticketRows(model.timeline, selectedRef, theme, width, extras)];
+  const visibleTickets = Math.max(1, Math.floor((maxLines - 3) / 2));
+  return [
+    theme.fg("accent", "🕒 Recent timeline"),
+    "",
+    ...ticketRows(model.timeline, selectedRef, theme, width, visibleTickets, extras),
+  ];
 }
 
 function renderDetail(
@@ -394,6 +552,7 @@ function renderDetail(
   detailState: DetailLoadState,
   graph: TicketGraphResult,
   theme: Theme,
+  maxLines: number,
 ): string[] {
   const ref = selectedTicketRef(state, model);
   if (!ref) {
@@ -402,18 +561,22 @@ function renderDetail(
   const summary = getTicketById(model, ref);
   const detail = detailCache.get(ref);
   if (detail) {
-    return renderTicketDetail(detail).split("\n");
+    return viewportLines(renderTicketDetail(detail).split("\n"), maxLines, state.detailScrollOffset);
   }
   if (detailState.loadingRefs.has(ref)) {
     return [theme.fg("dim", `Loading ${ref}…`)];
   }
 
-  return [
-    ...(detailState.failedRefs.has(ref)
-      ? [theme.fg("warning", `Detail unavailable for ${ref}. Showing summary-only fallback.`), ""]
-      : []),
-    ...previewLines(summary, null, graph),
-  ];
+  return viewportLines(
+    [
+      ...(detailState.failedRefs.has(ref)
+        ? [theme.fg("warning", `Detail unavailable for ${ref}. Showing summary-only fallback.`), ""]
+        : []),
+      ...previewLines(summary, null, graph),
+    ],
+    maxLines,
+    state.detailScrollOffset,
+  );
 }
 
 function renderMainPane(
@@ -424,20 +587,21 @@ function renderMainPane(
   graph: TicketGraphResult,
   theme: Theme,
   width: number,
+  maxLines: number,
 ): string[] {
   switch (state.activeTab) {
     case "overview":
-      return renderOverview(state, model, theme, width);
+      return renderOverview(state, model, theme, width, maxLines);
     case "inbox":
-      return renderInbox(state, model, theme, width);
+      return renderInbox(state, model, theme, width, maxLines);
     case "list":
-      return renderList(state, model, theme, width);
+      return renderList(state, model, theme, width, maxLines);
     case "board":
-      return renderBoard(state, model, theme, width);
+      return renderBoard(state, model, theme, width, maxLines);
     case "timeline":
-      return renderTimeline(state, model, theme, width);
+      return renderTimeline(state, model, theme, width, maxLines);
     case "detail":
-      return renderDetail(state, model, detailCache, detailState, graph, theme);
+      return renderDetail(state, model, detailCache, detailState, graph, theme, maxLines);
   }
 }
 
@@ -569,15 +733,20 @@ function buildMenuOptions(
 }
 
 function renderMenu(menu: Exclude<WorkbenchMenu, null>, options: MenuOption[], theme: Theme, width: number): string[] {
-  const lines = options.flatMap((option, index) => {
+  const { start, end } = viewportRange(options.length, menu.selectedIndex, MENU_LINES);
+  const lines = options.slice(start, end).flatMap((option, offset) => {
+    const index = start + offset;
     const selected = index === menu.selectedIndex;
-    const prefix = selected ? theme.fg("accent", ">") : " ";
-    const label = selected ? theme.fg("accent", option.label) : option.label;
+    const prefix = selected ? theme.fg("accent", "❯") : theme.fg("dim", "•");
+    const label = selected ? theme.bg("selectedBg", theme.fg("text", option.label)) : option.label;
     const description = option.description ? theme.fg("dim", ` ${option.description}`) : "";
     return [`${prefix} ${truncateToWidth(`${label}${description}`, Math.max(12, width - 2), "…", true)}`];
   });
+  if (start > 0 || end < options.length) {
+    lines.push(theme.fg("dim", `… ${menu.selectedIndex + 1}/${options.length}`));
+  }
   return box(
-    menu.kind === "actions" ? `Actions • ${menu.ref}` : `${TAB_LABELS.detail} menu • ${menu.ref}`,
+    menu.kind === "actions" ? `⚙️ Actions • ${menu.ref}` : `🧭 ${TAB_LABELS.detail} menu • ${menu.ref}`,
     lines,
     width,
     theme,
@@ -593,7 +762,7 @@ export async function syncTicketHomeWidget(ctx: ExtensionContext): Promise<void>
   const tickets = await store.listTicketsAsync({ includeClosed: true });
   const model = createTicketWorkbenchModel(tickets, await store.graphAsync());
   const lines = [
-    renderWidgetCounts(model),
+    renderWidgetCountsText(model),
     `Ready: ${summarizeTicketsForWidget(tickets, "ready")}`,
     `Blocked: ${summarizeTicketsForWidget(tickets, "blocked")}`,
     `Recent: ${recentChangeLines(tickets, 2).join(" • ")}`,
@@ -609,7 +778,7 @@ export async function loadTicketWorkspaceSnapshot(
 ): Promise<TicketWorkspaceSnapshot> {
   const tickets = await store.listTicketsAsync({ includeClosed: true });
   const graph = await store.graphAsync();
-  const detail = view.kind === "detail" ? await store.readTicketAsync(view.ref) : null;
+  const detail = view.kind === "detail" ? await store.readTicketAsync(view.ref).catch(() => null) : null;
   return { view, tickets, graph, detail };
 }
 
@@ -620,7 +789,7 @@ export function renderTicketWorkspaceText(snapshot: TicketWorkspaceSnapshot): st
     case "home": {
       return [
         "Ticket workbench: overview",
-        renderWidgetCounts(model),
+        renderWidgetCountsText(model),
         "",
         "Ready now:",
         ...(model.ready.length > 0
@@ -731,7 +900,14 @@ export function renderTicketWorkspaceText(snapshot: TicketWorkspaceSnapshot): st
               ? snapshot.detail.attachments.map((attachment) => `${attachment.label} (${attachment.mediaType})`)
               : ["(none)"]),
           ].join("\n")
-        : `Unknown ticket: ${snapshot.view.ref}`;
+        : (() => {
+            const summary = model.tickets.find((ticket) => ticket.id === snapshot.view.ref) ?? null;
+            return summary
+              ? [`Ticket workbench: detail (${summary.id})`, "", ...previewLines(summary, null, snapshot.graph)].join(
+                  "\n",
+                )
+              : `Unknown ticket: ${snapshot.view.ref}`;
+          })();
   }
 }
 
@@ -763,6 +939,7 @@ export async function openInteractiveTicketWorkspace(
           detail: snapshot.detail?.summary.id ?? (snapshot.view.kind === "detail" ? snapshot.view.ref : null),
         },
         detailRef: snapshot.detail?.summary.id ?? (snapshot.view.kind === "detail" ? snapshot.view.ref : null),
+        detailScrollOffset: 0,
         menu: null,
       };
 
@@ -792,9 +969,17 @@ export async function openInteractiveTicketWorkspace(
       const currentRef = (): string | null => selectedTicketRef(state, model);
 
       const moveTab = (delta: number): void => {
+        const currentTab = state.activeTab;
         const currentIndex = TAB_ORDER.indexOf(state.activeTab);
         const nextIndex = (currentIndex + delta + TAB_ORDER.length) % TAB_ORDER.length;
-        setActiveTab(state, TAB_ORDER[nextIndex] ?? "overview", model);
+        const nextTab = TAB_ORDER[nextIndex] ?? "overview";
+        if (nextTab === "detail" && currentTab !== "detail") {
+          state.previousTab = currentTab;
+        }
+        if (currentTab === "detail" && nextTab !== "detail") {
+          state.previousTab = null;
+        }
+        setActiveTab(state, nextTab, model);
         ensureDetail(currentRef());
       };
 
@@ -803,68 +988,93 @@ export async function openInteractiveTicketWorkspace(
       return {
         render(width: number): string[] {
           ensureDetail(currentRef());
-          const mainWidth = width >= 116 && state.activeTab !== "detail" ? Math.floor(width * 0.58) : width;
-          const sideWidth = width >= 116 && state.activeTab !== "detail" ? width - mainWidth - 2 : width;
+          const stackedLayout = width < 96;
+          const mainWidth = width >= 96 && state.activeTab !== "detail" ? Math.floor(width * 0.58) : width;
+          const sideWidth = width >= 96 && state.activeTab !== "detail" ? width - mainWidth - 2 : width;
+          const mainBoxLines = stackedLayout && state.activeTab !== "detail" ? NARROW_MAIN_BOX_LINES : MAIN_BOX_LINES;
+          const sidebarBoxLines = stackedLayout ? NARROW_SIDEBAR_LINES : SIDEBAR_LINES;
           const ref = currentRef();
           const summary = getTicketById(model, ref);
           const detail = ref ? (detailCache.get(ref) ?? null) : null;
           const header = [
-            theme.fg("accent", theme.bold("Ticket Workbench")),
-            theme.fg("dim", renderWidgetCounts(model)),
+            theme.fg("accent", theme.bold("✨ Ticket Workbench")),
+            renderWidgetCounts(model, theme),
             renderTabBar(state.activeTab, theme, width),
             "",
           ];
 
           const main = box(
-            TAB_LABELS[state.activeTab],
-            renderMainPane(state, model, detailCache, detailState, snapshot.graph, theme, Math.max(20, mainWidth - 2)),
+            `${TAB_ICONS[state.activeTab]} ${TAB_LABELS[state.activeTab]}`,
+            renderMainPane(
+              state,
+              model,
+              detailCache,
+              detailState,
+              snapshot.graph,
+              theme,
+              Math.max(20, mainWidth - 2),
+              mainBoxLines,
+            ),
             mainWidth,
             theme,
           );
           const sidebar = box(
-            summary ? `Selected • ${summary.id}` : "Selected",
+            summary ? `🎯 Selected • ${summary.id}` : "🎯 Selected",
             previewLines(summary, detail, snapshot.graph),
             sideWidth,
             theme,
+            sidebarBoxLines,
           );
-          const body =
-            width >= 116 && state.activeTab !== "detail"
-              ? combineColumns(main, sidebar, mainWidth, sideWidth)
-              : [...main, "", ...sidebar];
-
-          const menuLines = state.menu
-            ? [
-                "",
-                ...renderMenu(
-                  state.menu,
-                  buildMenuOptions(state.menu, state, model, close),
-                  theme,
-                  Math.min(width, 72),
-                ),
-              ]
-            : [];
+          const menuPanel = state.menu
+            ? renderMenu(
+                state.menu,
+                buildMenuOptions(state.menu, state, model, close),
+                theme,
+                Math.min(width >= 96 && state.activeTab !== "detail" ? sideWidth : width, 72),
+              )
+            : null;
+          const body = state.menu
+            ? width >= 96 && state.activeTab !== "detail"
+              ? combineColumns(main, menuPanel ?? [], mainWidth, sideWidth)
+              : [
+                  ...box(
+                    summary ? `🎯 Focus • ${summary.id}` : "🎯 Focus",
+                    previewLines(summary, detail, snapshot.graph),
+                    width,
+                    theme,
+                    6,
+                  ),
+                  "",
+                  ...(menuPanel ?? []),
+                ]
+            : state.activeTab === "detail"
+              ? [...main]
+              : width >= 96 && state.activeTab !== "detail"
+                ? combineColumns(main, sidebar, mainWidth, sideWidth)
+                : [...main, "", ...sidebar];
 
           const footer = state.menu
-            ? theme.fg("dim", "Use ↑/↓ or j/k • Enter chooses • Esc backs out of the menu")
-            : state.activeTab === "inbox"
-              ? theme.fg(
-                  "dim",
-                  "Use Tab/←/→ tabs • ↑/↓ or j/k move • Enter opens detail • a actions • n new • b/r/i filter inbox • Esc backs out",
-                )
-              : theme.fg(
-                  "dim",
-                  "Use Tab/←/→ tabs • ↑/↓ or j/k move • Enter opens detail • a actions • n new • Esc backs out",
-                );
+            ? theme.fg("dim", "↑ ↓ move • Enter choose • Esc back")
+            : state.activeTab === "detail"
+              ? theme.fg("dim", "↑ ↓ scroll detail • Enter actions • Esc back • Tab / ← → switch tabs")
+              : state.activeTab === "inbox"
+                ? theme.fg(
+                    "dim",
+                    "↑ ↓ move • Enter detail • a actions • n new • b/r/i inbox filters • Esc close • Tab / ← → tabs",
+                  )
+                : theme.fg("dim", "↑ ↓ move • Enter detail • a actions • n new • Esc close • Tab / ← → tabs");
 
-          return [...header, ...body, ...menuLines, "", footer];
+          return [...header, ...body, "", footer];
         },
         handleInput(data: string): void {
-          const isUp = data === "\u001b[A" || data === "k";
-          const isDown = data === "\u001b[B" || data === "j";
-          const isLeft = data === "\u001b[D" || data === "\u001b[Z";
-          const isRight = data === "\u001b[C" || data === "\t";
-          const isEnter = data === "\r" || data === "\n";
-          const isEscape = data === "\u001b" || data === "\u0003";
+          const isUp = matchesKey(data, Key.up) || data === "k";
+          const isDown = matchesKey(data, Key.down) || data === "j";
+          const isLeft = matchesKey(data, Key.left) || matchesKey(data, Key.shift("tab"));
+          const isRight = matchesKey(data, Key.right) || matchesKey(data, Key.tab);
+          const isEnter = matchesKey(data, Key.enter) || matchesKey(data, Key.return);
+          const isEscape = matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"));
+          const isPageUp = matchesKey(data, Key.pageUp);
+          const isPageDown = matchesKey(data, Key.pageDown);
 
           if (state.menu) {
             const options = buildMenuOptions(state.menu, state, model, close);
@@ -896,10 +1106,11 @@ export async function openInteractiveTicketWorkspace(
           }
           if (data === "a") {
             const ref = currentRef();
-            if (ref) {
+            const summary = ref ? getTicketById(model, ref) : null;
+            if (ref && summary) {
               state.menu = { kind: "actions", ref, selectedIndex: 0 };
             } else {
-              done({ kind: "create" });
+              return;
             }
             return;
           }
@@ -932,13 +1143,29 @@ export async function openInteractiveTicketWorkspace(
             return;
           }
           if (isUp) {
-            moveSelection(state, model, -1);
+            if (state.activeTab === "detail") {
+              moveDetailScroll(state, -1);
+            } else {
+              moveSelection(state, model, -1);
+            }
             ensureDetail(currentRef());
             return;
           }
           if (isDown) {
-            moveSelection(state, model, 1);
+            if (state.activeTab === "detail") {
+              moveDetailScroll(state, 1);
+            } else {
+              moveSelection(state, model, 1);
+            }
             ensureDetail(currentRef());
+            return;
+          }
+          if (isPageUp) {
+            moveDetailScroll(state, -MAIN_BOX_LINES + 3);
+            return;
+          }
+          if (isPageDown) {
+            moveDetailScroll(state, MAIN_BOX_LINES - 3);
             return;
           }
           if (isEscape) {
@@ -952,11 +1179,15 @@ export async function openInteractiveTicketWorkspace(
           }
           if (isEnter) {
             const ref = currentRef();
+            const summary = ref ? getTicketById(model, ref) : null;
             if (!ref) {
               done({ kind: "create" });
               return;
             }
             if (state.activeTab === "detail") {
+              if (!summary) {
+                return;
+              }
               state.menu = { kind: "actions", ref, selectedIndex: 0 };
               return;
             }
@@ -974,8 +1205,8 @@ export async function openInteractiveTicketWorkspace(
       overlay: true,
       overlayOptions: {
         anchor: "center",
-        width: "88%",
-        maxHeight: "85%",
+        width: OVERLAY_WIDTH,
+        maxHeight: OVERLAY_MAX_HEIGHT,
       },
     },
   );

@@ -1,14 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { LoomRuntimeAttachment } from "../storage/contract.js";
-import {
-  getLocalRuntimeStorePath,
-  isRuntimeLeaseActive,
-  LocalRuntimeAttachmentStore,
-  renewRuntimeLease,
-} from "../storage/runtime.js";
+import { getLoomCatalogPaths } from "../storage/locations.js";
+import { isRuntimeLeaseActive, renewRuntimeLease, SqliteRuntimeAttachmentStore } from "../storage/runtime.js";
+import { SqliteLoomCatalog } from "../storage/sqlite.js";
 
 function createAttachment(overrides: Partial<LoomRuntimeAttachment> = {}): LoomRuntimeAttachment {
   return {
@@ -19,11 +16,13 @@ function createAttachment(overrides: Partial<LoomRuntimeAttachment> = {}): LoomR
     processId: 1234,
     leaseExpiresAt: "2026-03-16T12:10:00.000Z",
     metadata: {},
+    createdAt: "2026-03-16T12:00:00.000Z",
+    updatedAt: "2026-03-16T12:00:00.000Z",
     ...overrides,
   };
 }
 
-describe("local runtime attachment store", () => {
+describe("sqlite runtime attachment store", () => {
   const cleanupPaths: string[] = [];
 
   afterEach(() => {
@@ -48,6 +47,8 @@ describe("local runtime attachment store", () => {
     const renewed = renewRuntimeLease(createAttachment(), 60_000, now);
 
     expect(renewed.id).toBe("runtime-001");
+    expect(renewed.createdAt).toBe("2026-03-16T12:00:00.000Z");
+    expect(renewed.updatedAt).toBe("2026-03-16T12:00:00.000Z");
     expect(renewed.leaseExpiresAt).toBe("2026-03-16T12:01:00.000Z");
     expect(renewed.metadata).toMatchObject({
       lastHeartbeatAt: "2026-03-16T12:00:00.000Z",
@@ -55,22 +56,64 @@ describe("local runtime attachment store", () => {
     });
   });
 
-  it("stores runtime attachments outside the canonical sqlite catalog path", async () => {
+  it("persists runtime attachments in the shared sqlite catalog", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "pi-storage-runtime-root-"));
     cleanupPaths.push(root);
     process.env.PI_LOOM_ROOT = root;
 
-    const store = new LocalRuntimeAttachmentStore();
+    const catalog = new SqliteLoomCatalog();
+    try {
+      await catalog.upsertSpace({
+        id: "space-001",
+        slug: "runtime-tests",
+        title: "Runtime Tests",
+        description: "Seed runtime attachment foreign keys",
+        repositoryIds: ["repo-001"],
+        createdAt: "2026-03-16T12:00:00.000Z",
+        updatedAt: "2026-03-16T12:00:00.000Z",
+      });
+      await catalog.upsertRepository({
+        id: "repo-001",
+        spaceId: "space-001",
+        slug: "runtime-tests",
+        displayName: "Runtime Tests",
+        defaultBranch: "main",
+        remoteUrls: [],
+        createdAt: "2026-03-16T12:00:00.000Z",
+        updatedAt: "2026-03-16T12:00:00.000Z",
+      });
+      await catalog.upsertWorktree({
+        id: "worktree-001",
+        repositoryId: "repo-001",
+        branch: "main",
+        baseRef: "main",
+        logicalPath: "worktree:runtime-tests",
+        status: "attached",
+        createdAt: "2026-03-16T12:00:00.000Z",
+        updatedAt: "2026-03-16T12:00:00.000Z",
+      });
+    } finally {
+      catalog.close();
+    }
+
+    const firstStore = new SqliteRuntimeAttachmentStore();
     const attachment = createAttachment();
-    await store.putRuntimeAttachment(attachment);
+    try {
+      await firstStore.upsertRuntimeAttachment(attachment);
+    } finally {
+      firstStore.close();
+    }
 
-    const stored = await store.getRuntimeAttachments("worktree-001");
-    expect(stored).toEqual([attachment]);
-    expect(store.filePath).toBe(getLocalRuntimeStorePath());
-    expect(store.filePath.endsWith("attachments.json")).toBe(true);
-    expect(store.filePath.endsWith("catalog.sqlite")).toBe(false);
+    expect(getLoomCatalogPaths().catalogPath).toBe(path.join(root, "catalog.sqlite"));
+    expect(existsSync(path.join(root, "attachments.json"))).toBe(false);
 
-    await store.removeRuntimeAttachment(attachment.id);
-    expect(await store.getRuntimeAttachments("worktree-001")).toEqual([]);
+    const secondStore = new SqliteRuntimeAttachmentStore();
+    try {
+      expect(await secondStore.listRuntimeAttachments("worktree-001")).toEqual([attachment]);
+      await secondStore.removeRuntimeAttachment(attachment.id);
+      expect(await secondStore.listRuntimeAttachments("worktree-001")).toEqual([]);
+    } finally {
+      secondStore.close();
+    }
   });
 });

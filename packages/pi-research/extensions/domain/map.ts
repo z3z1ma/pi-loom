@@ -1,5 +1,4 @@
 import type { InitiativeState, InitiativeSummary } from "@pi-loom/pi-initiatives/extensions/domain/models.js";
-import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import type { SpecChangeSummary } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
@@ -8,10 +7,6 @@ import type { TicketSummary } from "@pi-loom/pi-ticketing/extensions/domain/mode
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import type { ResearchArtifactRecord, ResearchHypothesisRecord, ResearchMap, ResearchState } from "./models.js";
 import { currentTimestamp, normalizeStringList } from "./normalize.js";
-
-function summariesById<T extends { id: string }>(summaries: T[]): Map<string, T> {
-  return new Map(summaries.map((summary) => [summary.id, summary]));
-}
 
 function isMissingLinkedRecord(error: unknown, kind: "initiative" | "spec" | "ticket"): boolean {
   if (!(error instanceof Error)) {
@@ -112,28 +107,6 @@ async function resolveInitiativeSummary(cwd: string, initiativeId: string): Prom
     };
   }
   throw new Error(`Unknown initiative: ${initiativeId}`);
-}
-
-export function buildResearchMapProjection(
-  cwd: string,
-  state: ResearchState,
-  hypotheses: ResearchHypothesisRecord[],
-  artifacts: ResearchArtifactRecord[],
-): ResearchMap {
-  const initiativeStore = createInitiativeStore(cwd);
-  const specStore = createSpecStore(cwd);
-  const ticketStore = createTicketStore(cwd);
-  return buildResearchMapFromSummaries(
-    state,
-    hypotheses,
-    artifacts,
-    summariesById(initiativeStore.listInitiativesProjection({ includeArchived: true }) as InitiativeSummary[]),
-    new Set<string>(),
-    summariesById(specStore.listChangesProjection({ includeArchived: true }) as SpecChangeSummary[]),
-    new Set<string>(),
-    summariesById(ticketStore.listTickets({ includeClosed: true }) as TicketSummary[]),
-    new Set<string>(),
-  );
 }
 
 function buildResearchMapFromSummaries(

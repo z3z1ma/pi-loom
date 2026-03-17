@@ -2,9 +2,9 @@
 
 A `pi-packages`-style workspace for durable, AI-native extensions.
 
-This repository currently ships ten extension packages: `pi-constitution`, which gives pi a durable constitutional memory layer under `.loom/constitution/`; `pi-research`, which gives pi a durable discovery and evidence layer under `.loom/research/`; `pi-initiatives`, which gives pi a local, repo-visible strategic memory layer under `.loom/initiatives/`; `pi-specs`, which adds first-class specification memory under `.loom/specs/`; `pi-plans`, which adds a durable execution-strategy layer under `.loom/plans/`; `pi-ticketing`, which provides the execution ledger under `.loom/tickets/`; `pi-workers`, which adds a workspace-backed manager-worker execution substrate under `.loom/workers/`; `pi-critique`, which adds durable adversarial review packets, runs, findings, and launch descriptors under `.loom/critiques/`; `pi-ralph`, which adds bounded Ralph-loop orchestration records and fresh-context launch descriptors under `.loom/ralph/`; and `pi-docs`, which adds durable high-level documentation memory under `.loom/docs/`. It also includes `pi-storage`, an internal shared package that seeds the backend-agnostic storage contract for the SQLite-first migration. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` without attempting compatibility with either `agent-loom`.
+This repository ships extension packages including `pi-constitution`, `pi-research`, `pi-initiatives`, `pi-specs`, `pi-plans`, `pi-ticketing`, `pi-workers`, `pi-critique`, `pi-ralph`, and `pi-docs`. Canonical state for all these extensions is persisted in SQLite via `pi-storage` and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` without attempting compatibility with either `agent-loom`.
 
-Constitutional memory is the highest-order project context in this workspace. It captures durable vision, principles, constraints, roadmap items, and decisions that shape every lower layer. It is intentionally separate from `AGENTS.md`: constitutional artifacts in `.loom/constitution/` define enduring project truth, while `AGENTS.md` remains operational guidance for how the harness or a directory should behave during execution.
+Constitutional memory is the highest-order project context in this workspace. It captures durable vision, principles, constraints, roadmap items, and decisions that shape every lower layer. It is intentionally separate from `AGENTS.md`: constitutional state persisted in SQLite via pi-storage defines enduring project truth, while `AGENTS.md` remains operational guidance for how the harness or a directory should behave during execution.
 
 ## Workspace layout
 
@@ -18,7 +18,7 @@ Constitutional memory is the highest-order project context in this workspace. It
 - `packages/pi-critique/` — critique memory extension package
 - `packages/pi-ralph/` — Ralph loop orchestration extension package
 - `packages/pi-docs/` — documentation memory extension package
-- `packages/pi-storage/` — internal storage-contract package for shared canonical state migration
+- `packages/pi-storage/` — internal storage-contract package for shared canonical state
 - `.agents/resources/` — reference material
 
 ## Development
@@ -54,7 +54,7 @@ The current Loom stack is:
 - critique for durable adversarial review packets, verdicts, findings, and follow-up work
 - docs for durable high-level architecture, workflow, concept, and operations understanding after completed work changes the system narrative
 
-Specs are the bridge between that durable research context and execution, turning validated understanding into bounded change contracts. Plans then sit between specs (or broader initiative/workspace context) and tickets: they keep a thin execution narrative plus a linked ticket set without trying to replace ticket fidelity. When specs project tickets, those tickets may retain explicit research provenance alongside their spec and initiative links, and plans can group the resulting execution slice without scraping ticket detail back out of markdown.
+Specs are the bridge between that durable research context and execution, turning validated understanding into bounded change contracts. Plans then sit between specs (or broader initiative/workspace context) and tickets: they keep a thin execution narrative plus a linked ticket set without trying to replace ticket fidelity. Spec state synchronizes tickets into the execution layer, with those tickets retaining explicit research provenance alongside their spec and initiative links, and plans can group the resulting execution slice.
 
 Initiatives should link back to constitutional roadmap items where applicable so strategic work can be traced to explicit constitutional commitments rather than only to local execution metadata.
 
@@ -64,55 +64,57 @@ Documentation is the post-completion explanatory layer. It keeps architecture ov
 
 ## Execution ledger layer
 
-The execution layer focuses on a local durable ticket ledger:
+The execution layer focuses on durable ticket state:
 
-- markdown ticket files with structured frontmatter
-- append-only journal sidecars
-- attachments and checkpoints as first-class records
+- SQLite-backed ticket records, journals, attachments, and checkpoints
 - dependency graph queries for ready/blocked work
 - AI-facing tools plus built-in ticketing guidance
 
 Broader general-purpose worker coordination beyond the bounded local manager-worker substrate remains intentionally deferred. The current orchestration surface is still Ralph-specific and composes with plans, tickets, workers, critique, and related Loom artifacts rather than replacing them with a generic workflow engine.
 
-Workers are the local durable execution substrate around that ledger: they persist local control-plane and runtime-adjacent state under `.loom/workers/`, but they are not themselves the shared execution ledger. Tickets remain the repo-visible record another clone should read to understand live execution truth in the current file-backed implementation.
+Workers are the local execution substrate: they keep control-plane and runtime-adjacent scratch state local to a worktree, but they are not themselves the shared execution ledger. Tickets are synchronized from the SQLite-backed execution layer via pi-storage.
 
-## Storage direction
+## Storage model
 
-Pi Loom is migrating from repo-file canonical operational state toward a shared database-canonical substrate. The intended steady state is:
+Pi Loom persists canonical operational state in SQLite via pi-storage. The steady state is:
 
-- canonical operational Loom state lives in a shared local catalog rather than being derived from `<cwd>/.loom/...` files alone
-- `pi-constitution`, `pi-docs`, and `pi-specs` keep their main human-facing markdown bodies in the repo for grep/find/review workflows
-- JSON metadata, dashboards, machine state, and similar auxiliary artifacts move to the canonical store by default unless a specific projection is intentionally materialized
-- worker runtime/worktree control-plane state remains clone-local even when more durable worker history becomes queryable elsewhere
+- canonical operational Loom state lives in SQLite, the shared persistent catalog
+- packets, plans, and other human-facing renderings are generated from canonical records rather than treated as durable repo state
+- runtime-local worktree control-plane state remains clone-local scratch space and is not persisted as shared truth
+- historical `.loom/...` paths may still appear in examples or local tooling, but they are not the system of record
 
-Today, most packages are still implemented as file-backed stores under `.loom/...`. Treat the current repo artifacts as the active implementation until the storage migration cutover lands, but do not assume the long-term design keeps every machine-oriented `.loom` artifact committed as canonical shared truth.
+Before applying breaking catalog-schema changes, back up the current SQLite catalog manually. The standard backup command is:
+
+```bash
+sqlite3 "$PI_LOOM_ROOT/catalog.sqlite" ".backup '$PI_LOOM_ROOT/catalog-$(date +%Y%m%d-%H%M%S).sqlite'"
+```
+
+If `PI_LOOM_ROOT` is unset, Pi Loom defaults to `~/.pi/loom`.
 
 ## Loom artifact commit policy
 
-Maintain Loom state as repo-relative workspace data.
+Treat repo-visible artifacts as exports or review surfaces, not as canonical state:
 
-- Store durable paths as workspace-root-relative values such as `.loom/specs/changes/add-dark-mode/proposal.md`, never as absolute clone-local paths.
-- During the current file-backed implementation, commit canonical Loom records even when they change often. Mutability is not the boundary; project truth is. As the SQLite-first migration lands, the default long-term carve-out is narrower: the main human-facing markdown bodies for `pi-constitution`, `pi-docs`, and `pi-specs` remain repo-materialized and grep-friendly, while machine-oriented metadata/state moves to the canonical store by default unless intentionally projected.
-- Do not commit local durable runtime/control-plane artifacts whose job is to attach execution to one clone instead of defining shared repo truth. Today that specifically includes everything under `.loom/workers/`, `.loom/**/launch.json`, and everything under `.loom/runtime/`.
-- Rule of thumb during migration: if deleting the artifact would erase a repo-materialized markdown body or another intentionally projected review surface another clone still needs in order to understand, audit, or resume the work truthfully, keep it. If the artifact is machine-oriented metadata/state that the canonical store will own, plan for it to move out of the repo unless there is a specific projection need.
-- Generated does not mean ignorable. Keep generated artifacts when they are still the active implementation or when they are intentional projections; otherwise prefer the canonical store over duplicate machine state in git.
-- If a package documents an artifact as durable and repo-visible today, follow the current implementation. If policy and code disagree during migration, update both together rather than letting stale repo artifacts masquerade as the future design.
+- Store any exported path references as workspace-root-relative values, never as absolute clone-local paths.
+- Commit generated review surfaces only when a workflow explicitly needs them for review.
+- Do not commit machine-oriented metadata, state, dashboards, or cached views; these are derived from SQLite and should not be duplicated in git.
+- Do not commit local durable runtime/control-plane artifacts whose job is to attach execution to one clone instead of defining shared state. This includes everything under `.loom/workers/`, `.loom/**/launch.json`, and everything under `.loom/runtime/`.
+- If an artifact is not an intentional export for humans, let it live in SQLite alone.
 
 ## Planning layer
 
 The Loom layer between specs and ticket execution is durable planning memory:
 
-- plans live under `.loom/plans/`
 - plans compile bounded packets from constitution, research, initiative, spec, ticket, critique, and docs context
-- each plan keeps `state.json`, `packet.md`, `plan.md`, and `dashboard.json`
-- `plan.md` is intentionally self-contained and ExecPlan-shaped: it gives a novice-facing execution guide with milestones, validation, recovery notes, interfaces, and revision history while referencing linked tickets instead of replacing their execution detail
+- each plan keeps planning state in SQLite via pi-storage
+- generated plan documents are intentionally self-contained and ExecPlan-shaped: they give a novice-facing execution guide with milestones, validation, recovery notes, interfaces, and revision history while referencing linked tickets instead of replacing their execution detail
 - linked tickets remain the live execution system of record, while the plan stays the durable execution-strategy container
 
 ## Critique layer
 
 The critique layer provides durable adversarial review memory:
 
-- critique records live under `.loom/critiques/`
+- critique records are persisted in SQLite via pi-storage
 - each critique compiles a `packet.md` for a fresh reviewer context
 - `/critique launch` opens a fresh session handoff, while `critique_launch` executes the same packet in a separate fresh `pi` process and returns the review result synchronously; callers should allow a long timeout because the tool blocks until the critic exits and must land a durable `critique_run`
 - runs and findings append durably instead of being flattened into chat
@@ -123,8 +125,8 @@ The critique layer provides durable adversarial review memory:
 
 The bounded Ralph loop layer provides durable orchestration over the lower Loom artifacts:
 
-- Ralph runs live under `.loom/ralph/`
-- each run keeps canonical `state.json`, `packet.md`, `run.md`, `iterations.jsonl`, and `dashboard.json`, plus runtime-only `launch.json`
+- Ralph runs are persisted in SQLite via pi-storage
+- each run keeps canonical state, packet, run narratives, and iteration records
 - Ralph orchestrates bounded plan → execute → critique → revise loops without replacing plans, tickets, critique, or docs as canonical records
 - fresh iterations are expected to rehydrate from durable Loom context rather than from one unbounded transcript
 - loop control is policy-driven and intended to expose explicit continuation, pause, escalation, and stop decisions
@@ -133,28 +135,26 @@ The bounded Ralph loop layer provides durable orchestration over the lower Loom 
 
 The final Loom memory layer is durable documentation memory:
 
-- documentation records live under `.loom/docs/`
+- documentation records are persisted in SQLite via pi-storage
 - docs are organized as a focused corpus of overviews, guides, concepts, and operations docs instead of one giant markdown file
-- each document keeps `state.json`, `packet.md`, `doc.md`, `revisions.jsonl`, and `dashboard.json`
 - documentation packets compile linked constitution, initiative, research, spec, ticket, and critique context into a bounded maintainer handoff
-- `/docs update` opens a fresh session handoff, while `docs_update` executes the same packet in a separate fresh `pi` process and requires a durable revision to land
+- `/docs update` opens a fresh session handoff, while `docs_update` executes the same packet in a separate fresh `pi` process and requires the canonical SQLite-backed revision to land
 - the layer stays high-level and explanatory rather than turning into API reference generation
 
 ## Spec-driven workflow layer
 
 The Loom layer between research and ticketing is durable specification memory:
 
-- spec changes live under `.loom/specs/changes/`
-- canonical capabilities live under `.loom/specs/capabilities/`
+- spec state is persisted in SQLite via pi-storage
+- spec renderings may be generated for review, but SQLite remains the canonical store
 - specs translate research and initiative context into bounded implementation contracts
-- finalized specs can deterministically project sequenced tickets into `.loom/tickets/`
-- projected tickets retain explicit provenance back to their originating research, spec change, capabilities, and requirements
+- finalized specs synchronize tickets into the execution layer, with those tickets retaining explicit provenance back to their originating research, spec change, capabilities, and requirements
 
 ## Initiative memory layer
 
 The Loom coordination layer between research and specs is durable initiative memory:
 
-- initiatives live under `.loom/initiatives/`
+- initiatives are persisted in SQLite via pi-storage
 - initiatives group related research threads, multiple spec changes, and multiple ticket streams around a larger objective
 - initiatives can reference constitutional roadmap items so machine and human views show which constitutional commitments they advance
 - linked specs and tickets retain explicit initiative membership for cross-layer traceability
@@ -164,8 +164,9 @@ The Loom coordination layer between research and specs is durable initiative mem
 
 The Loom layer upstream of initiatives is durable research memory:
 
-- research lives under `.loom/research/`
+- research is persisted in SQLite via pi-storage
+- research renderings may be generated for review, but SQLite remains the canonical store
 - research records discovery, evidence, constraints, and open questions before commitment to execution
-- research remains distinct from constitutional memory: it informs project choices, but it does not replace the durable constitutional source of truth in `.loom/constitution/`
-- linked initiatives, specs, and projected tickets can retain explicit research provenance for cross-layer traceability
+- research remains distinct from constitutional memory: it informs project choices, but it does not replace the durable constitutional source of truth
+- linked initiatives, specs, and tickets can retain explicit research provenance for cross-layer traceability
 - the layer stays focused on durable findings rather than execution logs or speculative runtime features

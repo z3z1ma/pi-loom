@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,11 +34,11 @@ describe("InitiativeStore durable memory", () => {
     await researchStore.createResearch({ title: "Investigate theme migration" });
     await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
     await specStore.createChange({ title: "Modernize theming tokens", summary: "Replace legacy color literals." });
-    const blocker = await ticketStore.createTicketAsync({ title: "Prepare token inventory" })
+    const blocker = await ticketStore.createTicketAsync({ title: "Prepare token inventory" });
     const dependent = await ticketStore.createTicketAsync({
       title: "Apply token migration",
       deps: [blocker.summary.id],
-    })
+    });
 
     const created = await initiativeStore.createInitiative({
       title: "Platform modernization",
@@ -65,15 +65,15 @@ describe("InitiativeStore durable memory", () => {
 
     expect(created.state.initiativeId).toBe("platform-modernization");
     expect(created.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
-    expect(existsSync(join(workspace, ".loom", "initiatives", "platform-modernization", "initiative.md"))).toBe(true);
-    expect(existsSync(join(workspace, ".loom", "initiatives", "platform-modernization", "dashboard.json"))).toBe(false);
     expect(created.dashboard.linkedSpecs.total).toBe(2);
     expect(created.dashboard.linkedTickets.total).toBe(2);
     expect(created.dashboard.linkedTickets.blocked).toBe(1);
     expect(created.dashboard.milestones[0]).toMatchObject({ health: "at_risk" });
     expect(created.state.researchIds).toEqual([]);
-    expect(specStore.readChangeProjection("add-dark-mode").state.initiativeIds).toEqual(["platform-modernization"]);
-    expect(ticketStore.readTicket(blocker.summary.id).summary.initiativeIds).toEqual(["platform-modernization"]);
+    expect((await specStore.readChange("add-dark-mode")).state.initiativeIds).toEqual(["platform-modernization"]);
+    expect((await ticketStore.readTicketAsync(blocker.summary.id)).summary.initiativeIds).toEqual([
+      "platform-modernization",
+    ]);
 
     const linkedResearch = await researchStore.linkInitiative("investigate-theme-migration", "platform-modernization");
     expect(linkedResearch.state.initiativeIds).toEqual(["platform-modernization"]);
@@ -104,7 +104,7 @@ describe("InitiativeStore durable memory", () => {
     expect((await initiativeStore.listInitiatives({ includeArchived: true }))[0]?.path).toBe(
       join(".loom", "initiatives", "platform-modernization"),
     );
-    expect(specStore.readChangeProjection("modernize-theming-tokens").summary.initiativeIds).toEqual([
+    expect((await specStore.readChange("modernize-theming-tokens")).summary.initiativeIds).toEqual([
       "platform-modernization",
     ]);
 
@@ -113,12 +113,8 @@ describe("InitiativeStore durable memory", () => {
     );
     expect(hydrated.dashboard).not.toHaveProperty("generatedAt");
 
-    const brief = readFileSync(
-      join(workspace, ".loom", "initiatives", "platform-modernization", "initiative.md"),
-      "utf-8",
-    );
-    expect(brief).toContain("## Objective");
-    expect(brief).toContain("Coordinate the long-horizon modernization program.");
-    expect(brief).toContain("## Milestones");
+    expect(archived.brief).toContain("## Objective");
+    expect(archived.brief).toContain("Coordinate the long-horizon modernization program.");
+    expect(archived.brief).toContain("## Milestones");
   }, 120000);
 });

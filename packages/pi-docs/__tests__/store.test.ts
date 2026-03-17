@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
@@ -148,12 +148,11 @@ describe("DocumentationStore durable memory", () => {
     });
 
     expect(doc.state.docId).toBe("documentation-memory-system");
-    const docRoot = join(workspace, ".loom", "docs", "overviews", doc.state.docId);
-    expect(existsSync(join(docRoot, "state.json"))).toBe(true);
-    expect(existsSync(join(docRoot, "packet.md"))).toBe(true);
-    expect(existsSync(join(docRoot, "doc.md"))).toBe(true);
-    expect(existsSync(join(docRoot, "revisions.jsonl"))).toBe(true);
-    expect(existsSync(join(docRoot, "dashboard.json"))).toBe(false);
+    expect(doc.summary.path).toBe(`.loom/docs/overviews/${doc.state.docId}`);
+    expect(doc.dashboard.packetPath).toBe(`.loom/docs/overviews/${doc.state.docId}/packet.md`);
+    expect(doc.dashboard.documentPath).toBe(`.loom/docs/overviews/${doc.state.docId}/doc.md`);
+    expect(doc.document).toContain("id: documentation-memory-system");
+    expect(doc.document).toContain("type: overview");
     expect(doc.packet).toContain("Keep Loom memory layers truthful as the codebase evolves.");
     expect(doc.packet).toContain(initiative.state.initiativeId);
     expect(doc.packet).toContain(research.state.researchId);
@@ -191,13 +190,14 @@ describe("DocumentationStore durable memory", () => {
     expect(revised.dashboard.lastRevision?.id).toBe("rev-001");
     expect(revised.dashboard.linkedOutputPaths).toEqual(["docs/loom.md"]);
 
-    const revisionsLog = readFileSync(join(docRoot, "revisions.jsonl"), "utf-8");
-    expect(revisionsLog).toContain("rev-001");
-    expect(revisionsLog).toContain("packetHash");
+    expect(revised.revisions[0]?.packetHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(revised.document).toContain("type: overview");
+    expect(revised.document).toContain("## Update Flow");
+    expect(revised.document).toContain("Documentation remains distinct from critique");
 
-    const renderedDocument = readFileSync(join(docRoot, "doc.md"), "utf-8");
-    expect(renderedDocument).toContain("type: overview");
-    expect(renderedDocument).toContain("## Update Flow");
-    expect(renderedDocument).toContain("Documentation remains distinct from critique");
+    const reread = await docsStore.readDoc(doc.state.docId);
+    expect(reread.revisions).toEqual(revised.revisions);
+    expect(reread.document).toBe(revised.document);
+    expect(reread.packet).toBe(revised.packet);
   }, 120000);
 });

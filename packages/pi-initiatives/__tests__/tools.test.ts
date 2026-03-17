@@ -150,7 +150,9 @@ describe("initiative tools", () => {
           state: { ticketIds: [ticket.summary.id] },
         },
       });
-      expect(ticketStore.readTicket(ticket.summary.id).summary.initiativeIds).toEqual(["platform-modernization"]);
+      expect((await ticketStore.readTicketAsync(ticket.summary.id)).summary.initiativeIds).toEqual([
+        "platform-modernization",
+      ]);
 
       const milestone = await initiativeWrite.execute(
         "call-4",

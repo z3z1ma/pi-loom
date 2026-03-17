@@ -3,13 +3,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it } from "vitest";
+import { findEntityByDisplayId, openWorkspaceStorage } from "../../pi-storage/storage/workspace.js";
 import { handleConstitutionCommand } from "../extensions/commands/constitution.js";
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-constitution-commands-"));
+  process.env.PI_LOOM_ROOT = path.join(cwd, ".pi-loom-test");
   return {
     cwd,
-    cleanup: () => fs.rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      fs.rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -25,7 +30,9 @@ describe("/constitution command handler", () => {
 
       const initialized = await handleConstitutionCommand("init", ctx);
       expect(initialized).toContain(`Initialized constitutional memory at ${path.join(cwd, ".loom", "constitution")}`);
-      expect(fs.existsSync(path.join(cwd, ".loom", "constitution"))).toBe(true);
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const constitutionEntity = await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution");
+      expect(constitutionEntity).toBeTruthy();
 
       const vision = await handleConstitutionCommand(
         "update vision Establish durable project intent :: Ground agents with governing context before roadmap-scale planning",

@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export const LOOM_STORAGE_CONTRACT_VERSION = 1 as const;
+export const LOOM_STORAGE_CONTRACT_VERSION = 2 as const;
 
 export const LOOM_ENTITY_KINDS = [
   "constitution",
@@ -26,7 +26,6 @@ export const LOOM_LINK_KINDS = [
   "documents",
   "critiques",
   "spawned_from",
-  "owns_projection",
   "scoped_to_repository",
 ] as const;
 
@@ -36,27 +35,10 @@ export const LOOM_EVENT_KINDS = [
   "status_changed",
   "linked",
   "unlinked",
-  "projected",
-  "hydrated",
   "imported",
   "exported",
   "decision_recorded",
 ] as const;
-
-export const LOOM_PROJECTION_KINDS = [
-  "constitution_markdown_body",
-  "documentation_markdown_body",
-  "spec_markdown_body",
-  "plan_markdown_projection",
-  "ticket_markdown_projection",
-  "checkpoint_markdown_projection",
-  "packet_markdown_projection",
-  "dashboard_projection",
-  "artifact_manifest",
-  "sync_bundle",
-] as const;
-
-export const LOOM_PROJECTION_MATERIALIZATIONS = ["repo_materialized", "generated_on_demand", "db_only"] as const;
 
 export const LOOM_RUNTIME_ATTACHMENT_KINDS = [
   "worker_runtime",
@@ -70,8 +52,6 @@ export const LOOM_WORKTREE_STATUSES = ["attached", "suspended", "retired"] as co
 export type LoomEntityKind = (typeof LOOM_ENTITY_KINDS)[number];
 export type LoomLinkKind = (typeof LOOM_LINK_KINDS)[number];
 export type LoomEventKind = (typeof LOOM_EVENT_KINDS)[number];
-export type LoomProjectionKind = (typeof LOOM_PROJECTION_KINDS)[number];
-export type LoomProjectionMaterialization = (typeof LOOM_PROJECTION_MATERIALIZATIONS)[number];
 export type LoomRuntimeAttachmentKind = (typeof LOOM_RUNTIME_ATTACHMENT_KINDS)[number];
 export type LoomWorktreeStatus = (typeof LOOM_WORKTREE_STATUSES)[number];
 
@@ -111,7 +91,7 @@ export interface LoomWorktreeRecord extends LoomAuditFields {
 export interface LoomPathScope {
   repositoryId: LoomId;
   relativePath: string;
-  role: "canonical" | "projection" | "artifact";
+  role: "canonical" | "artifact";
 }
 
 export interface LoomEntityRecord extends LoomAuditFields {
@@ -147,19 +127,7 @@ export interface LoomEntityEventRecord {
   payload: Record<string, unknown>;
 }
 
-export interface LoomProjectionRecord extends LoomAuditFields {
-  id: LoomId;
-  entityId: LoomId;
-  kind: LoomProjectionKind;
-  materialization: LoomProjectionMaterialization;
-  repositoryId: LoomId | null;
-  relativePath: string | null;
-  contentHash: string | null;
-  version: number;
-  content: string | null;
-}
-
-export interface LoomRuntimeAttachment {
+export interface LoomRuntimeAttachment extends LoomAuditFields {
   id: LoomId;
   worktreeId: LoomId;
   kind: LoomRuntimeAttachmentKind;
@@ -179,14 +147,15 @@ export interface LoomCanonicalStorage {
   listEntities(spaceId?: LoomId, kind?: LoomEntityKind): Promise<LoomEntityRecord[]>;
   listLinks(entityId: LoomId): Promise<LoomEntityLinkRecord[]>;
   listEvents(entityId: LoomId): Promise<LoomEntityEventRecord[]>;
-  listProjections(entityId: LoomId): Promise<LoomProjectionRecord[]>;
+  listRuntimeAttachments(worktreeId?: LoomId): Promise<LoomRuntimeAttachment[]>;
   upsertSpace(record: LoomSpaceRecord): Promise<void>;
   upsertRepository(record: LoomRepositoryRecord): Promise<void>;
   upsertWorktree(record: LoomWorktreeRecord): Promise<void>;
   upsertEntity(record: LoomEntityRecord): Promise<void>;
   upsertLink(record: LoomEntityLinkRecord): Promise<void>;
   appendEvent(record: LoomEntityEventRecord): Promise<void>;
-  upsertProjection(record: LoomProjectionRecord): Promise<void>;
+  upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void>;
+  removeRuntimeAttachment(id: LoomId): Promise<void>;
   transact<T>(run: (tx: LoomCanonicalTransaction) => Promise<T>): Promise<T>;
 }
 
@@ -196,8 +165,8 @@ export interface LoomCanonicalTransaction extends LoomCanonicalStorage {
 }
 
 export interface LoomRuntimeStateStore {
-  getRuntimeAttachments(worktreeId: LoomId): Promise<LoomRuntimeAttachment[]>;
-  putRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void>;
+  listRuntimeAttachments(worktreeId?: LoomId): Promise<LoomRuntimeAttachment[]>;
+  upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void>;
   removeRuntimeAttachment(id: LoomId): Promise<void>;
 }
 

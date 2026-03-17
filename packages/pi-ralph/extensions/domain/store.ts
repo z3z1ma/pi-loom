@@ -1,14 +1,4 @@
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
 import { createDocumentationStore } from "@pi-loom/pi-docs/extensions/domain/store.js";
@@ -17,10 +7,12 @@ import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
+import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
+import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
+import { SqliteLoomCatalog } from "@pi-loom/pi-storage/storage/sqlite.js";
 import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
-  upsertProjectionForEntity,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
@@ -94,21 +86,28 @@ function hasStructuredRalphAttributes(attributes: unknown): attributes is RalphE
   return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
 }
 
-function ensureDir(path: string): void {
-  mkdirSync(path, { recursive: true });
+interface StoredRalphEntityRow {
+  id: string;
+  display_id: string | null;
+  version: number;
+  created_at: string;
+  attributes_json: string;
 }
 
-function writeFileAtomic(path: string, content: string): void {
-  ensureDir(dirname(path));
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tempPath, content, "utf-8");
-  renameSync(tempPath, path);
+function openRalphCatalogSync(cwd: string): { storage: SqliteLoomCatalog; identity: ReturnType<typeof resolveWorkspaceIdentity> } {
+  const storage = new SqliteLoomCatalog();
+  const identity = resolveWorkspaceIdentity(cwd);
+  void storage.upsertSpace(identity.space);
+  void storage.upsertRepository(identity.repository);
+  void storage.upsertWorktree(identity.worktree);
+  return { storage, identity };
 }
 
-function ensureFile(path: string, content: string): void {
-  if (!existsSync(path)) {
-    writeFileAtomic(path, content);
+function parseStoredJson<T>(value: string, fallback: T): T {
+  if (!value.trim()) {
+    return fallback;
   }
+  return JSON.parse(value) as T;
 }
 
 function toRepoRelativeWorkspacePath(cwd: string, filePath: string): string {
@@ -116,27 +115,35 @@ function toRepoRelativeWorkspacePath(cwd: string, filePath: string): string {
   return relativePath || ".";
 }
 
-function writeJson(path: string, value: unknown): void {
-  writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
+function findStoredRalphRow(cwd: string, runId: string): StoredRalphEntityRow | null {
+  const { storage, identity } = openRalphCatalogSync(cwd);
+  return (storage.db
+    .prepare(
+      "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1",
+    )
+    .get(identity.space.id, ENTITY_KIND, runId) ?? null) as StoredRalphEntityRow | null;
 }
 
-function readJson<T>(path: string): T {
-  return JSON.parse(readFileSync(path, "utf-8")) as T;
+function listStoredRalphRecords(cwd: string): RalphReadResult[] {
+  const { storage, identity } = openRalphCatalogSync(cwd);
+  const rows = storage.db
+    .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id")
+    .all(identity.space.id, ENTITY_KIND) as Array<{ attributes_json: string }>;
+  return rows.map((row) => {
+    const attributes = parseStoredJson<RalphEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
+    if (!hasStructuredRalphAttributes(attributes)) {
+      throw new Error("Ralph run entity is missing structured attributes");
+    }
+    return attributes.record;
+  });
 }
 
-function appendJsonl(path: string, value: unknown): void {
-  ensureDir(dirname(path));
-  appendFileSync(path, `${JSON.stringify(value)}\n`, "utf-8");
-}
-
-function readJsonl<T>(path: string): T[] {
-  if (!existsSync(path)) {
-    return [];
-  }
-  return readFileSync(path, "utf-8")
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as T);
+function readStructuredEntityAttributesSync<T>(cwd: string, kind: string, displayId: string): T | null {
+  const { storage, identity } = openRalphCatalogSync(cwd);
+  const row = storage.db
+    .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1")
+    .get(identity.space.id, kind, displayId) as { attributes_json: string } | undefined;
+  return row ? parseStoredJson<T>(row.attributes_json, {} as T) : null;
 }
 
 function parseJsonlText<T>(content: string): T[] {
@@ -476,25 +483,16 @@ export class RalphStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    const paths = getRalphPaths(this.cwd);
-    ensureDir(paths.ralphDir);
-    return { initialized: true, root: paths.ralphDir };
+    return { initialized: true, root: getRalphPaths(this.cwd).ralphDir };
   }
 
   private runDirectories(): string[] {
-    const directory = getRalphPaths(this.cwd).ralphDir;
-    if (!existsSync(directory)) {
-      return [];
-    }
-    return readdirSync(directory)
-      .map((entry) => join(directory, entry))
-      .filter((path) => statSync(path).isDirectory())
-      .sort((left, right) => basename(left).localeCompare(basename(right)));
+    return listStoredRalphRecords(this.cwd).map((record) => getRalphRunDir(this.cwd, record.state.runId));
   }
 
   private nextRunId(seed: string): string {
     const baseId = slugifyRalphValue(seed);
-    const existing = new Set(this.runDirectories().map((directory) => basename(directory)));
+    const existing = new Set(this.runDirectories().map((directory) => directory.split("/").at(-1) ?? directory));
     if (!existing.has(baseId)) {
       return baseId;
     }
@@ -508,7 +506,7 @@ export class RalphStore {
   private resolveRunDirectory(ref: string): string {
     const runId = normalizeRalphRunRef(ref);
     const runDir = getRalphRunDir(this.cwd, runId);
-    if (!existsSync(join(runDir, "state.json"))) {
+    if (!findStoredRalphRow(this.cwd, runId)) {
       throw new Error(`Unknown Ralph run: ${ref}`);
     }
     return runDir;
@@ -544,47 +542,51 @@ export class RalphStore {
   }
 
   private resolvePacketContext(state: RalphRunState): ResolvedPacketContext {
-    const constitutionStore = createConstitutionalStore(this.cwd);
-    const initiativeStore = createInitiativeStore(this.cwd);
-    const researchStore = createResearchStore(this.cwd);
-    const specStore = createSpecStore(this.cwd);
-    const planStore = createPlanStore(this.cwd);
-    const ticketStore = createTicketStore(this.cwd);
-    const critiqueStore = createCritiqueStore(this.cwd);
-    const docsStore = createDocumentationStore(this.cwd);
-
     return {
       roadmap: this.buildContextSummary(state.linkedRefs.roadmapItemIds, (ref) => {
-        const item = constitutionStore.readRoadmapItemProjection(ref);
+        const constitution = readStructuredEntityAttributesSync<{ state: { roadmapItems: Array<{ id: string; status: string; title: string }> } }>(
+          this.cwd,
+          "constitution",
+          resolveWorkspaceIdentity(this.cwd).repository.slug,
+        );
+        const item = constitution?.state.roadmapItems.find((entry) => entry.id === ref);
+        if (!item) throw new Error(`Unknown roadmap item: ${ref}`);
         return `${item.id} [${item.status}] ${item.title}`;
       }),
       initiatives: this.buildContextSummary(state.linkedRefs.initiativeIds, (ref) => {
-        const initiative = initiativeStore.readInitiativeProjection(ref);
+        const initiative = readStructuredEntityAttributesSync<{ state: { initiativeId: string; status: string; title: string } }>(this.cwd, "initiative", ref);
+        if (!initiative) throw new Error(`Unknown initiative: ${ref}`);
         return `${initiative.state.initiativeId} [${initiative.state.status}] ${initiative.state.title}`;
       }),
       research: this.buildContextSummary(state.linkedRefs.researchIds, (ref) => {
-        const research = researchStore.readResearchProjection(ref);
+        const research = readStructuredEntityAttributesSync<{ state: { researchId: string; status: string; title: string } }>(this.cwd, "research", ref);
+        if (!research) throw new Error(`Unknown research: ${ref}`);
         return `${research.state.researchId} [${research.state.status}] ${research.state.title}`;
       }),
       specs: this.buildContextSummary(state.linkedRefs.specChangeIds, (ref) => {
-        const spec = specStore.readChangeProjection(ref);
-        return `${spec.summary.id} [${spec.summary.status}] ${spec.state.title}`;
+        const spec = readStructuredEntityAttributesSync<{ record: { summary: { id: string; status: string }; state: { title: string } } }>(this.cwd, "spec_change", ref);
+        if (!spec) throw new Error(`Unknown spec: ${ref}`);
+        return `${spec.record.summary.id} [${spec.record.summary.status}] ${spec.record.state.title}`;
       }),
       plans: this.buildContextSummary(state.linkedRefs.planIds, (ref) => {
-        const plan = planStore.readPlanProjection(ref);
-        return `${plan.summary.id} [${plan.summary.status}] ${plan.state.title}`;
+        const plan = readStructuredEntityAttributesSync<{ state: { planId: string; status: string; title: string } }>(this.cwd, "plan", ref);
+        if (!plan) throw new Error(`Unknown plan: ${ref}`);
+        return `${plan.state.planId} [${plan.state.status}] ${plan.state.title}`;
       }),
       tickets: this.buildContextSummary(state.linkedRefs.ticketIds, (ref) => {
-        const ticket = ticketStore.readTicket(ref);
-        return `${ticket.summary.id} [${ticket.summary.status}] ${ticket.summary.title}`;
+        const ticket = readStructuredEntityAttributesSync<{ record: { summary: { id: string; status: string; title: string } } }>(this.cwd, "ticket", ref);
+        if (!ticket) throw new Error(`Unknown ticket: ${ref}`);
+        return `${ticket.record.summary.id} [${ticket.record.summary.status}] ${ticket.record.summary.title}`;
       }),
       critiques: this.buildContextSummary(state.linkedRefs.critiqueIds, (ref) => {
-        const critique = critiqueStore.readCritique(ref);
-        return `${critique.summary.id} [${critique.summary.status}/${critique.summary.verdict}] ${critique.state.title}`;
+        const critique = readStructuredEntityAttributesSync<{ record: { summary: { id: string; status: string; verdict: string }; state: { title: string } } }>(this.cwd, "critique", ref);
+        if (!critique) throw new Error(`Unknown critique: ${ref}`);
+        return `${critique.record.summary.id} [${critique.record.summary.status}/${critique.record.summary.verdict}] ${critique.record.state.title}`;
       }),
       docs: this.buildContextSummary(state.linkedRefs.docIds, (ref) => {
-        const doc = docsStore.readDocProjection(ref);
-        return `${doc.summary.id} [${doc.summary.status}/${doc.summary.docType}] ${doc.state.title}`;
+        const doc = readStructuredEntityAttributesSync<{ record: { summary: { id: string; status: string; docType: string }; state: { title: string } } }>(this.cwd, "documentation", ref);
+        if (!doc) throw new Error(`Unknown document: ${ref}`);
+        return `${doc.record.summary.id} [${doc.record.summary.status}/${doc.record.summary.docType}] ${doc.record.state.title}`;
       }),
     };
   }
@@ -753,11 +755,28 @@ export class RalphStore {
   }
 
   private readState(runDir: string): RalphRunState {
-    return normalizeStoredRunState(readJson<RalphRunState>(join(runDir, "state.json")));
+    const runId = normalizeRalphRunId(runDir.split("/").at(-1) ?? runDir);
+    const row = findStoredRalphRow(this.cwd, runId);
+    if (!row) {
+      throw new Error(`Unknown Ralph run: ${runId}`);
+    }
+    const attributes = parseStoredJson<RalphEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
+    if (!hasStructuredRalphAttributes(attributes)) {
+      throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
+    }
+    return normalizeStoredRunState(attributes.record.state);
   }
 
   private readIterationHistory(runId: string): RalphIterationRecord[] {
-    return readJsonl<RalphIterationRecord>(getRalphArtifactPaths(this.cwd, runId).iterations).map((entry) =>
+    const row = findStoredRalphRow(this.cwd, runId);
+    if (!row) {
+      return [];
+    }
+    const attributes = parseStoredJson<RalphEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
+    if (!hasStructuredRalphAttributes(attributes)) {
+      throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
+    }
+    return attributes.record.iterations.map((entry) =>
       normalizeIteration(entry),
     );
   }
@@ -767,11 +786,15 @@ export class RalphStore {
   }
 
   private readLaunch(runId: string): RalphLaunchDescriptor | null {
-    const launchPath = getRalphArtifactPaths(this.cwd, runId).launch;
-    if (!existsSync(launchPath)) {
+    const row = findStoredRalphRow(this.cwd, runId);
+    if (!row) {
       return null;
     }
-    const launch = readJson<RalphLaunchDescriptor>(launchPath);
+    const attributes = parseStoredJson<RalphEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
+    if (!hasStructuredRalphAttributes(attributes) || !attributes.record.launch) {
+      return null;
+    }
+    const launch = attributes.record.launch;
     return {
       runId: normalizeRalphRunId(launch.runId),
       iterationId: launch.iterationId.trim(),
@@ -804,12 +827,13 @@ export class RalphStore {
     };
   }
 
-  private writeArtifacts(state: RalphRunState, launchOverride?: RalphLaunchDescriptor | null): RalphReadResult {
+  private writeArtifacts(
+    state: RalphRunState,
+    launchOverride?: RalphLaunchDescriptor | null,
+    iterationsOverride?: RalphIterationRecord[],
+  ): RalphReadResult {
     const artifacts = getRalphArtifactPaths(this.cwd, state.runId);
-    ensureDir(artifacts.dir);
-    ensureFile(artifacts.iterations, "");
-
-    const iterations = this.readIterations(state.runId);
+    const iterations = iterationsOverride ?? this.readIterations(state.runId);
     const normalizedState: RalphRunState = {
       ...state,
       lastIterationNumber: iterations.at(-1)?.iteration ?? state.lastIterationNumber,
@@ -831,12 +855,7 @@ export class RalphStore {
       RALPH_VERIFIER_VERDICTS,
     );
 
-    writeJson(artifacts.state, normalizedState);
-    writeFileAtomic(artifacts.packet, packet);
-    writeFileAtomic(artifacts.run, run);
-    writeJson(artifacts.launch, launch);
-
-    return {
+    const record: RalphReadResult = {
       state: normalizedState,
       summary,
       packet,
@@ -846,6 +865,25 @@ export class RalphStore {
       dashboard,
       artifacts,
     };
+    const { storage, identity } = openRalphCatalogSync(this.cwd);
+    const existing = findStoredRalphRow(this.cwd, record.summary.id);
+    void storage.upsertEntity({
+      id: existing?.id ?? createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+      kind: ENTITY_KIND,
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: record.summary.id,
+      title: record.summary.title,
+      summary: record.state.summary,
+      status: record.summary.status,
+      version: (existing?.version ?? 0) + 1,
+      tags: [record.summary.phase, ...(record.state.linkedRefs.planIds ?? [])],
+      pathScopes: [],
+      attributes: { record },
+      createdAt: existing?.created_at ?? record.state.createdAt,
+      updatedAt: record.state.updatedAt,
+    });
+    return record;
   }
 
   private createDefaultState(input: CreateRalphRunInput, runId: string, timestamp: string): RalphRunState {
@@ -1158,13 +1196,9 @@ export class RalphStore {
     const timestamp = currentTimestamp();
     const requestedRunId = normalizeOptionalString(input.runId);
     const runId = requestedRunId ? normalizeRalphRunId(requestedRunId) : this.nextRunId(input.title);
-    const runDir = getRalphRunDir(this.cwd, runId);
-
-    if (requestedRunId && existsSync(join(runDir, "state.json"))) {
+    if (requestedRunId && findStoredRalphRow(this.cwd, runId)) {
       throw new Error(`Ralph run already exists: ${runId}`);
     }
-
-    ensureDir(runDir);
     const state = this.createDefaultState(input, runId, timestamp);
     return this.writeArtifacts(state, this.defaultLaunchDescriptor(state, null));
   }
@@ -1237,7 +1271,7 @@ export class RalphStore {
       decision,
       notes: normalizeStringList([...(existing?.notes ?? []), ...(input.notes ?? [])]),
     };
-    appendJsonl(current.artifacts.iterations, record);
+    const nextIterations = latestById([...history, record]).sort((left, right) => left.iteration - right.iteration);
 
     const reviewWaitingFor = status === "reviewing" ? waitingForFromReviewSignals(verifier, critiqueLinks) : "none";
 
@@ -1259,7 +1293,7 @@ export class RalphStore {
       updatedAt: now,
       stopReason: ["failed", "cancelled"].includes(status) ? "runtime_failure" : current.state.stopReason,
     };
-    return this.writeArtifacts(nextState);
+    return this.writeArtifacts(nextState, undefined, nextIterations);
   }
 
   setVerifier(ref: string, input: Partial<RalphVerifierSummary>): RalphReadResult {
@@ -1363,16 +1397,20 @@ export class RalphStore {
   ): RalphReadResult {
     const current = this.readRun(ref);
     const iteration = this.latestIterationById(current.iterations, preparedIterationId);
-    if (iteration && iteration.status === "pending") {
-      appendJsonl(current.artifacts.iterations, {
-        ...iteration,
-        status: "cancelled",
-        completedAt: currentTimestamp(),
-        summary: summary?.trim() || "Interactive Ralph launch was cancelled before a worker session started.",
-        workerSummary: "No worker session was created.",
-        notes: normalizeStringList([...(iteration.notes ?? []), "Launch cancelled before session start."]),
-      });
-    }
+    const nextIterations =
+      iteration && iteration.status === "pending"
+        ? latestById([
+            ...current.iterations,
+            {
+              ...iteration,
+              status: "cancelled" as const,
+              completedAt: currentTimestamp(),
+              summary: summary?.trim() || "Interactive Ralph launch was cancelled before a worker session started.",
+              workerSummary: "No worker session was created.",
+              notes: normalizeStringList([...(iteration.notes ?? []), "Launch cancelled before session start."]),
+            },
+          ]).sort((left, right) => left.iteration - right.iteration)
+        : current.iterations;
 
     const nextState: RalphRunState = {
       ...previousState,
@@ -1385,7 +1423,7 @@ export class RalphStore {
       lastLaunchAt: previousState.lastLaunchAt,
       updatedAt: currentTimestamp(),
     };
-    return this.writeArtifacts(nextState);
+    return this.writeArtifacts(nextState, undefined, nextIterations);
   }
 
   archiveRun(ref: string): RalphReadResult {
@@ -1412,7 +1450,7 @@ export class RalphStore {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, materialized.summary.id);
     const version = (existing?.version ?? 0) + 1;
-    const entity = await upsertEntityByDisplayId(storage, {
+    await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -1422,52 +1460,16 @@ export class RalphStore {
       status: materialized.summary.status,
       version,
       tags: [materialized.summary.phase, ...(materialized.state.linkedRefs.planIds ?? [])],
-      pathScopes: [
-        { repositoryId: identity.repository.id, relativePath: materialized.summary.path, role: "canonical" },
-        { repositoryId: identity.repository.id, relativePath: materialized.dashboard.packetPath, role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: materialized.dashboard.runPath, role: "projection" },
-      ],
+      pathScopes: [],
       attributes: { record: materialized },
       createdAt: existing?.createdAt ?? materialized.state.createdAt,
       updatedAt: materialized.state.updatedAt,
     });
-    await upsertProjectionForEntity(
-      storage,
-      entity.id,
-      "packet_markdown_projection",
-      "repo_materialized",
-      identity.repository.id,
-      materialized.dashboard.packetPath,
-      materialized.packet,
-      version,
-      materialized.state.createdAt,
-      materialized.state.updatedAt,
-    );
-    await upsertProjectionForEntity(
-      storage,
-      entity.id,
-      "plan_markdown_projection",
-      "repo_materialized",
-      identity.repository.id,
-      materialized.dashboard.runPath,
-      materialized.run,
-      version,
-      materialized.state.createdAt,
-      materialized.state.updatedAt,
-    );
     return materialized;
   }
 
   private entityRecord(entity: { attributes: unknown }): RalphReadResult {
     return (entity.attributes as RalphEntityAttributes).record;
-  }
-
-  listRunsProjection(filter: RalphListFilter = {}) {
-    return this.listRuns(filter);
-  }
-
-  readRunProjection(ref: string): RalphReadResult {
-    return this.readRun(ref);
   }
 
   async initLedgerAsync(): Promise<{ initialized: true; root: string }> {

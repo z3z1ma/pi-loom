@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
@@ -31,25 +31,26 @@ describe("/initiative command handler", () => {
       const specStore = createSpecStore(cwd);
       const ticketStore = createTicketStore(cwd);
       await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-      const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" })
+      const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" });
 
       const initialized = await handleInitiativeCommand("init", ctx);
       expect(initialized).toContain(`Initialized initiative memory at ${join(cwd, ".loom", "initiatives")}`);
-      expect(existsSync(join(cwd, ".loom", "initiatives"))).toBe(true);
 
       const created = await handleInitiativeCommand("create Platform modernization", ctx);
       expect(created).toContain("platform-modernization [proposed]");
 
       const linkedSpec = await handleInitiativeCommand("link-spec platform-modernization add-dark-mode", ctx);
       expect(linkedSpec).toContain("Dashboard specs: 1");
-      expect(specStore.readChangeProjection("add-dark-mode").state.initiativeIds).toEqual(["platform-modernization"]);
+      expect((await specStore.readChange("add-dark-mode")).state.initiativeIds).toEqual(["platform-modernization"]);
 
       const linkedTicket = await handleInitiativeCommand(
         `link-ticket platform-modernization ${ticket.summary.id}`,
         ctx,
       );
       expect(linkedTicket).toContain("Dashboard tickets: 1");
-      expect(ticketStore.readTicket(ticket.summary.id).summary.initiativeIds).toEqual(["platform-modernization"]);
+      expect((await ticketStore.readTicketAsync(ticket.summary.id)).summary.initiativeIds).toEqual([
+        "platform-modernization",
+      ]);
 
       const milestone = await handleInitiativeCommand(
         `milestone platform-modernization Define migration path :: Lock the first delivery milestone :: add-dark-mode :: ${ticket.summary.id}`,

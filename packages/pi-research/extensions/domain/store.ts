@@ -1,18 +1,15 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import {
   appendEntityEvent,
   findEntityByDisplayId,
   upsertEntityByDisplayId,
-  upsertProjectionForEntity,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { buildResearchDashboard, buildResearchDashboardProjection } from "./dashboard.js";
-import { parseMarkdownArtifact } from "./frontmatter.js";
-import { buildResearchMap, buildResearchMapProjection } from "./map.js";
+import { buildResearchDashboard } from "./dashboard.js";
+import { buildResearchMap } from "./map.js";
 import type {
   CreateResearchInput,
   ResearchArtifactInput,
@@ -39,16 +36,8 @@ import {
   normalizeStringList,
   slugifyTitle,
 } from "./normalize.js";
-import {
-  getResearchArtifactPath,
-  getResearchArtifactsPath,
-  getResearchDir,
-  getResearchHypothesesPath,
-  getResearchMarkdownPath,
-  getResearchPaths,
-  getResearchStatePath,
-} from "./paths.js";
-import { renderResearchArtifactMarkdown, renderResearchMarkdown } from "./render.js";
+import { getResearchArtifactPath, getResearchDir, getResearchPaths } from "./paths.js";
+import { renderResearchMarkdown } from "./render.js";
 
 const ENTITY_KIND = "research" as const;
 
@@ -58,40 +47,12 @@ interface ResearchEntityAttributes {
   artifacts: ResearchArtifactRecord[];
 }
 
-interface ResearchSnapshot {
-  state: ResearchState;
-  hypothesisHistory: ResearchHypothesisRecord[];
-  artifacts: ResearchArtifactRecord[];
-}
-
 interface ResearchSummaryWithSynthesis extends ResearchSummary {
   synthesis: string;
 }
 
 function hasStructuredResearchAttributes(attributes: unknown): attributes is ResearchEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
-}
-
-function ensureDir(path: string): void {
-  mkdirSync(path, { recursive: true });
-}
-
-function writeFileAtomic(path: string, content: string): void {
-  ensureDir(dirname(path));
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tempPath, content, "utf-8");
-  renameSync(tempPath, path);
-}
-
-function readText(path: string): string {
-  return existsSync(path) ? readFileSync(path, "utf-8") : "";
-}
-
-function readArtifactBody(path: string): string | null {
-  if (!existsSync(path)) {
-    return null;
-  }
-  return parseMarkdownArtifact(readFileSync(path, "utf-8"), path).body;
 }
 
 function relativeOrAbsolute(cwd: string, path: string): string {
@@ -107,15 +68,12 @@ function latestHypotheses(history: ResearchHypothesisRecord[]): ResearchHypothes
   return [...latest.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function readJson<T>(filePath: string): T {
-  return JSON.parse(readFileSync(filePath, "utf-8")) as T;
-}
-
-function parseHypothesisLog(content: string): ResearchHypothesisRecord[] {
-  return content
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as ResearchHypothesisRecord);
+function renderSynthesis(
+  state: ResearchState,
+  hypotheses: ResearchHypothesisRecord[],
+  artifacts: ResearchArtifactRecord[],
+): string {
+  return renderResearchMarkdown(state, hypotheses, artifacts);
 }
 
 function summarizeResearch(
@@ -159,49 +117,7 @@ export class ResearchStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    const paths = getResearchPaths(this.cwd);
-    ensureDir(paths.researchDir);
-    return { initialized: true, root: paths.researchDir };
-  }
-
-  private readStateFromFiles(researchId: string): ResearchState {
-    return stripDynamicState(readJson<ResearchState>(join(getResearchDir(this.cwd, researchId), "state.json")));
-  }
-
-  private readHypothesisLogFromFiles(researchId: string): ResearchHypothesisRecord[] {
-    const filePath = getResearchHypothesesPath(this.cwd, researchId);
-    if (!existsSync(filePath)) {
-      return [];
-    }
-    return parseHypothesisLog(readFileSync(filePath, "utf-8"));
-  }
-
-  private readArtifactsFromFiles(researchId: string): ResearchArtifactRecord[] {
-    const filePath = getResearchArtifactsPath(this.cwd, researchId);
-    if (!existsSync(filePath)) {
-      return [];
-    }
-    return readJson<ResearchArtifactRecord[]>(filePath);
-  }
-
-  private readSnapshotFromFiles(researchId: string): ResearchSnapshot {
-    return {
-      state: this.readStateFromFiles(researchId),
-      hypothesisHistory: this.readHypothesisLogFromFiles(researchId),
-      artifacts: this.readArtifactsFromFiles(researchId),
-    };
-  }
-
-  private readSummaryFromDirectory(researchDir: string): ResearchSummaryWithSynthesis {
-    const researchId = basename(researchDir);
-    const state = this.readStateFromFiles(researchId);
-    const hypotheses = latestHypotheses(this.readHypothesisLogFromFiles(researchId));
-    const artifacts = this.readArtifactsFromFiles(researchId);
-    const synthesis = readText(getResearchMarkdownPath(this.cwd, researchId));
-    return {
-      ...summarizeResearch(state, researchDir, hypotheses, artifacts, this.cwd),
-      synthesis,
-    };
+    return { initialized: true, root: getResearchPaths(this.cwd).researchDir };
   }
 
   private defaultState(input: CreateResearchInput, timestamp: string): ResearchState {
@@ -235,64 +151,9 @@ export class ResearchStore {
     };
   }
 
-  private researchDirectories(): string[] {
-    const directory = getResearchPaths(this.cwd).researchDir;
-    if (!existsSync(directory)) {
-      return [];
-    }
-    return readdirSync(directory)
-      .map((entry) => join(directory, entry))
-      .filter((pathValue) => statSync(pathValue).isDirectory() && existsSync(join(pathValue, "state.json")))
-      .sort((left, right) => basename(left).localeCompare(basename(right)));
-  }
-
   private resolveResearchDirectory(ref: string): string {
     const directId = normalizeResearchId(ref.split(/[\\/]/).pop() ?? ref);
     return getResearchDir(this.cwd, directId);
-  }
-
-  private materializeProjectionArtifacts(
-    state: ResearchState,
-    hypothesisHistory: ResearchHypothesisRecord[],
-    artifacts: ResearchArtifactRecord[],
-  ): ResearchRecord {
-    const hypotheses = latestHypotheses(hypothesisHistory);
-    state.artifactIds = normalizeStringList(artifacts.map((artifact) => artifact.id));
-    writeFileAtomic(
-      getResearchHypothesesPath(this.cwd, state.researchId),
-      `${hypothesisHistory.map((entry) => JSON.stringify(entry)).join("\n")}${hypothesisHistory.length > 0 ? "\n" : ""}`,
-    );
-    writeFileAtomic(getResearchArtifactsPath(this.cwd, state.researchId), `${JSON.stringify(artifacts, null, 2)}\n`);
-    writeFileAtomic(
-      join(getResearchDir(this.cwd, state.researchId), "state.json"),
-      `${JSON.stringify(state, null, 2)}\n`,
-    );
-    writeFileAtomic(
-      getResearchMarkdownPath(this.cwd, state.researchId),
-      renderResearchMarkdown(state, hypotheses, artifacts),
-    );
-    for (const artifact of artifacts) {
-      const bodyPath = resolve(this.cwd, artifact.path);
-      if (!existsSync(bodyPath)) {
-        writeFileAtomic(bodyPath, renderResearchArtifactMarkdown(state.researchId, artifact, artifact.summary));
-      }
-    }
-    return {
-      state,
-      summary: summarizeResearch(
-        state,
-        this.resolveResearchDirectory(state.researchId),
-        hypotheses,
-        artifacts,
-        this.cwd,
-      ),
-      synthesis: readText(getResearchMarkdownPath(this.cwd, state.researchId)),
-      hypotheses,
-      hypothesisHistory,
-      artifacts,
-      dashboard: buildResearchDashboardProjection(this.cwd, state, hypotheses, artifacts),
-      map: buildResearchMapProjection(this.cwd, state, hypotheses, artifacts),
-    };
   }
 
   private async materializeCanonicalArtifacts(
@@ -301,43 +162,27 @@ export class ResearchStore {
     artifacts: ResearchArtifactRecord[],
   ): Promise<ResearchRecord> {
     const hypotheses = latestHypotheses(hypothesisHistory);
-    state.artifactIds = normalizeStringList(artifacts.map((artifact) => artifact.id));
-    writeFileAtomic(
-      getResearchHypothesesPath(this.cwd, state.researchId),
-      `${hypothesisHistory.map((entry) => JSON.stringify(entry)).join("\n")}${hypothesisHistory.length > 0 ? "\n" : ""}`,
-    );
-    writeFileAtomic(getResearchArtifactsPath(this.cwd, state.researchId), `${JSON.stringify(artifacts, null, 2)}\n`);
-    writeFileAtomic(
-      join(getResearchDir(this.cwd, state.researchId), "state.json"),
-      `${JSON.stringify(state, null, 2)}\n`,
-    );
-    writeFileAtomic(
-      getResearchMarkdownPath(this.cwd, state.researchId),
-      renderResearchMarkdown(state, hypotheses, artifacts),
-    );
-    for (const artifact of artifacts) {
-      const bodyPath = resolve(this.cwd, artifact.path);
-      if (!existsSync(bodyPath)) {
-        writeFileAtomic(bodyPath, renderResearchArtifactMarkdown(state.researchId, artifact, artifact.summary));
-      }
-    }
+    const normalizedState = stripDynamicState({
+      ...state,
+      artifactIds: normalizeStringList(artifacts.map((artifact) => artifact.id)),
+    });
     const summary = summarizeResearch(
-      state,
-      this.resolveResearchDirectory(state.researchId),
+      normalizedState,
+      this.resolveResearchDirectory(normalizedState.researchId),
       hypotheses,
       artifacts,
       this.cwd,
     );
-    const synthesis = readText(getResearchMarkdownPath(this.cwd, state.researchId));
+    const synthesis = renderSynthesis(normalizedState, hypotheses, artifacts);
     return {
-      state,
+      state: normalizedState,
       summary,
       synthesis,
       hypotheses,
       hypothesisHistory,
       artifacts,
-      dashboard: await buildResearchDashboard(this.cwd, state, hypotheses, artifacts),
-      map: await buildResearchMap(this.cwd, state, hypotheses, artifacts),
+      dashboard: await buildResearchDashboard(this.cwd, normalizedState, hypotheses, artifacts),
+      map: await buildResearchMap(this.cwd, normalizedState, hypotheses, artifacts),
     };
   }
 
@@ -359,13 +204,7 @@ export class ResearchStore {
         status: state.status,
         version: 1,
         tags: state.tags,
-        pathScopes: [
-          {
-            repositoryId: identity.repository.id,
-            relativePath: `.loom/research/${state.researchId}/research.md`,
-            role: "projection",
-          },
-        ],
+        pathScopes: [],
         attributes: { state, hypotheses: [], artifacts: [] },
         createdAt: state.createdAt,
         updatedAt: state.updatedAt,
@@ -401,13 +240,7 @@ export class ResearchStore {
       status: record.state.status,
       version,
       tags: record.state.tags,
-      pathScopes: [
-        {
-          repositoryId: identity.repository.id,
-          relativePath: `.loom/research/${record.state.researchId}/research.md`,
-          role: "projection",
-        },
-      ],
+      pathScopes: [],
       attributes: {
         state: record.state,
         hypotheses: record.hypothesisHistory,
@@ -416,18 +249,6 @@ export class ResearchStore {
       createdAt: existing?.createdAt ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
     });
-    await upsertProjectionForEntity(
-      storage,
-      entity.id,
-      "documentation_markdown_body",
-      "repo_materialized",
-      identity.repository.id,
-      `.loom/research/${record.state.researchId}/research.md`,
-      record.synthesis,
-      version,
-      record.state.createdAt,
-      record.state.updatedAt,
-    );
     return record;
   }
 
@@ -451,14 +272,14 @@ export class ResearchStore {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const summaries = new Map<string, ResearchSummaryWithSynthesis>();
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
-      const researchId = normalizeResearchId(entity.displayId);
+      const researchId = normalizeResearchId(entity.displayId ?? entity.id);
       if (hasStructuredResearchAttributes(entity.attributes)) {
         const state = stripDynamicState(entity.attributes.state);
         const hypotheses = latestHypotheses(entity.attributes.hypotheses ?? []);
         const artifacts = entity.attributes.artifacts ?? [];
         summaries.set(researchId, {
           ...summarizeResearch(state, this.resolveResearchDirectory(researchId), hypotheses, artifacts, this.cwd),
-          synthesis: readText(getResearchMarkdownPath(this.cwd, researchId)),
+          synthesis: renderSynthesis(state, hypotheses, artifacts),
         });
         continue;
       }
@@ -471,23 +292,8 @@ export class ResearchStore {
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  listResearchProjection(filter: ResearchListFilter = {}): ResearchSummary[] {
-    this.initLedger();
-    return this.researchDirectories()
-      .map((researchDir) => this.readSummaryFromDirectory(researchDir))
-      .filter((summary) => this.applyListFilter(summary, filter))
-      .map(({ synthesis: _synthesis, ...summary }) => summary)
-      .sort((left, right) => left.id.localeCompare(right.id));
-  }
-
   async readResearch(ref: string): Promise<ResearchRecord> {
     return this.loadRecord(ref);
-  }
-
-  readResearchProjection(ref: string): ResearchRecord {
-    const researchId = normalizeResearchId(ref.split(/[\\/]/).pop() ?? ref);
-    const snapshot = this.readSnapshotFromFiles(researchId);
-    return this.materializeProjectionArtifacts(snapshot.state, snapshot.hypothesisHistory, snapshot.artifacts);
   }
 
   private async syncInitiativeMembership(researchId: string, previousIds: string[], nextIds: string[]): Promise<void> {
@@ -660,27 +466,22 @@ export class ResearchStore {
       getResearchArtifactPath(this.cwd, record.state.researchId, kind, normalizedId),
     );
     const existing = artifacts.find((artifact) => artifact.id === normalizedId) ?? null;
-    const preservedBody = existing ? readArtifactBody(resolve(this.cwd, existing.path)) : null;
     const artifact: ResearchArtifactRecord = {
       id: normalizedId,
       researchId: record.state.researchId,
       kind,
       title: input.title.trim(),
       path: recordPath,
-      createdAt: existing?.createdAt ?? timestamp,
-      summary: input.summary?.trim() ?? existing?.summary ?? "",
-      sourceUri: normalizeOptionalString(input.sourceUri ?? existing?.sourceUri ?? null),
-      tags: normalizeStringList(input.tags ?? existing?.tags),
-      linkedHypothesisIds: normalizeStringList(input.linkedHypothesisIds ?? existing?.linkedHypothesisIds),
-    };
-    writeFileAtomic(
-      resolve(this.cwd, recordPath),
-      renderResearchArtifactMarkdown(
-        record.state.researchId,
-        artifact,
-        input.body?.trim() ?? preservedBody ?? artifact.summary,
+      createdAt: artifacts.find((artifact) => artifact.id === normalizedId)?.createdAt ?? timestamp,
+      summary: input.summary?.trim() ?? artifacts.find((artifact) => artifact.id === normalizedId)?.summary ?? "",
+      sourceUri: normalizeOptionalString(
+        input.sourceUri ?? artifacts.find((artifact) => artifact.id === normalizedId)?.sourceUri ?? null,
       ),
-    );
+      tags: normalizeStringList(input.tags ?? artifacts.find((artifact) => artifact.id === normalizedId)?.tags),
+      linkedHypothesisIds: normalizeStringList(
+        input.linkedHypothesisIds ?? artifacts.find((artifact) => artifact.id === normalizedId)?.linkedHypothesisIds,
+      ),
+    };
     const nextArtifacts = [...artifacts.filter((entry) => entry.id !== artifact.id), artifact].sort((left, right) =>
       left.id.localeCompare(right.id),
     );

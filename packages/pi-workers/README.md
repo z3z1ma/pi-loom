@@ -2,19 +2,14 @@
 
 Workspace-backed manager-worker execution substrate for pi.
 
-This package adds a first-class worker layer under `.loom/workers/` so Pi Loom can model workers as locally durable execution units backed by ephemeral workspaces instead of overloading session branching, generic task spawning, or Ralph run state. It also exposes the manager-side control plane used to supervise worker fleets, drain inbox backlog, and coordinate bounded resume/approval behavior. The worker layer persists local runtime/control-plane state around ticket execution; tickets remain the shared durable execution ledger.
+This package adds a first-class worker layer so Pi Loom can model workers as durable execution units with ephemeral runtime workspaces instead of overloading session branching, generic task spawning, or Ralph run state. It also exposes the manager-side control plane used to supervise worker fleets, drain inbox backlog, and coordinate bounded resume/approval behavior. Worker state is persisted durably in SQLite via pi-storage; local runtime workspaces remain ephemeral. Tickets remain the shared durable execution ledger.
 
 ## Capabilities
 
 - `/worker` command surface for creating, listing, inspecting, messaging, checkpointing, launching, resuming, approving, consolidating, and retiring workers
-- `/manager` command surface for fleet overview, supervision, manager-side inbox resolution, approvals, scheduling passes, and bounded resume operations
-- `worker_*` tools for AI-facing worker workflows
-- `manager_*` tools for AI-facing manager orchestration workflows
-- local durable worker records with `state.json`, `worker.md`, `messages.jsonl`, `checkpoints.jsonl`, and runtime-only `launch.json`; dashboard views are computed on demand
+- SQLite-backed durable worker records with worker state, metadata, message history, checkpoint history, and audit trail; dashboard views are computed on demand
+- ephemeral runtime workspaces for worker execution and local work directories
 - durable inbox semantics with explicit pending/acknowledged/resolved lifecycle, unresolved backlog visibility, manager-side inbox resolution, and inbox-aware packets
-- portable workspace intent modeled separately from clone-local runtime attachment details
-- worker runtime abstraction supporting the current subprocess path, an SDK-backed live-worker path, and an RPC fallback seam
-- bounded manager scheduler passes over unresolved inbox, telemetry, and approvals, with durable scheduler observations and manager-side inbox resolution support
 - durable manager-worker messaging, checkpoints, telemetry, approvals, and consolidation outcomes
 - system-prompt guidance that keeps workers distinct from tickets, plans, Ralph, and generic subagents
 
@@ -32,11 +27,11 @@ This package adds a first-class worker layer under `.loom/workers/` so Pi Loom c
 
 ## Artifact policy
 
-- keep worker records local: `state.json`, `worker.md`, `messages.jsonl`, and `checkpoints.jsonl` persist under `.loom/workers/` so a clone can resume supervision and worker context durably, but they do not belong in git; dashboards are computed on demand instead of persisted as `dashboard.json`
-- treat stored paths in worker state as workspace-root-relative or logical descriptors, never clone-local absolute paths
-- `launch.json` is not part of the worker record; it is a runtime-only descriptor for local workspace attachment and launch/resume handoff
-- `.loom/runtime/` workspaces are scratch execution environments for one clone, not durable Loom memory; keep them ignored
-- decision rule: keep the artifact local when it only captures one clone's worker supervision, inbox state, checkpoints, or current status under `.loom/workers/`; ignore it when it only exists to attach a live runtime to a local workspace; commit the ticket-layer artifacts another clone needs to understand shared execution truth
+- worker state is persisted durably in SQLite via pi-storage; this is the canonical truth for all worker data including state, metadata, message history, checkpoint history, and inbox state
+- dashboards and other rendered views are computed on demand from SQLite data; they are read models, not canonical durable files
+- worker runtime workspaces (`.loom/runtime/`) are ephemeral execution environments for the local clone; they are runtime-local, not durable, and should not be committed
+- workspace attachment and runtime descriptors are workspace-root-relative or logical descriptors, never clone-local absolute paths
+- a clone can resume supervision and worker context from SQLite without requiring any file-backed worker records
 
 ## Current control-plane semantics
 
@@ -57,16 +52,15 @@ Only force `subprocess` or `rpc` when you intentionally need those runtimes. Do 
 
 ## Layout
 
+Worker state is persisted durably in SQLite via pi-storage. Local runtime workspaces are ephemeral execution environments scoped to the current clone:
+
 ```text
 .loom/
-  workers/
-    <worker-id>/
-      state.json       # local durable worker state; do not commit
-      worker.md        # local durable worker notes; do not commit
-      messages.jsonl   # local durable worker inbox/message history; do not commit
-      checkpoints.jsonl # local durable worker checkpoint history; do not commit
-      launch.json      # runtime-only; do not commit
+  runtime/
+    <worker-id>/      # ephemeral working directory for worker execution; not durable
 ```
+
+All durable worker records (state, metadata, message history, checkpoints, inbox items) are stored in SQLite. The filesystem worktree under `.loom/runtime/` is only a local execution environment.
 
 ## Local use
 

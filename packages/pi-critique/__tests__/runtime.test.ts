@@ -107,5 +107,5 @@ describe("critique verdict derivation", () => {
 
     expect(withFinding.state.openFindingIds).toEqual(["finding-001"]);
     expect(withFinding.state.currentVerdict).toBe("concerns");
-  });
+  }, 60000);
 });

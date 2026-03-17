@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { findEntityByDisplayId, openWorkspaceStorage } from "../../pi-storage/storage/workspace.js";
 import { createConstitutionalStore } from "../extensions/domain/store.js";
 
 describe("ConstitutionalStore durable memory", () => {
@@ -25,13 +26,15 @@ describe("ConstitutionalStore durable memory", () => {
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
     const initialized = await store.initLedger({ title: "Pi Loom" });
     expect(initialized.root).toBe(path.join(workspace, ".loom", "constitution"));
-    expect(fs.existsSync(path.join(workspace, ".loom", "constitution", "state.json"))).toBe(true);
-    expect(fs.existsSync(path.join(workspace, ".loom", "constitution", "brief.md"))).toBe(true);
-    expect(fs.existsSync(path.join(workspace, ".loom", "constitution", "vision.md"))).toBe(true);
-    expect(fs.existsSync(path.join(workspace, ".loom", "constitution", "principles.md"))).toBe(true);
-    expect(fs.existsSync(path.join(workspace, ".loom", "constitution", "constraints.md"))).toBe(true);
-    expect(fs.existsSync(path.join(workspace, ".loom", "constitution", "roadmap.md"))).toBe(true);
-    expect(fs.existsSync(path.join(workspace, ".loom", "constitution", "decisions.jsonl"))).toBe(true);
+    const initialRecord = await store.readConstitution();
+    expect(initialRecord.state.title).toBe("Pi Loom");
+    expect(initialRecord.state.artifactPaths.root).toBe(initialized.root);
+    expect(initialRecord.brief).toContain("# Pi Loom Constitutional Brief");
+
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const constitutionEntity = await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution");
+    expect(constitutionEntity).toBeTruthy();
+    expect(fs.existsSync(path.join(process.env.PI_LOOM_ROOT as string, "catalog.sqlite"))).toBe(true);
 
     const vision = await store.updateVision({
       visionSummary: "Build an AI-native coordination system for long-horizon engineering work.",
@@ -83,7 +86,8 @@ describe("ConstitutionalStore durable memory", () => {
     expect(withItem.state.initiativeIds).toEqual(["constitutional-foundation"]);
     expect(withItem.state.researchIds).toEqual(["constitutional-memory-research"]);
     expect(withItem.state.specChangeIds).toEqual(["add-constitutional-layer"]);
-    expect(fs.existsSync(path.join(workspace, ".loom", "constitution", "roadmap", "item-001.md"))).toBe(true);
+    expect(withItem.roadmap).toContain("Ship constitutional memory");
+    expect(withItem.roadmap).toContain("constitutional-foundation");
 
     const linked = await store.linkInitiative("item-001", "initiative-roadmap-sync");
     expect(linked.state.roadmapItems[0]?.initiativeIds).toEqual([
@@ -104,20 +108,19 @@ describe("ConstitutionalStore durable memory", () => {
       "constitutional-foundation",
       "initiative-roadmap-sync",
     ]);
+    expect(withDecision.brief).toContain("# Pi Loom Constitutional Brief");
+    expect(withDecision.brief).toContain("Build an AI-native coordination system for long-horizon engineering work.");
+    expect(withDecision.brief).toContain("Truthful interfaces");
+    expect(withDecision.brief).toContain("Ship constitutional memory");
+    expect(withDecision.roadmap).toContain("item-001 [now/active] Ship constitutional memory");
+    expect(withDecision.roadmap).toContain("Ship constitutional memory");
+    expect(withDecision.roadmap).toContain("constitutional-foundation");
 
-    const brief = fs.readFileSync(path.join(workspace, ".loom", "constitution", "brief.md"), "utf-8");
-    expect(brief).toContain("# Pi Loom Constitutional Brief");
-    expect(brief).toContain("Build an AI-native coordination system for long-horizon engineering work.");
-    expect(brief).toContain("Truthful interfaces");
-    expect(brief).toContain("Ship constitutional memory");
-
-    const roadmapItem = fs.readFileSync(
-      path.join(workspace, ".loom", "constitution", "roadmap", "item-001.md"),
-      "utf-8",
-    );
-    expect(roadmapItem).toContain("status: active");
-    expect(roadmapItem).toContain("Ship constitutional memory");
-    expect(roadmapItem).toContain("constitutional-foundation");
+    const persistedEntity = await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution");
+    expect(persistedEntity?.version).toBeGreaterThan(1);
+    expect(await storage.listEvents(persistedEntity?.id ?? "missing")).toEqual([
+      expect.objectContaining({ kind: "decision_recorded" }),
+    ]);
 
     expect(
       await store.readRoadmapItem(path.join(workspace, ".loom", "constitution", "roadmap", "item-001.md")),

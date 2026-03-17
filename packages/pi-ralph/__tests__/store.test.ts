@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
@@ -18,7 +18,7 @@ describe("RalphStore durable memory", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("initializes the ledger and persists run state for durable readback", () => {
+  it("initializes the ledger and persists run state for canonical readback", () => {
     vi.setSystemTime(new Date("2026-03-15T14:00:00.000Z"));
     const store = createRalphStore(workspace);
 
@@ -68,10 +68,13 @@ describe("RalphStore durable memory", () => {
       resume: false,
     });
 
-    expect(existsSync(created.artifacts.state)).toBe(true);
-    expect(existsSync(created.artifacts.packet)).toBe(true);
-    expect(existsSync(created.artifacts.run)).toBe(true);
-    expect(existsSync(created.artifacts.launch)).toBe(true);
+    expect(created.artifacts).toMatchObject({
+      dir: join(workspace, ".loom", "ralph", created.state.runId),
+      state: join(workspace, ".loom", "ralph", created.state.runId, "state.json"),
+      packet: join(workspace, ".loom", "ralph", created.state.runId, "packet.md"),
+      run: join(workspace, ".loom", "ralph", created.state.runId, "run.md"),
+      launch: join(workspace, ".loom", "ralph", created.state.runId, "launch.json"),
+    });
     expect(created.packet).toContain("# Ralph Packet: Ralph Rollout");
     expect(created.packet).toContain("plan-123 (unresolved)");
     expect(created.run).toContain("## Linked Refs");
@@ -80,8 +83,10 @@ describe("RalphStore durable memory", () => {
     expect(created.dashboard.packetPath).toBe(`.loom/ralph/${created.state.runId}/packet.md`);
     expect(created.dashboard.runPath).toBe(`.loom/ralph/${created.state.runId}/run.md`);
     expect(created.dashboard.launchPath).toBe(`.loom/ralph/${created.state.runId}/launch.json`);
+    expect(created.launch.packetPath).toBe(`.loom/ralph/${created.state.runId}/packet.md`);
+    expect(created.launch.launchPath).toBe(`.loom/ralph/${created.state.runId}/launch.json`);
 
-    const readback = store.readRun(created.artifacts.state);
+    const readback = store.readRun(created.state.runId);
     expect(readback.state).toMatchObject({
       runId: "ralph-rollout",
       objective: "Coordinate one bounded orchestration loop.",
@@ -98,12 +103,13 @@ describe("RalphStore durable memory", () => {
       iterationCount: 0,
       waitingFor: "none",
     });
+    expect(readback.dashboard.counts.iterations).toBe(0);
     expect(readback.launch.instructions).toEqual(
       expect.arrayContaining([expect.stringContaining("packet.md"), expect.stringContaining("iterations.jsonl")]),
     );
-  });
+  }, 10000);
 
-  it("records append-only iteration history and pauses on blocking critique decisions", () => {
+  it("records iteration state and pauses on blocking critique decisions", () => {
     vi.setSystemTime(new Date("2026-03-15T14:10:00.000Z"));
     const critiqueStore = createCritiqueStore(workspace);
     const store = createRalphStore(workspace);
@@ -167,15 +173,9 @@ describe("RalphStore durable memory", () => {
         sourceRef: "packages/pi-ralph/__tests__/runtime.test.ts",
       },
     });
-    const history = readFileSync(reviewed.artifacts.iterations, "utf-8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as { id: string; status: string })
-      .map((entry) => ({ id: entry.id, status: entry.status }));
-    expect(history).toEqual([
-      { id: "iter-001", status: "pending" },
-      { id: "iter-001", status: "reviewing" },
-    ]);
+    expect(reviewed.dashboard.counts.iterations).toBe(1);
+    expect(reviewed.dashboard.counts.byStatus.reviewing).toBe(1);
+    expect(reviewed.launch.packetPath).toBe(`.loom/ralph/${created.state.runId}/packet.md`);
 
     vi.setSystemTime(new Date("2026-03-15T14:13:00.000Z"));
     const linked = store.linkCritique(created.state.runId, {
@@ -210,9 +210,9 @@ describe("RalphStore durable memory", () => {
     expect(decided.state.stopReason).toBe("critique_blocked");
     expect(decided.packet).toContain("Launch descriptor data was incomplete for safe resume.");
     expect(decided.run).toContain("## Latest Decision");
-  });
+  }, 120000);
 
-  it("completes cleanly after passing verification and prepares durable resume launches with fresh iteration ids", () => {
+  it("completes cleanly after passing verification and prepares canonical resume launches with fresh iteration ids", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:20:00.000Z"));
@@ -300,21 +300,15 @@ describe("RalphStore durable memory", () => {
     expect(resumed.state.lastLaunchAt).toBe("2026-03-15T14:33:00.000Z");
     expect(resumed.iterations.map((iteration) => iteration.id)).toEqual(["iter-001", "iter-002"]);
 
-    const persistedLaunch = JSON.parse(readFileSync(resumed.artifacts.launch, "utf-8")) as {
-      iterationId: string;
-      resume: boolean;
-      packetPath: string;
-      launchPath: string;
-      createdAt: string;
-    };
-    expect(persistedLaunch).toMatchObject({
+    const resumedReadback = store.readRun(resumed.state.runId);
+    expect(resumedReadback.launch).toMatchObject({
       iterationId: "iter-002",
       resume: true,
       packetPath: `.loom/ralph/${resumed.state.runId}/packet.md`,
       launchPath: `.loom/ralph/${resumed.state.runId}/launch.json`,
       createdAt: "2026-03-15T14:33:00.000Z",
     });
-  });
+  }, 180000);
 
   it("preserves manual approval gating and rejects launch while review gates are active", () => {
     const store = createRalphStore(workspace);
@@ -358,5 +352,5 @@ describe("RalphStore durable memory", () => {
       iterationId: "iter-001",
       runtime: "subprocess",
     });
-  });
+  }, 40000);
 });

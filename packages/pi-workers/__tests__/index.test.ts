@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -11,6 +11,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
+import { createWorkerStore } from "../extensions/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -132,10 +133,10 @@ describe("pi-workers extension", () => {
 
       const sessionStart = getHandler(mockPi, "session_start");
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(existsSync(join(cwd, ".loom", "workers"))).toBe(true);
+      expect(await createWorkerStore(cwd).listWorkersAsync()).toEqual([]);
 
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
 
       const command = getCommand(mockPi, "worker");

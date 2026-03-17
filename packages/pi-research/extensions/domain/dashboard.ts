@@ -1,5 +1,4 @@
 import type { InitiativeState, InitiativeSummary } from "@pi-loom/pi-initiatives/extensions/domain/models.js";
-import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { SPEC_STATUSES, type SpecChangeSummary } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
@@ -19,24 +18,6 @@ import { normalizeStringList } from "./normalize.js";
 
 function zeroCounts<T extends string>(values: readonly T[]): Record<T, number> {
   return Object.fromEntries(values.map((value) => [value, 0])) as Record<T, number>;
-}
-
-function resolveLinkedSummaries<T extends { id: string }>(
-  ids: string[],
-  summaries: T[],
-): { items: T[]; missingIds: string[] } {
-  const summariesById = new Map(summaries.map((summary) => [summary.id, summary]));
-  const items: T[] = [];
-  const missingIds: string[] = [];
-  for (const id of normalizeStringList(ids)) {
-    const summary = summariesById.get(id);
-    if (summary) {
-      items.push(summary);
-      continue;
-    }
-    missingIds.push(id);
-  }
-  return { items, missingIds: normalizeStringList(missingIds) };
 }
 
 function isMissingLinkedRecord(error: unknown, kind: "initiative" | "spec" | "ticket"): boolean {
@@ -191,32 +172,6 @@ function buildDashboard(
       ticketIds: linkedTickets.missingIds,
     },
   };
-}
-
-export function buildResearchDashboardProjection(
-  cwd: string,
-  state: ResearchState,
-  hypotheses: ResearchHypothesisRecord[],
-  artifacts: ResearchArtifactRecord[],
-): ResearchDashboard {
-  const initiativeStore = createInitiativeStore(cwd);
-  const specStore = createSpecStore(cwd);
-  const ticketStore = createTicketStore(cwd);
-
-  return buildDashboard(
-    state,
-    hypotheses,
-    artifacts,
-    resolveLinkedSummaries(
-      state.initiativeIds,
-      initiativeStore.listInitiativesProjection({ includeArchived: true }) as InitiativeSummary[],
-    ),
-    resolveLinkedSummaries(
-      state.specChangeIds,
-      specStore.listChangesProjection({ includeArchived: true }) as SpecChangeSummary[],
-    ),
-    resolveLinkedSummaries(state.ticketIds, ticketStore.listTickets({ includeClosed: true }) as TicketSummary[]),
-  );
 }
 
 export async function buildResearchDashboard(

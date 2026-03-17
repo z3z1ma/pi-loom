@@ -1,10 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCritiqueStore } from "../extensions/domain/store.js";
@@ -133,8 +135,15 @@ describe("CritiqueStore durable memory", () => {
     });
 
     expect(critique.state.critiqueId).toBe("critique-implementation-ticket");
-    expect(existsSync(join(workspace, ".loom", "critiques", critique.state.critiqueId, "state.json"))).toBe(true);
-    expect(existsSync(join(workspace, ".loom", "critiques", critique.state.critiqueId, "packet.md"))).toBe(true);
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const createdEntity = await findEntityByDisplayId(storage, identity.space.id, "critique", critique.state.critiqueId);
+    expect(createdEntity).toBeTruthy();
+    expect(createdEntity?.attributes).toMatchObject({
+      record: {
+        state: { critiqueId: critique.state.critiqueId },
+        summary: { id: critique.state.critiqueId, targetKind: "ticket", targetRef: ticket.summary.id },
+      },
+    });
     expect(critique.packet).toContain("Ship a durable critique system for mission-critical AI development.");
     expect(critique.packet).toContain(`${roadmapId} [active/now] Critique layer`);
     expect(critique.packet).toContain(initiative.state.initiativeId);
@@ -146,7 +155,7 @@ describe("CritiqueStore durable memory", () => {
     );
 
     vi.setSystemTime(new Date("2026-03-15T10:30:00.000Z"));
-    const launched = critiqueStore.launchCritique(critique.state.critiqueId);
+    const launched = await critiqueStore.launchCritiqueAsync(critique.state.critiqueId);
     expect(launched.launch.runtime).toBe("descriptor_only");
     expect(launched.launch.freshContextRequired).toBe(true);
     expect(launched.launch.packetPath).toBe(`.loom/critiques/${critique.state.critiqueId}/packet.md`);
@@ -156,7 +165,17 @@ describe("CritiqueStore durable memory", () => {
     expect(launched.critique.dashboard.critique.path).toBe(`.loom/critiques/${critique.state.critiqueId}`);
     expect(launched.critique.dashboard.packetPath).toBe(`.loom/critiques/${critique.state.critiqueId}/packet.md`);
     expect(launched.critique.dashboard.launchPath).toBe(`.loom/critiques/${critique.state.critiqueId}/launch.json`);
-    expect(existsSync(join(workspace, ".loom", "critiques", critique.state.critiqueId, "launch.json"))).toBe(true);
+    const launchedEntity = await findEntityByDisplayId(storage, identity.space.id, "critique", critique.state.critiqueId);
+    expect(launchedEntity?.attributes).toMatchObject({
+      record: {
+        state: { critiqueId: critique.state.critiqueId, launchCount: 1 },
+        launch: {
+          critiqueId: critique.state.critiqueId,
+          runtime: "descriptor_only",
+          packetPath: `.loom/critiques/${critique.state.critiqueId}/packet.md`,
+        },
+      },
+    });
 
     vi.setSystemTime(new Date("2026-03-15T10:35:00.000Z"));
     const withRun = await critiqueStore.recordRunAsync(critique.state.critiqueId, {
@@ -234,8 +253,6 @@ describe("CritiqueStore durable memory", () => {
     expect(resolved.state.status).toBe("resolved");
     expect(resolved.state.currentVerdict).toBe("pass");
     expect(resolved.dashboard.counts.openFindings).toBe(0);
-    expect(
-      readFileSync(join(workspace, ".loom", "critiques", critique.state.critiqueId, "critique.md"), "utf-8"),
-    ).toContain("Current Verdict");
-  }, 120000);
+    expect(resolved.critique).toContain("Current Verdict");
+  }, 300000);
 });

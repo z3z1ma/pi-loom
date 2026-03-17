@@ -3,11 +3,8 @@ import type {
   LoomEntityEventRecord,
   LoomEntityKind,
   LoomEntityRecord,
-  LoomProjectionKind,
-  LoomProjectionMaterialization,
-  LoomProjectionRecord,
 } from "./contract.js";
-import { createEntityId, createEventId, createProjectionId } from "./ids.js";
+import { createEntityId, createEventId } from "./ids.js";
 
 export interface UpsertEntityInput {
   kind: LoomEntityKind;
@@ -80,33 +77,4 @@ export async function appendEntityEvent(
   };
   await storage.appendEvent(event);
   return event;
-}
-
-export async function upsertProjectionForEntity(
-  storage: LoomCanonicalStorage,
-  entityId: string,
-  kind: LoomProjectionKind,
-  materialization: LoomProjectionMaterialization,
-  repositoryId: string | null,
-  relativePath: string | null,
-  content: string | null,
-  version: number,
-  createdAt: string,
-  updatedAt: string,
-): Promise<LoomProjectionRecord> {
-  const projection: LoomProjectionRecord = {
-    id: createProjectionId(kind, entityId, relativePath),
-    entityId,
-    kind,
-    materialization,
-    repositoryId,
-    relativePath,
-    contentHash: null,
-    version,
-    content,
-    createdAt,
-    updatedAt,
-  };
-  await storage.upsertProjection(projection);
-  return projection;
 }

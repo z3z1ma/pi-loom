@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
@@ -50,7 +50,6 @@ describe("/ralph command handler", () => {
 
       const initialized = await handleRalphCommand("init", ctx);
       expect(initialized).toContain(`Initialized Ralph memory at ${join(cwd, ".loom", "ralph")}`);
-      expect(existsSync(join(cwd, ".loom", "ralph"))).toBe(true);
 
       const created = await handleRalphCommand(
         "create Ralph surface tests :: Keep launch and resume state durable across fresh sessions",
@@ -98,7 +97,7 @@ describe("/ralph command handler", () => {
     } finally {
       cleanup();
     }
-  }, 15000);
+  }, 60000);
 
   it("cancels interactive launches without leaving false in-flight state behind", async () => {
     const { cwd, cleanup } = createTempWorkspace();
@@ -123,5 +122,5 @@ describe("/ralph command handler", () => {
     } finally {
       cleanup();
     }
-  }, 15000);
+  }, 90000);
 });

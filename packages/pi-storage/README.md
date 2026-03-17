@@ -2,11 +2,11 @@
 
 Internal shared storage-contract package for Pi Loom.
 
-This package is not a Pi extension. It seeds the backend-agnostic abstractions needed for Pi Loom's SQLite-first migration without claiming that any database backend is implemented here yet.
+This package is not a Pi extension. It defines the storage abstractions for Pi Loom's SQLite-backed canonical state. SQLite is the current and only supported durable backend.
 
 ## Scope
 
-The initial contract covers the core shared-storage concepts that current file-backed stores bake into repo-local paths:
+The contract covers the core shared-storage concepts for Pi Loom state:
 
 - spaces / projects
 - repositories
@@ -15,25 +15,34 @@ The initial contract covers the core shared-storage concepts that current file-b
 - durable entities
 - cross-entity links
 - append-only events
-- repo-materialized projections
 - clone-local runtime attachments
-- backend-agnostic storage interfaces
+- storage interfaces centered on the SQLite-backed catalog
 
 ## Intended use
 
-Other packages should eventually depend on these abstractions instead of reopening neighboring `.loom/...` files directly. SQLite is the first intended canonical backend, but the contract is deliberately shaped so PostgreSQL can satisfy the same semantics later.
+All Pi Loom packages depend on these abstractions. Packages read canonical state from pi-storage and SQLite, not from `.loom/...` files directly. Generated markdown packets, plans, and docs are derived from canonical records instead of serving as durable storage.
 
 ## Backend policy
 
-- SQLite is the default local-machine canonical backend.
+- SQLite is the canonical backend.
 - Network-shared SQLite is not the intended multi-machine deployment model.
-- PostgreSQL is the intended future path for shared canonical state across machines.
-- SQLite-specific features may be used as accelerators, but logical correctness must remain backend-neutral.
+- Future backends, if added, must preserve the same storage semantics instead of changing the source of truth.
+- SQLite-specific features may be used when they do not blur the canonical storage boundary.
+
+## Backup and cutover
+
+When making breaking schema changes, back up the current catalog before opening it with the new code. A minimal manual backup flow is:
+
+```bash
+sqlite3 "$PI_LOOM_ROOT/catalog.sqlite" ".backup '$PI_LOOM_ROOT/catalog-$(date +%Y%m%d-%H%M%S).sqlite'"
+```
+
+If `PI_LOOM_ROOT` is unset, Pi Loom defaults to `~/.pi/loom`. The sync-bundle export helpers in `storage/sync.ts` are the ad hoc path for capturing JSON backups or moving canonical SQLite state between catalogs during one-time migrations.
 
 ## Important boundary
 
 The contract separates canonical shared state from clone-local runtime state:
 
-- canonical operational state belongs in a shared storage backend
-- repo-materialized markdown bodies and review surfaces may remain in git when useful
+- canonical operational state lives in SQLite via the shared storage backend
+- generated markdown bodies and review surfaces are exports from canonical records, not alternative durable stores
 - clone-local runtime/worktree attachments stay local and must not masquerade as canonical shared truth

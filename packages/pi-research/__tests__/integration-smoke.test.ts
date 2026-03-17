@@ -1,10 +1,10 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitiativeStore } from "../../pi-initiatives/extensions/domain/store.js";
-import { projectSpecTickets } from "../../pi-specs/extensions/domain/projection.js";
 import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
+import { syncSpecTickets } from "../../pi-specs/extensions/domain/ticket-sync.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { createResearchStore } from "../extensions/domain/store.js";
 
@@ -91,18 +91,17 @@ describe("research integration smoke", () => {
     });
     await specStore.finalizeChange("add-dark-mode");
 
-    const projected = await projectSpecTickets(workspace, "add-dark-mode");
-    const projectedTickets = projected.projection?.tickets ?? [];
-    const firstTicket = ticketStore.readTicket(projectedTickets[0]?.ticketId ?? "t-0001");
-    const secondTicket = ticketStore.readTicket(projectedTickets[1]?.ticketId ?? "t-0002");
+    const synced = await syncSpecTickets(workspace, "add-dark-mode");
+    const syncedLinks = synced.ticketSync?.links ?? [];
+    const firstTicket = await ticketStore.readTicketAsync(syncedLinks[0]?.ticketId ?? "t-0001");
+    const secondTicket = await ticketStore.readTicketAsync(syncedLinks[1]?.ticketId ?? "t-0002");
     await researchStore.linkTicket(research.state.researchId, firstTicket.summary.id);
 
     const refreshedResearch = await researchStore.readResearch(research.state.researchId);
     const refreshedInitiative = await initiativeStore.readInitiative("theme-modernization");
-    const refreshedSpec = specStore.readChangeProjection("add-dark-mode");
-    const refreshedTicket = ticketStore.readTicket(firstTicket.summary.id);
+    const refreshedSpec = await specStore.readChange("add-dark-mode");
+    const refreshedTicket = await ticketStore.readTicketAsync(firstTicket.summary.id);
 
-    expect(existsSync(join(workspace, ".loom", "research", research.state.researchId, "dashboard.json"))).toBe(false);
     expect(refreshedResearch.dashboard).toMatchObject({
       linkedInitiatives: { total: 1, items: [expect.objectContaining({ id: "theme-modernization" })] },
       linkedSpecs: { total: 1, items: [expect.objectContaining({ id: "add-dark-mode" })] },
@@ -125,6 +124,6 @@ describe("research integration smoke", () => {
     expect(refreshedTicket.ticket.frontmatter["research-ids"]).toEqual([research.state.researchId]);
     expect(refreshedTicket.summary.researchIds).toEqual([research.state.researchId]);
     expect(secondTicket.ticket.frontmatter["research-ids"]).toEqual([research.state.researchId]);
-    expect(projectedTickets).toHaveLength(2);
+    expect(syncedLinks).toHaveLength(2);
   }, 60000);
 });

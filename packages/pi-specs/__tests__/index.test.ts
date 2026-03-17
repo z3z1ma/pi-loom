@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createSpecStore } from "../extensions/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -114,15 +115,15 @@ describe("pi-specs extension", () => {
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "spec_analyze",
       "spec_list",
-      "spec_project_tickets",
       "spec_read",
+      "spec_sync_tickets",
       "spec_write",
     ]);
     expect(mockPi.handlers.has("session_start")).toBe(true);
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
 
-  it("routes /spec output through the registered command handler and initializes the spec memory", async () => {
+  it("routes /spec output through the registered command handler and initializes SQLite-backed spec state", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
@@ -133,15 +134,19 @@ describe("pi-specs extension", () => {
       const command = getCommand(mockPi, "spec");
       const sessionStart = getHandler(mockPi, "session_start");
       const { ctx, ui } = createCommandContext(cwd);
+      const store = createSpecStore(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(existsSync(join(cwd, ".loom", "specs", "changes"))).toBe(true);
-      expect(existsSync(join(cwd, ".loom", "specs", "capabilities"))).toBe(true);
+      expect(await store.listChanges({ includeArchived: true })).toEqual([]);
 
       await command.handler("propose Add dark mode", ctx);
 
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("add-dark-mode [proposed]"), "info");
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Add dark mode"), "info");
+      await expect(store.readChange("add-dark-mode")).resolves.toMatchObject({
+        summary: { id: "add-dark-mode", status: "proposed" },
+        state: { proposalSummary: "Add dark mode" },
+      });
     } finally {
       cleanup();
     }
@@ -167,7 +172,6 @@ describe("pi-specs extension", () => {
       expect(result.systemPrompt).toContain(
         "Prefer spec tools before direct ticket generation for non-trivial feature work.",
       );
-      expect(existsSync(join(cwd, ".loom", "specs", "archive"))).toBe(true);
     } finally {
       cleanup();
     }

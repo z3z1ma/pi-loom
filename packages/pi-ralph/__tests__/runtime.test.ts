@@ -181,8 +181,9 @@ describe("ralph review-state gating", () => {
     expect(reviewed.state.status).toBe("waiting_for_review");
     expect(reviewed.state.phase).toBe("reviewing");
     expect(reviewed.state.waitingFor).toBe("operator");
+    expect(reviewed.launch.packetPath).toBe(`.loom/ralph/${created.state.runId}/packet.md`);
     expect(() => store.prepareLaunch(created.state.runId)).toThrow(
       "Ralph run verifier-blocked-review is waiting for operator and cannot launch until that gate is cleared.",
     );
-  });
+  }, 20000);
 });

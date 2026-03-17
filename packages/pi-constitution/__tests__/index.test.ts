@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { findEntityByDisplayId, openWorkspaceStorage } from "../../pi-storage/storage/workspace.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -134,7 +135,8 @@ describe("pi-constitution extension", () => {
       const { ctx, ui } = createCommandContext(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(fs.existsSync(path.join(cwd, ".loom", "constitution"))).toBe(true);
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      expect(await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution")).toBeTruthy();
 
       await command.handler(
         "update vision Preserve durable project intent :: Ground agents with compiled constitutional memory",
@@ -169,7 +171,8 @@ describe("pi-constitution extension", () => {
       expect(result.systemPrompt).toContain(
         "Consult constitutional memory before making strategic, roadmap, or constraint-sensitive decisions.",
       );
-      expect(fs.existsSync(path.join(cwd, ".loom", "constitution"))).toBe(true);
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      expect(await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution")).toBeTruthy();
     } finally {
       cleanup();
     }

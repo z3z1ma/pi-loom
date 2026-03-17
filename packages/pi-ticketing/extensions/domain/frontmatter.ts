@@ -206,7 +206,7 @@ export function parseTicket(text: string, path: string, closed: boolean): Ticket
     "research-ids": Array.isArray(frontmatterRaw["research-ids"]) ? (frontmatterRaw["research-ids"] as string[]) : [],
     "spec-change":
       typeof frontmatterRaw["spec-change"] === "string" || frontmatterRaw["spec-change"] === null
-        ? frontmatterRaw["spec-change"]
+        ? (frontmatterRaw["spec-change"] as string | null)
         : null,
     "spec-capabilities": Array.isArray(frontmatterRaw["spec-capabilities"])
       ? (frontmatterRaw["spec-capabilities"] as string[])
@@ -214,9 +214,14 @@ export function parseTicket(text: string, path: string, closed: boolean): Ticket
     "spec-requirements": Array.isArray(frontmatterRaw["spec-requirements"])
       ? (frontmatterRaw["spec-requirements"] as string[])
       : [],
-    parent: typeof frontmatterRaw.parent === "string" || frontmatterRaw.parent === null ? frontmatterRaw.parent : null,
+    parent:
+      typeof frontmatterRaw.parent === "string" || frontmatterRaw.parent === null
+        ? (frontmatterRaw.parent as string | null)
+        : null,
     assignee:
-      typeof frontmatterRaw.assignee === "string" || frontmatterRaw.assignee === null ? frontmatterRaw.assignee : null,
+      typeof frontmatterRaw.assignee === "string" || frontmatterRaw.assignee === null
+        ? (frontmatterRaw.assignee as string | null)
+        : null,
     acceptance: Array.isArray(frontmatterRaw.acceptance) ? (frontmatterRaw.acceptance as string[]) : [],
     labels: Array.isArray(frontmatterRaw.labels) ? (frontmatterRaw.labels as string[]) : [],
     risk: typeof frontmatterRaw.risk === "string" ? (frontmatterRaw.risk as TicketFrontmatter["risk"]) : undefined,

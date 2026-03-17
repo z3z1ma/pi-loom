@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
@@ -70,8 +70,8 @@ describe("spec tools", () => {
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "spec_analyze",
       "spec_list",
-      "spec_project_tickets",
       "spec_read",
+      "spec_sync_tickets",
       "spec_write",
     ]);
 
@@ -81,18 +81,18 @@ describe("spec tools", () => {
       expect(tool.promptGuidelines).toEqual(expect.arrayContaining([expect.any(String)]));
     }
 
-    expect(getTool(mockPi, "spec_project_tickets").promptSnippet).toContain(
+    expect(getTool(mockPi, "spec_sync_tickets").promptSnippet).toContain(
       "Generate execution tickets only after the spec is finalized, validated, and detailed enough",
     );
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
       "Capture enough bounded detail for the spec layer: problem framing, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
     );
-    expect(getTool(mockPi, "spec_project_tickets").promptGuidelines).toContain(
-      "Require substantial specification detail before projection so tickets inherit complete requirements, rationale, dependencies, edge cases, and verification expectations.",
+    expect(getTool(mockPi, "spec_sync_tickets").promptGuidelines).toContain(
+      "Require substantial specification detail before synchronization so tickets inherit complete requirements, rationale, dependencies, edge cases, and verification expectations.",
     );
   });
 
-  it("returns machine-usable shapes for list, read, write, analyze, and project flows", async () => {
+  it("returns machine-usable shapes for list, read, write, analyze, and ticket-sync flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
@@ -105,7 +105,7 @@ describe("spec tools", () => {
       const specList = getTool(mockPi, "spec_list");
       const specRead = getTool(mockPi, "spec_read");
       const specAnalyze = getTool(mockPi, "spec_analyze");
-      const specProject = getTool(mockPi, "spec_project_tickets");
+      const specSyncTickets = getTool(mockPi, "spec_sync_tickets");
 
       const created = await specWrite.execute(
         "call-1",
@@ -193,11 +193,12 @@ describe("spec tools", () => {
         change: { summary: { status: "finalized" } },
       });
 
-      const projected = await specProject.execute("call-6", { ref: "add-dark-mode" }, undefined, undefined, ctx);
-      expect(projected.details).toMatchObject({
+      const synchronized = await specSyncTickets.execute("call-6", { ref: "add-dark-mode" }, undefined, undefined, ctx);
+      expect(synchronized.details).toMatchObject({
         change: {
-          projection: {
-            tickets: [expect.objectContaining({ taskId: "task-001", ticketId: expect.any(String) })],
+          ticketSync: {
+            mode: "initial",
+            links: [expect.objectContaining({ taskId: "task-001", ticketId: expect.any(String) })],
           },
         },
       });
@@ -211,7 +212,7 @@ describe("spec tools", () => {
       expect(read.details).toMatchObject({
         change: {
           summary: { id: "add-dark-mode" },
-          projection: { tickets: [expect.objectContaining({ taskId: "task-001" })] },
+          ticketSync: { links: [expect.objectContaining({ taskId: "task-001" })] },
         },
       });
     } finally {

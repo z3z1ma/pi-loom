@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createDocumentationStore } from "../extensions/domain/store.js";
 import { handleDocsCommand } from "../extensions/commands/docs.js";
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
@@ -43,15 +44,26 @@ describe("/docs command handler", () => {
     try {
       const { ctx, ui, newSession } = createContext(cwd);
 
+      const docsStore = createDocumentationStore(cwd);
+
       const initialized = await handleDocsCommand("init", ctx);
       expect(initialized).toContain(`Initialized docs memory at ${join(cwd, ".loom", "docs")}`);
-      expect(existsSync(join(cwd, ".loom", "docs"))).toBe(true);
+      await expect(docsStore.listDocs()).resolves.toEqual([]);
 
       const created = await handleDocsCommand(
         "create guide Documentation maintenance workflow :: Keep docs truthful after completed code changes",
         ctx,
       );
       expect(created).toContain("documentation-maintenance-workflow [active/guide]");
+
+      const createdDoc = await docsStore.readDoc("documentation-maintenance-workflow");
+      expect(createdDoc.summary).toMatchObject({
+        id: "documentation-maintenance-workflow",
+        docType: "guide",
+        status: "active",
+      });
+      expect(createdDoc.document).toContain('title: "Documentation maintenance workflow"');
+      expect(createdDoc.document).toContain("## When To Use");
 
       const packet = await handleDocsCommand("packet documentation-maintenance-workflow", ctx);
       expect(packet).toContain("Documentation Boundaries");
@@ -75,6 +87,10 @@ describe("/docs command handler", () => {
 
       const archived = await handleDocsCommand("archive documentation-maintenance-workflow", ctx);
       expect(archived).toContain("documentation-maintenance-workflow [archived/guide]");
+
+      await expect(docsStore.readDoc("documentation-maintenance-workflow")).resolves.toMatchObject({
+        summary: { status: "archived" },
+      });
     } finally {
       cleanup();
     }

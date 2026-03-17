@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readJournalEntries } from "../extensions/domain/journal.js";
-import { getJournalPath } from "../extensions/domain/paths.js";
 import { createTicketStore } from "../extensions/domain/store.js";
 
 describe("ticket journal persistence", () => {
@@ -19,37 +19,49 @@ describe("ticket journal persistence", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("appends journal entries in chronological order", () => {
+  it("appends journal entries in chronological order in the canonical ticket record", async () => {
     const store = createTicketStore(workspace);
 
     vi.setSystemTime(new Date("2024-02-01T00:00:00.000Z"));
-    const created = store.createTicket({ title: "Maintain ordered journal" });
+    const created = await store.createTicketAsync({ title: "Maintain ordered journal" });
     vi.setSystemTime(new Date("2024-02-01T00:00:01.000Z"));
-    store.addJournalEntry(created.ticket.frontmatter.id, "progress", "Investigated issue", { step: 1 });
+    await store.addJournalEntryAsync(created.summary.id, "progress", "Investigated issue", { step: 1 });
     vi.setSystemTime(new Date("2024-02-01T00:00:02.000Z"));
-    store.addJournalEntry(created.ticket.frontmatter.id, "decision", "Rolled forward fix", { step: 2 });
+    await store.addJournalEntryAsync(created.summary.id, "decision", "Rolled forward fix", { step: 2 });
 
-    const journalPath = getJournalPath(workspace, created.ticket.frontmatter.id);
-    expect(existsSync(journalPath)).toBe(true);
-
-    const fileEntries = readFileSync(journalPath, "utf-8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as { id: string; kind: string; text: string });
-    expect(fileEntries.map((entry) => entry.id)).toEqual([
+    const readBack = await createTicketStore(workspace).readTicketAsync(created.summary.id);
+    expect(readBack.journal.map((entry) => entry.id)).toEqual([
       "t-0001-journal-0001",
       "t-0001-journal-0002",
       "t-0001-journal-0003",
     ]);
-    expect(fileEntries.map((entry) => entry.kind)).toEqual(["state", "progress", "decision"]);
-    expect(fileEntries.map((entry) => entry.text)).toEqual([
+    expect(readBack.journal.map((entry) => entry.kind)).toEqual(["state", "progress", "decision"]);
+    expect(readBack.journal.map((entry) => entry.text)).toEqual([
       "Created ticket Maintain ordered journal",
       "Investigated issue",
       "Rolled forward fix",
     ]);
+    expect(readBack.journal.map((entry) => entry.metadata)).toEqual([
+      { action: "create" },
+      { step: 1 },
+      { step: 2 },
+    ]);
 
-    const readBack = readJournalEntries(workspace, created.ticket.frontmatter.id);
-    expect(readBack.map((entry) => entry.id)).toEqual(fileEntries.map((entry) => entry.id));
-    expect(readBack.map((entry) => entry.metadata)).toEqual([{ action: "create" }, { step: 1 }, { step: 2 }]);
-  });
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, "ticket", created.summary.id);
+    expect(entity).toBeTruthy();
+    if (!entity) {
+      throw new Error("Expected ticket entity to exist");
+    }
+
+    expect(entity.attributes).toMatchObject({
+      record: {
+        journal: [
+          { id: "t-0001-journal-0001", kind: "state", text: "Created ticket Maintain ordered journal", metadata: { action: "create" } },
+          { id: "t-0001-journal-0002", kind: "progress", text: "Investigated issue", metadata: { step: 1 } },
+          { id: "t-0001-journal-0003", kind: "decision", text: "Rolled forward fix", metadata: { step: 2 } },
+        ],
+      },
+    });
+  }, 30000);
 });

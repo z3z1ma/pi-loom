@@ -1,29 +1,17 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import type { CreateTicketInput, UpdateTicketInput } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
+import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type {
   SpecChangeRecord,
   SpecRequirementRecord,
   SpecTaskRecord,
-  SpecTicketProjection,
-  TicketProjectionEntry,
+  SpecTicketSyncEntry,
+  SpecTicketSyncState,
 } from "./models.js";
 import { normalizeStringList } from "./normalize.js";
-import { getProjectionPath } from "./paths.js";
 import { createSpecStore } from "./store.js";
-
-function ensureDir(path: string): void {
-  mkdirSync(path, { recursive: true });
-}
-
-function writeJson(path: string, value: unknown): void {
-  ensureDir(dirname(path));
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
-  renameSync(tempPath, path);
-}
 
 function taskSignature(change: SpecChangeRecord, task: SpecTaskRecord): string {
   const requirements = task.requirements
@@ -103,7 +91,7 @@ function ticketContext(change: SpecChangeRecord, _task: SpecTaskRecord, capabili
     return capability ? `- ${capability.id}: ${capability.title}` : `- ${capabilityId}`;
   });
   return [
-    `Projected from finalized spec ${change.state.changeId}: ${change.state.title}`,
+    `Synchronized from finalized spec ${change.state.changeId}: ${change.state.title}`,
     capabilityLines.length > 0 ? `Capabilities:\n${capabilityLines.join("\n")}` : "",
   ]
     .filter(Boolean)
@@ -136,7 +124,7 @@ function buildCreateInput(
     acceptance: ticketAcceptance(change, task),
     deps: dependencyTicketIds,
     links: [relativeSpecPath],
-    labels: ["spec-projected"],
+    labels: ["spec-synced"],
     type: "task",
     priority: "medium",
     initiativeIds: change.state.initiativeIds,
@@ -161,7 +149,7 @@ function buildUpdateInput(
     acceptance: ticketAcceptance(change, task),
     deps: dependencyTicketIds,
     links: [`.loom/specs/changes/${change.state.changeId}/proposal.md`],
-    labels: ["spec-projected"],
+    labels: ["spec-synced"],
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChange: change.state.changeId,
@@ -179,7 +167,7 @@ async function ticketExists(cwd: string, ticketId: string): Promise<boolean> {
   }
 }
 
-async function projectedTicketMatches(
+async function syncedTicketMatches(
   cwd: string,
   ticketId: string,
   expectedDeps: string[],
@@ -197,9 +185,8 @@ async function projectedTicketMatches(
     result.ticket.body.context === ticketContext(change, task, capabilityIds) &&
     result.ticket.body.plan === ticketPlan(change, task) &&
     JSON.stringify(result.ticket.frontmatter.deps) === JSON.stringify(expectedDeps) &&
-    JSON.stringify(result.ticket.frontmatter.links) ===
-      JSON.stringify([`.loom/specs/changes/${changeId}/proposal.md`]) &&
-    JSON.stringify(result.ticket.frontmatter.labels) === JSON.stringify(["spec-projected"]) &&
+    JSON.stringify(result.ticket.frontmatter.links) === JSON.stringify([`.loom/specs/changes/${changeId}/proposal.md`]) &&
+    JSON.stringify(result.ticket.frontmatter.labels) === JSON.stringify(["spec-synced"]) &&
     JSON.stringify(result.ticket.frontmatter.acceptance) === JSON.stringify(ticketAcceptance(change, task)) &&
     result.ticket.frontmatter.type === "task" &&
     result.ticket.frontmatter.priority === "medium" &&
@@ -211,25 +198,74 @@ async function projectedTicketMatches(
   );
 }
 
-export async function projectSpecTickets(cwd: string, ref: string): Promise<SpecChangeRecord> {
+async function readTicketSyncState(cwd: string, changeId: string): Promise<SpecTicketSyncState | null> {
+  const { storage, identity } = await openWorkspaceStorage(cwd);
+  const entity = await findEntityByDisplayId(storage, identity.space.id, "spec_change", changeId);
+  if (!entity) {
+    return null;
+  }
+  const attributes = entity.attributes as { ticketSync?: SpecTicketSyncState | null };
+  return attributes.ticketSync ?? null;
+}
+
+async function persistTicketSyncState(
+  cwd: string,
+  change: SpecChangeRecord,
+  ticketSync: SpecTicketSyncState,
+): Promise<SpecChangeRecord> {
+  const { storage, identity } = await openWorkspaceStorage(cwd);
+  const entity = await findEntityByDisplayId(storage, identity.space.id, "spec_change", change.state.changeId);
+  if (!entity) {
+    throw new Error(`Unknown spec change: ${change.state.changeId}`);
+  }
+  const attributes = entity.attributes as Record<string, unknown>;
+  await upsertEntityByDisplayId(storage, {
+    kind: "spec_change",
+    spaceId: identity.space.id,
+    owningRepositoryId: identity.repository.id,
+    displayId: entity.displayId ?? entity.id,
+    title: entity.title,
+    summary: entity.summary,
+    status: entity.status,
+    version: entity.version + 1,
+    tags: entity.tags,
+    pathScopes: entity.pathScopes,
+    attributes: {
+      ...attributes,
+      ticketSync,
+    },
+    createdAt: entity.createdAt,
+    updatedAt: ticketSync.syncedAt,
+  });
+  return {
+    ...change,
+    ticketSync,
+    summary: {
+      ...change.summary,
+      updatedAt: ticketSync.syncedAt,
+    },
+  };
+}
+
+export async function syncSpecTickets(cwd: string, ref: string): Promise<SpecChangeRecord> {
   const specStore = createSpecStore(cwd);
   const change = await specStore.readChange(ref);
   if (change.summary.archived || change.state.status !== "finalized") {
-    throw new Error(`Spec change ${change.state.changeId} must be active and finalized before ticket projection.`);
+    throw new Error(`Spec change ${change.state.changeId} must be active and finalized before ticket synchronization.`);
   }
 
   const orderedTasks = topoSort(change.state.tasks);
-  const previousProjection = change.projection;
+  const previousSync = await readTicketSyncState(cwd, change.state.changeId);
   const ticketStore = createTicketStore(cwd);
   ticketStore.initLedger();
 
   const ticketIdsByTask = new Map<string, string>();
-  const nextEntries: TicketProjectionEntry[] = [];
-  const mode: SpecTicketProjection["mode"] = previousProjection ? "refresh" : "initial";
+  const nextEntries: SpecTicketSyncEntry[] = [];
+  const mode: SpecTicketSyncState["mode"] = previousSync ? "refresh" : "initial";
 
   for (const task of orderedTasks) {
     const signature = taskSignature(change, task);
-    const previousEntry = previousProjection?.tickets.find((entry) => entry.taskId === task.id) ?? null;
+    const previousEntry = previousSync?.links.find((entry) => entry.taskId === task.id) ?? null;
     const dependencyTicketIds = task.deps.map((dependencyTaskId) => {
       const dependencyTicketId = ticketIdsByTask.get(dependencyTaskId);
       if (!dependencyTicketId) {
@@ -252,7 +288,7 @@ export async function projectSpecTickets(cwd: string, ref: string): Promise<Spec
       previousEntry &&
       previousEntry.signature === signature &&
       (await ticketExists(cwd, previousEntry.ticketId)) &&
-      (await projectedTicketMatches(
+      (await syncedTicketMatches(
         cwd,
         previousEntry.ticketId,
         dependencyTicketIds,
@@ -289,13 +325,11 @@ export async function projectSpecTickets(cwd: string, ref: string): Promise<Spec
     });
   }
 
-  const projection: SpecTicketProjection = {
+  return persistTicketSyncState(cwd, change, {
     changeId: change.state.changeId,
-    projectedAt: new Date().toISOString(),
+    syncedAt: new Date().toISOString(),
     mode,
     capabilityIds: normalizeStringList(change.state.capabilities.map((capability) => capability.id)),
-    tickets: nextEntries,
-  };
-  writeJson(getProjectionPath(cwd, change.state.changeId), projection);
-  return specStore.setProjection(change.state.changeId, projection);
+    links: nextEntries,
+  });
 }

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createTicketStore } from "../extensions/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -156,10 +157,10 @@ describe("pi-ticketing extension", () => {
         hasUI: true,
         customResult: null,
       });
+      const store = createTicketStore(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(existsSync(join(cwd, ".loom", "tickets"))).toBe(true);
-      expect(existsSync(join(cwd, ".loom", "tickets", ".audit"))).toBe(true);
+      expect(await store.listTicketsAsync({ includeClosed: true })).toEqual([]);
 
       await command.handler("create Establish durable ledger coverage", fallbackCtx);
       expect(fallbackUi.notify).toHaveBeenCalledWith(
@@ -203,7 +204,7 @@ describe("pi-ticketing extension", () => {
       expect(result.systemPrompt).toContain(
         "Prefer ticket tools for live work state and plan tools for durable multi-ticket execution strategy.",
       );
-      expect(existsSync(join(cwd, ".loom", "checkpoints"))).toBe(true);
+      expect(await createTicketStore(cwd).listTicketsAsync({ includeClosed: true })).toEqual([]);
     } finally {
       cleanup();
     }

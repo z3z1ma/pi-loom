@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { assertRepoRelativePath } from "../storage/contract.js";
-import { createEntityId, createProjectionId } from "../storage/ids.js";
+import { assertRepoRelativePath, type LoomRuntimeAttachment } from "../storage/contract.js";
+import { createEntityId } from "../storage/ids.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
 import { resolveWorkspaceIdentity } from "../storage/repository.js";
 import { SqliteLoomCatalog } from "../storage/sqlite.js";
@@ -26,7 +26,10 @@ function createWorkspace(): { cwd: string; cleanup: () => void } {
   return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
-async function seedCanonicalCatalog(cwd: string, catalog: SqliteLoomCatalog): Promise<{ entityIds: string[] }> {
+async function seedCanonicalCatalog(
+  cwd: string,
+  catalog: SqliteLoomCatalog,
+): Promise<{ entityIds: string[]; runtimeAttachment: LoomRuntimeAttachment }> {
   const identity = resolveWorkspaceIdentity(cwd);
   const timestamps = {
     createdAt: identity.space.createdAt,
@@ -54,8 +57,8 @@ async function seedCanonicalCatalog(cwd: string, catalog: SqliteLoomCatalog): Pr
     pathScopes: [
       {
         repositoryId: identity.repository.id,
-        relativePath: assertRepoRelativePath(".loom/constitution/brief.md"),
-        role: "projection",
+        relativePath: assertRepoRelativePath(".loom/constitution/state.json"),
+        role: "canonical",
       },
     ],
     attributes: {},
@@ -75,11 +78,6 @@ async function seedCanonicalCatalog(cwd: string, catalog: SqliteLoomCatalog): Pr
     pathScopes: [
       {
         repositoryId: identity.repository.id,
-        relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/proposal.md"),
-        role: "projection",
-      },
-      {
-        repositoryId: identity.repository.id,
         relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/state.json"),
         role: "canonical",
       },
@@ -88,32 +86,29 @@ async function seedCanonicalCatalog(cwd: string, catalog: SqliteLoomCatalog): Pr
     ...timestamps,
   });
 
-  await catalog.upsertProjection({
-    id: createProjectionId("markdown", constitutionId, ".loom/constitution/brief.md"),
-    entityId: constitutionId,
-    kind: "constitution_markdown_body",
-    materialization: "repo_materialized",
-    repositoryId: identity.repository.id,
-    relativePath: assertRepoRelativePath(".loom/constitution/brief.md"),
-    contentHash: null,
-    version: 1,
-    content: "# Brief\n\nConstitution brief.\n",
-    ...timestamps,
-  });
-  await catalog.upsertProjection({
-    id: createProjectionId("markdown", specId, ".loom/specs/changes/db-migration/proposal.md"),
+  await catalog.appendEvent({
+    id: "event-spec-created",
     entityId: specId,
-    kind: "spec_markdown_body",
-    materialization: "repo_materialized",
-    repositoryId: identity.repository.id,
-    relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/proposal.md"),
-    contentHash: null,
-    version: 1,
-    content: "# DB Migration\n\nMain proposal body.\n",
-    ...timestamps,
+    kind: "created",
+    sequence: 1,
+    createdAt: timestamps.createdAt,
+    actor: "test",
+    payload: { status: "planned" },
   });
 
-  return { entityIds: [constitutionId, specId] };
+  const runtimeAttachment: LoomRuntimeAttachment = {
+    id: "runtime-spec-worker",
+    worktreeId: identity.worktree.id,
+    kind: "worker_runtime",
+    localPath: path.join(cwd, ".loom", "runtime", "workers", "db-migration"),
+    processId: 2002,
+    leaseExpiresAt: "2026-03-16T00:10:00.000Z",
+    metadata: { specId },
+    ...timestamps,
+  };
+  await catalog.upsertRuntimeAttachment(runtimeAttachment);
+
+  return { entityIds: [constitutionId, specId], runtimeAttachment };
 }
 
 describe("pi-storage sync bundle", () => {
@@ -145,17 +140,14 @@ describe("pi-storage sync bundle", () => {
         expect.arrayContaining([
           "bundle.json",
           "entities.json",
-          "projections.json",
-          `repo-materialized/${exported.bundle.repositoryId}/.loom/constitution/brief.md`,
-          `repo-materialized/${exported.bundle.repositoryId}/.loom/specs/changes/db-migration/proposal.md`,
+          "events.json",
+          "runtime-attachments.json",
         ]),
       );
       expect(exported.files.some((file) => file.endsWith(".sqlite"))).toBe(false);
-      expect(
-        existsSync(
-          path.join(bundleDir, "repo-materialized", exported.bundle.repositoryId, ".loom", "constitution", "brief.md"),
-        ),
-      ).toBe(true);
+      expect(JSON.parse(readFileSync(path.join(bundleDir, "runtime-attachments.json"), "utf-8"))).toEqual([
+        seeded.runtimeAttachment,
+      ]);
 
       const targetCatalogRoot = mkdtempSync(path.join(tmpdir(), "pi-storage-sync-target-"));
       cleanupPaths.push(targetCatalogRoot);
@@ -168,24 +160,14 @@ describe("pi-storage sync bundle", () => {
         expect(hydrated.hydratedEntityIds).toEqual(seeded.entityIds.slice().sort((left, right) => left.localeCompare(right)));
         expect(hydratedEntities.length).toBe(seeded.entityIds.length);
         expect(hydratedEntities.some((entity) => entity.displayId === "db-migration")).toBe(true);
+        expect(await targetCatalog.listRuntimeAttachments(seeded.runtimeAttachment.worktreeId)).toEqual([
+          seeded.runtimeAttachment,
+        ]);
+        expect(await targetCatalog.listEvents("entity-does-not-exist")).toEqual([]);
         const specEntity = hydratedEntities.find((entity) => entity.displayId === "db-migration");
-        const projections = await targetCatalog.listProjections(specEntity?.id ?? "missing");
-        expect(
-          projections.some((projection) => projection.relativePath === ".loom/specs/changes/db-migration/proposal.md"),
-        ).toBe(true);
-        expect(
-          readFileSync(
-            path.join(
-              bundleDir,
-              "repo-materialized",
-              exported.bundle.repositoryId,
-              ".loom",
-              "constitution",
-              "brief.md",
-            ),
-            "utf-8",
-          ),
-        ).toContain("Constitution brief");
+        expect(await targetCatalog.listEvents(specEntity?.id ?? "missing")).toEqual([
+          expect.objectContaining({ id: "event-spec-created", kind: "created" }),
+        ]);
       } finally {
         targetCatalog.close();
       }
@@ -195,7 +177,7 @@ describe("pi-storage sync bundle", () => {
     }
   });
 
-  it("detects conflicting entity versions during hydration", async () => {
+  it("detects conflicting runtime attachments during hydration", async () => {
     const { cwd, cleanup } = createWorkspace();
     cleanupPaths.push(cwd);
     const catalogRoot = mkdtempSync(path.join(tmpdir(), "pi-storage-sync-conflict-"));
@@ -205,7 +187,7 @@ describe("pi-storage sync bundle", () => {
 
     const sourceCatalog = new SqliteLoomCatalog();
     try {
-      await seedCanonicalCatalog(cwd, sourceCatalog);
+      const seeded = await seedCanonicalCatalog(cwd, sourceCatalog);
       const bundleDir = mkdtempSync(path.join(tmpdir(), "pi-storage-sync-conflict-bundle-"));
       cleanupPaths.push(bundleDir);
       await exportSyncBundle(cwd, sourceCatalog, bundleDir);
@@ -217,10 +199,10 @@ describe("pi-storage sync bundle", () => {
       const targetCatalog = new SqliteLoomCatalog();
       try {
         await hydrateSyncBundle(targetCatalog, bundleDir);
-        const entitiesPath = path.join(bundleDir, "entities.json");
-        const entities = JSON.parse(readFileSync(entitiesPath, "utf-8")) as Array<Record<string, unknown>>;
-        entities[0] = { ...entities[0], title: "Conflicting title" };
-        writeFileSync(entitiesPath, `${JSON.stringify(entities, null, 2)}\n`, "utf-8");
+        const attachmentsPath = path.join(bundleDir, "runtime-attachments.json");
+        const attachments = JSON.parse(readFileSync(attachmentsPath, "utf-8")) as Array<Record<string, unknown>>;
+        attachments[0] = { ...attachments[0], metadata: { specId: seeded.entityIds[1], host: "other-machine" } };
+        writeFileSync(attachmentsPath, `${JSON.stringify(attachments, null, 2)}\n`, "utf-8");
         await expect(hydrateSyncBundle(targetCatalog, bundleDir)).rejects.toThrow("Sync conflict detected");
       } finally {
         targetCatalog.close();

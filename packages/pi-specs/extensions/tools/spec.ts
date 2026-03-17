@@ -2,7 +2,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
 import type { SpecPlanInput, SpecTasksInput } from "../domain/models.js";
-import { projectSpecTickets } from "../domain/projection.js";
+import { syncSpecTickets } from "../domain/ticket-sync.js";
 import { renderCapabilityDetail, renderSpecDetail, renderSpecSummary } from "../domain/render.js";
 import { createSpecStore } from "../domain/store.js";
 
@@ -67,7 +67,7 @@ const SpecAnalyzeParams = Type.Object({
   mode: Type.Optional(SpecAnalyzeModeEnum),
 });
 
-const SpecProjectParams = Type.Object({
+const SpecSyncParams = Type.Object({
   ref: Type.String(),
 });
 
@@ -118,7 +118,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     label: "spec_list",
     description: "List spec changes and existing capability specs from durable local spec memory.",
     promptSnippet:
-      "Inspect relevant existing specs before opening a new change or projecting tickets so the new spec can inherit bounded detail instead of re-inventing it.",
+      "Inspect relevant existing specs before opening a new change or synchronizing tickets so the new spec can inherit bounded detail instead of re-inventing it.",
     promptGuidelines: [
       "Use this tool before creating a new spec so you do not duplicate existing capability work.",
       "Use finalized and archived views to understand whether a capability already has a canonical spec.",
@@ -148,7 +148,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     label: "spec_read",
     description: "Read a spec change or canonical capability spec from durable local spec memory.",
     promptSnippet:
-      "Load the current spec truth before planning work, projecting tickets, or implementing derived tickets so bounded requirements, rationale, and edge cases stay explicit.",
+      "Load the current spec truth before planning work, synchronizing tickets, or implementing derived tickets so bounded requirements, rationale, and edge cases stay explicit.",
     promptGuidelines: [
       "Read the active or finalized spec before implementation when it is the durable source of product intent.",
       "Use the loaded spec to recover detailed requirements, rationale, dependencies, risks, edge cases, and acceptance instead of reconstructing them from memory.",
@@ -179,7 +179,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
       "Use this tool to formalize product intent before implementation when the work exceeds a narrow localized fix.",
       "Write clarifications back into the spec so future turns and agents can rely on them.",
       "Capture enough bounded detail for the spec layer: problem framing, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
-      "Do not project tickets from a spec that is still missing substantive requirements or testable acceptance criteria.",
+      "Do not synchronize tickets from a spec that is still missing substantive requirements or testable acceptance criteria.",
     ],
     parameters: SpecWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -232,8 +232,8 @@ export function registerSpecTools(pi: ExtensionAPI): void {
       "Validate that the spec is clear, complete, traceable, and detailed enough to stand as the contract before turning it into tickets.",
     promptGuidelines: [
       "Use this tool to validate the specification itself, not to claim the code is correct.",
-      "Run analysis before finalizing and projecting tickets from a non-trivial spec change.",
-      "Treat missing rationale, edge cases, dependencies, or verification detail as a spec-quality failure to fix before projection.",
+      "Run analysis before finalizing and synchronizing tickets from a non-trivial spec change.",
+      "Treat missing rationale, edge cases, dependencies, or verification detail as a spec-quality failure to fix before synchronization.",
     ],
     parameters: SpecAnalyzeParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -253,19 +253,19 @@ export function registerSpecTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "spec_project_tickets",
-    label: "spec_project_tickets",
-    description: "Project a finalized spec change into deterministic tickets with explicit provenance.",
+    name: "spec_sync_tickets",
+    label: "spec_sync_tickets",
+    description: "Synchronize a finalized spec change into deterministic tickets with explicit provenance.",
     promptSnippet:
       "Generate execution tickets only after the spec is finalized, validated, and detailed enough to serve as the durable contract for execution.",
     promptGuidelines: [
-      "Project tickets only from finalized specs so execution state does not outrun product intent.",
-      "Require substantial specification detail before projection so tickets inherit complete requirements, rationale, dependencies, edge cases, and verification expectations.",
-      "Re-run projection when the finalized spec changes and you need the ticket graph refreshed deterministically.",
+      "Synchronize tickets only from finalized specs so execution state does not outrun product intent.",
+      "Require substantial specification detail before synchronization so tickets inherit complete requirements, rationale, dependencies, edge cases, and verification expectations.",
+      "Re-run synchronization when the finalized spec changes and you need the ticket graph refreshed deterministically.",
     ],
-    parameters: SpecProjectParams,
+    parameters: SpecSyncParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const change = await projectSpecTickets(ctx.cwd, params.ref);
+      const change = await syncSpecTickets(ctx.cwd, params.ref);
       return machineResult({ change }, renderSpecDetail(change));
     },
   });

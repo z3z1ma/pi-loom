@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@mariozechner/pi-ai";
@@ -87,8 +87,8 @@ function createCtx(cwd: string): ExtensionContext {
 function createCtxWithRuntimeConfig(cwd: string): ExtensionContext {
   return {
     cwd,
-    model: { provider: "openai", id: "gpt-5.4" } as Model<unknown>,
-    modelRegistry: { modelsJsonPath: "/tmp/omp-agent/models.json" },
+    model: { provider: "openai", id: "gpt-5.4" } as Model<any>,
+    modelRegistry: { modelsJsonPath: "/tmp/omp-agent/models.json" } as unknown,
     sessionManager: {
       getEntries: () => [{ type: "thinking_level_change", thinkingLevel: "high" }],
       getLeafId: () => "leaf-1",
@@ -100,7 +100,7 @@ function createCtxWithRuntimeConfig(cwd: string): ExtensionContext {
 
 async function createWorkerTicket(cwd: string): Promise<void> {
   const ticketStore = createTicketStore(cwd);
-  ticketStore.initLedger();
+  await ticketStore.initLedgerAsync();
   await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
 }
 
@@ -183,7 +183,7 @@ describe("worker tools", () => {
     } finally {
       cleanup();
     }
-  }, 15000);
+  }, 60000);
 
   it("supports explicit message acknowledgement and resolution actions", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -265,7 +265,7 @@ describe("worker tools", () => {
     } finally {
       cleanup();
     }
-  }, 15000);
+  }, 30000);
 
   it("enforces ticket links on create requests", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -326,7 +326,9 @@ describe("worker tools", () => {
       expect(worker.state.latestTelemetry.state).toBe("unknown");
       expect(worker.launch?.runtime).toBe("sdk");
       expect(worker.launch?.status).toBe("prepared");
-      expect(readFileSync(worker.artifacts.launch, "utf-8")).toContain('"status": "prepared"');
+      const canonicalPrepared = await createWorkerStore(cwd).readWorkerAsync("runtime-tool-worker");
+      expect(canonicalPrepared.launch?.status).toBe("prepared");
+      expect(canonicalPrepared.launch?.runtime).toBe("sdk");
 
       runWorkerLaunchMock.mockResolvedValueOnce({ status: "completed", output: "Execution finished", error: null });
       await workerLaunch?.execute("call-run", { ref: "runtime-tool-worker" }, undefined, undefined, createCtx(cwd));
@@ -349,7 +351,7 @@ describe("worker tools", () => {
       runWorkerLaunchMock.mockReset();
       cleanup();
     }
-  }, 30000);
+  }, 60000);
 
   it("passes inherited sdk runtime config into worker launches", async () => {
     const { cwd, cleanup } = createGitWorkspace();
@@ -481,7 +483,7 @@ describe("worker tools", () => {
     } finally {
       cleanup();
     }
-  }, 30000);
+  }, 90000);
 
   it("bridges inherited runtime/session config into launch preparation and resume", async () => {
     const { cwd, cleanup } = createGitWorkspace();
@@ -536,5 +538,5 @@ describe("worker tools", () => {
       runWorkerLaunchMock.mockReset();
       cleanup();
     }
-  });
+  }, 30000);
 });

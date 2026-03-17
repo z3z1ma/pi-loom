@@ -1,10 +1,8 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   appendEntityEvent,
   findEntityByDisplayId,
   upsertEntityByDisplayId,
-  upsertProjectionForEntity,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { buildConstitutionalDashboard } from "./dashboard.js";
@@ -43,7 +41,6 @@ import {
   getConstitutionalDecisionsPath,
   getConstitutionalPaths,
   getConstitutionalPrinciplesPath,
-  getConstitutionalRoadmapItemPath,
   getConstitutionalRoadmapPath,
   getConstitutionalStatePath,
   getConstitutionalVisionPath,
@@ -52,7 +49,6 @@ import {
   renderConstitutionalBrief,
   renderConstraintsMarkdown,
   renderPrinciplesMarkdown,
-  renderRoadmapItemMarkdown,
   renderRoadmapMarkdown,
   renderVisionMarkdown,
 } from "./render.js";
@@ -72,21 +68,6 @@ interface ConstitutionalEntityAttributes {
 
 function hasStructuredConstitutionAttributes(attributes: unknown): attributes is ConstitutionalEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
-}
-
-function ensureDir(filePath: string): void {
-  fs.mkdirSync(filePath, { recursive: true });
-}
-
-function writeFileAtomic(filePath: string, content: string): void {
-  ensureDir(path.dirname(filePath));
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tempPath, content, "utf-8");
-  fs.renameSync(tempPath, filePath);
-}
-
-function readJson<T>(filePath: string): T {
-  return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
 }
 
 function defaultTitleFromWorkspace(cwd: string): string {
@@ -219,75 +200,6 @@ export class ConstitutionalStore {
     return baseState;
   }
 
-  private ensureMaterializationDirs(): void {
-    const paths = getConstitutionalPaths(this.cwd);
-    ensureDir(paths.constitutionDir);
-    ensureDir(paths.roadmapDir);
-  }
-
-  private readStateFromFiles(): ConstitutionalState {
-    this.ensureMaterializationDirs();
-    if (!fs.existsSync(getConstitutionalStatePath(this.cwd))) {
-      return this.defaultState({}, currentTimestamp());
-    }
-    const state = readJson<ConstitutionalState>(getConstitutionalStatePath(this.cwd));
-    const normalized: ConstitutionalState = {
-      projectId: normalizeProjectId(state.projectId),
-      title: state.title.trim(),
-      createdAt: state.createdAt,
-      updatedAt: state.updatedAt,
-      visionSummary: state.visionSummary ?? "",
-      visionNarrative: state.visionNarrative ?? "",
-      principles: normalizeEntries(state.principles ?? [], "principle"),
-      constraints: normalizeEntries(state.constraints ?? [], "constraint"),
-      roadmapItems: (state.roadmapItems ?? [])
-        .map(normalizeRoadmapItemState)
-        .sort((left, right) => left.id.localeCompare(right.id)),
-      roadmapItemIds: [],
-      strategicDirectionSummary: state.strategicDirectionSummary ?? "",
-      currentFocus: normalizeStringList(state.currentFocus),
-      openConstitutionQuestions: normalizeStringList(state.openConstitutionQuestions),
-      initiativeIds: normalizeStringList(state.initiativeIds),
-      researchIds: normalizeStringList(state.researchIds),
-      specChangeIds: normalizeStringList(state.specChangeIds),
-      artifactPaths: this.artifactPaths(),
-      completeness: {
-        vision: false,
-        principles: false,
-        constraints: false,
-        roadmap: false,
-        brief: true,
-      },
-    };
-    normalized.roadmapItemIds = normalized.roadmapItems.map((item) => item.id);
-    normalized.initiativeIds = aggregateRoadmapIds(normalized.roadmapItems, "initiativeIds");
-    normalized.researchIds = aggregateRoadmapIds(normalized.roadmapItems, "researchIds");
-    normalized.specChangeIds = aggregateRoadmapIds(normalized.roadmapItems, "specChangeIds");
-    normalized.completeness = computeCompleteness(normalized);
-    normalized.openConstitutionQuestions = computeQuestions(normalized);
-    return normalized;
-  }
-
-  private readDecisionsFromFiles(): ConstitutionDecisionRecord[] {
-    const decisionsPath = getConstitutionalDecisionsPath(this.cwd);
-    if (!fs.existsSync(decisionsPath)) {
-      return [];
-    }
-    return fs
-      .readFileSync(decisionsPath, "utf-8")
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as ConstitutionDecisionRecord)
-      .map((decision) => ({
-        ...decision,
-        kind: normalizeDecisionKind(decision.kind),
-        question: decision.question.trim(),
-        answer: decision.answer.trim(),
-        affectedArtifacts: normalizeStringList(decision.affectedArtifacts),
-      }))
-      .sort((left, right) => left.id.localeCompare(right.id));
-  }
-
   private normalizeState(state: ConstitutionalState): ConstitutionalState {
     const normalized: ConstitutionalState = {
       ...state,
@@ -319,31 +231,6 @@ export class ConstitutionalStore {
     const constraints = renderConstraintsMarkdown(normalized);
     const roadmap = renderRoadmapMarkdown(normalized, decisions);
 
-    this.ensureMaterializationDirs();
-    writeFileAtomic(getConstitutionalStatePath(this.cwd), `${JSON.stringify(normalized, null, 2)}\n`);
-    writeFileAtomic(
-      getConstitutionalDecisionsPath(this.cwd),
-      `${decisions.map((decision) => JSON.stringify(decision)).join("\n")}${decisions.length > 0 ? "\n" : ""}`,
-    );
-    writeFileAtomic(getConstitutionalBriefPath(this.cwd), brief);
-    writeFileAtomic(getConstitutionalVisionPath(this.cwd), vision);
-    writeFileAtomic(getConstitutionalPrinciplesPath(this.cwd), principles);
-    writeFileAtomic(getConstitutionalConstraintsPath(this.cwd), constraints);
-    writeFileAtomic(getConstitutionalRoadmapPath(this.cwd), roadmap);
-
-    const expectedPaths = new Set<string>();
-    for (const item of normalized.roadmapItems) {
-      const itemPath = getConstitutionalRoadmapItemPath(this.cwd, item.id);
-      expectedPaths.add(itemPath);
-      writeFileAtomic(itemPath, renderRoadmapItemMarkdown(normalized.title, item));
-    }
-    for (const entry of fs.readdirSync(getConstitutionalPaths(this.cwd).roadmapDir)) {
-      const entryPath = path.join(getConstitutionalPaths(this.cwd).roadmapDir, entry);
-      if (fs.statSync(entryPath).isFile() && !expectedPaths.has(entryPath)) {
-        fs.rmSync(entryPath);
-      }
-    }
-
     return {
       state: normalized,
       brief,
@@ -360,9 +247,13 @@ export class ConstitutionalStore {
     record: ConstitutionalRecord;
     storage: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"];
   }> {
-    this.ensureMaterializationDirs();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    let entity = await findEntityByDisplayId(storage, identity.space.id, "constitution", CONSTITUTION_ENTITY_DISPLAY_ID);
+    let entity = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "constitution",
+      CONSTITUTION_ENTITY_DISPLAY_ID,
+    );
 
     if (!entity) {
       const timestamp = currentTimestamp();
@@ -377,21 +268,7 @@ export class ConstitutionalStore {
         status: "active",
         version: 1,
         tags: ["constitution"],
-        pathScopes: [
-          { repositoryId: identity.repository.id, relativePath: ".loom/constitution/brief.md", role: "projection" },
-          { repositoryId: identity.repository.id, relativePath: ".loom/constitution/vision.md", role: "projection" },
-          {
-            repositoryId: identity.repository.id,
-            relativePath: ".loom/constitution/principles.md",
-            role: "projection",
-          },
-          {
-            repositoryId: identity.repository.id,
-            relativePath: ".loom/constitution/constraints.md",
-            role: "projection",
-          },
-          { repositoryId: identity.repository.id, relativePath: ".loom/constitution/roadmap.md", role: "projection" },
-        ],
+        pathScopes: [],
         attributes: { state: stripArtifactPaths(bootstrapState) },
         createdAt: bootstrapState.createdAt,
         updatedAt: bootstrapState.updatedAt,
@@ -428,9 +305,14 @@ export class ConstitutionalStore {
   ): Promise<ConstitutionalRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const normalized = this.normalizeState(state);
-    const existing = await findEntityByDisplayId(storage, identity.space.id, "constitution", CONSTITUTION_ENTITY_DISPLAY_ID);
+    const existing = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "constitution",
+      CONSTITUTION_ENTITY_DISPLAY_ID,
+    );
     const version = (existing?.version ?? 0) + 1;
-    const entity = await upsertEntityByDisplayId(storage, {
+    await upsertEntityByDisplayId(storage, {
       kind: "constitution",
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -440,31 +322,12 @@ export class ConstitutionalStore {
       status: "active",
       version,
       tags: ["constitution"],
-      pathScopes: [
-        { repositoryId: identity.repository.id, relativePath: ".loom/constitution/brief.md", role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: ".loom/constitution/vision.md", role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: ".loom/constitution/principles.md", role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: ".loom/constitution/constraints.md", role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: ".loom/constitution/roadmap.md", role: "projection" },
-      ],
+      pathScopes: [],
       attributes: { state: stripArtifactPaths(normalized) },
       createdAt: existing?.createdAt ?? normalized.createdAt,
       updatedAt: normalized.updatedAt,
     });
-    const record = this.materializeArtifacts(normalized, decisions);
-    await upsertProjectionForEntity(
-      storage,
-      entity.id,
-      "constitution_markdown_body",
-      "repo_materialized",
-      identity.repository.id,
-      ".loom/constitution/brief.md",
-      record.brief,
-      version,
-      normalized.createdAt,
-      normalized.updatedAt,
-    );
-    return record;
+    return this.materializeArtifacts(normalized, decisions);
   }
 
   async initLedger(input: InitConstitutionInput = {}): Promise<{ initialized: true; root: string }> {
@@ -485,10 +348,6 @@ export class ConstitutionalStore {
 
   async readConstitution(): Promise<ConstitutionalRecord> {
     return (await this.loadCanonicalRecord()).record;
-  }
-
-  readConstitutionProjection(): ConstitutionalRecord {
-    return this.materializeArtifacts(this.readStateFromFiles(), this.readDecisionsFromFiles());
   }
 
   async updateVision(input: UpdateVisionInput): Promise<ConstitutionalRecord> {
@@ -566,26 +425,9 @@ export class ConstitutionalStore {
     return item;
   }
 
-  readRoadmapItemProjection(ref: string): RoadmapItem {
-    const itemId = normalizeRoadmapRef(ref);
-    const item = this.readStateFromFiles().roadmapItems.find((candidate) => candidate.id === itemId);
-    if (!item) {
-      throw new Error(`Unknown roadmap item: ${ref}`);
-    }
-    return item;
-  }
-
   async hasRoadmapItem(ref: string): Promise<boolean> {
     try {
       return Boolean(await this.readRoadmapItem(ref));
-    } catch {
-      return false;
-    }
-  }
-
-  hasRoadmapItemProjection(ref: string): boolean {
-    try {
-      return Boolean(this.readRoadmapItemProjection(ref));
     } catch {
       return false;
     }
@@ -595,16 +437,6 @@ export class ConstitutionalStore {
     const normalized = normalizeStringList(refs.map((ref) => normalizeRoadmapRef(ref)));
     for (const ref of normalized) {
       if (!(await this.hasRoadmapItem(ref))) {
-        throw new Error(`Unknown roadmap item: ${ref}`);
-      }
-    }
-    return normalized;
-  }
-
-  validateRoadmapRefsProjection(refs: string[]): string[] {
-    const normalized = normalizeStringList(refs.map((ref) => normalizeRoadmapRef(ref)));
-    for (const ref of normalized) {
-      if (!this.hasRoadmapItemProjection(ref)) {
         throw new Error(`Unknown roadmap item: ${ref}`);
       }
     }
@@ -638,34 +470,6 @@ export class ConstitutionalStore {
     );
     state.updatedAt = timestamp;
     return this.persistCanonical(state, record.decisions);
-  }
-
-  upsertRoadmapItemProjection(input: RoadmapItemInput | UpdateRoadmapItemInput): ConstitutionalRecord {
-    const state = this.readStateFromFiles();
-    const timestamp = currentTimestamp();
-    const existingItem = "id" in input && input.id ? this.readRoadmapItemProjection(input.id) : null;
-    const normalized = normalizeRoadmapItem(
-      existingItem
-        ? {
-            id: existingItem.id,
-            title: input.title ?? existingItem.title,
-            status: input.status ?? existingItem.status,
-            horizon: input.horizon ?? existingItem.horizon,
-            summary: input.summary ?? existingItem.summary,
-            rationale: input.rationale ?? existingItem.rationale,
-            initiativeIds: input.initiativeIds ?? existingItem.initiativeIds,
-            researchIds: input.researchIds ?? existingItem.researchIds,
-            specChangeIds: input.specChangeIds ?? existingItem.specChangeIds,
-          }
-        : input,
-      state.roadmapItems.map((item) => item.id),
-      timestamp,
-    );
-    state.roadmapItems = [...state.roadmapItems.filter((item) => item.id !== normalized.id), normalized].sort(
-      (left, right) => left.id.localeCompare(right.id),
-    );
-    state.updatedAt = timestamp;
-    return this.materializeArtifacts(state, this.readDecisionsFromFiles());
   }
 
   async linkInitiative(itemRef: string, initiativeId: string): Promise<ConstitutionalRecord> {
@@ -705,7 +509,12 @@ export class ConstitutionalStore {
       answer: answer.trim(),
       affectedArtifacts: normalizeStringList(affectedArtifacts),
     };
-    const entity = await findEntityByDisplayId(storage, identity.space.id, "constitution", CONSTITUTION_ENTITY_DISPLAY_ID);
+    const entity = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "constitution",
+      CONSTITUTION_ENTITY_DISPLAY_ID,
+    );
     if (entity) {
       await appendEntityEvent(storage, entity.id, "decision_recorded", "constitution-store", { decision }, timestamp);
     }

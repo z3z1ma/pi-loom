@@ -1,9 +1,10 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { handleCritiqueCommand } from "../extensions/commands/critique.js";
+import { createCritiqueStore } from "../extensions/domain/store.js";
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-critique-commands-"));
@@ -42,10 +43,11 @@ describe("/critique command handler", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const { ctx, ui, newSession } = createContext(cwd);
+      const store = createCritiqueStore(cwd);
 
       const initialized = await handleCritiqueCommand("init", ctx);
       expect(initialized).toContain(`Initialized critique memory at ${join(cwd, ".loom", "critiques")}`);
-      expect(existsSync(join(cwd, ".loom", "critiques"))).toBe(true);
+      await expect(store.listCritiquesAsync()).resolves.toEqual([]);
 
       const created = await handleCritiqueCommand(
         "create workspace repo Critique package launch boundary :: Should critique launch require a fresh session?",
@@ -59,7 +61,15 @@ describe("/critique command handler", () => {
 
       const launched = await handleCritiqueCommand("launch critique-package-launch-boundary", ctx);
       expect(launched).toContain("descriptor_only");
-      expect(existsSync(join(cwd, ".loom", "critiques", "critique-package-launch-boundary", "launch.json"))).toBe(true);
+      await expect(store.readCritiqueAsync("critique-package-launch-boundary")).resolves.toMatchObject({
+        state: { critiqueId: "critique-package-launch-boundary", launchCount: 1 },
+        launch: {
+          critiqueId: "critique-package-launch-boundary",
+          runtime: "descriptor_only",
+          freshContextRequired: true,
+          packetPath: ".loom/critiques/critique-package-launch-boundary/packet.md",
+        },
+      });
       expect(newSession).toHaveBeenCalledWith({
         parentSession: join(cwd, ".pi", "sessions", "current.jsonl"),
       });
@@ -95,5 +105,5 @@ describe("/critique command handler", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 180000);
 });

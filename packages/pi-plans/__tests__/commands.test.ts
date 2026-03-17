@@ -1,10 +1,11 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it } from "vitest";
 import { handleWorkplanCommand } from "../extensions/commands/plan.js";
+import { createPlanStore } from "../extensions/domain/store.js";
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-plans-commands-"));
@@ -31,16 +32,21 @@ describe("/workplan command handler", () => {
     try {
       const { ctx } = createContext(cwd);
       const ticketStore = createTicketStore(cwd);
+      const planStore = createPlanStore(cwd);
 
       const initialized = await handleWorkplanCommand("init", ctx);
       expect(initialized).toContain(`Initialized plan memory at ${join(cwd, ".loom", "plans")}`);
-      expect(existsSync(join(cwd, ".loom", "plans"))).toBe(true);
+      await expect(planStore.listPlans()).resolves.toEqual([]);
 
       const created = await handleWorkplanCommand(
         "create workspace repo Planning layer :: Bridge finalized specs into a linked ticket rollout :: Sequence implementation, review, and documentation work.",
         ctx,
       );
       expect(created).toContain("planning-layer [active] Planning layer");
+
+      await expect(planStore.readPlan("planning-layer")).resolves.toMatchObject({
+        summary: { id: "planning-layer", status: "active" },
+      });
 
       const ticket = await ticketStore.createTicketAsync({
         title: "Implement plan package",
@@ -69,6 +75,10 @@ describe("/workplan command handler", () => {
 
       const archived = await handleWorkplanCommand("archive planning-layer", ctx);
       expect(archived).toContain("planning-layer [archived] Planning layer");
+
+      await expect(planStore.readPlan("planning-layer")).resolves.toMatchObject({
+        summary: { status: "archived" },
+      });
     } finally {
       cleanup();
     }

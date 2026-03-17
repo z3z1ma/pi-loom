@@ -4,8 +4,8 @@ import type {
   LoomEntityEventRecord,
   LoomEntityLinkRecord,
   LoomEntityRecord,
-  LoomProjectionRecord,
   LoomRepositoryRecord,
+  LoomRuntimeAttachment,
   LoomSpaceRecord,
   LoomWorktreeRecord,
 } from "./contract.js";
@@ -25,7 +25,7 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
   private readonly entities = new Map<string, LoomEntityRecord>();
   private readonly links = new Map<string, LoomEntityLinkRecord>();
   private readonly events = new Map<string, LoomEntityEventRecord>();
-  private readonly projections = new Map<string, LoomProjectionRecord>();
+  private readonly runtimeAttachments = new Map<string, LoomRuntimeAttachment>();
 
   async getSpace(id: string): Promise<LoomSpaceRecord | null> {
     return clone(this.spaces.get(id) ?? null);
@@ -63,8 +63,11 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
       .map(clone);
   }
 
-  async listProjections(entityId: string): Promise<LoomProjectionRecord[]> {
-    return [...this.projections.values()].filter((record) => record.entityId === entityId).map(clone);
+  async listRuntimeAttachments(worktreeId?: string): Promise<LoomRuntimeAttachment[]> {
+    return [...this.runtimeAttachments.values()]
+      .filter((record) => (worktreeId ? record.worktreeId === worktreeId : true))
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map(clone);
   }
 
   async upsertSpace(record: LoomSpaceRecord): Promise<void> {
@@ -91,8 +94,12 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
     this.events.set(record.id, clone(record));
   }
 
-  async upsertProjection(record: LoomProjectionRecord): Promise<void> {
-    this.projections.set(record.id, clone(record));
+  async upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void> {
+    this.runtimeAttachments.set(record.id, clone(record));
+  }
+
+  async removeRuntimeAttachment(id: string): Promise<void> {
+    this.runtimeAttachments.delete(id);
   }
 
   async transact<T>(run: (tx: LoomCanonicalTransaction) => Promise<T>): Promise<T> {
@@ -103,7 +110,7 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
       entities: clone([...this.entities.entries()]),
       links: clone([...this.links.entries()]),
       events: clone([...this.events.entries()]),
-      projections: clone([...this.projections.entries()]),
+      runtimeAttachments: clone([...this.runtimeAttachments.entries()]),
     };
 
     const tx: LoomCanonicalTransaction = {
@@ -116,14 +123,14 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
         this.entities.clear();
         this.links.clear();
         this.events.clear();
-        this.projections.clear();
+        this.runtimeAttachments.clear();
         for (const [id, record] of snapshot.spaces) this.spaces.set(id, record);
         for (const [id, record] of snapshot.repositories) this.repositories.set(id, record);
         for (const [id, record] of snapshot.worktrees) this.worktrees.set(id, record);
         for (const [id, record] of snapshot.entities) this.entities.set(id, record);
         for (const [id, record] of snapshot.links) this.links.set(id, record);
         for (const [id, record] of snapshot.events) this.events.set(id, record);
-        for (const [id, record] of snapshot.projections) this.projections.set(id, record);
+        for (const [id, record] of snapshot.runtimeAttachments) this.runtimeAttachments.set(id, record);
       },
     };
 

@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { ConstitutionalRecord } from "@pi-loom/pi-constitution/extensions/domain/models.js";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import type { CritiqueReadResult } from "@pi-loom/pi-critique/extensions/domain/models.js";
@@ -11,11 +10,9 @@ import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain
 import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/models.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
-import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
-  upsertProjectionForEntity,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
@@ -37,7 +34,6 @@ import {
   normalizeContextRefs,
   normalizeDecisions,
   normalizeDiscoveries,
-  normalizePlanId,
   normalizePlanRef,
   normalizePlanSourceTargetKind,
   normalizePlanStatus,
@@ -45,11 +41,10 @@ import {
   normalizeProgress,
   normalizeRevisionNotes,
   normalizeStringList,
-  normalizeTicketId,
   slugifyTitle,
   summarizeText,
 } from "./normalize.js";
-import { getPlanDir, getPlanMarkdownPath, getPlanPacketPath, getPlanStatePath, getPlansPaths } from "./paths.js";
+import { getPlanDir, getPlanMarkdownPath, getPlanPacketPath, getPlansPaths } from "./paths.js";
 import { renderPlanMarkdown } from "./render.js";
 
 const ENTITY_KIND = "plan" as const;
@@ -60,25 +55,6 @@ interface PlanEntityAttributes {
 
 function hasStructuredPlanAttributes(attributes: unknown): attributes is PlanEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
-}
-
-function ensureDir(path: string): void {
-  mkdirSync(path, { recursive: true });
-}
-
-function writeFileAtomic(path: string, content: string): void {
-  ensureDir(dirname(path));
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tempPath, content, "utf-8");
-  renameSync(tempPath, path);
-}
-
-function writeJson(path: string, value: unknown): void {
-  writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function readJson<T>(path: string): T {
-  return JSON.parse(readFileSync(path, "utf-8")) as T;
 }
 
 function relativePathFromRoot(cwd: string, filePath: string): string {
@@ -141,7 +117,7 @@ function deriveContextRefsFromSpec(change: SpecChangeRecord): PlanContextRefs {
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChangeIds: [change.state.changeId],
-    ticketIds: change.projection?.tickets.map((ticket) => ticket.ticketId) ?? [],
+    ticketIds: change.ticketSync?.links.map((ticket) => ticket.ticketId) ?? [],
   });
 }
 
@@ -201,24 +177,15 @@ export class PlanStore {
 
   async initLedger(): Promise<{ initialized: true; root: string }> {
     const paths = getPlansPaths(this.cwd);
-    ensureDir(paths.plansDir);
     return { initialized: true, root: paths.plansDir };
   }
 
-  private planDirectories(): string[] {
-    const directory = getPlansPaths(this.cwd).plansDir;
-    if (!existsSync(directory)) {
-      return [];
-    }
-    return readdirSync(directory)
-      .map((entry) => join(directory, entry))
-      .filter((path) => statSync(path).isDirectory())
-      .sort((left, right) => basename(left).localeCompare(basename(right)));
-  }
-
-  private nextPlanId(baseTitle: string): string {
+  private async nextPlanId(baseTitle: string): Promise<string> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const baseId = slugifyTitle(baseTitle);
-    const existing = new Set(this.planDirectories().map((directory) => basename(directory)));
+    const existing = new Set(
+      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => entity.displayId),
+    );
     if (!existing.has(baseId)) {
       return baseId;
     }
@@ -229,57 +196,6 @@ export class PlanStore {
     return `${baseId}-${attempt}`;
   }
 
-  private resolvePlanDirectory(ref: string): string {
-    const normalizedRef = normalizePlanRef(ref);
-    const directPath = getPlanDir(this.cwd, normalizedRef);
-    if (existsSync(join(directPath, "state.json"))) {
-      return directPath;
-    }
-    throw new Error(`Unknown plan: ${ref}`);
-  }
-
-  private readStateFromFiles(planDir: string): PlanState {
-    const state = readJson<PlanState>(join(planDir, "state.json"));
-    return {
-      ...state,
-      planId: normalizePlanId(state.planId),
-      title: state.title.trim(),
-      status: normalizePlanStatus(state.status),
-      summary: state.summary?.trim() ?? "",
-      purpose: state.purpose?.trim() ?? "",
-      contextAndOrientation: state.contextAndOrientation?.trim() ?? "",
-      milestones: state.milestones?.trim() ?? "",
-      planOfWork: state.planOfWork?.trim() ?? "",
-      concreteSteps: state.concreteSteps?.trim() ?? "",
-      validation: state.validation?.trim() ?? "",
-      idempotenceAndRecovery: state.idempotenceAndRecovery?.trim() ?? "",
-      artifactsAndNotes: state.artifactsAndNotes?.trim() ?? "",
-      interfacesAndDependencies: state.interfacesAndDependencies?.trim() ?? "",
-      risksAndQuestions: state.risksAndQuestions?.trim() ?? "",
-      outcomesAndRetrospective: state.outcomesAndRetrospective?.trim() ?? "",
-      scopePaths: normalizeStringList(state.scopePaths),
-      sourceTarget: {
-        kind: normalizePlanSourceTargetKind(state.sourceTarget.kind),
-        ref: state.sourceTarget.ref.trim(),
-      },
-      contextRefs: normalizeContextRefs(state.contextRefs),
-      linkedTickets: normalizePlanTicketLinks(state.linkedTickets),
-      progress: normalizeProgress(state.progress),
-      discoveries: normalizeDiscoveries(state.discoveries),
-      decisions: normalizeDecisions(state.decisions),
-      revisionNotes: normalizeRevisionNotes(state.revisionNotes),
-      packetSummary: state.packetSummary?.trim() ?? "",
-    };
-  }
-
-  private writeState(state: PlanState): void {
-    writeJson(getPlanStatePath(this.cwd, state.planId), state);
-  }
-
-  private constitutionExists(): boolean {
-    return existsSync(join(this.cwd, ".loom", "constitution", "state.json"));
-  }
-
   private async readConstitutionIfPresentAsync(): Promise<ConstitutionalRecord | null> {
     try {
       const { storage, identity } = await openWorkspaceStorage(this.cwd);
@@ -288,25 +204,6 @@ export class PlanStore {
         return null;
       }
       return { state: (entity.attributes as { state: ConstitutionalRecord["state"] }).state } as ConstitutionalRecord;
-    } catch {
-      return null;
-    }
-  }
-
-  private readConstitutionIfPresent(): ConstitutionalRecord | null {
-    if (!this.constitutionExists()) {
-      return null;
-    }
-    try {
-      return createConstitutionalStore(this.cwd).readConstitutionProjection();
-    } catch {
-      return null;
-    }
-  }
-
-  private safeReadInitiative(id: string): InitiativeRecord | null {
-    try {
-      return createInitiativeStore(this.cwd).readInitiativeProjection(id);
     } catch {
       return null;
     }
@@ -339,14 +236,6 @@ export class PlanStore {
           researchIds: attributes.state.researchIds,
         },
       } as unknown as InitiativeRecord;
-    } catch {
-      return null;
-    }
-  }
-
-  private safeReadResearch(id: string): ResearchRecord | null {
-    try {
-      return createResearchStore(this.cwd).readResearchProjection(id);
     } catch {
       return null;
     }
@@ -387,14 +276,6 @@ export class PlanStore {
     }
   }
 
-  private safeReadSpec(id: string): SpecChangeRecord | null {
-    try {
-      return createSpecStore(this.cwd).readChangeProjection(id);
-    } catch {
-      return null;
-    }
-  }
-
   private async safeReadSpecAsync(id: string): Promise<SpecChangeRecord | null> {
     try {
       const { storage, identity } = await openWorkspaceStorage(this.cwd);
@@ -407,14 +288,14 @@ export class PlanStore {
         decisions: SpecChangeRecord["decisions"];
         analysis: SpecChangeRecord["analysis"];
         checklist: SpecChangeRecord["checklist"];
-        projection: SpecChangeRecord["projection"];
+        ticketSync?: SpecChangeRecord["ticketSync"];
       };
       return {
         state: attributes.state,
         decisions: attributes.decisions,
         analysis: attributes.analysis,
         checklist: attributes.checklist,
-        projection: attributes.projection,
+        ticketSync: attributes.ticketSync ?? null,
         summary: {
           id: entity.displayId,
           title: entity.title,
@@ -426,14 +307,6 @@ export class PlanStore {
           researchIds: attributes.state.researchIds,
         },
       } as unknown as SpecChangeRecord;
-    } catch {
-      return null;
-    }
-  }
-
-  private safeReadTicket(id: string): TicketReadResult | null {
-    try {
-      return createTicketStore(this.cwd).readTicketProjection(id);
     } catch {
       return null;
     }
@@ -473,14 +346,6 @@ export class PlanStore {
     }
   }
 
-  private safeReadDoc(id: string): DocumentationReadResult | null {
-    try {
-      return createDocumentationStore(this.cwd).readDocProjection(id);
-    } catch {
-      return null;
-    }
-  }
-
   private async safeReadDocAsync(id: string): Promise<DocumentationReadResult | null> {
     try {
       const { storage, identity } = await openWorkspaceStorage(this.cwd);
@@ -500,70 +365,6 @@ export class PlanStore {
       return constitution?.state.roadmapItems.find((item) => item.id === itemId) ?? null;
     } catch {
       return null;
-    }
-  }
-
-  private resolveSourceSummary(state: PlanState): { summary: string; contextRefs: PlanContextRefs } {
-    switch (state.sourceTarget.kind) {
-      case "initiative": {
-        const initiative = this.safeReadInitiative(state.sourceTarget.ref);
-        if (!initiative) {
-          return {
-            summary: `Initiative ${state.sourceTarget.ref} could not be loaded. Use the packet context directly and repair the link if needed.`,
-            contextRefs: mergeContextRefs({ initiativeIds: [state.sourceTarget.ref] }),
-          };
-        }
-        return {
-          summary: [
-            `${initiative.summary.id} [${initiative.summary.status}] ${initiative.summary.title}`,
-            `Objective: ${excerpt(initiative.state.objective)}`,
-            `Status summary: ${excerpt(initiative.state.statusSummary, "(empty)")}`,
-            `Milestones: ${initiative.state.milestones.length}`,
-          ].join("\n"),
-          contextRefs: deriveContextRefsFromInitiative(initiative),
-        };
-      }
-      case "spec": {
-        const change = this.safeReadSpec(state.sourceTarget.ref);
-        if (!change) {
-          return {
-            summary: `Spec ${state.sourceTarget.ref} could not be loaded. Use the packet context directly and repair the link if needed.`,
-            contextRefs: mergeContextRefs({ specChangeIds: [state.sourceTarget.ref] }),
-          };
-        }
-        return {
-          summary: [
-            `${change.summary.id} [${change.summary.status}] ${change.summary.title}`,
-            `Proposal: ${excerpt(change.state.proposalSummary)}`,
-            `Requirements: ${change.state.requirements.length}`,
-            `Tasks: ${change.state.tasks.length}`,
-          ].join("\n"),
-          contextRefs: deriveContextRefsFromSpec(change),
-        };
-      }
-      case "research": {
-        const research = this.safeReadResearch(state.sourceTarget.ref);
-        if (!research) {
-          return {
-            summary: `Research ${state.sourceTarget.ref} could not be loaded. Use the packet context directly and repair the link if needed.`,
-            contextRefs: mergeContextRefs({ researchIds: [state.sourceTarget.ref] }),
-          };
-        }
-        return {
-          summary: [
-            `${research.summary.id} [${research.summary.status}] ${research.summary.title}`,
-            `Question: ${excerpt(research.state.question)}`,
-            `Objective: ${excerpt(research.state.objective)}`,
-            `Conclusions: ${research.state.conclusions.join("; ") || "none"}`,
-          ].join("\n"),
-          contextRefs: deriveContextRefsFromResearch(research),
-        };
-      }
-      case "workspace":
-        return {
-          summary: `Workspace planning target: ${state.sourceTarget.ref}`,
-          contextRefs: normalizeContextRefs(state.contextRefs),
-        };
     }
   }
 
@@ -633,30 +434,6 @@ export class PlanStore {
     }
   }
 
-  private resolveLinkedTickets(state: PlanState): PlanDashboardTicket[] {
-    return state.linkedTickets.map((link) => {
-      const ticket = this.safeReadTicket(link.ticketId);
-      if (!ticket) {
-        return {
-          ticketId: link.ticketId,
-          role: link.role,
-          order: link.order,
-          status: "missing",
-          title: "Missing ticket",
-          path: null,
-        };
-      }
-      return {
-        ticketId: link.ticketId,
-        role: link.role,
-        order: link.order,
-        status: ticket.summary.status,
-        title: ticket.summary.title,
-        path: relativePathFromRoot(this.cwd, ticket.summary.path),
-      };
-    });
-  }
-
   private async resolveLinkedTicketsAsync(state: PlanState): Promise<PlanDashboardTicket[]> {
     const tickets = await Promise.all(
       state.linkedTickets.map(async (link) => {
@@ -682,105 +459,6 @@ export class PlanStore {
       }),
     );
     return tickets;
-  }
-
-  private resolvePacketContext(state: PlanState): ResolvedPlanContext {
-    const source = this.resolveSourceSummary(state);
-    const linkedTicketResults = state.linkedTickets
-      .map((link) => this.safeReadTicket(link.ticketId))
-      .filter((ticket): ticket is TicketReadResult => ticket !== null);
-    const linkedTickets = this.resolveLinkedTickets(state);
-    const baseContextRefs = mergeContextRefs(
-      state.contextRefs,
-      source.contextRefs,
-      ...linkedTicketResults.map((ticket) => deriveContextRefsFromTicket(ticket)),
-    );
-    const critiqueResults = baseContextRefs.critiqueIds
-      .map((critiqueId) => this.safeReadCritique(critiqueId))
-      .filter((record): record is CritiqueReadResult => record !== null);
-    const docResults = baseContextRefs.docIds
-      .map((docId) => this.safeReadDoc(docId))
-      .filter((record): record is DocumentationReadResult => record !== null);
-    const contextRefs = mergeContextRefs(
-      baseContextRefs,
-      ...critiqueResults.map((record) => deriveContextRefsFromCritique(record)),
-      ...docResults.map((record) => deriveContextRefsFromDoc(record)),
-    );
-    const constitution = this.readConstitutionIfPresent();
-    const roadmapItems = constitution
-      ? contextRefs.roadmapItemIds
-          .map((itemId) => {
-            try {
-              return createConstitutionalStore(this.cwd).readRoadmapItemProjection(itemId);
-            } catch {
-              return null;
-            }
-          })
-          .filter((item): item is NonNullable<typeof item> => item !== null)
-          .map((item) => `${item.id} [${item.status}/${item.horizon}] ${item.title} — ${excerpt(item.summary)}`)
-      : [];
-    const initiatives = contextRefs.initiativeIds
-      .map((initiativeId) => this.safeReadInitiative(initiativeId))
-      .filter((initiative): initiative is InitiativeRecord => initiative !== null)
-      .map(
-        (initiative) =>
-          `${initiative.state.initiativeId} [${initiative.state.status}] ${initiative.state.title} — ${excerpt(initiative.state.objective)}`,
-      );
-    const research = contextRefs.researchIds
-      .map((researchId) => this.safeReadResearch(researchId))
-      .filter((record): record is ResearchRecord => record !== null)
-      .map(
-        (record) =>
-          `${record.state.researchId} [${record.state.status}] ${record.state.title} — conclusions: ${record.state.conclusions.join("; ") || "none"}`,
-      );
-    const specs = contextRefs.specChangeIds
-      .map((changeId) => this.safeReadSpec(changeId))
-      .filter((record): record is SpecChangeRecord => record !== null)
-      .map(
-        (record) =>
-          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} tasks=${record.state.tasks.length}`,
-      );
-    const tickets = contextRefs.ticketIds
-      .map((ticketId) => this.safeReadTicket(ticketId))
-      .filter((record): record is TicketReadResult => record !== null)
-      .map(
-        (record) =>
-          `${record.summary.id} [${record.summary.status}] ${record.summary.title} — ${excerpt(record.ticket.body.summary)}`,
-      );
-    const critiques = critiqueResults.map(
-      (record) =>
-        `${record.summary.id} [${record.summary.status}/${record.summary.verdict}] ${record.summary.title} — open findings: ${record.state.openFindingIds.length}`,
-    );
-    const docs = docResults.map(
-      (record) =>
-        `${record.summary.id} [${record.summary.status}/${record.summary.docType}] ${record.summary.title} — ${excerpt(record.state.summary, "Documentation record")}`,
-    );
-    const packetSummary = [
-      `${state.sourceTarget.kind}:${state.sourceTarget.ref}`,
-      `${linkedTickets.length} linked ticket(s)`,
-      `${roadmapItems.length} roadmap`,
-      `${initiatives.length} initiative`,
-      `${research.length} research`,
-      `${specs.length} spec`,
-      `${tickets.length} ticket`,
-      `${critiques.length} critique`,
-      `${docs.length} doc`,
-    ].join("; ");
-
-    return {
-      sourceSummary: source.summary,
-      contextRefs,
-      constitution,
-      roadmapItems,
-      initiatives,
-      research,
-      specs,
-      tickets,
-      critiques,
-      docs,
-      linkedTickets,
-      packetSummary,
-    };
   }
 
   private async resolvePacketContextAsync(state: PlanState): Promise<ResolvedPlanContext> {
@@ -875,108 +553,11 @@ export class PlanStore {
     };
   }
 
-  private buildPacket(state: PlanState): string {
-    const context = this.resolvePacketContext(state);
-    const constitutionSummary = context.constitution
-      ? [
-          `Project: ${context.constitution.state.title}`,
-          `Strategic direction: ${excerpt(context.constitution.state.strategicDirectionSummary)}`,
-          `Current focus: ${context.constitution.state.currentFocus.join("; ") || "none"}`,
-          `Open constitutional questions: ${context.constitution.state.openConstitutionQuestions.join("; ") || "none"}`,
-        ].join("\n")
-      : "(none)";
-    const linkedTickets =
-      context.linkedTickets.length > 0
-        ? context.linkedTickets
-            .map(
-              (ticket) =>
-                `- ${ticket.ticketId} [${ticket.status}] ${ticket.title}${ticket.role ? ` — ${ticket.role}` : ""}`,
-            )
-            .join("\n")
-        : "- (none linked yet)";
-    const section = (title: string, body: string) => `## ${title}\n\n${body.trim() || "(none)"}`;
-    const list = (values: string[], empty = "(none)") =>
-      values.length > 0 ? values.map((value) => `- ${value}`).join("\n") : empty;
-
-    return `${[
-      `# ${state.title} Planning Packet`,
-      "",
-      section("Planning Target", context.sourceSummary),
-      section("Current Plan Summary", state.summary || state.purpose || "(empty)"),
-      section(
-        "Workplan Authoring Requirements",
-        list([
-          "Write `plan.md` as a fully self-contained novice-facing guide. Assume the reader only has the current working tree plus this packet and the rendered workplan.",
-          "Keep the sections `Progress`, `Surprises & Discoveries`, `Decision Log`, `Outcomes & Retrospective`, and `Revision Notes` truthful and current as the work evolves.",
-          "Use plain language, define repository-specific terms when they first appear, and describe observable validation instead of merely naming code changes.",
-          "Keep Loom integration explicit through source refs, scope paths, linked tickets, and neighboring context, while leaving live ticket status and acceptance detail in the linked tickets themselves.",
-        ]),
-      ),
-      section(
-        "Planning Boundaries",
-        list([
-          "Keep `plan.md` deeply detailed at the execution-strategy layer; it should explain sequencing, rationale, risks, and validation without duplicating ticket-by-ticket live state.",
-          "Use `pi-ticketing` to create, refine, or link tickets explicitly. Plans provide coordination context around those tickets, and linked tickets stay fully detailed and executable in their own right.",
-          "Treat linked tickets as the live execution system of record for status, dependencies, verification, and checkpoints, and as self-contained units of work with their own acceptance criteria and execution context.",
-          "Preserve truthful source refs, ticket roles, assumptions, risks, and validation intent so a fresh planner can resume from durable context.",
-        ]),
-      ),
-      section("Linked Tickets", linkedTickets),
-      section("Scope Paths", list(state.scopePaths)),
-      section("Constitutional Context", constitutionSummary),
-      section("Roadmap Items", list(context.roadmapItems)),
-      section("Initiatives", list(context.initiatives)),
-      section("Research", list(context.research)),
-      section("Specs", list(context.specs)),
-      section("Tickets", list(context.tickets)),
-      section("Critiques", list(context.critiques)),
-      section("Documentation", list(context.docs)),
-    ]
-      .join("\n\n")
-      .trimEnd()}\n`;
-  }
-
-  private deriveState(state: PlanState): PlanState {
-    const context = this.resolvePacketContext(state);
-    return {
-      ...state,
-      packetSummary: context.packetSummary,
-    };
-  }
-
   private async deriveStateAsync(state: PlanState): Promise<PlanState> {
     const context = await this.resolvePacketContextAsync(state);
     return {
       ...state,
       packetSummary: context.packetSummary,
-    };
-  }
-
-  private materialize(state: PlanState): PlanReadResult {
-    const planDir = getPlanDir(this.cwd, state.planId);
-    const relativePlanDir = relativePathFromRoot(this.cwd, planDir);
-    const nextState = this.deriveState(state);
-    const linkedTickets = this.resolveLinkedTickets(nextState);
-    const packet = this.buildPacket(nextState);
-    const plan = renderPlanMarkdown(nextState, linkedTickets);
-    const dashboard = buildPlanDashboard(
-      nextState,
-      relativePlanDir,
-      relativePathFromRoot(this.cwd, getPlanPacketPath(this.cwd, nextState.planId)),
-      relativePathFromRoot(this.cwd, getPlanMarkdownPath(this.cwd, nextState.planId)),
-      linkedTickets,
-    );
-
-    this.writeState(nextState);
-    writeFileAtomic(getPlanPacketPath(this.cwd, nextState.planId), packet);
-    writeFileAtomic(getPlanMarkdownPath(this.cwd, nextState.planId), plan);
-
-    return {
-      state: nextState,
-      summary: summarizePlan(nextState, relativePlanDir),
-      packet,
-      plan,
-      dashboard,
     };
   }
 
@@ -1051,10 +632,6 @@ export class PlanStore {
       linkedTickets,
     );
 
-    this.writeState(nextState);
-    writeFileAtomic(getPlanPacketPath(this.cwd, nextState.planId), packet);
-    writeFileAtomic(getPlanMarkdownPath(this.cwd, nextState.planId), plan);
-
     return {
       state: nextState,
       summary: summarizePlan(nextState, relativePlanDir),
@@ -1125,7 +702,7 @@ export class PlanStore {
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.planId);
     const version = (existing?.version ?? 0) + 1;
     const record = await this.materializeCanonical(state);
-    const entity = await upsertEntityByDisplayId(storage, {
+    await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -1135,39 +712,11 @@ export class PlanStore {
       status: record.state.status,
       version,
       tags: ["plan"],
-      pathScopes: [
-        { repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" },
-        { repositoryId: identity.repository.id, relativePath: record.dashboard.packetPath, role: "projection" },
-        { repositoryId: identity.repository.id, relativePath: record.dashboard.planPath, role: "projection" },
-      ],
+      pathScopes: [{ repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" }],
       attributes: { state: record.state },
       createdAt: existing?.createdAt ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
     });
-    await upsertProjectionForEntity(
-      storage,
-      entity.id,
-      "packet_markdown_projection",
-      "repo_materialized",
-      identity.repository.id,
-      record.dashboard.packetPath,
-      record.packet,
-      version,
-      record.state.createdAt,
-      record.state.updatedAt,
-    );
-    await upsertProjectionForEntity(
-      storage,
-      entity.id,
-      "plan_markdown_projection",
-      "repo_materialized",
-      identity.repository.id,
-      record.dashboard.planPath,
-      record.plan,
-      version,
-      record.state.createdAt,
-      record.state.updatedAt,
-    );
     return record;
   }
 
@@ -1184,60 +733,31 @@ export class PlanStore {
     return this.materializeCanonical(entity.attributes.state);
   }
 
-  listPlansProjection(filter: PlanListFilter = {}): ReturnType<PlanStore["listPlansProjectionRaw"]> {
-    return this.listPlansProjectionRaw(filter);
-  }
-
-  private listPlansProjectionRaw(filter: PlanListFilter = {}) {
-    return this.planDirectories()
-      .map((directory) => {
-        const state = this.readStateFromFiles(directory);
-        return {
-          state,
-          summary: summarizePlan(state, relativePathFromRoot(this.cwd, directory)),
-        };
-      })
-      .filter(({ state, summary }) => {
-        if (filter.status && summary.status !== filter.status) {
-          return false;
-        }
-        if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
-          return false;
-        }
-        if (filter.linkedTicketId) {
-          const linkedTicketId = normalizeTicketId(filter.linkedTicketId);
-          if (!state.linkedTickets.some((link) => link.ticketId === linkedTicketId)) {
-            return false;
-          }
-        }
-        if (!filter.text) {
-          return true;
-        }
-        const text = filter.text.toLowerCase();
-        return [summary.id, summary.title, summary.summary, summary.sourceRef, summary.sourceKind]
-          .join(" ")
-          .toLowerCase()
-          .includes(text);
-      })
-      .map(({ summary }) => summary);
-  }
-
   async listPlans(filter: PlanListFilter = {}) {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const summaries: PlanReadResult["summary"][] = [];
+    const summaries: Array<{ summary: PlanReadResult["summary"]; state: PlanState }> = [];
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
       if (hasStructuredPlanAttributes(entity.attributes)) {
-        summaries.push(summarizePlan(entity.attributes.state, `.loom/plans/${entity.attributes.state.planId}`));
+        summaries.push({
+          summary: summarizePlan(entity.attributes.state, `.loom/plans/${entity.attributes.state.planId}`),
+          state: entity.attributes.state,
+        });
         continue;
       }
       throw new Error(`Plan entity ${entity.displayId} is missing structured attributes`);
     }
-    return summaries.filter((summary) => {
+    return summaries.filter(({ summary, state }) => {
       if (filter.status && summary.status !== filter.status) {
         return false;
       }
       if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
         return false;
+      }
+      if (filter.linkedTicketId) {
+        const linkedTicketId = filter.linkedTicketId.trim();
+        if (!state.linkedTickets.some((link) => link.ticketId === linkedTicketId)) {
+          return false;
+        }
       }
       if (!filter.text) {
         return true;
@@ -1247,13 +767,7 @@ export class PlanStore {
         .join(" ")
         .toLowerCase()
         .includes(text);
-    });
-  }
-
-  readPlanProjection(ref: string): PlanReadResult {
-    const planDir = this.resolvePlanDirectory(ref);
-    const state = this.readStateFromFiles(planDir);
-    return this.materialize(state);
+    }).map(({ summary }) => summary);
   }
 
   async readPlan(ref: string): Promise<PlanReadResult> {
@@ -1264,8 +778,7 @@ export class PlanStore {
   async createPlan(input: CreatePlanInput): Promise<PlanReadResult> {
     await this.initLedger();
     const timestamp = currentTimestamp();
-    const planId = this.nextPlanId(input.title);
-    ensureDir(getPlanDir(this.cwd, planId));
+    const planId = await this.nextPlanId(input.title);
     return this.persistCanonical(this.createDefaultState(input, planId, timestamp));
   }
 

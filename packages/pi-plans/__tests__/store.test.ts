@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
@@ -7,6 +7,8 @@ import { createDocumentationStore } from "@pi-loom/pi-docs/extensions/domain/sto
 import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlanStore } from "../extensions/domain/store.js";
@@ -244,10 +246,24 @@ describe("PlanStore durable memory", () => {
     });
 
     expect(linkedClosed.state.planId).toBe("planning-layer-rollout");
-    const planRoot = join(workspace, ".loom", "plans", linkedClosed.state.planId);
-    expect(existsSync(join(planRoot, "state.json"))).toBe(true);
-    expect(existsSync(join(planRoot, "packet.md"))).toBe(true);
-    expect(existsSync(join(planRoot, "plan.md"))).toBe(true);
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, "plan", linkedClosed.state.planId);
+    expect(entity).toBeTruthy();
+    if (!entity) {
+      throw new Error("Expected plan entity to exist");
+    }
+    expect(entity.pathScopes).toEqual([
+      expect.objectContaining({ relativePath: `.loom/plans/${linkedClosed.state.planId}`, role: "canonical" }),
+    ]);
+    expect(entity.attributes).toMatchObject({
+      state: {
+        planId: linkedClosed.state.planId,
+        linkedTickets: [
+          { ticketId: implementationTicket.summary.id, role: "implementation", order: 1 },
+          { ticketId: reviewTicket.summary.id, role: "review", order: 2 },
+        ],
+      },
+    });
 
     expect(linkedClosed.packet).toContain("Planning Boundaries");
     expect(linkedClosed.packet).toContain("Workplan Authoring Requirements");
@@ -289,27 +305,25 @@ describe("PlanStore durable memory", () => {
 
     const reread = await planStore.readPlan(linkedClosed.state.planId);
     expect(reread.dashboard).toEqual(linkedClosed.dashboard);
-    expect(existsSync(join(planRoot, "dashboard.json"))).toBe(false);
 
-    const implementationReadback = ticketStore.readTicket(implementationTicket.summary.id);
-    const reviewReadback = ticketStore.readTicket(reviewTicket.summary.id);
+    const implementationReadback = await ticketStore.readTicketAsync(implementationTicket.summary.id);
+    const reviewReadback = await ticketStore.readTicketAsync(reviewTicket.summary.id);
     expect(implementationReadback.ticket.frontmatter["external-refs"]).toContain(`plan:${linkedClosed.state.planId}`);
     expect(reviewReadback.ticket.frontmatter["external-refs"]).toContain(`plan:${linkedClosed.state.planId}`);
 
     const unlinked = await planStore.unlinkPlanTicket(linkedClosed.state.planId, reviewTicket.summary.id);
     expect(unlinked.state.linkedTickets).toHaveLength(1);
     expect(unlinked.state.linkedTickets[0]?.ticketId).toBe(implementationTicket.summary.id);
-    expect(ticketStore.readTicket(reviewTicket.summary.id).ticket.frontmatter["external-refs"]).toContain(
+    expect((await ticketStore.readTicketAsync(reviewTicket.summary.id)).ticket.frontmatter["external-refs"]).toContain(
       `plan:${linkedClosed.state.planId}`,
     );
 
-    const renderedPlan = readFileSync(join(planRoot, "plan.md"), "utf-8");
-    expect(renderedPlan).toContain("## Purpose / Big Picture");
-    expect(renderedPlan).toContain("## Artifacts and Notes");
-    expect(renderedPlan).toContain(`Ticket ${implementationTicket.summary.id}`);
+    expect(reread.plan).toContain("## Purpose / Big Picture");
+    expect(reread.plan).toContain("## Artifacts and Notes");
+    expect(reread.plan).toContain(`Ticket ${implementationTicket.summary.id}`);
   }, 120000);
 
-  it("rebuilds linked ticket dashboard details from canonical storage even if the ticket markdown was removed", async () => {
+  it("rebuilds linked ticket dashboard details from canonical storage after async ticket mutations", async () => {
     const ticketStore = createTicketStore(workspace);
     const planStore = createPlanStore(workspace);
 
@@ -326,7 +340,10 @@ describe("PlanStore durable memory", () => {
       role: "follow-up",
       order: 1,
     });
-    rmSync(join(workspace, orphanedTicket.summary.path), { force: true });
+
+    vi.setSystemTime(new Date("2026-03-15T14:06:00.000Z"));
+    await ticketStore.updateTicketAsync(orphanedTicket.summary.id, { title: "Canonical follow-up" });
+
     const linked = await planStore.readPlan(linkedExisting.state.planId);
 
     expect(linked.dashboard.plan.path).toBe(`.loom/plans/${created.state.planId}`);
@@ -336,7 +353,7 @@ describe("PlanStore durable memory", () => {
       expect.objectContaining({
         ticketId: orphanedTicket.summary.id,
         status: "ready",
-        title: "Orphaned follow-up",
+        title: "Canonical follow-up",
         path: `.loom/tickets/${orphanedTicket.summary.id}.md`,
       }),
     ]);

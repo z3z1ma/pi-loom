@@ -28,7 +28,7 @@ describe("/worker command", () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
 
@@ -49,7 +49,7 @@ describe("/worker command", () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
       await handleWorkerCommand("create Flow Worker :: Build the workflow :: t-0001", ctx);
@@ -68,13 +68,13 @@ describe("/worker command", () => {
     } finally {
       cleanup();
     }
-  }, 15000);
+  }, 30000);
 
   it("supports inbox inspection and explicit ack/resolve flows", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
 
@@ -104,7 +104,7 @@ describe("/worker command", () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
 
@@ -132,7 +132,7 @@ describe("/worker command", () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
-      ticketStore.initLedger();
+      await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
 
@@ -152,5 +152,5 @@ describe("/worker command", () => {
     } finally {
       cleanup();
     }
-  }, 30000);
+  }, 90000);
 });

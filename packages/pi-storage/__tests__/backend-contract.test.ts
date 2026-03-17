@@ -7,8 +7,8 @@ import type {
   LoomEntityEventRecord,
   LoomEntityLinkRecord,
   LoomEntityRecord,
-  LoomProjectionRecord,
   LoomRepositoryRecord,
+  LoomRuntimeAttachment,
   LoomSpaceRecord,
   LoomWorktreeRecord,
 } from "../storage/contract.js";
@@ -63,8 +63,8 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
     pathScopes: [
       {
         repositoryId: repository.id,
-        relativePath: assertRepoRelativePath(".loom/tickets/t-1000.md"),
-        role: "projection",
+        relativePath: assertRepoRelativePath(".loom/tickets/t-1000/state.json"),
+        role: "canonical",
       },
     ],
     attributes: { source: "test" },
@@ -89,16 +89,14 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
     actor: "test",
     payload: { status: "open" },
   };
-  const projection: LoomProjectionRecord = {
-    id: "projection-1",
-    entityId: entity.id,
-    kind: "ticket_markdown_projection",
-    materialization: "repo_materialized",
-    repositoryId: repository.id,
-    relativePath: assertRepoRelativePath(".loom/tickets/t-1000.md"),
-    contentHash: null,
-    version: 1,
-    content: "# Ticket\n\nStorage contract.\n",
+  const runtimeAttachment: LoomRuntimeAttachment = {
+    id: "runtime-1",
+    worktreeId: worktree.id,
+    kind: "worker_runtime",
+    localPath: "/tmp/repo-core/.loom/runtime/workers/t-1000",
+    processId: 4321,
+    leaseExpiresAt: "2026-03-16T00:05:00.000Z",
+    metadata: { workerId: "worker-1" },
     createdAt: space.createdAt,
     updatedAt: space.updatedAt,
   };
@@ -109,7 +107,7 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
   await storage.upsertEntity(entity);
   await storage.upsertLink(link);
   await storage.appendEvent(event);
-  await storage.upsertProjection(projection);
+  await storage.upsertRuntimeAttachment(runtimeAttachment);
 
   expect(await storage.getSpace(space.id)).toMatchObject(space);
   expect(await storage.listRepositories(space.id)).toEqual([expect.objectContaining({ id: repository.id })]);
@@ -118,9 +116,12 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
   expect(await storage.listEntities(space.id, "ticket")).toEqual([expect.objectContaining({ id: entity.id })]);
   expect(await storage.listLinks(entity.id)).toEqual([expect.objectContaining({ id: link.id })]);
   expect(await storage.listEvents(entity.id)).toEqual([expect.objectContaining({ id: event.id })]);
-  expect(await storage.listProjections(entity.id)).toEqual([
-    expect.objectContaining({ id: projection.id, content: "# Ticket\n\nStorage contract.\n" }),
+  expect(await storage.listRuntimeAttachments(worktree.id)).toEqual([
+    expect.objectContaining({ id: runtimeAttachment.id, processId: 4321 }),
   ]);
+
+  await storage.removeRuntimeAttachment(runtimeAttachment.id);
+  expect(await storage.listRuntimeAttachments(worktree.id)).toEqual([]);
 }
 
 describe("pi-storage backend contract", () => {

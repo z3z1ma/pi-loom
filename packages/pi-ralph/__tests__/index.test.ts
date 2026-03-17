@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -133,7 +133,6 @@ describe("pi-ralph extension", () => {
       const { ctx, ui } = createCommandContext(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(existsSync(join(cwd, ".loom", "ralph"))).toBe(true);
 
       await command.handler("create Durable loop orchestration :: Keep Ralph state durable across fresh launches", ctx);
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,14 +23,11 @@ describe("SpecStore durable memory", () => {
     vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
     const created = await store.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
     expect(created.state.changeId).toBe("add-dark-mode");
-    expect(existsSync(join(workspace, ".loom", "specs", "changes", "add-dark-mode", "proposal.md"))).toBe(true);
 
     vi.setSystemTime(new Date("2026-03-15T10:05:00.000Z"));
     const clarified = await store.recordClarification("add-dark-mode", "Should the choice persist?", "Yes.");
     expect(clarified.state.status).toBe("clarifying");
-    expect(
-      readFileSync(join(workspace, ".loom", "specs", "changes", "add-dark-mode", "decisions.jsonl"), "utf-8"),
-    ).toContain("Should the choice persist?");
+    expect(clarified.decisions.at(-1)?.question).toBe("Should the choice persist?");
 
     vi.setSystemTime(new Date("2026-03-15T10:10:00.000Z"));
     const planned = await store.updatePlan("add-dark-mode", {
@@ -46,10 +43,6 @@ describe("SpecStore durable memory", () => {
       ],
     });
     expect(planned.state.capabilities[0]?.id).toBe("theme-toggling");
-    expect(existsSync(join(workspace, ".loom", "specs", "changes", "add-dark-mode", "design.md"))).toBe(true);
-    expect(
-      existsSync(join(workspace, ".loom", "specs", "changes", "add-dark-mode", "specs", "theme-toggling.md")),
-    ).toBe(true);
 
     vi.setSystemTime(new Date("2026-03-15T10:15:00.000Z"));
     const linked = await store.setInitiativeIds("add-dark-mode", ["platform-modernization", "ui-foundation"]);
@@ -66,7 +59,6 @@ describe("SpecStore durable memory", () => {
       ],
     });
     expect(tasked.state.status).toBe("tasked");
-    expect(existsSync(join(workspace, ".loom", "specs", "changes", "add-dark-mode", "tasks.md"))).toBe(true);
 
     const plannedSnapshot = await store.readChange("add-dark-mode");
     expect(plannedSnapshot.summary.path).toBe(".loom/specs/changes/add-dark-mode");
@@ -97,13 +89,9 @@ describe("SpecStore durable memory", () => {
       ".loom/specs/archive/2026-03-15-add-dark-mode/analysis.md",
       ".loom/specs/archive/2026-03-15-add-dark-mode/checklist.md",
     ]);
-    expect(existsSync(join(workspace, ".loom", "specs", "capabilities", "theme-toggling.md"))).toBe(true);
-    expect(readFileSync(join(workspace, ".loom", "specs", "capabilities", "theme-toggling.md"), "utf-8")).toContain(
-      "Users can toggle dark mode.",
-    );
-
     const canonicalCapability = await store.readCapability("theme-toggling");
     expect(canonicalCapability.path).toBe(".loom/specs/capabilities/theme-toggling.md");
+    expect(canonicalCapability.requirements).toContain("Users can toggle dark mode.");
 
     expect(await store.listChanges({ includeArchived: true })).toEqual([
       expect.objectContaining({

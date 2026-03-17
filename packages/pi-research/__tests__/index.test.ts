@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -9,6 +9,7 @@ import type {
   RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
+import { createResearchStore } from "../extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@mariozechner/pi-ai", () => ({
@@ -137,12 +138,14 @@ describe("pi-research extension", () => {
       const { ctx, ui } = createCommandContext(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(existsSync(join(cwd, ".loom", "research"))).toBe(true);
 
       await command.handler("create Evaluate theme architecture", ctx);
 
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("evaluate-theme-architecture [proposed]"), "info");
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Evaluate theme architecture"), "info");
+      await expect(createResearchStore(cwd).readResearch("evaluate-theme-architecture")).resolves.toMatchObject({
+        summary: { id: "evaluate-theme-architecture", title: "Evaluate theme architecture", status: "proposed" },
+      });
     } finally {
       cleanup();
     }
@@ -168,7 +171,6 @@ describe("pi-research extension", () => {
       expect(result.systemPrompt).toContain(
         "Prefer research tools before ad-hoc exploratory planning when uncertainty or reusable discovery is present.",
       );
-      expect(existsSync(join(cwd, ".loom", "research"))).toBe(true);
     } finally {
       cleanup();
     }

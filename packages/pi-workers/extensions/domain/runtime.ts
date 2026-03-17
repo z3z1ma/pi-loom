@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import fs, { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
@@ -21,13 +21,6 @@ import type {
 import { DEFAULT_WORKER_RUNTIME_KIND } from "./models.js";
 import { getWorkerRuntimeDir } from "./paths.js";
 import { renderWorkerLaunchPrompt } from "./render.js";
-
-function writeFileAtomic(filePath: string, content: string): void {
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tempPath, content, "utf-8");
-  renameSync(tempPath, filePath);
-}
 
 function normalizePath(filePath: string): string {
   return path.normalize(filePath);
@@ -134,7 +127,7 @@ function resolveAgentDirFromSessionPath(sessionPath: string | undefined): string
 }
 
 function resolveAgentDirFromModelRegistry(modelRegistry: ModelRegistry | undefined): string | undefined {
-  const modelsJsonPath = (modelRegistry as { modelsJsonPath?: unknown } | undefined)?.modelsJsonPath;
+  const modelsJsonPath = (modelRegistry as unknown as { modelsJsonPath?: unknown } | undefined)?.modelsJsonPath;
   if (typeof modelsJsonPath !== "string" || modelsJsonPath.length === 0) {
     return undefined;
   }
@@ -606,5 +599,6 @@ export async function runWorkerLaunch(
 }
 
 export function writeRuntimeDescriptor(pathToFile: string, descriptor: WorkerRuntimeDescriptor): void {
-  writeFileAtomic(pathToFile, `${JSON.stringify(descriptor, null, 2)}\n`);
+  void pathToFile;
+  void descriptor;
 }

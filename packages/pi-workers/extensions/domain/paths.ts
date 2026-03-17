@@ -2,8 +2,6 @@ import { join, resolve } from "node:path";
 
 export interface WorkerPaths {
   rootDir: string;
-  loomDir: string;
-  workersDir: string;
   runtimeDir: string;
 }
 
@@ -60,14 +58,8 @@ export function getWorkerPaths(cwd: string): WorkerPaths {
   const loomDir = join(rootDir, ".loom");
   return {
     rootDir,
-    loomDir,
-    workersDir: join(loomDir, "workers"),
     runtimeDir: join(loomDir, "runtime", "workers"),
   };
-}
-
-export function getWorkerDir(cwd: string, workerId: string): string {
-  return join(getWorkerPaths(cwd).workersDir, normalizeWorkerId(workerId));
 }
 
 export function getWorkerRuntimeDir(cwd: string, workerId: string): string {
@@ -75,13 +67,14 @@ export function getWorkerRuntimeDir(cwd: string, workerId: string): string {
 }
 
 export function getWorkerArtifactPaths(cwd: string, workerId: string): WorkerArtifactPaths {
-  const dir = getWorkerDir(cwd, workerId);
+  const normalizedWorkerId = normalizeWorkerId(workerId);
+  const dir = `worker:${normalizedWorkerId}`;
   return {
     dir,
-    state: join(dir, "state.json"),
-    worker: join(dir, "worker.md"),
-    messages: join(dir, "messages.jsonl"),
-    checkpoints: join(dir, "checkpoints.jsonl"),
-    launch: join(dir, "launch.json"),
+    state: `${dir}:state`,
+    worker: `${dir}:summary`,
+    messages: `${dir}:messages`,
+    checkpoints: `${dir}:checkpoints`,
+    launch: `${dir}:launch`,
   };
 }

@@ -1,15 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { ConstitutionalRecord } from "@pi-loom/pi-constitution/extensions/domain/models.js";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import type { CritiqueReadResult } from "@pi-loom/pi-critique/extensions/domain/models.js";
@@ -24,7 +14,6 @@ import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
 import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
-  upsertProjectionForEntity,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
@@ -33,7 +22,6 @@ import { buildDocumentationDashboard, summarizeDocumentation } from "./dashboard
 import { parseMarkdownArtifact, renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
   CreateDocumentationInput,
-  DocSectionGroup,
   DocsContextRefs,
   DocumentationListFilter,
   DocumentationReadResult,
@@ -47,11 +35,8 @@ import {
   nextSequenceId,
   normalizeAudience,
   normalizeContextRefs,
-  normalizeDocId,
   normalizeDocRef,
-  normalizeDocStatus,
   normalizeDocType,
-  normalizeSectionGroup,
   normalizeSourceTargetKind,
   normalizeStringList,
   sectionGroupForDocType,
@@ -63,8 +48,6 @@ import {
   getDocumentationMarkdownPath,
   getDocumentationPacketPath,
   getDocumentationPaths,
-  getDocumentationRevisionsPath,
-  getDocumentationStatePath,
 } from "./paths.js";
 import { renderDocumentationMarkdown } from "./render.js";
 
@@ -82,40 +65,6 @@ interface DocumentationSnapshot {
 
 function hasStructuredDocumentationAttributes(attributes: unknown): attributes is DocumentationEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
-}
-
-function ensureDir(path: string): void {
-  mkdirSync(path, { recursive: true });
-}
-
-function writeFileAtomic(path: string, content: string): void {
-  ensureDir(dirname(path));
-  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tempPath, content, "utf-8");
-  renameSync(tempPath, path);
-}
-
-function writeJson(path: string, value: unknown): void {
-  writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function readJson<T>(path: string): T {
-  return JSON.parse(readFileSync(path, "utf-8")) as T;
-}
-
-function appendJsonl(path: string, value: unknown): void {
-  ensureDir(dirname(path));
-  appendFileSync(path, `${JSON.stringify(value)}\n`, "utf-8");
-}
-
-function readJsonl<T>(path: string): T[] {
-  if (!existsSync(path)) {
-    return [];
-  }
-  return readFileSync(path, "utf-8")
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as T);
 }
 
 function mergeContextRefs(...refs: Array<Partial<DocsContextRefs> | undefined>): DocsContextRefs {
@@ -158,7 +107,7 @@ function deriveContextRefsFromSpec(change: SpecChangeRecord): DocsContextRefs {
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChangeIds: [change.state.changeId],
-    ticketIds: change.projection?.tickets.map((ticket) => ticket.ticketId) ?? [],
+    ticketIds: change.ticketSync?.links.map((link) => link.ticketId) ?? [],
   });
 }
 
@@ -202,10 +151,6 @@ export class DocumentationStore {
 
   initLedger(): { initialized: true; root: string } {
     const paths = getDocumentationPaths(this.cwd);
-    ensureDir(paths.overviewsDir);
-    ensureDir(paths.guidesDir);
-    ensureDir(paths.conceptsDir);
-    ensureDir(paths.operationsDir);
     return { initialized: true, root: paths.docsDir };
   }
 
@@ -218,7 +163,7 @@ export class DocumentationStore {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
     const version = (existing?.version ?? 0) + 1;
-    const entity = await upsertEntityByDisplayId(storage, {
+    await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -228,47 +173,11 @@ export class DocumentationStore {
       status: canonicalRecord.summary.status,
       version,
       tags: [canonicalRecord.summary.docType, ...canonicalRecord.state.guideTopics],
-      pathScopes: [
-        { repositoryId: identity.repository.id, relativePath: canonicalRecord.summary.path, role: "canonical" },
-        {
-          repositoryId: identity.repository.id,
-          relativePath: canonicalRecord.dashboard.packetPath,
-          role: "projection",
-        },
-        {
-          repositoryId: identity.repository.id,
-          relativePath: canonicalRecord.dashboard.documentPath,
-          role: "projection",
-        },
-      ],
+      pathScopes: [{ repositoryId: identity.repository.id, relativePath: canonicalRecord.summary.path, role: "canonical" }],
       attributes: { record: canonicalRecord },
       createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
       updatedAt: canonicalRecord.state.updatedAt,
     });
-    await upsertProjectionForEntity(
-      storage,
-      entity.id,
-      "packet_markdown_projection",
-      "repo_materialized",
-      identity.repository.id,
-      canonicalRecord.dashboard.packetPath,
-      canonicalRecord.packet,
-      version,
-      canonicalRecord.state.createdAt,
-      canonicalRecord.state.updatedAt,
-    );
-    await upsertProjectionForEntity(
-      storage,
-      entity.id,
-      "documentation_markdown_body",
-      "repo_materialized",
-      identity.repository.id,
-      canonicalRecord.dashboard.documentPath,
-      canonicalRecord.document,
-      version,
-      canonicalRecord.state.createdAt,
-      canonicalRecord.state.updatedAt,
-    );
     return canonicalRecord;
   }
 
@@ -287,28 +196,12 @@ export class DocumentationStore {
     });
   }
 
-  private sectionGroups(): DocSectionGroup[] {
-    return ["overviews", "guides", "concepts", "operations"];
-  }
-
-  private documentationDirectories(): string[] {
-    const paths = getDocumentationPaths(this.cwd);
-    const sections = [paths.overviewsDir, paths.guidesDir, paths.conceptsDir, paths.operationsDir];
-    return sections
-      .flatMap((sectionDir) => {
-        if (!existsSync(sectionDir)) {
-          return [];
-        }
-        return readdirSync(sectionDir)
-          .map((entry) => join(sectionDir, entry))
-          .filter((path) => statSync(path).isDirectory() && existsSync(join(path, "state.json")));
-      })
-      .sort((left, right) => basename(left).localeCompare(basename(right)));
-  }
-
-  private nextDocId(baseTitle: string): string {
+  private async nextDocId(baseTitle: string): Promise<string> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const baseId = slugifyTitle(baseTitle);
-    const existing = new Set(this.documentationDirectories().map((directory) => basename(directory)));
+    const existing = new Set(
+      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => entity.displayId),
+    );
     if (!existing.has(baseId)) {
       return baseId;
     }
@@ -319,70 +212,6 @@ export class DocumentationStore {
     return `${baseId}-${attempt}`;
   }
 
-  private resolveDocDirectory(ref: string): string {
-    const normalizedRef = normalizeDocRef(ref);
-    for (const sectionGroup of this.sectionGroups()) {
-      const directPath = getDocumentationDir(this.cwd, sectionGroup, normalizedRef);
-      if (existsSync(join(directPath, "state.json"))) {
-        return directPath;
-      }
-    }
-    throw new Error(`Unknown documentation record: ${ref}`);
-  }
-
-  private readState(docDir: string): DocumentationState {
-    const state = readJson<DocumentationState>(join(docDir, "state.json"));
-    return {
-      ...state,
-      docId: normalizeDocId(state.docId),
-      title: state.title.trim(),
-      status: normalizeDocStatus(state.status),
-      docType: normalizeDocType(state.docType),
-      sectionGroup: normalizeSectionGroup(state.sectionGroup),
-      summary: state.summary?.trim() ?? "",
-      audience: normalizeAudience(state.audience),
-      scopePaths: normalizeStringList(state.scopePaths),
-      contextRefs: normalizeContextRefs(state.contextRefs),
-      sourceTarget: {
-        kind: normalizeSourceTargetKind(state.sourceTarget.kind),
-        ref: state.sourceTarget.ref.trim(),
-      },
-      updateReason: state.updateReason?.trim() ?? "",
-      guideTopics: normalizeStringList(state.guideTopics),
-      linkedOutputPaths: normalizeStringList(state.linkedOutputPaths),
-      lastRevisionId: state.lastRevisionId ? state.lastRevisionId.trim() : null,
-    };
-  }
-
-  private readRevisions(docDir: string): DocumentationRevisionRecord[] {
-    return readJsonl<DocumentationRevisionRecord>(join(docDir, "revisions.jsonl")).map((revision) => ({
-      ...revision,
-      id: revision.id.trim(),
-      docId: normalizeDocId(revision.docId),
-      reason: revision.reason.trim(),
-      summary: revision.summary.trim(),
-      sourceTarget: {
-        kind: normalizeSourceTargetKind(revision.sourceTarget.kind),
-        ref: revision.sourceTarget.ref.trim(),
-      },
-      packetHash: revision.packetHash.trim(),
-      changedSections: normalizeStringList(revision.changedSections),
-      linkedContextRefs: normalizeContextRefs(revision.linkedContextRefs),
-    }));
-  }
-
-  private readDocumentBody(docDir: string): string {
-    const documentPath = join(docDir, "doc.md");
-    if (!existsSync(documentPath)) {
-      return "";
-    }
-    try {
-      return parseMarkdownArtifact(readFileSync(documentPath, "utf-8"), documentPath).body;
-    } catch {
-      return readFileSync(documentPath, "utf-8").trim();
-    }
-  }
-
   private extractDocumentBody(document: string, docPath: string): string {
     try {
       return parseMarkdownArtifact(document, docPath).body;
@@ -391,39 +220,9 @@ export class DocumentationStore {
     }
   }
 
-  private writeState(state: DocumentationState): void {
-    writeJson(getDocumentationStatePath(this.cwd, state.sectionGroup, state.docId), state);
-  }
-
-  private constitutionExists(): boolean {
-    return existsSync(join(this.cwd, ".loom", "constitution", "state.json"));
-  }
-
-  private readConstitutionIfPresent(): ConstitutionalRecord | null {
-    if (!this.constitutionExists()) {
-      return null;
-    }
-    try {
-      return createConstitutionalStore(this.cwd).readConstitutionProjection();
-    } catch {
-      return null;
-    }
-  }
-
   private async readConstitutionIfPresentAsync(): Promise<ConstitutionalRecord | null> {
-    if (!this.constitutionExists()) {
-      return null;
-    }
     try {
       return await createConstitutionalStore(this.cwd).readConstitution();
-    } catch {
-      return null;
-    }
-  }
-
-  private safeReadInitiative(id: string): InitiativeRecord | null {
-    try {
-      return createInitiativeStore(this.cwd).readInitiativeProjection(id);
     } catch {
       return null;
     }
@@ -437,25 +236,9 @@ export class DocumentationStore {
     }
   }
 
-  private safeReadResearch(id: string): ResearchRecord | null {
-    try {
-      return createResearchStore(this.cwd).readResearchProjection(id);
-    } catch {
-      return null;
-    }
-  }
-
   private async safeReadResearchAsync(id: string): Promise<ResearchRecord | null> {
     try {
       return await createResearchStore(this.cwd).readResearch(id);
-    } catch {
-      return null;
-    }
-  }
-
-  private safeReadSpec(id: string): SpecChangeRecord | null {
-    try {
-      return createSpecStore(this.cwd).readChangeProjection(id);
     } catch {
       return null;
     }
@@ -469,25 +252,9 @@ export class DocumentationStore {
     }
   }
 
-  private safeReadTicket(id: string): TicketReadResult | null {
-    try {
-      return createTicketStore(this.cwd).readTicket(id);
-    } catch {
-      return null;
-    }
-  }
-
   private async safeReadTicketAsync(id: string): Promise<TicketReadResult | null> {
     try {
       return await createTicketStore(this.cwd).readTicketAsync(id);
-    } catch {
-      return null;
-    }
-  }
-
-  private safeReadCritique(id: string): CritiqueReadResult | null {
-    try {
-      return createCritiqueStore(this.cwd).readCritique(id);
     } catch {
       return null;
     }
@@ -501,94 +268,15 @@ export class DocumentationStore {
     }
   }
 
-  private resolveSourceSummary(state: DocumentationState): { summary: string; contextRefs: DocsContextRefs } {
-    switch (state.sourceTarget.kind) {
-      case "ticket": {
-        const ticket = this.safeReadTicket(state.sourceTarget.ref);
-        if (!ticket) {
-          return {
-            summary: `Ticket ${state.sourceTarget.ref} could not be loaded. Update the document from the referenced code and packet context directly.`,
-            contextRefs: mergeContextRefs({ ticketIds: [state.sourceTarget.ref] }),
-          };
-        }
-        return {
-          summary: [
-            `${ticket.summary.id} [${ticket.summary.status}] ${ticket.summary.title}`,
-            `Summary: ${excerpt(ticket.ticket.body.summary)}`,
-            `Verification: ${excerpt(ticket.ticket.body.verification)}`,
-            `Review status: ${ticket.ticket.frontmatter["review-status"] ?? "none"}`,
-          ].join("\n"),
-          contextRefs: deriveContextRefsFromTicket(ticket),
-        };
-      }
-      case "spec": {
-        const change = this.safeReadSpec(state.sourceTarget.ref);
-        if (!change) {
-          return {
-            summary: `Spec ${state.sourceTarget.ref} could not be loaded. Update the document from the packet context directly.`,
-            contextRefs: mergeContextRefs({ specChangeIds: [state.sourceTarget.ref] }),
-          };
-        }
-        return {
-          summary: [
-            `${change.summary.id} [${change.summary.status}] ${change.summary.title}`,
-            `Proposal: ${excerpt(change.state.proposalSummary)}`,
-            `Requirements: ${change.state.requirements.length}`,
-            `Tasks: ${change.state.tasks.length}`,
-          ].join("\n"),
-          contextRefs: deriveContextRefsFromSpec(change),
-        };
-      }
-      case "initiative": {
-        const initiative = this.safeReadInitiative(state.sourceTarget.ref);
-        if (!initiative) {
-          return {
-            summary: `Initiative ${state.sourceTarget.ref} could not be loaded. Update the document from the packet context directly.`,
-            contextRefs: mergeContextRefs({ initiativeIds: [state.sourceTarget.ref] }),
-          };
-        }
-        return {
-          summary: [
-            `${initiative.summary.id} [${initiative.summary.status}] ${initiative.summary.title}`,
-            `Objective: ${excerpt(initiative.state.objective)}`,
-            `Status summary: ${excerpt(initiative.state.statusSummary)}`,
-            `Milestones: ${initiative.state.milestones.length}`,
-          ].join("\n"),
-          contextRefs: deriveContextRefsFromInitiative(initiative),
-        };
-      }
-      case "critique": {
-        const critique = this.safeReadCritique(state.sourceTarget.ref);
-        if (!critique) {
-          return {
-            summary: `Critique ${state.sourceTarget.ref} could not be loaded. Update the document from the packet context directly.`,
-            contextRefs: mergeContextRefs({ critiqueIds: [state.sourceTarget.ref] }),
-          };
-        }
-        return {
-          summary: [
-            `${critique.summary.id} [${critique.summary.status}/${critique.summary.verdict}] ${critique.summary.title}`,
-            `Target: ${critique.state.target.kind}:${critique.state.target.ref}`,
-            `Review question: ${excerpt(critique.state.reviewQuestion)}`,
-            `Open findings: ${critique.state.openFindingIds.join(", ") || "none"}`,
-          ].join("\n"),
-          contextRefs: deriveContextRefsFromCritique(critique),
-        };
-      }
-      case "workspace":
-        return {
-          summary: `Workspace documentation target: ${state.sourceTarget.ref}`,
-          contextRefs: normalizeContextRefs(state.contextRefs),
-        };
-    }
-  }
-
   private async resolveSourceSummaryCanonical(
     state: DocumentationState,
   ): Promise<{ summary: string; contextRefs: DocsContextRefs }> {
     switch (state.sourceTarget.kind) {
       case "workspace":
-        return this.resolveSourceSummary(state);
+        return {
+          summary: `Workspace documentation target: ${state.sourceTarget.ref}`,
+          contextRefs: normalizeContextRefs(state.contextRefs),
+        };
       case "ticket": {
         const ticket = await this.safeReadTicketAsync(state.sourceTarget.ref);
         if (!ticket) {
@@ -684,84 +372,6 @@ export class DocumentationStore {
     }
   }
 
-  private resolvePacketContext(
-    state: DocumentationState,
-    revisions: DocumentationRevisionRecord[],
-    documentBody: string,
-  ): ResolvedDocumentationContext {
-    const source = this.resolveSourceSummary(state);
-    const contextRefs = mergeContextRefs(state.contextRefs, source.contextRefs);
-    const constitution = this.readConstitutionIfPresent();
-    const roadmapItems = constitution
-      ? contextRefs.roadmapItemIds
-          .map((itemId) => {
-            try {
-              return createConstitutionalStore(this.cwd).readRoadmapItemProjection(itemId);
-            } catch {
-              return null;
-            }
-          })
-          .filter((item): item is NonNullable<typeof item> => item !== null)
-          .map((item) => `${item.id} [${item.status}/${item.horizon}] ${item.title} — ${excerpt(item.summary)}`)
-      : [];
-    const initiatives = contextRefs.initiativeIds
-      .map((initiativeId) => this.safeReadInitiative(initiativeId))
-      .filter((initiative): initiative is InitiativeRecord => initiative !== null)
-      .map(
-        (initiative) =>
-          `${initiative.state.initiativeId} [${initiative.state.status}] ${initiative.state.title} — ${excerpt(initiative.state.objective)}`,
-      );
-    const research = contextRefs.researchIds
-      .map((researchId) => this.safeReadResearch(researchId))
-      .filter((record): record is ResearchRecord => record !== null)
-      .map(
-        (record) =>
-          `${record.state.researchId} [${record.state.status}] ${record.state.title} — conclusions: ${record.state.conclusions.join("; ") || "none"}`,
-      );
-    const specs = contextRefs.specChangeIds
-      .map((changeId) => this.safeReadSpec(changeId))
-      .filter((record): record is SpecChangeRecord => record !== null)
-      .map(
-        (record) =>
-          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} tasks=${record.state.tasks.length}`,
-      );
-    const tickets = contextRefs.ticketIds
-      .map((ticketId) => this.safeReadTicket(ticketId))
-      .filter((record): record is TicketReadResult => record !== null)
-      .map(
-        (record) =>
-          `${record.summary.id} [${record.summary.status}] ${record.summary.title} — ${excerpt(record.ticket.body.summary)}`,
-      );
-    const critiques = contextRefs.critiqueIds
-      .map((critiqueId) => this.safeReadCritique(critiqueId))
-      .filter((record): record is CritiqueReadResult => record !== null)
-      .map(
-        (record) =>
-          `${record.summary.id} [${record.summary.status}/${record.summary.verdict}] ${record.summary.title} — open findings: ${record.state.openFindingIds.length}`,
-      );
-    const currentDocumentSummary = documentBody
-      ? `${excerpt(summarizeDocument(documentBody))}${extractMarkdownSections(documentBody).length > 0 ? ` | sections: ${extractMarkdownSections(documentBody).join(", ")}` : ""}`
-      : "(none yet)";
-    const likelySections = normalizeStringList([
-      ...this.likelySectionsForType(state, documentBody),
-      ...revisions.flatMap((revision) => revision.changedSections),
-    ]);
-
-    return {
-      sourceSummary: source.summary,
-      contextRefs,
-      constitution,
-      roadmapItems,
-      initiatives,
-      research,
-      specs,
-      tickets,
-      critiques,
-      currentDocumentSummary,
-      likelySections,
-    };
-  }
-
   private async resolvePacketContextCanonical(
     state: DocumentationState,
     revisions: DocumentationRevisionRecord[],
@@ -842,70 +452,6 @@ export class DocumentationStore {
       currentDocumentSummary,
       likelySections,
     };
-  }
-
-  private buildPacket(
-    state: DocumentationState,
-    revisions: DocumentationRevisionRecord[],
-    documentBody: string,
-  ): string {
-    const context = this.resolvePacketContext(state, revisions, documentBody);
-    const constitutionSummary = context.constitution
-      ? [
-          `Project: ${context.constitution.state.title}`,
-          `Strategic direction: ${excerpt(context.constitution.state.strategicDirectionSummary)}`,
-          `Current focus: ${context.constitution.state.currentFocus.join("; ") || "none"}`,
-          `Open constitutional questions: ${context.constitution.state.openConstitutionQuestions.join("; ") || "none"}`,
-        ].join("\n")
-      : "(none)";
-
-    return serializeMarkdownArtifact(
-      {
-        id: state.docId,
-        title: state.title,
-        status: state.status,
-        type: state.docType,
-        section: state.sectionGroup,
-        source: `${state.sourceTarget.kind}:${state.sourceTarget.ref}`,
-        audience: state.audience,
-        "created-at": state.createdAt,
-        "updated-at": state.updatedAt,
-      },
-      [
-        renderSection("Documentation Target", context.sourceSummary),
-        renderSection("Update Reason", state.updateReason || "(empty)"),
-        renderSection("Current Document Summary", context.currentDocumentSummary),
-        renderSection("Audience", state.audience.join(", ") || "none"),
-        renderSection("Scope Paths", renderBulletList(state.scopePaths)),
-        renderSection("Guide Topics", renderBulletList(state.guideTopics)),
-        renderSection(
-          "Documentation Boundaries",
-          renderBulletList([
-            "Keep the document high-level and explanatory for both humans and AI memory.",
-            "Do not generate API reference docs or exhaustive symbol listings.",
-            "Describe completed reality, not plans that have not landed.",
-            "Keep linkedOutputPaths truthful for future sync workflows, but do not mutate external docs trees automatically in v1.",
-          ]),
-        ),
-        renderSection("Likely Sections To Update", renderBulletList(context.likelySections)),
-        renderSection(
-          "Existing Revisions",
-          renderBulletList(
-            revisions.map(
-              (revision) =>
-                `${revision.id} ${revision.reason} — ${excerpt(revision.summary)} (${revision.changedSections.join(", ") || "no sections"})`,
-            ),
-          ),
-        ),
-        renderSection("Constitutional Context", constitutionSummary),
-        renderSection("Roadmap Items", renderBulletList(context.roadmapItems)),
-        renderSection("Initiatives", renderBulletList(context.initiatives)),
-        renderSection("Research", renderBulletList(context.research)),
-        renderSection("Specs", renderBulletList(context.specs)),
-        renderSection("Tickets", renderBulletList(context.tickets)),
-        renderSection("Critiques", renderBulletList(context.critiques)),
-      ].join("\n\n"),
-    );
   }
 
   private async buildPacketCanonical(
@@ -1051,37 +597,6 @@ export class DocumentationStore {
     }
   }
 
-  private writeArtifacts(
-    state: DocumentationState,
-    revisions: DocumentationRevisionRecord[],
-    documentBody: string,
-  ): DocumentationReadResult {
-    const docDir = getDocumentationDir(this.cwd, state.sectionGroup, state.docId);
-    const packet = this.buildPacket(state, revisions, documentBody);
-    const document = renderDocumentationMarkdown(state, documentBody);
-    const dashboard = buildDocumentationDashboard(
-      state,
-      revisions,
-      getDocumentationPacketPath(this.cwd, state.sectionGroup, state.docId),
-      getDocumentationMarkdownPath(this.cwd, state.sectionGroup, state.docId),
-      docDir,
-    );
-
-    this.writeState(state);
-    writeFileAtomic(getDocumentationPacketPath(this.cwd, state.sectionGroup, state.docId), packet);
-    writeFileAtomic(getDocumentationMarkdownPath(this.cwd, state.sectionGroup, state.docId), document);
-
-    const summary = summarizeDocumentation(state, docDir, revisions.length);
-    return {
-      state,
-      summary,
-      packet,
-      document,
-      revisions,
-      dashboard,
-    };
-  }
-
   private createDefaultState(input: CreateDocumentationInput, docId: string, timestamp: string): DocumentationState {
     const docType = normalizeDocType(input.docType);
     return {
@@ -1109,147 +624,11 @@ export class DocumentationStore {
     };
   }
 
-  listDocsProjection(filter: DocumentationListFilter = {}) {
-    this.initLedger();
-    return this.documentationDirectories()
-      .map((directory) => {
-        const state = this.readState(directory);
-        return summarizeDocumentation(state, directory, this.readRevisions(directory).length);
-      })
-      .filter((summary) => {
-        if (filter.status && summary.status !== filter.status) {
-          return false;
-        }
-        if (filter.docType && summary.docType !== filter.docType) {
-          return false;
-        }
-        if (filter.sectionGroup && summary.sectionGroup !== filter.sectionGroup) {
-          return false;
-        }
-        if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
-          return false;
-        }
-        if (filter.topic) {
-          const directory = this.resolveDocDirectory(summary.id);
-          const state = this.readState(directory);
-          if (!state.guideTopics.includes(filter.topic)) {
-            return false;
-          }
-        }
-        if (!filter.text) {
-          return true;
-        }
-        const text = filter.text.toLowerCase();
-        return [summary.id, summary.title, summary.summary, summary.docType, summary.sourceKind, summary.sourceRef]
-          .join(" ")
-          .toLowerCase()
-          .includes(text);
-      });
-  }
-
-  readDocProjection(ref: string): DocumentationReadResult {
-    this.initLedger();
-    const docDir = this.resolveDocDirectory(ref);
-    const state = this.readState(docDir);
-    const revisions = this.readRevisions(docDir);
-    const documentBody = this.readDocumentBody(docDir) || this.defaultDocumentBody(state);
-    return this.writeArtifacts(state, revisions, documentBody);
-  }
-
-  createDocProjection(input: CreateDocumentationInput): DocumentationReadResult {
-    this.initLedger();
-    const timestamp = currentTimestamp();
-    const docId = this.nextDocId(input.title);
-    const state = this.createDefaultState(input, docId, timestamp);
-    const docDir = getDocumentationDir(this.cwd, state.sectionGroup, state.docId);
-    ensureDir(docDir);
-    writeFileAtomic(getDocumentationRevisionsPath(this.cwd, state.sectionGroup, state.docId), "");
-    const documentBody = input.document?.trim() || this.defaultDocumentBody(state);
-    const nextState = {
-      ...state,
-      summary: state.summary || summarizeDocument(documentBody),
-    };
-    return this.writeArtifacts(nextState, [], documentBody);
-  }
-
-  updateDocProjection(ref: string, input: UpdateDocumentationInput): DocumentationReadResult {
-    const current = this.readDocProjection(ref);
-    const documentBody =
-      input.document?.trim() ||
-      this.readDocumentBody(this.resolveDocDirectory(ref)) ||
-      this.defaultDocumentBody(current.state);
-    const nextState: DocumentationState = {
-      ...current.state,
-      title: input.title?.trim() ?? current.state.title,
-      updatedAt: currentTimestamp(),
-      summary: input.summary?.trim() ?? (input.document ? summarizeDocument(documentBody) : current.state.summary),
-      audience: input.audience ? normalizeAudience(input.audience) : current.state.audience,
-      scopePaths: input.scopePaths ? normalizeStringList(input.scopePaths) : current.state.scopePaths,
-      contextRefs: input.contextRefs
-        ? mergeContextRefs(current.state.contextRefs, input.contextRefs)
-        : current.state.contextRefs,
-      sourceTarget: input.sourceTarget
-        ? {
-            kind: normalizeSourceTargetKind(input.sourceTarget.kind),
-            ref: input.sourceTarget.ref.trim(),
-          }
-        : current.state.sourceTarget,
-      updateReason: input.updateReason?.trim() ?? current.state.updateReason,
-      guideTopics: input.guideTopics ? normalizeStringList(input.guideTopics) : current.state.guideTopics,
-      linkedOutputPaths: input.linkedOutputPaths
-        ? normalizeStringList(input.linkedOutputPaths)
-        : current.state.linkedOutputPaths,
-    };
-
-    if (!input.document) {
-      return this.writeArtifacts(nextState, current.revisions, documentBody);
-    }
-
-    const revision: DocumentationRevisionRecord = {
-      id: nextSequenceId(
-        current.revisions.map((entry) => entry.id),
-        "rev",
-      ),
-      docId: current.state.docId,
-      createdAt: nextState.updatedAt,
-      reason: nextState.updateReason,
-      summary: nextState.summary || summarizeDocument(documentBody),
-      sourceTarget: nextState.sourceTarget,
-      packetHash: packetHash(current.packet),
-      changedSections: input.changedSections
-        ? normalizeStringList(input.changedSections)
-        : extractMarkdownSections(documentBody),
-      linkedContextRefs: nextState.contextRefs,
-    };
-    appendJsonl(getDocumentationRevisionsPath(this.cwd, current.state.sectionGroup, current.state.docId), revision);
-    return this.writeArtifacts(
-      {
-        ...nextState,
-        lastRevisionId: revision.id,
-      },
-      [...current.revisions, revision],
-      documentBody,
-    );
-  }
-
-  archiveDocProjection(ref: string): DocumentationReadResult {
-    const current = this.readDocProjection(ref);
-    return this.writeArtifacts(
-      {
-        ...current.state,
-        status: "archived",
-        updatedAt: currentTimestamp(),
-      },
-      current.revisions,
-      this.readDocumentBody(this.resolveDocDirectory(ref)) || this.defaultDocumentBody(current.state),
-    );
-  }
-
   async initLedgerAsync(): Promise<{ initialized: true; root: string }> {
     return this.initLedger();
   }
 
-  async listDocs(filter: DocumentationListFilter = {}): Promise<ReturnType<DocumentationStore["listDocsProjection"]>> {
+  async listDocs(filter: DocumentationListFilter = {}): Promise<DocumentationReadResult["summary"][]> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const records = await Promise.all(
       (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity)),
@@ -1285,18 +664,69 @@ export class DocumentationStore {
   }
 
   async createDoc(input: CreateDocumentationInput): Promise<DocumentationReadResult> {
-    const record = this.createDocProjection(input);
-    return this.upsertCanonicalRecord(record);
+    const timestamp = currentTimestamp();
+    const docId = await this.nextDocId(input.title);
+    const state = this.createDefaultState(input, docId, timestamp);
+    return this.upsertCanonicalRecord(
+      await this.buildCanonicalRecord({
+        state: { ...state, summary: state.summary || summarizeDocument(input.document?.trim() || this.defaultDocumentBody(state)) },
+        revisions: [],
+        documentBody: input.document?.trim() || this.defaultDocumentBody(state),
+      }),
+    );
   }
 
   async updateDoc(ref: string, input: UpdateDocumentationInput): Promise<DocumentationReadResult> {
-    const record = this.updateDocProjection(ref, input);
-    return this.upsertCanonicalRecord(record);
+    const current = await this.readDoc(ref);
+    const documentBody = input.document?.trim() || this.extractDocumentBody(current.document, current.dashboard.documentPath) || this.defaultDocumentBody(current.state);
+    const nextState: DocumentationState = {
+      ...current.state,
+      title: input.title?.trim() ?? current.state.title,
+      updatedAt: currentTimestamp(),
+      summary: input.summary?.trim() ?? (input.document ? summarizeDocument(documentBody) : current.state.summary),
+      audience: input.audience ? normalizeAudience(input.audience) : current.state.audience,
+      scopePaths: input.scopePaths ? normalizeStringList(input.scopePaths) : current.state.scopePaths,
+      contextRefs: input.contextRefs ? mergeContextRefs(current.state.contextRefs, input.contextRefs) : current.state.contextRefs,
+      sourceTarget: input.sourceTarget
+        ? { kind: normalizeSourceTargetKind(input.sourceTarget.kind), ref: input.sourceTarget.ref.trim() }
+        : current.state.sourceTarget,
+      updateReason: input.updateReason?.trim() ?? current.state.updateReason,
+      guideTopics: input.guideTopics ? normalizeStringList(input.guideTopics) : current.state.guideTopics,
+      linkedOutputPaths: input.linkedOutputPaths ? normalizeStringList(input.linkedOutputPaths) : current.state.linkedOutputPaths,
+    };
+    const revisions = !input.document
+      ? current.revisions
+      : [
+          ...current.revisions,
+          {
+            id: nextSequenceId(current.revisions.map((entry) => entry.id), "rev"),
+            docId: current.state.docId,
+            createdAt: nextState.updatedAt,
+            reason: nextState.updateReason,
+            summary: nextState.summary || summarizeDocument(documentBody),
+            sourceTarget: nextState.sourceTarget,
+            packetHash: packetHash(current.packet),
+            changedSections: input.changedSections ? normalizeStringList(input.changedSections) : extractMarkdownSections(documentBody),
+            linkedContextRefs: nextState.contextRefs,
+          },
+        ];
+    const nextRecord = await this.buildCanonicalRecord({
+      state: { ...nextState, lastRevisionId: revisions.at(-1)?.id ?? current.state.lastRevisionId },
+      revisions,
+      documentBody,
+    });
+    return this.upsertCanonicalRecord(nextRecord);
   }
 
   async archiveDoc(ref: string): Promise<DocumentationReadResult> {
-    const record = this.archiveDocProjection(ref);
-    return this.upsertCanonicalRecord(record);
+    const current = await this.readDoc(ref);
+    return this.upsertCanonicalRecord(
+      await this.buildCanonicalRecord({
+        state: { ...current.state, status: "archived", updatedAt: currentTimestamp() },
+        revisions: current.revisions,
+        documentBody: this.extractDocumentBody(current.document, current.dashboard.documentPath) || this.defaultDocumentBody(current.state),
+      }),
+    );
   }
 }
 

@@ -1,8 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, relative } from "node:path";
+import { join, relative } from "node:path";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getAuditPath, getLedgerPaths, getTicketPath } from "../extensions/domain/paths.js";
+import { getLedgerPaths, getTicketPath } from "../extensions/domain/paths.js";
 import { createTicketStore } from "../extensions/domain/store.js";
 
 describe("TicketStore durable ledger", () => {
@@ -20,10 +22,10 @@ describe("TicketStore durable ledger", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("writes canonical ticket frontmatter and closes by moving the file", () => {
+  it("writes canonical ticket records and preserves path semantics across close and reopen", async () => {
     const store = createTicketStore(workspace);
     vi.setSystemTime(new Date("2024-01-02T03:04:05.000Z"));
-    const created = store.createTicket({
+    const created = await store.createTicketAsync({
       title: "Launch control refuses login",
       type: "bug",
       priority: "high",
@@ -44,32 +46,36 @@ describe("TicketStore durable ledger", () => {
       journalSummary: "Initial intake recorded.",
     });
 
-    const openPath = getTicketPath(workspace, created.ticket.frontmatter.id, false);
-    expect(existsSync(openPath)).toBe(true);
-    expect(basename(created.ticket.path)).toBe(`${created.ticket.frontmatter.id}.md`);
+    const openPath = getTicketPath(workspace, created.summary.id, false);
+    expect(created.ticket.closed).toBe(false);
     expect(created.ticket.path).toBe(relative(workspace, openPath));
     expect(created.summary.path).toBe(relative(workspace, openPath));
-
-    const openMarkdown = readFileSync(openPath, "utf-8");
-    expect(openMarkdown).toContain("---\nid: t-0001");
-    expect(openMarkdown).toContain('title: "Launch control refuses login"');
-    expect(openMarkdown).toContain("status: open");
-    expect(openMarkdown).toContain("priority: high");
-    expect(openMarkdown).toContain("type: bug");
-    expect(openMarkdown).toContain("created-at: 2024-01-02T03:04:05.000Z");
-    expect(openMarkdown).toContain("updated-at: 2024-01-02T03:04:05.000Z");
-    expect(openMarkdown).toContain("tags:\n  - ops\n  - sev1");
-    expect(openMarkdown).toContain("links:\n  - runbook");
-    expect(openMarkdown).toContain("initiative-ids:\n  - platform-modernization");
-    expect(openMarkdown).toContain("research-ids:\n  - evaluate-theme-architecture");
-    expect(openMarkdown).toContain("spec-change: incident-auth-recovery");
-    expect(openMarkdown).toContain("spec-capabilities:\n  - auth-recovery");
-    expect(openMarkdown).toContain("spec-requirements:\n  - req-001");
-    expect(openMarkdown).toContain('acceptance:\n  - "Operators can log in again"');
-    expect(openMarkdown).toContain("labels:\n  - auth");
-    expect(openMarkdown).toContain("## Summary\nLogin failures block responders.");
-    expect(openMarkdown).toContain("## Verification\nSmoke test pending.");
-
+    expect(created.ticket.frontmatter).toMatchObject({
+      id: "t-0001",
+      title: "Launch control refuses login",
+      status: "open",
+      priority: "high",
+      type: "bug",
+      tags: ["ops", "sev1"],
+      links: ["runbook"],
+      "initiative-ids": ["platform-modernization"],
+      "research-ids": ["evaluate-theme-architecture"],
+      "spec-change": "incident-auth-recovery",
+      "spec-capabilities": ["auth-recovery"],
+      "spec-requirements": ["req-001"],
+      acceptance: ["Operators can log in again"],
+      labels: ["auth"],
+      "created-at": "2024-01-02T03:04:05.000Z",
+      "updated-at": "2024-01-02T03:04:05.000Z",
+    });
+    expect(created.ticket.body).toMatchObject({
+      summary: "Login failures block responders.",
+      context: "Observed during morning cutover.",
+      plan: "Inspect auth gateway and revert bad rollout.",
+      notes: "Pager engaged.",
+      verification: "Smoke test pending.",
+      journalSummary: "Initial intake recorded.",
+    });
     expect(created.summary.initiativeIds).toEqual(["platform-modernization"]);
     expect(created.summary.researchIds).toEqual(["evaluate-theme-architecture"]);
     expect(created.summary.specChange).toBe("incident-auth-recovery");
@@ -77,7 +83,7 @@ describe("TicketStore durable ledger", () => {
     expect(created.summary.specRequirements).toEqual(["req-001"]);
 
     vi.setSystemTime(new Date("2024-01-02T04:00:00.000Z"));
-    const checkpointed = store.recordCheckpoint(created.ticket.frontmatter.id, {
+    const checkpointed = await store.recordCheckpointAsync(created.summary.id, {
       title: "Captured login traces",
       body: "Saved packet captures for later comparison.",
     });
@@ -89,62 +95,99 @@ describe("TicketStore durable ledger", () => {
     ]);
 
     vi.setSystemTime(new Date("2024-01-02T05:06:07.000Z"));
-    const closed = store.closeTicket(created.ticket.frontmatter.id, "Smoke test passed.");
-    const closedPath = getTicketPath(workspace, created.ticket.frontmatter.id, true);
-    expect(existsSync(openPath)).toBe(false);
-    expect(existsSync(closedPath)).toBe(true);
+    const closed = await store.closeTicketAsync(created.summary.id, "Smoke test passed.");
+    const closedPath = getTicketPath(workspace, created.summary.id, true);
     expect(closed.ticket.closed).toBe(true);
     expect(closed.ticket.path).toBe(relative(workspace, closedPath));
     expect(closed.summary.path).toBe(relative(workspace, closedPath));
-    expect(store.listTickets({ includeClosed: true })).toEqual([
-      expect.objectContaining({ id: created.ticket.frontmatter.id, path: relative(workspace, closedPath) }),
+    expect(closed.ticket.frontmatter.status).toBe("closed");
+    expect(closed.ticket.frontmatter["updated-at"]).toBe("2024-01-02T05:06:07.000Z");
+    expect(closed.ticket.body.verification).toBe("Smoke test pending.\n\nSmoke test passed.");
+    expect(getLedgerPaths(workspace).closedTicketsDir).toContain(".loom/tickets/closed");
+    expect(await store.listTicketsAsync({ includeClosed: true })).toEqual([
+      expect.objectContaining({ id: created.summary.id, path: relative(workspace, closedPath) }),
     ]);
 
-    const closedMarkdown = readFileSync(closedPath, "utf-8");
-    expect(closedMarkdown).toContain("status: closed");
-    expect(closedMarkdown).toContain("updated-at: 2024-01-02T05:06:07.000Z");
-    expect(closedMarkdown).toContain("Smoke test pending.\n\nSmoke test passed.");
-    expect(getLedgerPaths(workspace).closedTicketsDir).toContain(".loom/tickets/closed");
-
     vi.setSystemTime(new Date("2024-01-02T06:00:00.000Z"));
-    const reopened = store.reopenTicket(created.ticket.frontmatter.id);
-    expect(existsSync(openPath)).toBe(true);
-    expect(existsSync(closedPath)).toBe(false);
+    const reopened = await store.reopenTicketAsync(created.summary.id);
     expect(reopened.ticket.closed).toBe(false);
     expect(reopened.ticket.frontmatter.status).toBe("open");
+    expect(reopened.ticket.frontmatter["updated-at"]).toBe("2024-01-02T06:00:00.000Z");
     expect(reopened.ticket.path).toBe(relative(workspace, openPath));
     expect(reopened.summary.path).toBe(relative(workspace, openPath));
 
-    const reopenedMarkdown = readFileSync(openPath, "utf-8");
-    expect(reopenedMarkdown).toContain("status: open");
-    expect(reopenedMarkdown).toContain("updated-at: 2024-01-02T06:00:00.000Z");
-  });
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, "ticket", created.summary.id);
+    expect(entity).toBeTruthy();
+    if (!entity) {
+      throw new Error("Expected ticket entity to exist");
+    }
 
-  it("appends audit records for each write", () => {
+    expect(entity.version).toBe(4);
+    expect(entity.attributes).toMatchObject({
+      record: {
+        ticket: {
+          closed: false,
+          path: openPath,
+          frontmatter: {
+            status: "open",
+            "updated-at": "2024-01-02T06:00:00.000Z",
+          },
+          body: {
+            verification: "Smoke test pending.\n\nSmoke test passed.",
+          },
+        },
+        checkpoints: [
+          {
+            id: "cp-0001",
+            title: "Captured login traces",
+            body: "Saved packet captures for later comparison.",
+          },
+        ],
+      },
+    });
+  }, 30000);
+
+  it("persists sequential ticket writes in sqlite by incrementing the canonical entity version", async () => {
     const store = createTicketStore(workspace);
 
     vi.setSystemTime(new Date("2024-01-03T00:00:01.000Z"));
-    const created = store.createTicket({ title: "Track audit trail" });
+    const created = await store.createTicketAsync({ title: "Track audit trail" });
     vi.setSystemTime(new Date("2024-01-03T00:00:02.000Z"));
-    store.addNote(created.ticket.frontmatter.id, "Captured incident notes");
+    await store.addNoteAsync(created.summary.id, "Captured incident notes");
     vi.setSystemTime(new Date("2024-01-03T00:00:03.000Z"));
-    store.closeTicket(created.ticket.frontmatter.id, "Verified closure");
+    await store.closeTicketAsync(created.summary.id, "Verified closure");
     vi.setSystemTime(new Date("2024-01-03T00:00:04.000Z"));
-    store.reopenTicket(created.ticket.frontmatter.id);
+    await store.reopenTicketAsync(created.summary.id);
 
-    const auditPath = getAuditPath(workspace, "2024-01-03");
-    const auditLines = readFileSync(auditPath, "utf-8").trim().split("\n");
-    expect(auditLines).toHaveLength(4);
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, "ticket", created.summary.id);
+    expect(entity).toBeTruthy();
+    if (!entity) {
+      throw new Error("Expected ticket entity to exist");
+    }
 
-    const actions = auditLines.map((line) => {
-      const entry = JSON.parse(line) as { action: string; ticketId: string | null };
-      return { action: entry.action, ticketId: entry.ticketId };
+    expect(entity.version).toBe(4);
+    expect(entity.attributes).toMatchObject({
+      record: {
+        ticket: {
+          closed: false,
+          frontmatter: {
+            status: "open",
+            "updated-at": "2024-01-03T00:00:04.000Z",
+          },
+          body: {
+            notes: "- 2024-01-03T00:00:02.000Z Captured incident notes",
+            verification: "Verified closure",
+          },
+        },
+        journal: [
+          { kind: "state", text: "Created ticket Track audit trail", metadata: { action: "create" } },
+          { kind: "note", text: "Captured incident notes", metadata: {} },
+          { kind: "verification", text: "Verified closure", metadata: { action: "close" } },
+          { kind: "state", text: "Reopened ticket", metadata: { action: "reopen", status: "open" } },
+        ],
+      },
     });
-    expect(actions).toEqual([
-      { action: "create_ticket", ticketId: "t-0001" },
-      { action: "add_note", ticketId: "t-0001" },
-      { action: "close_ticket", ticketId: "t-0001" },
-      { action: "reopen_ticket", ticketId: "t-0001" },
-    ]);
-  });
+  }, 30000);
 });

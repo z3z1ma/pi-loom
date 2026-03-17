@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createDocumentationStore } from "../extensions/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -126,18 +127,20 @@ describe("pi-docs extension", () => {
       const mockPi = createMockPi();
       const { default: piDocs } = await import("../extensions/index.js");
       piDocs(mockPi as unknown as ExtensionAPI);
+      const docsStore = createDocumentationStore(cwd);
 
       const command = getCommand(mockPi, "docs");
       const sessionStart = getHandler(mockPi, "session_start");
       const { ctx, ui } = createCommandContext(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      expect(existsSync(join(cwd, ".loom", "docs", "overviews"))).toBe(true);
-      expect(existsSync(join(cwd, ".loom", "docs", "guides"))).toBe(true);
-      expect(existsSync(join(cwd, ".loom", "docs", "concepts"))).toBe(true);
-      expect(existsSync(join(cwd, ".loom", "docs", "operations"))).toBe(true);
+      await expect(docsStore.listDocs()).resolves.toEqual([]);
 
       await command.handler("create overview Documentation memory layer", ctx);
+
+      await expect(docsStore.readDoc("documentation-memory-layer")).resolves.toMatchObject({
+        summary: { id: "documentation-memory-layer", docType: "overview", status: "active" },
+      });
 
       expect(ui.notify).toHaveBeenCalledWith(
         expect.stringContaining("documentation-memory-layer [active/overview]"),
