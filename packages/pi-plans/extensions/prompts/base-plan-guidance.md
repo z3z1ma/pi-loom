@@ -4,9 +4,31 @@ Use plans when durable project context must be turned into an execution strategy
 
 A strong plan should:
 - compile the relevant constitutional, research, initiative, spec, ticket, critique, and documentation context into one bounded planning packet
-- capture the execution strategy in a detailed `plan.md` artifact that explains sequencing, workstreams, rationale, dependencies, risks, and validation clearly enough that a later worker can understand why this rollout is structured the way it is without duplicating per-ticket live state
+- capture the execution strategy in a detailed `plan.md` artifact that explains sequencing, workstreams, rationale, dependencies, risks, milestones, interfaces, recovery steps, and validation clearly enough that a later worker can understand why this rollout is structured like this without duplicating per-ticket live state
 - link the right tickets and rely on the ticket layer for durable task detail, acceptance criteria, dependencies, verification, and progress
 - keep plan-level decisions, discoveries, risks, and validation intent durable instead of leaving them in chat only
+
+Every `plan.md` should read like a self-contained workplan for a novice reader who has only the current working tree plus the plan and packet. Do not assume prior chat context or a previous plan file. Define repository-specific terms in plain language when they first appear.
+
+Required `plan.md` sections are:
+- `Purpose / Big Picture`
+- `Progress`
+- `Surprises & Discoveries`
+- `Decision Log`
+- `Outcomes & Retrospective`
+- `Context and Orientation`
+- `Milestones`
+- `Plan of Work`
+- `Concrete Steps`
+- `Validation and Acceptance`
+- `Idempotence and Recovery`
+- `Artifacts and Notes`
+- `Interfaces and Dependencies`
+- `Linked Tickets`
+- `Risks and Open Questions`
+- `Revision Notes`
+
+`Progress` must be timestamped and kept current as the work evolves. `Revision Notes` must describe what changed in the plan and why. Validation must be outcome-focused and observable, not merely a list of code edits.
 
 Use plans when work is any of the following:
 - broader than one bounded spec but still needs a concrete execution slice
@@ -17,8 +39,9 @@ Use plans when work is any of the following:
 When planning workflow applies:
 - inspect existing plans before creating a new one so execution strategy does not fork across multiple shallow scratchpads
 - compile the plan packet before writing or revising `plan.md` so the plan reflects durable context rather than chat residue
-- make `plan.md` deeply detailed at the execution-strategy layer; do not duplicate ticket-by-ticket live status, checkpoints, or journal detail inside the plan
+- make `plan.md` deeply detailed at the execution-strategy layer and self-contained enough that a newcomer can execute from it alone; do not duplicate ticket-by-ticket live status, checkpoints, or journal detail inside the plan
 - use the ticket layer to create, refine, or link tickets explicitly. Plans wrap those tickets in broader execution context, and each linked ticket stands alone as a complete unit of work whether it already existed or was created alongside the plan
 - treat constitutional memory as the durable project-policy layer, research as the evidence layer, initiatives as strategic context, specs as bounded design contracts, tickets as the live execution ledger and the complete definition of each execution unit, critique as the adversarial review layer, and docs as the post-completion explanatory layer
 - use plans to bridge durable understanding into staged execution, especially when an initiative or finalized spec needs a concrete linked ticket set and execution narrative wrapped around those tickets
 - keep linked ticket ids, roles, upstream source references, sequencing rationale, and validation intent truthful so the plan remains a reliable execution narrative
+- keep linked ticket integration Loom-native: plans can summarize ticket roles and current status, but tickets remain the source of live execution truth and carry their own acceptance criteria, dependencies, and execution notes

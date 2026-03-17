@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import Database from "better-sqlite3";
+import { createRequire } from "node:module";
 import type {
   LoomCanonicalStorage,
   LoomCanonicalTransaction,
@@ -13,6 +13,47 @@ import type {
 } from "./contract.js";
 import { LOOM_STORAGE_CONTRACT_VERSION } from "./contract.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "./locations.js";
+
+interface SqliteStatementLike {
+  get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+  run(...params: unknown[]): unknown;
+}
+
+interface SqliteDatabaseLike {
+  prepare(sql: string): SqliteStatementLike;
+  exec(sql: string): unknown;
+  close(): void;
+}
+
+type SqliteDatabaseCtor = new (databasePath: string) => SqliteDatabaseLike;
+
+const require = createRequire(import.meta.url);
+
+async function resolveDatabaseCtor(): Promise<SqliteDatabaseCtor> {
+  if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
+    const bunSqliteSpecifier = "bun:sqlite";
+    const bunSqlite = (await import(bunSqliteSpecifier)) as { Database?: SqliteDatabaseCtor };
+    if (!bunSqlite.Database) {
+      throw new Error("Unable to load bun:sqlite Database constructor");
+    }
+    return bunSqlite.Database;
+  }
+
+  const betterSqlite = require("better-sqlite3") as
+    | SqliteDatabaseCtor
+    | { default?: SqliteDatabaseCtor };
+  const ctor =
+    typeof betterSqlite === "function"
+      ? (betterSqlite as SqliteDatabaseCtor)
+      : ((betterSqlite as { default?: SqliteDatabaseCtor }).default ?? null);
+  if (!ctor) {
+    throw new Error("Unable to load better-sqlite3 Database constructor");
+  }
+  return ctor;
+}
+
+const LoadedSqliteDatabase = await resolveDatabaseCtor();
 
 function hashContent(content: string | null): string | null {
   if (content === null) {
@@ -32,9 +73,27 @@ function decode<T>(value: unknown, fallback: T): T {
   return JSON.parse(value) as T;
 }
 
-function migrate(db: Database.Database): void {
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+type SqliteNamedParams = Record<string, unknown>;
+
+export function toSqliteNamedParams(params: SqliteNamedParams): SqliteNamedParams {
+  // better-sqlite3 reads bare names while Bun requires the exact placeholder prefix unless strict mode is enabled.
+  return Object.entries(params).reduce<SqliteNamedParams>((bindings, [key, value]) => {
+    const bareKey = key.startsWith("@") || key.startsWith(":") || key.startsWith("$") ? key.slice(1) : key;
+    bindings[bareKey] = value;
+    bindings[`@${bareKey}`] = value;
+    bindings[`:${bareKey}`] = value;
+    bindings[`$${bareKey}`] = value;
+    return bindings;
+  }, {});
+}
+
+function runNamed(statement: SqliteStatementLike, params: SqliteNamedParams): void {
+  statement.run(toSqliteNamedParams(params));
+}
+
+function migrate(db: SqliteDatabaseLike): void {
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA foreign_keys = ON");
   db.exec(`
     CREATE TABLE IF NOT EXISTS spaces (
       id TEXT PRIMARY KEY,
@@ -240,7 +299,7 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
   readonly backendKind = "sqlite" as const;
 
   constructor(
-    protected readonly db: Database.Database,
+    protected readonly db: SqliteDatabaseLike,
     private active = true,
   ) {}
 
@@ -329,8 +388,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
   }
 
   async upsertSpace(record: LoomSpaceRecord): Promise<void> {
-    this.db
-      .prepare(`
+    runNamed(
+      this.db.prepare(`
         INSERT INTO spaces (id, slug, title, description, repository_ids_json, created_at, updated_at)
         VALUES (@id, @slug, @title, @description, @repository_ids_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -339,8 +398,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           description = excluded.description,
           repository_ids_json = excluded.repository_ids_json,
           updated_at = excluded.updated_at
-      `)
-      .run({
+      `),
+      {
         id: record.id,
         slug: record.slug,
         title: record.title,
@@ -348,12 +407,13 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         repository_ids_json: encode(record.repositoryIds),
         created_at: record.createdAt,
         updated_at: record.updatedAt,
-      });
+      },
+    );
   }
 
   async upsertRepository(record: LoomRepositoryRecord): Promise<void> {
-    this.db
-      .prepare(`
+    runNamed(
+      this.db.prepare(`
         INSERT INTO repositories (id, space_id, slug, display_name, default_branch, remote_urls_json, created_at, updated_at)
         VALUES (@id, @space_id, @slug, @display_name, @default_branch, @remote_urls_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -363,8 +423,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           default_branch = excluded.default_branch,
           remote_urls_json = excluded.remote_urls_json,
           updated_at = excluded.updated_at
-      `)
-      .run({
+      `),
+      {
         id: record.id,
         space_id: record.spaceId,
         slug: record.slug,
@@ -373,12 +433,13 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         remote_urls_json: encode(record.remoteUrls),
         created_at: record.createdAt,
         updated_at: record.updatedAt,
-      });
+      },
+    );
   }
 
   async upsertWorktree(record: LoomWorktreeRecord): Promise<void> {
-    this.db
-      .prepare(`
+    runNamed(
+      this.db.prepare(`
         INSERT INTO worktrees (id, repository_id, branch, base_ref, logical_path, status, created_at, updated_at)
         VALUES (@id, @repository_id, @branch, @base_ref, @logical_path, @status, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -388,8 +449,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           logical_path = excluded.logical_path,
           status = excluded.status,
           updated_at = excluded.updated_at
-      `)
-      .run({
+      `),
+      {
         id: record.id,
         repository_id: record.repositoryId,
         branch: record.branch,
@@ -398,12 +459,13 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         status: record.status,
         created_at: record.createdAt,
         updated_at: record.updatedAt,
-      });
+      },
+    );
   }
 
   async upsertEntity(record: LoomEntityRecord): Promise<void> {
-    this.db
-      .prepare(`
+    runNamed(
+      this.db.prepare(`
         INSERT INTO entities (id, kind, space_id, owning_repository_id, display_id, title, summary, status, version, tags_json, path_scopes_json, attributes_json, created_at, updated_at)
         VALUES (@id, @kind, @space_id, @owning_repository_id, @display_id, @title, @summary, @status, @version, @tags_json, @path_scopes_json, @attributes_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -419,8 +481,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           path_scopes_json = excluded.path_scopes_json,
           attributes_json = excluded.attributes_json,
           updated_at = excluded.updated_at
-      `)
-      .run({
+      `),
+      {
         id: record.id,
         kind: record.kind,
         space_id: record.spaceId,
@@ -435,12 +497,13 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         attributes_json: encode(record.attributes),
         created_at: record.createdAt,
         updated_at: record.updatedAt,
-      });
+      },
+    );
   }
 
   async upsertLink(record: LoomEntityLinkRecord): Promise<void> {
-    this.db
-      .prepare(`
+    runNamed(
+      this.db.prepare(`
         INSERT INTO links (id, kind, from_entity_id, to_entity_id, metadata_json, created_at, updated_at)
         VALUES (@id, @kind, @from_entity_id, @to_entity_id, @metadata_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -449,8 +512,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           to_entity_id = excluded.to_entity_id,
           metadata_json = excluded.metadata_json,
           updated_at = excluded.updated_at
-      `)
-      .run({
+      `),
+      {
         id: record.id,
         kind: record.kind,
         from_entity_id: record.fromEntityId,
@@ -458,12 +521,13 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         metadata_json: encode(record.metadata),
         created_at: record.createdAt,
         updated_at: record.updatedAt,
-      });
+      },
+    );
   }
 
   async appendEvent(record: LoomEntityEventRecord): Promise<void> {
-    this.db
-      .prepare(`
+    runNamed(
+      this.db.prepare(`
         INSERT INTO events (id, entity_id, kind, sequence, created_at, actor, payload_json)
         VALUES (@id, @entity_id, @kind, @sequence, @created_at, @actor, @payload_json)
         ON CONFLICT(id) DO UPDATE SET
@@ -471,8 +535,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           sequence = excluded.sequence,
           actor = excluded.actor,
           payload_json = excluded.payload_json
-      `)
-      .run({
+      `),
+      {
         id: record.id,
         entity_id: record.entityId,
         kind: record.kind,
@@ -480,13 +544,14 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         created_at: record.createdAt,
         actor: record.actor,
         payload_json: encode(record.payload),
-      });
+      },
+    );
   }
 
   async upsertProjection(record: LoomProjectionRecord): Promise<void> {
     const contentHash = record.contentHash ?? hashContent(record.content);
-    this.db
-      .prepare(`
+    runNamed(
+      this.db.prepare(`
         INSERT INTO projections (id, entity_id, kind, materialization, repository_id, relative_path, content_hash, version, content, created_at, updated_at)
         VALUES (@id, @entity_id, @kind, @materialization, @repository_id, @relative_path, @content_hash, @version, @content, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -499,8 +564,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           version = excluded.version,
           content = excluded.content,
           updated_at = excluded.updated_at
-      `)
-      .run({
+      `),
+      {
         id: record.id,
         entity_id: record.entityId,
         kind: record.kind,
@@ -512,7 +577,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         content: record.content,
         created_at: record.createdAt,
         updated_at: record.updatedAt,
-      });
+      },
+    );
   }
 
   async transact<T>(run: (tx: LoomCanonicalTransaction) => Promise<T>): Promise<T> {
@@ -530,10 +596,10 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
 }
 
 export class SqliteLoomCatalog extends SqliteLoomCatalogTx implements LoomCanonicalStorage {
-  readonly db: Database.Database;
+  readonly db: SqliteDatabaseLike;
 
   constructor(databasePath = ensureLoomCatalogDirs(getLoomCatalogPaths()).catalogPath) {
-    const db = new Database(databasePath);
+    const db = new LoadedSqliteDatabase(databasePath);
     migrate(db);
     super(db, false);
     this.db = db;

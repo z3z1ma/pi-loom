@@ -12,13 +12,17 @@ describe("plan prompt guidance", () => {
       "compile the relevant constitutional, research, initiative, spec, ticket, critique, and documentation context",
     );
     expect(guidance).toContain("detailed `plan.md` artifact that explains sequencing, workstreams, rationale");
-    expect(guidance).toContain("a later worker can understand why this rollout is structured the way it is");
+    expect(guidance).toContain("a later worker can understand why this rollout is structured like this");
     expect(guidance).toContain(
       "tickets remain both the high-fidelity execution system of record and comprehensive, self-contained units of work",
     );
     expect(guidance).toContain(
       "use the ticket layer to create, refine, or link tickets explicitly. Plans wrap those tickets in broader execution context",
     );
+    expect(guidance).toContain("self-contained workplan for a novice reader");
+    expect(guidance).toContain("Required `plan.md` sections are");
+    expect(guidance).toContain("`Idempotence and Recovery`");
+    expect(guidance).toContain("`Revision Notes`");
   });
 
   it("builds a system prompt that preserves base doctrine and workspace plan root", () => {

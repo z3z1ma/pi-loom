@@ -105,7 +105,7 @@ The Loom layer between specs and ticket execution is durable planning memory:
 - plans live under `.loom/plans/`
 - plans compile bounded packets from constitution, research, initiative, spec, ticket, critique, and docs context
 - each plan keeps `state.json`, `packet.md`, `plan.md`, and `dashboard.json`
-- `plan.md` is intentionally thin and ExecPlan-shaped: it references linked tickets instead of replacing their execution detail
+- `plan.md` is intentionally self-contained and ExecPlan-shaped: it gives a novice-facing execution guide with milestones, validation, recovery notes, interfaces, and revision history while referencing linked tickets instead of replacing their execution detail
 - linked tickets remain the live execution system of record, while the plan stays the durable execution-strategy container
 
 ## Critique layer

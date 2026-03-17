@@ -1,8 +1,10 @@
 export const PLAN_STATUSES = ["active", "paused", "completed", "archived", "superseded"] as const;
 export const PLAN_SOURCE_TARGET_KINDS = ["workspace", "initiative", "spec", "research"] as const;
+export const PLAN_PROGRESS_STATUSES = ["done", "pending"] as const;
 
 export type PlanStatus = (typeof PLAN_STATUSES)[number];
 export type PlanSourceTargetKind = (typeof PLAN_SOURCE_TARGET_KINDS)[number];
+export type PlanProgressStatus = (typeof PLAN_PROGRESS_STATUSES)[number];
 
 export interface PlanContextRefs {
   roadmapItemIds: string[];
@@ -37,6 +39,18 @@ export interface PlanDecisionRecord {
   author: string;
 }
 
+export interface PlanProgressRecord {
+  timestamp: string;
+  status: PlanProgressStatus;
+  text: string;
+}
+
+export interface PlanRevisionRecord {
+  timestamp: string;
+  change: string;
+  reason: string;
+}
+
 export interface PlanState {
   planId: string;
   title: string;
@@ -46,17 +60,23 @@ export interface PlanState {
   summary: string;
   purpose: string;
   contextAndOrientation: string;
+  milestones: string;
   planOfWork: string;
   concreteSteps: string;
   validation: string;
+  idempotenceAndRecovery: string;
+  artifactsAndNotes: string;
+  interfacesAndDependencies: string;
   risksAndQuestions: string;
   outcomesAndRetrospective: string;
   scopePaths: string[];
   sourceTarget: PlanSourceTarget;
   contextRefs: PlanContextRefs;
   linkedTickets: PlanTicketLink[];
+  progress: PlanProgressRecord[];
   discoveries: PlanDiscoveryRecord[];
   decisions: PlanDecisionRecord[];
+  revisionNotes: PlanRevisionRecord[];
   packetSummary: string;
 }
 
@@ -115,16 +135,22 @@ export interface CreatePlanInput {
   summary?: string;
   purpose?: string;
   contextAndOrientation?: string;
+  milestones?: string;
   planOfWork?: string;
   concreteSteps?: string;
   validation?: string;
+  idempotenceAndRecovery?: string;
+  artifactsAndNotes?: string;
+  interfacesAndDependencies?: string;
   risksAndQuestions?: string;
   outcomesAndRetrospective?: string;
   scopePaths?: string[];
   sourceTarget: PlanSourceTarget;
   contextRefs?: Partial<PlanContextRefs>;
+  progress?: PlanProgressRecord[];
   discoveries?: PlanDiscoveryRecord[];
   decisions?: PlanDecisionRecord[];
+  revisionNotes?: PlanRevisionRecord[];
 }
 
 export interface UpdatePlanInput {
@@ -133,16 +159,22 @@ export interface UpdatePlanInput {
   summary?: string;
   purpose?: string;
   contextAndOrientation?: string;
+  milestones?: string;
   planOfWork?: string;
   concreteSteps?: string;
   validation?: string;
+  idempotenceAndRecovery?: string;
+  artifactsAndNotes?: string;
+  interfacesAndDependencies?: string;
   risksAndQuestions?: string;
   outcomesAndRetrospective?: string;
   scopePaths?: string[];
   sourceTarget?: PlanSourceTarget;
   contextRefs?: Partial<PlanContextRefs>;
+  progress?: PlanProgressRecord[];
   discoveries?: PlanDiscoveryRecord[];
   decisions?: PlanDecisionRecord[];
+  revisionNotes?: PlanRevisionRecord[];
 }
 
 export interface LinkPlanTicketInput {

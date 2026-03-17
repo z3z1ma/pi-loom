@@ -13,9 +13,13 @@ describe("plan dashboard", () => {
       summary: "Coordinate the planning layer rollout.",
       purpose: "Bridge design into ticketed execution.",
       contextAndOrientation: "Stay detailed at the execution-strategy layer and ticket-linked.",
+      milestones: "Ship the store, then verify the command surface.",
       planOfWork: "Ship the store, then the command surface.",
       concreteSteps: "Land implementation and review tickets.",
       validation: "Run targeted plan package tests.",
+      idempotenceAndRecovery: "Re-running the targeted tests is safe.",
+      artifactsAndNotes: "Record the most relevant test output snippets.",
+      interfacesAndDependencies: "Keep the store and renderer signatures stable.",
       risksAndQuestions: "Avoid dashboard churn.",
       outcomesAndRetrospective: "",
       scopePaths: ["packages/pi-plans", "README.md"],
@@ -30,8 +34,16 @@ describe("plan dashboard", () => {
         docIds: ["doc-001"],
       },
       linkedTickets: [{ ticketId: "ticket-001", role: "implementation", order: 1 }],
+      progress: [{ timestamp: "2026-03-15T12:35:00.000Z", status: "pending", text: "Land implementation." }],
       discoveries: [],
       decisions: [],
+      revisionNotes: [
+        {
+          timestamp: "2026-03-15T12:35:00.000Z",
+          change: "Created workplan scaffold.",
+          reason: "Establish durable execution strategy.",
+        },
+      ],
       packetSummary: "spec:spec-change-001; 1 linked ticket(s)",
     };
 
@@ -124,9 +136,13 @@ describe("plan dashboard", () => {
       summary: "Coordinate the planning layer rollout.",
       purpose: "Bridge design into ticketed execution.",
       contextAndOrientation: "Stay detailed at the execution-strategy layer and ticket-linked.",
+      milestones: "Ship the store, then verify the command surface.",
       planOfWork: "Ship the store, then the command surface.",
       concreteSteps: "Land implementation and review tickets.",
       validation: "Run targeted plan package tests.",
+      idempotenceAndRecovery: "Re-running the targeted tests is safe.",
+      artifactsAndNotes: "Record the most relevant test output snippets.",
+      interfacesAndDependencies: "Keep the store and renderer signatures stable.",
       risksAndQuestions: "Avoid dashboard churn.",
       outcomesAndRetrospective: "",
       scopePaths: ["packages/pi-plans"],
@@ -141,8 +157,16 @@ describe("plan dashboard", () => {
         docIds: [],
       },
       linkedTickets: [{ ticketId: "ticket-001", role: "implementation", order: 1 }],
+      progress: [{ timestamp: "2026-03-15T12:35:00.000Z", status: "pending", text: "Land implementation." }],
       discoveries: [],
       decisions: [],
+      revisionNotes: [
+        {
+          timestamp: "2026-03-15T12:35:00.000Z",
+          change: "Created workplan scaffold.",
+          reason: "Establish durable execution strategy.",
+        },
+      ],
       packetSummary: "spec:spec-change-001; 1 linked ticket(s)",
     };
     const linkedTickets = [

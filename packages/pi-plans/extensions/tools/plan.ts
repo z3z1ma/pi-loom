@@ -6,6 +6,7 @@ import { createPlanStore } from "../domain/store.js";
 
 const PlanStatusEnum = StringEnum(["active", "paused", "completed", "archived", "superseded"] as const);
 const PlanSourceTargetKindEnum = StringEnum(["workspace", "initiative", "spec", "research"] as const);
+const PlanProgressStatusEnum = StringEnum(["done", "pending"] as const);
 const PlanWriteActionEnum = StringEnum(["init", "create", "update", "archive"] as const);
 const PlanReadModeEnum = StringEnum(["full", "state", "packet", "plan"] as const);
 const PlanTicketLinkActionEnum = StringEnum(["link", "unlink"] as const);
@@ -37,6 +38,18 @@ const PlanDecisionSchema = Type.Object({
   author: Type.String(),
 });
 
+const PlanProgressSchema = Type.Object({
+  timestamp: Type.String(),
+  status: PlanProgressStatusEnum,
+  text: Type.String(),
+});
+
+const PlanRevisionSchema = Type.Object({
+  timestamp: Type.String(),
+  change: Type.String(),
+  reason: Type.String(),
+});
+
 const PlanListParams = Type.Object({
   status: Type.Optional(PlanStatusEnum),
   sourceKind: Type.Optional(PlanSourceTargetKindEnum),
@@ -57,16 +70,22 @@ const PlanWriteParams = Type.Object({
   summary: Type.Optional(Type.String()),
   purpose: Type.Optional(Type.String()),
   contextAndOrientation: Type.Optional(Type.String()),
+  milestones: Type.Optional(Type.String()),
   planOfWork: Type.Optional(Type.String()),
   concreteSteps: Type.Optional(Type.String()),
   validation: Type.Optional(Type.String()),
+  idempotenceAndRecovery: Type.Optional(Type.String()),
+  artifactsAndNotes: Type.Optional(Type.String()),
+  interfacesAndDependencies: Type.Optional(Type.String()),
   risksAndQuestions: Type.Optional(Type.String()),
   outcomesAndRetrospective: Type.Optional(Type.String()),
   scopePaths: Type.Optional(Type.Array(Type.String())),
   contextRefs: Type.Optional(ContextRefsSchema),
+  progress: Type.Optional(Type.Array(PlanProgressSchema)),
   sourceTarget: Type.Optional(SourceTargetSchema),
   discoveries: Type.Optional(Type.Array(PlanDiscoverySchema)),
   decisions: Type.Optional(Type.Array(PlanDecisionSchema)),
+  revisionNotes: Type.Optional(Type.Array(PlanRevisionSchema)),
 });
 
 const PlanPacketParams = Type.Object({
@@ -117,16 +136,22 @@ function toCreateInput(params: PlanWriteParamsValue) {
     summary: params.summary,
     purpose: params.purpose,
     contextAndOrientation: params.contextAndOrientation,
+    milestones: params.milestones,
     planOfWork: params.planOfWork,
     concreteSteps: params.concreteSteps,
     validation: params.validation,
+    idempotenceAndRecovery: params.idempotenceAndRecovery,
+    artifactsAndNotes: params.artifactsAndNotes,
+    interfacesAndDependencies: params.interfacesAndDependencies,
     risksAndQuestions: params.risksAndQuestions,
     outcomesAndRetrospective: params.outcomesAndRetrospective,
     scopePaths: params.scopePaths,
     contextRefs: params.contextRefs,
     sourceTarget: params.sourceTarget,
+    progress: params.progress,
     discoveries: params.discoveries,
     decisions: params.decisions,
+    revisionNotes: params.revisionNotes,
   };
 }
 
@@ -137,16 +162,22 @@ function toUpdateInput(params: PlanWriteParamsValue) {
     summary: params.summary,
     purpose: params.purpose,
     contextAndOrientation: params.contextAndOrientation,
+    milestones: params.milestones,
     planOfWork: params.planOfWork,
     concreteSteps: params.concreteSteps,
     validation: params.validation,
+    idempotenceAndRecovery: params.idempotenceAndRecovery,
+    artifactsAndNotes: params.artifactsAndNotes,
+    interfacesAndDependencies: params.interfacesAndDependencies,
     risksAndQuestions: params.risksAndQuestions,
     outcomesAndRetrospective: params.outcomesAndRetrospective,
     scopePaths: params.scopePaths,
     contextRefs: params.contextRefs,
     sourceTarget: params.sourceTarget,
+    progress: params.progress,
     discoveries: params.discoveries,
     decisions: params.decisions,
+    revisionNotes: params.revisionNotes,
   };
 }
 
@@ -204,7 +235,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
       "Persist substantial execution strategy durably instead of leaving multi-ticket planning trapped in scratch chat or one-off notes.",
     promptGuidelines: [
       "Create the plan before repeatedly revising the execution strategy so ticket links and source refs accumulate on a stable durable id.",
-      "Update plan content with detailed sequencing, rationale, dependencies, risks, and validation intent without duplicating live per-ticket status, checkpoints, or journal detail; linked tickets must still stand alone as complete units of work, whether they pre-existed or were created through the ticket layer during planning.",
+      "Update plan content as a self-contained novice-facing workplan with explicit milestones, timestamped progress, concrete commands, validation, recovery guidance, interfaces, and revision notes without duplicating live per-ticket status, checkpoints, or journal detail; linked tickets must still stand alone as complete units of work, whether they pre-existed or were created through the ticket layer during planning.",
     ],
     parameters: PlanWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -262,7 +293,11 @@ export function registerPlanTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       const plan =
         params.action === "link"
-          ? await store.linkPlanTicket(params.ref, { ticketId: params.ticketId, role: params.role, order: params.order })
+          ? await store.linkPlanTicket(params.ref, {
+              ticketId: params.ticketId,
+              role: params.role,
+              order: params.order,
+            })
           : await store.unlinkPlanTicket(params.ref, params.ticketId);
       return machineResult({ action: params.action, plan }, renderPlanDetail(plan));
     },

@@ -1,9 +1,13 @@
 import {
+  PLAN_PROGRESS_STATUSES,
   PLAN_SOURCE_TARGET_KINDS,
   PLAN_STATUSES,
   type PlanContextRefs,
   type PlanDecisionRecord,
   type PlanDiscoveryRecord,
+  type PlanProgressRecord,
+  type PlanProgressStatus,
+  type PlanRevisionRecord,
   type PlanSourceTargetKind,
   type PlanStatus,
   type PlanTicketLink,
@@ -77,6 +81,10 @@ export function normalizePlanSourceTargetKind(value: string | undefined): PlanSo
   return expectEnum("plan source target kind", value, PLAN_SOURCE_TARGET_KINDS, "workspace");
 }
 
+export function normalizePlanProgressStatus(value: string | undefined): PlanProgressStatus {
+  return expectEnum("plan progress status", value, PLAN_PROGRESS_STATUSES, "pending");
+}
+
 export function normalizeOptionalString(value: string | null | undefined): string | null {
   if (value === undefined || value === null) {
     return null;
@@ -137,6 +145,16 @@ export function normalizeDiscoveries(records: readonly PlanDiscoveryRecord[] | u
     .filter((record) => record.note.length > 0);
 }
 
+export function normalizeProgress(records: readonly PlanProgressRecord[] | undefined): PlanProgressRecord[] {
+  return (records ?? [])
+    .map((record) => ({
+      timestamp: record.timestamp.trim(),
+      status: normalizePlanProgressStatus(record.status),
+      text: record.text.trim(),
+    }))
+    .filter((record) => record.timestamp.length > 0 && record.text.length > 0);
+}
+
 export function normalizeDecisions(records: readonly PlanDecisionRecord[] | undefined): PlanDecisionRecord[] {
   return (records ?? [])
     .map((record) => ({
@@ -146,6 +164,16 @@ export function normalizeDecisions(records: readonly PlanDecisionRecord[] | unde
       author: record.author.trim(),
     }))
     .filter((record) => record.decision.length > 0);
+}
+
+export function normalizeRevisionNotes(records: readonly PlanRevisionRecord[] | undefined): PlanRevisionRecord[] {
+  return (records ?? [])
+    .map((record) => ({
+      timestamp: record.timestamp.trim(),
+      change: record.change.trim(),
+      reason: record.reason.trim(),
+    }))
+    .filter((record) => record.timestamp.length > 0 && record.change.length > 0);
 }
 
 export function currentTimestamp(now: Date = new Date()): string {

@@ -15,7 +15,7 @@ import type {
 import { assertRepoRelativePath } from "../storage/contract.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
 import { InMemoryLoomCatalog } from "../storage/memory.js";
-import { SqliteLoomCatalog } from "../storage/sqlite.js";
+import { SqliteLoomCatalog, toSqliteNamedParams } from "../storage/sqlite.js";
 
 type StorageFactory = () => { storage: LoomCanonicalStorage; close: () => void };
 
@@ -131,6 +131,49 @@ describe("pi-storage backend contract", () => {
       rmSync(cleanupPath, { recursive: true, force: true });
     }
     delete process.env.PI_LOOM_ROOT;
+  });
+
+  it("prefixes sqlite named bind keys without dropping null-valued fields", () => {
+    expect(
+      toSqliteNamedParams({
+        slug: "core",
+        default_branch: null,
+        display_id: null,
+        repository_id: null,
+        content: null,
+      }),
+    ).toEqual({
+      slug: "core",
+      "@slug": "core",
+      ":slug": "core",
+      "$slug": "core",
+      default_branch: null,
+      "@default_branch": null,
+      ":default_branch": null,
+      "$default_branch": null,
+      display_id: null,
+      "@display_id": null,
+      ":display_id": null,
+      "$display_id": null,
+      repository_id: null,
+      "@repository_id": null,
+      ":repository_id": null,
+      "$repository_id": null,
+      content: null,
+      "@content": null,
+      ":content": null,
+      "$content": null,
+    });
+    expect(toSqliteNamedParams({ "@id": "space-1", $title: "Core" })).toEqual({
+      id: "space-1",
+      "@id": "space-1",
+      ":id": "space-1",
+      "$id": "space-1",
+      title: "Core",
+      "@title": "Core",
+      ":title": "Core",
+      "$title": "Core",
+    });
   });
 
   const factories: Record<string, StorageFactory> = {

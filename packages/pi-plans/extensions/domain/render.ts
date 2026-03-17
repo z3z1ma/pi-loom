@@ -22,6 +22,20 @@ function renderTicketProgress(tickets: PlanDashboardTicket[]): string {
     .join("\n");
 }
 
+function renderProgress(state: PlanState, tickets: PlanDashboardTicket[]): string {
+  const progress =
+    state.progress.length > 0
+      ? state.progress
+          .map((entry) => `- [${entry.status === "done" ? "x" : " "}] (${entry.timestamp}) ${entry.text}`)
+          .join("\n")
+      : "- [ ] Add timestamped progress updates as work advances.";
+  const ticketSnapshot =
+    tickets.length > 0
+      ? `\n\nLinked ticket snapshot from the live execution ledger:\n${renderTicketProgress(tickets)}`
+      : "";
+  return `${progress}${ticketSnapshot}`;
+}
+
 function renderDiscoveries(state: PlanState): string {
   if (state.discoveries.length === 0) {
     return "- (none yet)";
@@ -40,6 +54,15 @@ function renderDecisions(state: PlanState): string {
       (entry) =>
         `- Decision: ${entry.decision}\n  Rationale: ${entry.rationale || "(none provided)"}\n  Date/Author: ${entry.date} / ${entry.author}`,
     )
+    .join("\n\n");
+}
+
+function renderRevisionNotes(state: PlanState): string {
+  if (state.revisionNotes.length === 0) {
+    return "- (none yet)";
+  }
+  return state.revisionNotes
+    .map((entry) => `- ${entry.timestamp} — ${entry.change}\n  Reason: ${entry.reason || "(none provided)"}`)
     .join("\n\n");
 }
 
@@ -73,14 +96,16 @@ export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanDashboar
   return `${[
     `# ${state.title}`,
     "",
+    "This workplan is a living document. Keep `Progress`, `Surprises & Discoveries`, `Decision Log`, `Outcomes & Retrospective`, and `Revision Notes` current so a novice can resume from this file alone.",
+    "",
     "## Purpose / Big Picture",
     renderText(
       state.purpose || state.summary,
-      "Describe what this plan enables and how linked tickets prove progress.",
+      "Explain what a user or maintainer can do after this work and how they can see it working.",
     ),
     "",
     "## Progress",
-    renderTicketProgress(linkedTickets),
+    renderProgress(state, linkedTickets),
     "",
     "## Surprises & Discoveries",
     renderDiscoveries(state),
@@ -92,25 +117,58 @@ export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanDashboar
     renderText(state.outcomesAndRetrospective, "No retrospective recorded yet."),
     "",
     "## Context and Orientation",
-    `${renderText(state.contextAndOrientation, "Use the planning packet for upstream context and keep linked tickets as the live execution ledger plus the self-contained definition of each unit of work.")}\n\nSource target: ${sourceTarget}${scopePaths}${contextRefs ? `\n\n${contextRefs}` : ""}`,
+    `${renderText(state.contextAndOrientation, "Explain the current repository state, define any Loom-specific terms in plain language, and orient a novice to the files that matter before they edit anything.")}\n\nSource target: ${sourceTarget}${scopePaths}${contextRefs ? `\n\n${contextRefs}` : ""}`,
+    "",
+    "## Milestones",
+    renderText(
+      state.milestones,
+      "Describe each milestone as a narrative checkpoint: what will exist afterward, which commands to run, and what observable result proves success.",
+    ),
     "",
     "## Plan of Work",
-    renderText(state.planOfWork, "Describe the ordered phases that the linked tickets execute."),
+    renderText(
+      state.planOfWork,
+      "Describe the sequence of edits and why that order is the safest path through the linked execution slice.",
+    ),
     "",
     "## Concrete Steps",
     renderText(
       state.concreteSteps,
-      "Describe the next concrete steps and point to linked tickets for the live work state.",
+      "List the exact repository-relative files to edit plus the exact commands to run, including working directory and short expected output when relevant.",
     ),
     "",
     "## Validation and Acceptance",
-    renderText(state.validation, "Describe what observable behavior or checks prove the plan is complete."),
+    renderText(
+      state.validation,
+      "Describe the observable behavior, targeted tests, and expected outputs that prove the plan worked beyond merely compiling.",
+    ),
     "",
-    "## Tickets",
+    "## Idempotence and Recovery",
+    renderText(
+      state.idempotenceAndRecovery,
+      "Explain which steps are safe to repeat, how to recover from a partial failure, and how to avoid leaving the workspace in a misleading state.",
+    ),
+    "",
+    "## Artifacts and Notes",
+    renderText(
+      state.artifactsAndNotes,
+      "Record concise command transcripts, diff excerpts, or other durable notes that prove the current state of the work.",
+    ),
+    "",
+    "## Interfaces and Dependencies",
+    renderText(
+      state.interfacesAndDependencies,
+      "Name the modules, tools, durable records, and any required function/type surfaces that must exist at the end of the work.",
+    ),
+    "",
+    "## Linked Tickets",
     renderTicketList(linkedTickets),
     "",
-    "## Risks and open questions",
+    "## Risks and Open Questions",
     renderText(state.risksAndQuestions, "No additional risks or open questions recorded."),
+    "",
+    "## Revision Notes",
+    renderRevisionNotes(state),
     "",
   ]
     .join("\n")

@@ -107,8 +107,18 @@ describe("plan tools", () => {
           summary: "Bridge specs into a durable multi-ticket execution plan.",
           purpose:
             "Keep planning deeply detailed at the execution-strategy layer while linked tickets carry live execution detail.",
+          milestones: "Milestone 1 lands the store; milestone 2 validates the command surface.",
+          idempotenceAndRecovery: "Re-running the targeted vitest command is safe after partial edits.",
+          interfacesAndDependencies: "Keep createPlanStore and renderPlanMarkdown as the central plan surfaces.",
           sourceTarget: { kind: "workspace", ref: "repo" },
           scopePaths: ["packages/pi-plans", "README.md"],
+          progress: [
+            {
+              timestamp: "2026-03-17T12:00:00.000Z",
+              status: "pending",
+              text: "Fill in the durable workplan sections before execution continues.",
+            },
+          ],
         },
         undefined,
         undefined,
@@ -167,6 +177,9 @@ describe("plan tools", () => {
         throw new Error("Expected plan text content");
       }
       expect(read.content[0].text).toContain(`Ticket ${ticket.summary.id}`);
+      expect(read.content[0].text).toContain("## Milestones");
+      expect(read.content[0].text).toContain("## Idempotence and Recovery");
+      expect(read.content[0].text).toContain("## Revision Notes");
 
       const dashboard = await planDashboard.execute(
         "call-5",

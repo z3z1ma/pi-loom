@@ -173,10 +173,18 @@ describe("PlanStore durable memory", () => {
       purpose: "Bridge finalized design into a linked implementation and review ticket set.",
       contextAndOrientation:
         "This plan sits between the finalized spec and the ticket ledger. It should stay deeply detailed at the execution-strategy layer while the linked tickets hold the live execution detail.",
+      milestones:
+        "Milestone 1 lands the durable store and packet compiler. Milestone 2 wires the command and tool surfaces. Milestone 3 refreshes doctrine, docs, and tests with observable proof.",
       planOfWork:
         "Land the durable plan store and packet compilation first, then wire the command/tool surface, then update doctrine and docs.",
       concreteSteps: `Implement ${implementationTicket.summary.id}, verify ${reviewTicket.summary.id}, and keep critique/documentation context linked through the plan packet.`,
       validation: "Run targeted plan package tests plus prompt-guidance tests and repo checks.",
+      idempotenceAndRecovery:
+        "Re-running the targeted plan-package test suite is safe. If a packet or plan artifact is stale, rebuild it by reading or updating the plan again so the repo-materialized markdown matches canonical storage.",
+      artifactsAndNotes:
+        "Capture the final plan.md section headings and the targeted test output that proves the packet and plan remain Loom-linked.",
+      interfacesAndDependencies:
+        "Keep createPlanStore as the entry point, renderPlanMarkdown as the markdown renderer, and the plan_* tools as the supported AI-facing interfaces.",
       risksAndQuestions: "Avoid duplicating ticket implementation detail inside plan.md.",
       sourceTarget: { kind: "spec", ref: spec.state.changeId },
       contextRefs: {
@@ -203,6 +211,25 @@ describe("PlanStore durable memory", () => {
           author: "ChatGPT",
         },
       ],
+      progress: [
+        {
+          timestamp: "2026-03-15T12:35:00.000Z",
+          status: "done",
+          text: "Assembled the first durable workplan draft from linked constitution, research, spec, critique, docs, and ticket context.",
+        },
+        {
+          timestamp: "2026-03-15T12:35:00.000Z",
+          status: "pending",
+          text: "Keep the workplan synchronized with linked ticket changes and add proof snippets as verification lands.",
+        },
+      ],
+      revisionNotes: [
+        {
+          timestamp: "2026-03-15T12:35:00.000Z",
+          change: "Seeded the first detailed plan draft.",
+          reason: "Capture the initial execution strategy before linked tickets begin to drift apart.",
+        },
+      ],
     });
 
     const linkedPlan = await planStore.linkPlanTicket(createdPlan.state.planId, {
@@ -223,6 +250,7 @@ describe("PlanStore durable memory", () => {
     expect(existsSync(join(planRoot, "plan.md"))).toBe(true);
 
     expect(linkedClosed.packet).toContain("Planning Boundaries");
+    expect(linkedClosed.packet).toContain("Workplan Authoring Requirements");
     expect(linkedClosed.packet).toContain(initiative.state.initiativeId);
     expect(linkedClosed.packet).toContain(research.state.researchId);
     expect(linkedClosed.packet).toContain(spec.state.changeId);
@@ -235,7 +263,13 @@ describe("PlanStore durable memory", () => {
       `- [ ] Ticket ${implementationTicket.summary.id} [ready] — Implement plan store (implementation)`,
     );
     expect(linkedClosed.plan).toContain(`- [x] Ticket ${reviewTicket.summary.id} — Review plan package (review)`);
-    expect(linkedClosed.plan).toContain("## Tickets");
+    expect(linkedClosed.plan).toContain("This workplan is a living document.");
+    expect(linkedClosed.plan).toContain("## Milestones");
+    expect(linkedClosed.plan).toContain("## Idempotence and Recovery");
+    expect(linkedClosed.plan).toContain("## Interfaces and Dependencies");
+    expect(linkedClosed.plan).toContain("## Linked Tickets");
+    expect(linkedClosed.plan).toContain("## Revision Notes");
+    expect(linkedClosed.plan).toContain("Seeded the first detailed plan draft.");
     expect(linkedClosed.summary.path).toBe(`.loom/plans/${linkedClosed.state.planId}`);
     expect(linkedClosed.dashboard.plan.path).toBe(`.loom/plans/${linkedClosed.state.planId}`);
     expect(linkedClosed.dashboard.packetPath).toBe(`.loom/plans/${linkedClosed.state.planId}/packet.md`);
@@ -271,6 +305,7 @@ describe("PlanStore durable memory", () => {
 
     const renderedPlan = readFileSync(join(planRoot, "plan.md"), "utf-8");
     expect(renderedPlan).toContain("## Purpose / Big Picture");
+    expect(renderedPlan).toContain("## Artifacts and Notes");
     expect(renderedPlan).toContain(`Ticket ${implementationTicket.summary.id}`);
   }, 120000);
 

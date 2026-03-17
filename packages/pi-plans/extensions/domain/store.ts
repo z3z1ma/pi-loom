@@ -28,6 +28,7 @@ import type {
   PlanDashboardTicket,
   PlanListFilter,
   PlanReadResult,
+  PlanRevisionRecord,
   PlanState,
   UpdatePlanInput,
 } from "./models.js";
@@ -41,18 +42,14 @@ import {
   normalizePlanSourceTargetKind,
   normalizePlanStatus,
   normalizePlanTicketLinks,
+  normalizeProgress,
+  normalizeRevisionNotes,
   normalizeStringList,
   normalizeTicketId,
   slugifyTitle,
   summarizeText,
 } from "./normalize.js";
-import {
-  getPlanDir,
-  getPlanMarkdownPath,
-  getPlanPacketPath,
-  getPlanStatePath,
-  getPlansPaths,
-} from "./paths.js";
+import { getPlanDir, getPlanMarkdownPath, getPlanPacketPath, getPlanStatePath, getPlansPaths } from "./paths.js";
 import { renderPlanMarkdown } from "./render.js";
 
 const ENTITY_KIND = "plan" as const;
@@ -108,6 +105,22 @@ function excerpt(value: string, fallback = "(empty)", limit = 280): string {
     return normalized;
   }
   return `${normalized.slice(0, limit - 1)}…`;
+}
+
+function createRevisionNote(change: string, reason: string, timestamp = currentTimestamp()): PlanRevisionRecord {
+  return {
+    timestamp,
+    change: change.trim(),
+    reason: reason.trim(),
+  };
+}
+
+function appendRevisionNote(
+  existing: readonly PlanRevisionRecord[],
+  note: PlanRevisionRecord,
+  additions: readonly PlanRevisionRecord[] = [],
+): PlanRevisionRecord[] {
+  return normalizeRevisionNotes([...existing, ...additions, note]);
 }
 
 function deriveContextRefsFromTicket(ticket: TicketReadResult): PlanContextRefs {
@@ -231,9 +244,13 @@ export class PlanStore {
       summary: state.summary?.trim() ?? "",
       purpose: state.purpose?.trim() ?? "",
       contextAndOrientation: state.contextAndOrientation?.trim() ?? "",
+      milestones: state.milestones?.trim() ?? "",
       planOfWork: state.planOfWork?.trim() ?? "",
       concreteSteps: state.concreteSteps?.trim() ?? "",
       validation: state.validation?.trim() ?? "",
+      idempotenceAndRecovery: state.idempotenceAndRecovery?.trim() ?? "",
+      artifactsAndNotes: state.artifactsAndNotes?.trim() ?? "",
+      interfacesAndDependencies: state.interfacesAndDependencies?.trim() ?? "",
       risksAndQuestions: state.risksAndQuestions?.trim() ?? "",
       outcomesAndRetrospective: state.outcomesAndRetrospective?.trim() ?? "",
       scopePaths: normalizeStringList(state.scopePaths),
@@ -243,8 +260,10 @@ export class PlanStore {
       },
       contextRefs: normalizeContextRefs(state.contextRefs),
       linkedTickets: normalizePlanTicketLinks(state.linkedTickets),
+      progress: normalizeProgress(state.progress),
       discoveries: normalizeDiscoveries(state.discoveries),
       decisions: normalizeDecisions(state.decisions),
+      revisionNotes: normalizeRevisionNotes(state.revisionNotes),
       packetSummary: state.packetSummary?.trim() ?? "",
     };
   }
@@ -296,8 +315,11 @@ export class PlanStore {
       if (!entity) {
         return null;
       }
-      const attributes = entity.attributes as { state: InitiativeRecord["state"]; decisions: InitiativeRecord["decisions"] };
-      return ({
+      const attributes = entity.attributes as {
+        state: InitiativeRecord["state"];
+        decisions: InitiativeRecord["decisions"];
+      };
+      return {
         state: attributes.state,
         decisions: attributes.decisions,
         summary: {
@@ -312,7 +334,7 @@ export class PlanStore {
           ticketIds: attributes.state.ticketIds,
           researchIds: attributes.state.researchIds,
         },
-      } as unknown) as InitiativeRecord;
+      } as unknown as InitiativeRecord;
     } catch {
       return null;
     }
@@ -338,7 +360,7 @@ export class PlanStore {
         hypotheses: ResearchRecord["hypothesisHistory"];
         artifacts: ResearchRecord["artifacts"];
       };
-      return ({
+      return {
         state: attributes.state,
         hypothesisHistory: attributes.hypotheses,
         artifacts: attributes.artifacts,
@@ -355,7 +377,7 @@ export class PlanStore {
         },
         dashboard: {} as ResearchRecord["dashboard"],
         map: {} as ResearchRecord["map"],
-      } as unknown) as ResearchRecord;
+      } as unknown as ResearchRecord;
     } catch {
       return null;
     }
@@ -383,7 +405,7 @@ export class PlanStore {
         checklist: SpecChangeRecord["checklist"];
         projection: SpecChangeRecord["projection"];
       };
-      return ({
+      return {
         state: attributes.state,
         decisions: attributes.decisions,
         analysis: attributes.analysis,
@@ -399,7 +421,7 @@ export class PlanStore {
           initiativeIds: attributes.state.initiativeIds,
           researchIds: attributes.state.researchIds,
         },
-      } as unknown) as SpecChangeRecord;
+      } as unknown as SpecChangeRecord;
     } catch {
       return null;
     }
@@ -541,7 +563,9 @@ export class PlanStore {
     }
   }
 
-  private async resolveSourceSummaryAsync(state: PlanState): Promise<{ summary: string; contextRefs: PlanContextRefs }> {
+  private async resolveSourceSummaryAsync(
+    state: PlanState,
+  ): Promise<{ summary: string; contextRefs: PlanContextRefs }> {
     switch (state.sourceTarget.kind) {
       case "initiative": {
         const initiative = await this.safeReadInitiativeAsync(state.sourceTarget.ref);
@@ -757,18 +781,18 @@ export class PlanStore {
 
   private async resolvePacketContextAsync(state: PlanState): Promise<ResolvedPlanContext> {
     const source = await this.resolveSourceSummaryAsync(state);
-    const linkedTicketResults = (await Promise.all(state.linkedTickets.map((link) => this.safeReadTicketAsync(link.ticketId)))).filter(
-      (ticket): ticket is TicketReadResult => ticket !== null,
-    );
+    const linkedTicketResults = (
+      await Promise.all(state.linkedTickets.map((link) => this.safeReadTicketAsync(link.ticketId)))
+    ).filter((ticket): ticket is TicketReadResult => ticket !== null);
     const linkedTickets = await this.resolveLinkedTicketsAsync(state);
     const baseContextRefs = mergeContextRefs(
       state.contextRefs,
       source.contextRefs,
       ...linkedTicketResults.map((ticket) => deriveContextRefsFromTicket(ticket)),
     );
-    const critiqueResults = (await Promise.all(baseContextRefs.critiqueIds.map((critiqueId) => this.safeReadCritiqueAsync(critiqueId)))).filter(
-      (record): record is CritiqueReadResult => record !== null,
-    );
+    const critiqueResults = (
+      await Promise.all(baseContextRefs.critiqueIds.map((critiqueId) => this.safeReadCritiqueAsync(critiqueId)))
+    ).filter((record): record is CritiqueReadResult => record !== null);
     const docResults = (await Promise.all(baseContextRefs.docIds.map((docId) => this.safeReadDocAsync(docId)))).filter(
       (record): record is DocumentationReadResult => record !== null,
     );
@@ -783,13 +807,17 @@ export class PlanStore {
           .filter((item): item is NonNullable<typeof item> => item !== null)
           .map((item) => `${item.id} [${item.status}/${item.horizon}] ${item.title} — ${excerpt(item.summary)}`)
       : [];
-    const initiatives = (await Promise.all(contextRefs.initiativeIds.map((initiativeId) => this.safeReadInitiativeAsync(initiativeId))))
+    const initiatives = (
+      await Promise.all(contextRefs.initiativeIds.map((initiativeId) => this.safeReadInitiativeAsync(initiativeId)))
+    )
       .filter((initiative): initiative is InitiativeRecord => initiative !== null)
       .map(
         (initiative) =>
           `${initiative.state.initiativeId} [${initiative.state.status}] ${initiative.state.title} — ${excerpt(initiative.state.objective)}`,
       );
-    const research = (await Promise.all(contextRefs.researchIds.map((researchId) => this.safeReadResearchAsync(researchId))))
+    const research = (
+      await Promise.all(contextRefs.researchIds.map((researchId) => this.safeReadResearchAsync(researchId)))
+    )
       .filter((record): record is ResearchRecord => record !== null)
       .map(
         (record) =>
@@ -871,6 +899,15 @@ export class PlanStore {
       "",
       section("Planning Target", context.sourceSummary),
       section("Current Plan Summary", state.summary || state.purpose || "(empty)"),
+      section(
+        "Workplan Authoring Requirements",
+        list([
+          "Write `plan.md` as a fully self-contained novice-facing guide. Assume the reader only has the current working tree plus this packet and the rendered workplan.",
+          "Keep the sections `Progress`, `Surprises & Discoveries`, `Decision Log`, `Outcomes & Retrospective`, and `Revision Notes` truthful and current as the work evolves.",
+          "Use plain language, define repository-specific terms when they first appear, and describe observable validation instead of merely naming code changes.",
+          "Keep Loom integration explicit through source refs, scope paths, linked tickets, and neighboring context, while leaving live ticket status and acceptance detail in the linked tickets themselves.",
+        ]),
+      ),
       section(
         "Planning Boundaries",
         list([
@@ -971,6 +1008,15 @@ export class PlanStore {
       section("Planning Target", context.sourceSummary),
       section("Current Plan Summary", nextState.summary || nextState.purpose || "(empty)"),
       section(
+        "Workplan Authoring Requirements",
+        list([
+          "Write `plan.md` as a fully self-contained novice-facing guide. Assume the reader only has the current working tree plus this packet and the rendered workplan.",
+          "Keep the sections `Progress`, `Surprises & Discoveries`, `Decision Log`, `Outcomes & Retrospective`, and `Revision Notes` truthful and current as the work evolves.",
+          "Use plain language, define repository-specific terms when they first appear, and describe observable validation instead of merely naming code changes.",
+          "Keep Loom integration explicit through source refs, scope paths, linked tickets, and neighboring context, while leaving live ticket status and acceptance detail in the linked tickets themselves.",
+        ]),
+      ),
+      section(
         "Planning Boundaries",
         list([
           "Keep `plan.md` deeply detailed at the execution-strategy layer; it should explain sequencing, rationale, risks, and validation without duplicating ticket-by-ticket live state.",
@@ -1018,6 +1064,10 @@ export class PlanStore {
       input.summary || input.purpose || input.planOfWork || "",
       `Execution strategy for ${input.title.trim()}.`,
     );
+    const sourceTarget = {
+      kind: normalizePlanSourceTargetKind(input.sourceTarget.kind),
+      ref: input.sourceTarget.ref.trim(),
+    };
     return {
       planId,
       title: input.title.trim(),
@@ -1027,20 +1077,40 @@ export class PlanStore {
       summary,
       purpose: input.purpose?.trim() ?? summary,
       contextAndOrientation: input.contextAndOrientation?.trim() ?? "",
+      milestones: input.milestones?.trim() ?? "",
       planOfWork: input.planOfWork?.trim() ?? "",
       concreteSteps: input.concreteSteps?.trim() ?? "",
       validation: input.validation?.trim() ?? "",
+      idempotenceAndRecovery: input.idempotenceAndRecovery?.trim() ?? "",
+      artifactsAndNotes: input.artifactsAndNotes?.trim() ?? "",
+      interfacesAndDependencies: input.interfacesAndDependencies?.trim() ?? "",
       risksAndQuestions: input.risksAndQuestions?.trim() ?? "",
       outcomesAndRetrospective: input.outcomesAndRetrospective?.trim() ?? "",
       scopePaths: normalizeStringList(input.scopePaths),
-      sourceTarget: {
-        kind: normalizePlanSourceTargetKind(input.sourceTarget.kind),
-        ref: input.sourceTarget.ref.trim(),
-      },
+      sourceTarget,
       contextRefs: normalizeContextRefs(input.contextRefs),
       linkedTickets: [],
+      progress:
+        normalizeProgress(input.progress).length > 0
+          ? normalizeProgress(input.progress)
+          : [
+              {
+                timestamp,
+                status: "pending",
+                text: "Expand this durable workplan into a fully self-contained novice-facing guide before execution continues.",
+              },
+            ],
       discoveries: normalizeDiscoveries(input.discoveries),
       decisions: normalizeDecisions(input.decisions),
+      revisionNotes: appendRevisionNote(
+        [],
+        createRevisionNote(
+          `Created durable workplan scaffold from ${sourceTarget.kind}:${sourceTarget.ref}.`,
+          "Establish a self-contained execution-strategy artifact that can be resumed without prior chat context.",
+          timestamp,
+        ),
+        normalizeRevisionNotes(input.revisionNotes),
+      ),
       packetSummary: "",
     };
   }
@@ -1191,6 +1261,36 @@ export class PlanStore {
 
   async updatePlan(ref: string, input: UpdatePlanInput): Promise<PlanReadResult> {
     const current = await this.readPlan(ref);
+    const changedFields = [
+      input.title !== undefined ? "title" : null,
+      input.status !== undefined ? "status" : null,
+      input.summary !== undefined ? "summary" : null,
+      input.purpose !== undefined ? "purpose" : null,
+      input.contextAndOrientation !== undefined ? "context and orientation" : null,
+      input.milestones !== undefined ? "milestones" : null,
+      input.planOfWork !== undefined ? "plan of work" : null,
+      input.concreteSteps !== undefined ? "concrete steps" : null,
+      input.validation !== undefined ? "validation" : null,
+      input.idempotenceAndRecovery !== undefined ? "idempotence and recovery" : null,
+      input.artifactsAndNotes !== undefined ? "artifacts and notes" : null,
+      input.interfacesAndDependencies !== undefined ? "interfaces and dependencies" : null,
+      input.risksAndQuestions !== undefined ? "risks and open questions" : null,
+      input.outcomesAndRetrospective !== undefined ? "outcomes and retrospective" : null,
+      input.scopePaths !== undefined ? "scope paths" : null,
+      input.sourceTarget !== undefined ? "source target" : null,
+      input.contextRefs !== undefined ? "context refs" : null,
+      input.progress !== undefined ? "progress" : null,
+      input.discoveries !== undefined ? "surprises and discoveries" : null,
+      input.decisions !== undefined ? "decision log" : null,
+      input.revisionNotes !== undefined ? "revision notes" : null,
+    ].filter((value): value is string => value !== null);
+    const revisionAdditions = normalizeRevisionNotes(input.revisionNotes);
+    const revisionNote = createRevisionNote(
+      changedFields.length > 0
+        ? `Updated ${changedFields.join(", ")}.`
+        : "Regenerated the durable workplan without field-level changes.",
+      "Keep the workplan synchronized with the current execution strategy and observable validation story.",
+    );
     const nextState: PlanState = {
       ...current.state,
       title: input.title?.trim() ?? current.state.title,
@@ -1201,9 +1301,13 @@ export class PlanStore {
           : current.state.summary,
       purpose: input.purpose?.trim() ?? current.state.purpose,
       contextAndOrientation: input.contextAndOrientation?.trim() ?? current.state.contextAndOrientation,
+      milestones: input.milestones?.trim() ?? current.state.milestones,
       planOfWork: input.planOfWork?.trim() ?? current.state.planOfWork,
       concreteSteps: input.concreteSteps?.trim() ?? current.state.concreteSteps,
       validation: input.validation?.trim() ?? current.state.validation,
+      idempotenceAndRecovery: input.idempotenceAndRecovery?.trim() ?? current.state.idempotenceAndRecovery,
+      artifactsAndNotes: input.artifactsAndNotes?.trim() ?? current.state.artifactsAndNotes,
+      interfacesAndDependencies: input.interfacesAndDependencies?.trim() ?? current.state.interfacesAndDependencies,
       risksAndQuestions: input.risksAndQuestions?.trim() ?? current.state.risksAndQuestions,
       outcomesAndRetrospective: input.outcomesAndRetrospective?.trim() ?? current.state.outcomesAndRetrospective,
       scopePaths: input.scopePaths ? normalizeStringList(input.scopePaths) : current.state.scopePaths,
@@ -1216,8 +1320,10 @@ export class PlanStore {
       contextRefs: input.contextRefs
         ? mergeContextRefs(current.state.contextRefs, input.contextRefs)
         : current.state.contextRefs,
+      progress: input.progress ? normalizeProgress(input.progress) : current.state.progress,
       discoveries: input.discoveries ? normalizeDiscoveries(input.discoveries) : current.state.discoveries,
       decisions: input.decisions ? normalizeDecisions(input.decisions) : current.state.decisions,
+      revisionNotes: appendRevisionNote(current.state.revisionNotes, revisionNote, revisionAdditions),
       updatedAt: currentTimestamp(),
     };
     return this.persistCanonical(nextState);
@@ -1248,6 +1354,13 @@ export class PlanStore {
     return this.persistCanonical({
       ...current.state,
       linkedTickets: nextLinks,
+      revisionNotes: appendRevisionNote(
+        current.state.revisionNotes,
+        createRevisionNote(
+          `Linked ticket ${ticketId}${input.role ? ` as ${input.role}` : ""}.`,
+          "Keep the Loom workplan coordinated with the ticket ledger without copying live execution state into plan.md.",
+        ),
+      ),
       updatedAt: currentTimestamp(),
     });
   }
@@ -1258,6 +1371,13 @@ export class PlanStore {
     return this.persistCanonical({
       ...current.state,
       linkedTickets: current.state.linkedTickets.filter((link) => link.ticketId !== ticketId),
+      revisionNotes: appendRevisionNote(
+        current.state.revisionNotes,
+        createRevisionNote(
+          `Removed ticket ${ticketId} from active plan membership.`,
+          "Reflect the current execution slice while preserving historical provenance on the ticket itself.",
+        ),
+      ),
       updatedAt: currentTimestamp(),
     });
   }
@@ -1267,6 +1387,13 @@ export class PlanStore {
     return this.persistCanonical({
       ...current.state,
       status: "archived",
+      revisionNotes: appendRevisionNote(
+        current.state.revisionNotes,
+        createRevisionNote(
+          "Archived the workplan.",
+          "The execution strategy reached a resting point and should remain queryable without appearing active.",
+        ),
+      ),
       updatedAt: currentTimestamp(),
     });
   }
