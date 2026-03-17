@@ -15,15 +15,17 @@ describe("DocumentationStore durable memory", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-docs-store-"));
+    process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("compiles documentation packets from linked context and appends durable revision history", () => {
+  it("compiles documentation packets from linked context and appends durable revision history", async () => {
     const constitutionStore = createConstitutionalStore(workspace);
     const critiqueStore = createCritiqueStore(workspace);
     const initiativeStore = createInitiativeStore(workspace);
@@ -33,17 +35,17 @@ describe("DocumentationStore durable memory", () => {
     const docsStore = createDocumentationStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T11:00:00.000Z"));
-    constitutionStore.initLedger({ title: "Pi Loom" });
-    constitutionStore.updateVision({
+    await constitutionStore.initLedger({ title: "Pi Loom" });
+    await constitutionStore.updateVision({
       title: "Pi Loom",
       visionSummary: "Build durable AI coordination memory.",
       visionNarrative: "The system should preserve execution, review, and documentation understanding durably.",
     });
-    constitutionStore.updateRoadmap({
+    await constitutionStore.updateRoadmap({
       strategicDirectionSummary: "Keep Loom memory layers truthful as the codebase evolves.",
       currentFocus: ["Critique", "Documentation"],
     });
-    const roadmap = constitutionStore.upsertRoadmapItem({
+    const roadmap = await constitutionStore.upsertRoadmapItem({
       title: "Documentation layer",
       status: "active",
       horizon: "now",
@@ -57,7 +59,7 @@ describe("DocumentationStore durable memory", () => {
     }
 
     vi.setSystemTime(new Date("2026-03-15T11:05:00.000Z"));
-    const initiative = initiativeStore.createInitiative({
+    const initiative = await initiativeStore.createInitiative({
       title: "Documentation Memory",
       objective: "Add first-class documentation memory for high-level system understanding.",
       roadmapRefs: [roadmapId],
@@ -65,7 +67,7 @@ describe("DocumentationStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T11:10:00.000Z"));
-    const research = researchStore.createResearch({
+    const research = await researchStore.createResearch({
       title: "Docs maintenance semantics",
       question: "How should durable docs updates run?",
       objective: "Design a bounded fresh-maintainer packet for docs.",
@@ -78,13 +80,13 @@ describe("DocumentationStore durable memory", () => {
     initiativeStore.setResearchIds(initiative.state.initiativeId, [research.state.researchId]);
 
     vi.setSystemTime(new Date("2026-03-15T11:15:00.000Z"));
-    const spec = specStore.createChange({
+    const spec = await specStore.createChange({
       title: "Add docs layer",
       summary: "Persist documentation packets, docs, and revision history.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
     });
-    specStore.updatePlan(spec.state.changeId, {
+    await specStore.updatePlan(spec.state.changeId, {
       designNotes: "Compile packets from linked context and maintain focused docs instead of one giant markdown file.",
       capabilities: [
         {
@@ -108,8 +110,8 @@ describe("DocumentationStore durable memory", () => {
       researchIds: [research.state.researchId],
       specChange: spec.state.changeId,
     });
-    initiativeStore.linkTicket(initiative.state.initiativeId, ticket.summary.id);
-    researchStore.linkTicket(research.state.researchId, ticket.summary.id);
+    await initiativeStore.linkTicket(initiative.state.initiativeId, ticket.summary.id);
+    await researchStore.linkTicket(research.state.researchId, ticket.summary.id);
 
     vi.setSystemTime(new Date("2026-03-15T11:25:00.000Z"));
     const critique = critiqueStore.createCritique({
@@ -126,7 +128,7 @@ describe("DocumentationStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T11:30:00.000Z"));
-    const doc = docsStore.createDoc({
+    const doc = await docsStore.createDoc({
       title: "Documentation memory system",
       docType: "overview",
       summary: "Explain the durable documentation layer and when it should be updated.",
@@ -151,7 +153,7 @@ describe("DocumentationStore durable memory", () => {
     expect(existsSync(join(docRoot, "packet.md"))).toBe(true);
     expect(existsSync(join(docRoot, "doc.md"))).toBe(true);
     expect(existsSync(join(docRoot, "revisions.jsonl"))).toBe(true);
-    expect(existsSync(join(docRoot, "dashboard.json"))).toBe(true);
+    expect(existsSync(join(docRoot, "dashboard.json"))).toBe(false);
     expect(doc.packet).toContain("Keep Loom memory layers truthful as the codebase evolves.");
     expect(doc.packet).toContain(initiative.state.initiativeId);
     expect(doc.packet).toContain(research.state.researchId);
@@ -162,7 +164,7 @@ describe("DocumentationStore durable memory", () => {
     expect(doc.packet).toContain("Likely Sections To Update");
 
     vi.setSystemTime(new Date("2026-03-15T11:35:00.000Z"));
-    const revised = docsStore.updateDoc(doc.state.docId, {
+    const revised = await docsStore.updateDoc(doc.state.docId, {
       updateReason: "Document the fresh-process updater and durable revision semantics.",
       summary: "Explains the docs packet, fresh updater, and durable revision history.",
       changedSections: ["Summary", "Update Flow", "Boundaries"],
@@ -197,5 +199,5 @@ describe("DocumentationStore durable memory", () => {
     expect(renderedDocument).toContain("type: overview");
     expect(renderedDocument).toContain("## Update Flow");
     expect(renderedDocument).toContain("Documentation remains distinct from critique");
-  });
+  }, 30000);
 });

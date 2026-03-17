@@ -2,7 +2,7 @@
 id: cap-postgres-portability
 title: "PostgreSQL portability without semantic drift"
 change: sqlite-first-canonical-storage-substrate
-updated-at: 2026-03-16T17:40:15.372Z
+updated-at: 2026-03-17T00:40:26.902Z
 source-changes:
   - sqlite-first-canonical-storage-substrate
 ---

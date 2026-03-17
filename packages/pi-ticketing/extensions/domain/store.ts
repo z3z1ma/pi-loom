@@ -13,7 +13,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { inferMediaType, readAttachments } from "./attachments.js";
 import { parseCheckpoint, readCheckpointIndex, serializeCheckpoint, withCheckpointPath } from "./checkpoints.js";
 import { createEmptyBody, parseTicket, serializeTicket } from "./frontmatter.js";
-import { buildTicketGraph, findDependencyCycle } from "./graph.js";
+import { buildTicketGraph, findDependencyCycle, summarizeTicket } from "./graph.js";
 import { createJournalEntry, readJournalEntries } from "./journal.js";
 import type {
   AttachArtifactInput,
@@ -42,6 +42,14 @@ import {
   getTicketPath,
 } from "./paths.js";
 import { filterTickets, summarizeTickets } from "./query.js";
+import { findEntityByDisplayId, upsertEntityByDisplayId, upsertProjectionForEntity } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+
+const ENTITY_KIND = "ticket" as const;
+
+interface TicketEntityAttributes {
+  record: TicketReadResult;
+}
 
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
@@ -108,6 +116,118 @@ export class TicketStore {
     ensureDir(paths.checkpointsDir);
     ensureDir(paths.artifactsDir);
     return { initialized: true, root: paths.loomDir };
+  }
+
+  private async upsertCanonicalRecord(record: TicketReadResult): Promise<TicketReadResult> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, record.summary.id);
+    const version = (existing?.version ?? 0) + 1;
+    const entity = await upsertEntityByDisplayId(storage, {
+      kind: ENTITY_KIND,
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: record.summary.id,
+      title: record.summary.title,
+      summary: record.ticket.body.summary,
+      status: record.summary.status,
+      version,
+      tags: record.ticket.frontmatter.tags,
+      pathScopes: [
+        { repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" },
+        { repositoryId: identity.repository.id, relativePath: relativeOrAbsolute(this.cwd, getJournalPath(this.cwd, record.summary.id)), role: "projection" },
+      ],
+      attributes: { record },
+      createdAt: existing?.createdAt ?? record.summary.createdAt,
+      updatedAt: record.summary.updatedAt,
+    });
+    const ticketPath = resolve(this.cwd, record.summary.path);
+    if (existsSync(ticketPath)) {
+      await upsertProjectionForEntity(
+        storage,
+        entity.id,
+        "ticket_markdown_projection",
+        "repo_materialized",
+        identity.repository.id,
+        record.summary.path,
+        readFileSync(ticketPath, "utf-8"),
+        version,
+        record.summary.createdAt,
+        record.summary.updatedAt,
+      );
+    }
+    return record;
+  }
+
+  private async syncTicketToCanonical(ticketId: string): Promise<TicketReadResult> {
+    return this.upsertCanonicalRecord(this.readTicketProjection(ticketId));
+  }
+
+  private async syncProjectionTicketsToCanonical(): Promise<void> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    for (const summary of summarizeTickets(this.loadAllTickets())) {
+      const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, summary.id);
+      if (!existing || existing.updatedAt !== summary.updatedAt) {
+        await this.syncTicketToCanonical(summary.id);
+      }
+    }
+  }
+
+  private entityRecord(entity: { attributes: unknown }): TicketReadResult {
+    return (entity.attributes as TicketEntityAttributes).record;
+  }
+
+  private materializeCanonicalRecord(record: TicketReadResult): void {
+    this.initLedger();
+    const ticketId = record.summary.id;
+    const targetPath = resolve(this.cwd, record.ticket.path);
+    const openPath = getTicketPath(this.cwd, ticketId, false);
+    const closedPath = getTicketPath(this.cwd, ticketId, true);
+    this.writeTicket({ ...record.ticket, path: targetPath });
+    if (record.ticket.closed) {
+      rmSync(openPath, { force: true });
+    } else {
+      rmSync(closedPath, { force: true });
+    }
+    writeFileAtomic(
+      getJournalPath(this.cwd, ticketId),
+      `${record.journal.map((entry) => JSON.stringify(entry)).join("\n")}${record.journal.length > 0 ? "\n" : ""}`,
+    );
+    this.writeAttachments(ticketId, record.attachments);
+    this.writeCheckpointIndex(ticketId, record.checkpoints.map((checkpoint) => checkpoint.id));
+    for (const checkpoint of record.checkpoints) {
+      writeFileAtomic(resolve(this.cwd, checkpoint.path), serializeCheckpoint({ ...checkpoint, path: resolve(this.cwd, checkpoint.path) }));
+    }
+  }
+
+  private canonicalSummaries(records: TicketReadResult[]): TicketSummary[] {
+    return summarizeTickets(records.map((record) => record.ticket));
+  }
+
+  private canonicalGraph(records: TicketReadResult[]): TicketGraphResult {
+    return buildTicketGraph(this.canonicalSummaries(records));
+  }
+
+  private toCanonicalReadResult(record: TicketReadResult, summaries: TicketSummary[], graph: TicketGraphResult): TicketReadResult {
+    const summary = summaries.find((entry) => entry.id === record.summary.id);
+    if (!summary) {
+      throw new Error(`Unknown ticket: ${record.summary.id}`);
+    }
+    return {
+      ...record,
+      summary: this.toOutputSummary(summary),
+      ticket: this.toOutputTicket({ ...record.ticket, path: resolve(this.cwd, record.ticket.path) }),
+      checkpoints: record.checkpoints.map((checkpoint) =>
+        this.toOutputCheckpoint({ ...checkpoint, path: resolve(this.cwd, checkpoint.path) }),
+      ),
+      children: graph.nodes[record.summary.id]?.children ?? [],
+      blockers: graph.nodes[record.summary.id]?.blockedBy ?? [],
+    };
+  }
+
+  private async canonicalRecords(): Promise<TicketReadResult[]> {
+    await this.syncProjectionTicketsToCanonical();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    return (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity));
   }
 
   private readTicketFile(path: string, closed: boolean): TicketRecord {
@@ -637,6 +757,361 @@ export class TicketStore {
     this.appendJournal(ticketId, "checkpoint", `Recorded checkpoint ${checkpointId}`, timestamp, { checkpointId });
     this.appendAudit("record_checkpoint", ticketId, timestamp, { checkpointId, title: checkpoint.title });
     return this.readTicket(ticketId);
+  }
+
+  async initLedgerAsync(): Promise<{ initialized: true; root: string }> {
+    return this.initLedger();
+  }
+
+  listTicketsProjection(filter: TicketListFilter = {}): TicketSummary[] {
+    return this.listTickets(filter);
+  }
+
+  readTicketProjection(ref: string): TicketReadResult {
+    return this.readTicket(ref);
+  }
+
+  graphProjection(): TicketGraphResult {
+    return this.graph();
+  }
+
+  addExternalRefProjection(ref: string, externalRef: string): TicketReadResult {
+    return this.addExternalRef(ref, externalRef);
+  }
+
+  setInitiativeIdsProjection(ref: string, initiativeIds: string[]): TicketReadResult {
+    return this.setInitiativeIds(ref, initiativeIds);
+  }
+
+  setResearchIdsProjection(ref: string, researchIds: string[]): TicketReadResult {
+    return this.setResearchIds(ref, researchIds);
+  }
+
+  addJournalEntryProjection(
+    ref: string,
+    kind: JournalKind,
+    text: string,
+    metadata: Record<string, unknown> = {},
+  ): TicketReadResult {
+    return this.addJournalEntry(ref, kind, text, metadata);
+  }
+
+  async listTicketsAsync(filter: TicketListFilter = {}): Promise<TicketSummary[]> {
+    const summaries = this.canonicalSummaries(await this.canonicalRecords());
+    return filterTickets(summaries, filter).map((summary) => this.toOutputSummary(summary));
+  }
+
+  async graphAsync(): Promise<TicketGraphResult> {
+    return this.canonicalGraph(await this.canonicalRecords());
+  }
+
+  async readTicketAsync(ref: string): Promise<TicketReadResult> {
+    const ticketId = this.resolveTicketRef(ref);
+    const records = await this.canonicalRecords();
+    const record = records.find((entry) => entry.summary.id === ticketId);
+    if (!record) {
+      throw new Error(`Unknown ticket: ${ticketId}`);
+    }
+    return this.toCanonicalReadResult(record, this.canonicalSummaries(records), this.canonicalGraph(records));
+  }
+
+  async createTicketAsync(input: CreateTicketInput): Promise<TicketReadResult> {
+    this.initLedger();
+    const timestamp = currentTimestamp();
+    const existing = await this.canonicalRecords();
+    const ticketId = nextNumericId(existing.map((record) => record.summary.id), "t");
+    const ticketRecord: TicketRecord = {
+      frontmatter: {
+        id: ticketId,
+        title: input.title.trim(),
+        status: "open",
+        priority: input.priority ?? "medium",
+        type: input.type ?? "task",
+        "created-at": timestamp,
+        "updated-at": timestamp,
+        tags: normalizeStringList(input.tags),
+        deps: normalizeStringList(input.deps).map((dep) => this.resolveTicketRef(dep)),
+        links: normalizeStringList(input.links),
+        "initiative-ids": normalizeStringList(input.initiativeIds),
+        "research-ids": normalizeStringList(input.researchIds),
+        "spec-change": normalizeOptionalString(input.specChange),
+        "spec-capabilities": normalizeStringList(input.specCapabilities),
+        "spec-requirements": normalizeStringList(input.specRequirements),
+        parent: normalizeOptionalString(input.parent),
+        assignee: normalizeOptionalString(input.assignee),
+        acceptance: normalizeStringList(input.acceptance),
+        labels: normalizeStringList(input.labels),
+        risk: input.risk ?? "medium",
+        "review-status": input.reviewStatus ?? "none",
+        "external-refs": normalizeStringList(input.externalRefs),
+      },
+      body: createEmptyBody({
+        summary: input.summary,
+        context: input.context,
+        plan: input.plan,
+        notes: input.notes,
+        verification: input.verification,
+        journalSummary: input.journalSummary,
+      }),
+      closed: false,
+      path: getTicketPath(this.cwd, ticketId, false),
+    };
+    const provisionalRecords = [...existing, { ticket: ticketRecord, summary: summarizeTicket(ticketRecord, "ready"), journal: [], attachments: [], checkpoints: [], children: [], blockers: [] }];
+    this.validateRelationships(ticketId, ticketRecord.frontmatter.deps, ticketRecord.frontmatter.parent);
+    const journal = [createJournalEntry(ticketId, "state", `Created ticket ${ticketRecord.frontmatter.title}`, timestamp, { action: "create" }, 1)];
+    const result: TicketReadResult = { ticket: ticketRecord, summary: summarizeTicket(ticketRecord, "ready"), journal, attachments: [], checkpoints: [], children: [], blockers: [] };
+    this.materializeCanonicalRecord(result);
+    this.appendAudit("create_ticket", ticketId, timestamp, { title: ticketRecord.frontmatter.title });
+    await this.upsertCanonicalRecord(result);
+    return this.toCanonicalReadResult(result, this.canonicalSummaries(provisionalRecords), this.canonicalGraph(provisionalRecords));
+  }
+
+  async updateTicketAsync(ref: string, updates: UpdateTicketInput): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    if (current.ticket.closed) {
+      throw new Error(`Closed ticket ${current.summary.id} cannot be updated; reopen by moving it manually if needed.`);
+    }
+    const timestamp = currentTimestamp();
+    const record: TicketRecord = { ...current.ticket, frontmatter: { ...current.ticket.frontmatter }, body: { ...current.ticket.body } };
+    if (updates.title !== undefined) record.frontmatter.title = updates.title.trim();
+    if (updates.priority !== undefined) record.frontmatter.priority = updates.priority;
+    if (updates.type !== undefined) record.frontmatter.type = updates.type;
+    if (updates.tags !== undefined) record.frontmatter.tags = normalizeStringList(updates.tags);
+    if (updates.deps !== undefined) record.frontmatter.deps = updates.deps.map((dep) => this.resolveTicketRef(dep));
+    if (updates.links !== undefined) record.frontmatter.links = normalizeStringList(updates.links);
+    if (updates.initiativeIds !== undefined) record.frontmatter["initiative-ids"] = normalizeStringList(updates.initiativeIds);
+    if (updates.researchIds !== undefined) record.frontmatter["research-ids"] = normalizeStringList(updates.researchIds);
+    if (updates.specChange !== undefined) record.frontmatter["spec-change"] = normalizeOptionalString(updates.specChange);
+    if (updates.specCapabilities !== undefined) record.frontmatter["spec-capabilities"] = normalizeStringList(updates.specCapabilities);
+    if (updates.specRequirements !== undefined) record.frontmatter["spec-requirements"] = normalizeStringList(updates.specRequirements);
+    if (updates.parent !== undefined) record.frontmatter.parent = normalizeOptionalString(updates.parent);
+    if (updates.assignee !== undefined) record.frontmatter.assignee = normalizeOptionalString(updates.assignee);
+    if (updates.acceptance !== undefined) record.frontmatter.acceptance = normalizeStringList(updates.acceptance);
+    if (updates.labels !== undefined) record.frontmatter.labels = normalizeStringList(updates.labels);
+    if (updates.risk !== undefined) record.frontmatter.risk = updates.risk;
+    if (updates.reviewStatus !== undefined) record.frontmatter["review-status"] = updates.reviewStatus;
+    if (updates.externalRefs !== undefined) record.frontmatter["external-refs"] = normalizeStringList(updates.externalRefs);
+    if (updates.status !== undefined) record.frontmatter.status = updates.status;
+    if (updates.summary !== undefined) record.body.summary = updates.summary.trim();
+    if (updates.context !== undefined) record.body.context = updates.context.trim();
+    if (updates.plan !== undefined) record.body.plan = updates.plan.trim();
+    if (updates.notes !== undefined) record.body.notes = updates.notes.trim();
+    if (updates.verification !== undefined) record.body.verification = updates.verification.trim();
+    if (updates.journalSummary !== undefined) record.body.journalSummary = updates.journalSummary.trim();
+    this.validateRelationships(record.frontmatter.id, record.frontmatter.deps, record.frontmatter.parent);
+    if (record.frontmatter.status !== "closed") {
+      this.assertTransitionAllowed(record.frontmatter.id, record.frontmatter.deps, record.frontmatter.status);
+    }
+    record.frontmatter["updated-at"] = timestamp;
+    const result: TicketReadResult = {
+      ...current,
+      ticket: record,
+      summary: summarizeTicket(record, current.summary.status),
+      journal: [...current.journal, createJournalEntry(record.frontmatter.id, "state", "Updated ticket metadata", timestamp, { action: "update" }, current.journal.length + 1)],
+    };
+    this.materializeCanonicalRecord(result);
+    this.appendAudit("update_ticket", record.frontmatter.id, timestamp, { updates });
+    await this.upsertCanonicalRecord(result);
+    return this.readTicketAsync(record.frontmatter.id);
+  }
+
+  async startTicketAsync(ref: string): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    this.assertTransitionAllowed(current.summary.id, current.ticket.frontmatter.deps, "in_progress");
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter.status = "in_progress";
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "state", "Started work", timestamp, { status: "in_progress" }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("transition_ticket", current.summary.id, timestamp, { status: "in_progress" });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async closeTicketAsync(ref: string, verificationNote?: string): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter.status = "closed";
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.ticket.closed = true;
+    current.ticket.path = getTicketPath(this.cwd, current.summary.id, true);
+    if (verificationNote?.trim()) {
+      current.ticket.body.verification = [current.ticket.body.verification, verificationNote.trim()].filter(Boolean).join("\n\n");
+    }
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "verification", verificationNote?.trim() || "Closed ticket", timestamp, { action: "close" }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("close_ticket", current.summary.id, timestamp, { verificationNote: verificationNote ?? null });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async addNoteAsync(ref: string, text: string): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    const timestamp = currentTimestamp();
+    const note = `- ${timestamp} ${text.trim()}`;
+    current.ticket.body.notes = [current.ticket.body.notes, note].filter(Boolean).join("\n");
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "note", text.trim(), timestamp, {}, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("add_note", current.summary.id, timestamp, { text });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async addJournalEntryAsync(
+    ref: string,
+    kind: JournalKind,
+    text: string,
+    metadata: Record<string, unknown> = {},
+  ): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, kind, text.trim(), timestamp, metadata, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("add_journal_entry", current.summary.id, timestamp, { kind, text, metadata });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async addDependencyAsync(ref: string, depRef: string): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    const depId = this.resolveTicketRef(depRef);
+    if (current.ticket.frontmatter.deps.includes(depId)) {
+      return current;
+    }
+    this.validateRelationships(current.summary.id, [...current.ticket.frontmatter.deps, depId], current.ticket.frontmatter.parent);
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter.deps = normalizeStringList([...current.ticket.frontmatter.deps, depId]);
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "state", `Added dependency on ${depId}`, timestamp, { dependency: depId }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("add_dependency", current.summary.id, timestamp, { dependency: depId });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async removeDependencyAsync(ref: string, depRef: string): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    const depId = this.resolveTicketRef(depRef);
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter.deps = current.ticket.frontmatter.deps.filter((dependency) => dependency !== depId);
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "state", `Removed dependency on ${depId}`, timestamp, { dependency: depId }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("remove_dependency", current.summary.id, timestamp, { dependency: depId });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async attachArtifactAsync(ref: string, input: AttachArtifactInput): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    this.initLedger();
+    const timestamp = currentTimestamp();
+    const mediaType = inferMediaType(input.path, input.mediaType);
+    let artifactPath: string | null = null;
+    let sourcePath: string | null = null;
+    if (!input.path?.trim() && input.content === undefined) {
+      throw new Error("Attachment requires either path or content");
+    }
+    if (input.path?.trim()) {
+      const normalizedPath = input.path.trim().startsWith("@") ? input.path.trim().slice(1) : input.path.trim();
+      const absoluteSource = resolve(this.cwd, normalizedPath);
+      if (!existsSync(absoluteSource)) {
+        throw new Error(`Attachment source does not exist: ${input.path}`);
+      }
+      sourcePath = relative(this.cwd, absoluteSource);
+    }
+    if (input.content !== undefined) {
+      const artifactId = this.nextArtifactId();
+      artifactPath = relative(this.cwd, getArtifactPath(this.cwd, artifactId, mediaTypeExtension(mediaType)));
+      writeFileAtomic(resolve(this.cwd, artifactPath), input.content);
+    } else if (sourcePath) {
+      const absoluteSource = resolve(this.cwd, sourcePath);
+      const artifactId = this.nextArtifactId();
+      artifactPath = relative(this.cwd, getArtifactPath(this.cwd, artifactId, extname(absoluteSource) || mediaTypeExtension(mediaType)));
+      copyFileSync(absoluteSource, resolve(this.cwd, artifactPath));
+    }
+    const attachment: AttachmentRecord = {
+      id: `attachment-${String(current.attachments.length + 1).padStart(4, "0")}`,
+      ticketId: current.summary.id,
+      createdAt: timestamp,
+      label: input.label.trim(),
+      mediaType,
+      artifactPath,
+      sourcePath,
+      description: input.description?.trim() ?? "",
+      metadata: input.metadata ?? {},
+    };
+    current.attachments = [...current.attachments, attachment];
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "attachment", `Attached ${attachment.label}`, timestamp, { artifactPath, sourcePath }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("attach_artifact", current.summary.id, timestamp, { label: attachment.label });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async recordCheckpointAsync(ref: string, input: CreateCheckpointInput): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    const timestamp = currentTimestamp();
+    const checkpointId = this.nextCheckpointId();
+    const checkpoint: CheckpointRecord = {
+      id: checkpointId,
+      ticketId: current.summary.id,
+      title: input.title.trim(),
+      createdAt: timestamp,
+      body: input.body.trim(),
+      path: relativeOrAbsolute(this.cwd, getCheckpointPath(this.cwd, checkpointId)),
+      supersedes: input.supersedes ?? null,
+    };
+    current.checkpoints = [...current.checkpoints, checkpoint];
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "checkpoint", `Recorded checkpoint ${checkpointId}`, timestamp, { checkpointId }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("record_checkpoint", current.summary.id, timestamp, { checkpointId, title: checkpoint.title });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async setInitiativeIdsAsync(ref: string, initiativeIds: string[]): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter["initiative-ids"] = normalizeStringList(initiativeIds);
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "state", "Updated ticket initiative links", timestamp, { initiativeIds }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("set_ticket_initiatives", current.summary.id, timestamp, { initiativeIds });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async setResearchIdsAsync(ref: string, researchIds: string[]): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter["research-ids"] = normalizeStringList(researchIds);
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "state", "Updated ticket research links", timestamp, { researchIds }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("set_ticket_research", current.summary.id, timestamp, { researchIds });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
+  }
+
+  async addExternalRefAsync(ref: string, externalRef: string): Promise<TicketReadResult> {
+    const current = await this.readTicketAsync(ref);
+    const normalizedRef = externalRef.trim();
+    if (!normalizedRef || current.ticket.frontmatter["external-refs"].includes(normalizedRef)) {
+      return current;
+    }
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter["external-refs"] = normalizeStringList([...current.ticket.frontmatter["external-refs"], normalizedRef]);
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "state", `Added external reference ${normalizedRef}`, timestamp, { externalRef: normalizedRef }, current.journal.length + 1)];
+    this.materializeCanonicalRecord(current);
+    this.appendAudit("add_external_ref", current.summary.id, timestamp, { externalRef: normalizedRef });
+    await this.upsertCanonicalRecord(current);
+    return this.readTicketAsync(current.summary.id);
   }
 }
 

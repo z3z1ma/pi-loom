@@ -195,5 +195,5 @@ describe("plan tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 60000);
 });

@@ -85,13 +85,13 @@ export async function handleCritiqueCommand(args: string, ctx: ExtensionCommandC
 
   switch (subcommand) {
     case "init": {
-      const result = store.initLedger();
+      const result = await store.initLedgerAsync();
       return `Initialized critique memory at ${result.root}`;
     }
     case "create": {
       const parsed = parseCreateArgs(rest.join(" "));
       return renderCritiqueDetail(
-        store.createCritique({
+        await store.createCritiqueAsync({
           title: parsed.title,
           target: { kind: parsed.kind, ref: parsed.ref, path: null },
           reviewQuestion: parsed.reviewQuestion,
@@ -99,7 +99,7 @@ export async function handleCritiqueCommand(args: string, ctx: ExtensionCommandC
       );
     }
     case "list": {
-      const critiques = store.listCritiques();
+      const critiques = await store.listCritiquesAsync();
       return critiques.length > 0
         ? critiques
             .map((critique) => `${critique.id} [${critique.status}/${critique.verdict}] ${critique.title}`)
@@ -109,17 +109,17 @@ export async function handleCritiqueCommand(args: string, ctx: ExtensionCommandC
     case "show": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /critique show <critique>");
-      return renderCritiqueDetail(store.readCritique(ref));
+      return renderCritiqueDetail(await store.readCritiqueAsync(ref));
     }
     case "packet": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /critique packet <critique>");
-      return store.readCritique(ref).packet;
+      return (await store.readCritiqueAsync(ref)).packet;
     }
     case "launch": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /critique launch <critique>");
-      const result = store.launchCritique(ref);
+      const result = await store.launchCritiqueAsync(ref);
       const newSessionResult = await ctx.newSession({
         parentSession: ctx.sessionManager.getSessionFile(),
       });
@@ -132,7 +132,7 @@ export async function handleCritiqueCommand(args: string, ctx: ExtensionCommandC
     case "run": {
       const parsed = parseRunArgs(rest.join(" "));
       return renderCritiqueDetail(
-        store.recordRun(parsed.ref, {
+        await store.recordRunAsync(parsed.ref, {
           kind: parsed.kind as "adversarial",
           verdict: parsed.verdict as "concerns",
           summary: parsed.summary,
@@ -147,7 +147,7 @@ export async function handleCritiqueCommand(args: string, ctx: ExtensionCommandC
       if (action === "create") {
         const parsed = parseFindingCreateArgs([rest[0], ...rest.slice(2)].join(" "));
         return renderCritiqueDetail(
-          store.addFinding(parsed.ref, {
+          await store.addFindingAsync(parsed.ref, {
             runId: parsed.runId,
             kind: parsed.kind as "bug",
             severity: parsed.severity as "medium",
@@ -161,24 +161,24 @@ export async function handleCritiqueCommand(args: string, ctx: ExtensionCommandC
       if (!ref || !id || !status) {
         throw new Error("Usage: /critique finding <critique> update <finding-id> <status>");
       }
-      return renderCritiqueDetail(store.updateFinding(ref, { id, status: status as "open" }));
+      return renderCritiqueDetail(await store.updateFindingAsync(ref, { id, status: status as "open" }));
     }
     case "dashboard": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /critique dashboard <critique>");
-      return renderDashboard(store.readCritique(ref).dashboard);
+      return renderDashboard((await store.readCritiqueAsync(ref)).dashboard);
     }
     case "ticketify": {
       const [ref, findingId, ...titleParts] = rest;
       if (!ref || !findingId) {
         throw new Error("Usage: /critique ticketify <critique> <finding-id> [title]");
       }
-      return renderCritiqueDetail(store.ticketifyFinding(ref, { findingId, title: titleParts.join(" ") || undefined }));
+      return renderCritiqueDetail(await store.ticketifyFindingAsync(ref, { findingId, title: titleParts.join(" ") || undefined }));
     }
     case "resolve": {
       const [ref] = rest;
       if (!ref) throw new Error("Usage: /critique resolve <critique>");
-      return renderCritiqueDetail(store.resolveCritique(ref));
+      return renderCritiqueDetail(await store.resolveCritiqueAsync(ref));
     }
     default:
       throw new Error(`Unknown /critique subcommand: ${subcommand}`);

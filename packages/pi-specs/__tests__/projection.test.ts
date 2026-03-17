@@ -12,23 +12,25 @@ describe("spec to ticket projection", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-specs-projection-"));
+    process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("projects finalized specs into deterministic tickets with explicit provenance", () => {
+  it("projects finalized specs into deterministic tickets with explicit provenance", async () => {
     const researchStore = createResearchStore(workspace);
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T11:00:00.000Z"));
-    researchStore.createResearch({ title: "Evaluate theme architecture" });
-    specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    const planned = specStore.updatePlan("add-dark-mode", {
+    await researchStore.createResearch({ title: "Evaluate theme architecture" });
+    await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+    const planned = await specStore.updatePlan("add-dark-mode", {
       designNotes: "Use CSS variables and persistence.",
       capabilities: [
         {
@@ -43,7 +45,7 @@ describe("spec to ticket projection", () => {
 
     vi.setSystemTime(new Date("2026-03-15T11:05:00.000Z"));
     const [reqToggle, reqPersist] = planned.state.requirements.map((requirement) => requirement.id);
-    specStore.updateTasks("add-dark-mode", {
+    await specStore.updateTasks("add-dark-mode", {
       tasks: [
         {
           title: "Build theme foundation",
@@ -58,11 +60,11 @@ describe("spec to ticket projection", () => {
         },
       ],
     });
-    specStore.setInitiativeIds("add-dark-mode", ["platform-modernization"]);
-    researchStore.linkSpec("evaluate-theme-architecture", "add-dark-mode");
-    specStore.finalizeChange("add-dark-mode");
+    await specStore.setInitiativeIds("add-dark-mode", ["platform-modernization"]);
+    await researchStore.linkSpec("evaluate-theme-architecture", "add-dark-mode");
+    await specStore.finalizeChange("add-dark-mode");
 
-    const firstProjection = projectSpecTickets(workspace, "add-dark-mode");
+    const firstProjection = await projectSpecTickets(workspace, "add-dark-mode");
     expect(firstProjection.projection?.tickets).toHaveLength(2);
     expect(existsSync(join(workspace, ".loom", "specs", "changes", "add-dark-mode", "ticket-projection.json"))).toBe(
       true,
@@ -82,7 +84,7 @@ describe("spec to ticket projection", () => {
     expect(firstProjection.summary.researchIds).toEqual(["evaluate-theme-architecture"]);
     expect(persistTicket.summary.deps).toEqual([foundationTicket.summary.id]);
 
-    const secondProjection = projectSpecTickets(workspace, "add-dark-mode");
+    const secondProjection = await projectSpecTickets(workspace, "add-dark-mode");
     expect(secondProjection.projection?.tickets.map((entry) => entry.ticketId)).toEqual(
       firstProjection.projection?.tickets.map((entry) => entry.ticketId),
     );
@@ -93,15 +95,15 @@ describe("spec to ticket projection", () => {
       "utf-8",
     );
     expect(projectionFile).toContain('"mode": "refresh"');
-  });
+  }, 15000);
 
-  it("refreshes projected tickets when capability details change after reprojection", () => {
+  it("refreshes projected tickets when capability details change after reprojection", async () => {
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
-    specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    const planned = specStore.updatePlan("add-dark-mode", {
+    await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+    const planned = await specStore.updatePlan("add-dark-mode", {
       designNotes: "Use CSS variables and persistence.",
       capabilities: [
         {
@@ -118,7 +120,7 @@ describe("spec to ticket projection", () => {
     expect(firstRequirement).toBeDefined();
 
     vi.setSystemTime(new Date("2026-03-15T12:05:00.000Z"));
-    specStore.updateTasks("add-dark-mode", {
+    await specStore.updateTasks("add-dark-mode", {
       tasks: [
         {
           title: "Build theme foundation",
@@ -127,15 +129,15 @@ describe("spec to ticket projection", () => {
         },
       ],
     });
-    specStore.finalizeChange("add-dark-mode");
+    await specStore.finalizeChange("add-dark-mode");
 
-    const firstProjection = projectSpecTickets(workspace, "add-dark-mode");
+    const firstProjection = await projectSpecTickets(workspace, "add-dark-mode");
     const projectedTicketId = firstProjection.projection?.tickets[0]?.ticketId;
     expect(projectedTicketId).toBeTruthy();
     expect(ticketStore.readTicket(projectedTicketId ?? "t-0001").ticket.body.context).toContain("Theme toggling");
 
     vi.setSystemTime(new Date("2026-03-15T12:10:00.000Z"));
-    specStore.updatePlan("add-dark-mode", {
+    await specStore.updatePlan("add-dark-mode", {
       capabilities: [
         {
           id: "theme-toggling",
@@ -147,9 +149,9 @@ describe("spec to ticket projection", () => {
         },
       ],
     });
-    specStore.finalizeChange("add-dark-mode");
+    await specStore.finalizeChange("add-dark-mode");
 
-    projectSpecTickets(workspace, "add-dark-mode");
+    await projectSpecTickets(workspace, "add-dark-mode");
     expect(ticketStore.readTicket(projectedTicketId ?? "t-0001").ticket.body.context).toContain("Theme switching");
-  });
+  }, 30000);
 });

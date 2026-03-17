@@ -33,7 +33,3 @@ export function getPlanPacketPath(cwd: string, planId: string): string {
 export function getPlanMarkdownPath(cwd: string, planId: string): string {
   return join(getPlanDir(cwd, planId), "plan.md");
 }
-
-export function getPlanDashboardPath(cwd: string, planId: string): string {
-  return join(getPlanDir(cwd, planId), "dashboard.json");
-}

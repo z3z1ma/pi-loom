@@ -2,7 +2,7 @@
 
 `pi-research` adds a durable, local research-memory layer to pi-compatible runtimes.
 
-When active, the extension teaches the model to preserve exploratory work as first-class system knowledge instead of transient chat context. Research state lives in repo-visible files under `.loom/research/`, with durable synthesis, append-only hypothesis history, canonical artifact inventories, linked downstream work, and machine-usable dashboards and maps.
+When active, the extension teaches the model to preserve exploratory work as first-class system knowledge instead of transient chat context. Research canonical state lives in shared storage, with repo-materialized synthesis markdown and artifact bodies under `.loom/research/`.
 
 ## Features
 
@@ -13,7 +13,7 @@ When active, the extension teaches the model to preserve exploratory work as fir
 - AI-facing `research_*` tools with built-in prompt guidance
 - `/research` slash command namespace for human entrypoints
 - system-prompt augmentation via `before_agent_start`
-- stable machine-usable dashboards and graph summaries over linked work
+- computed dashboard and map views over linked work (not repo-materialized `dashboard.json`)
 
 ## Local layout
 
@@ -25,7 +25,6 @@ When active, the extension teaches the model to preserve exploratory work as fir
       state.json
       hypotheses.jsonl
       artifacts.json
-      dashboard.json
       notes/
         artifact-001.md
       experiments/

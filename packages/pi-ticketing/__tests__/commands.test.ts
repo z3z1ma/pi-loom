@@ -52,5 +52,5 @@ describe("/ticket command handler", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });

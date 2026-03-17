@@ -45,7 +45,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-constitution-index-"));
   return {
     cwd,
-    cleanup: () => fs.rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      fs.rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -121,6 +124,7 @@ describe("pi-constitution extension", () => {
   it("routes /constitution output through the registered command handler and initializes constitutional memory", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = path.join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { default: piConstitution } = await import("../extensions/index.js");
       piConstitution(mockPi as unknown as ExtensionAPI);
@@ -147,6 +151,7 @@ describe("pi-constitution extension", () => {
   it("augments the system prompt with constitutional doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = path.join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { default: piConstitution } = await import("../extensions/index.js");
       piConstitution(mockPi as unknown as ExtensionAPI);

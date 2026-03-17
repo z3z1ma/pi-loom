@@ -25,11 +25,11 @@ export default function piDocs(pi: ExtensionAPI): void {
   registerDocsTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
-    createDocumentationStore(ctx.cwd).initLedger();
+    await createDocumentationStore(ctx.cwd).initLedgerAsync();
   });
 
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
-    createDocumentationStore(ctx.cwd).initLedger();
+    await createDocumentationStore(ctx.cwd).initLedgerAsync();
     return {
       systemPrompt: `${event.systemPrompt}\n\n${buildDocsSystemPrompt(ctx.cwd)}`,
     };

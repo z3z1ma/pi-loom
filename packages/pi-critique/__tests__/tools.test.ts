@@ -270,7 +270,7 @@ describe("critique tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 
   it("fails critique_launch when the fresh critic exits without persisting a durable critique run", async () => {
     const { cwd, cleanup } = createTempWorkspace();

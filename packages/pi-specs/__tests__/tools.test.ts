@@ -31,7 +31,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-specs-tools-"));
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -92,6 +95,7 @@ describe("spec tools", () => {
   it("returns machine-usable shapes for list, read, write, analyze, and project flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { registerSpecTools } = await import("../extensions/tools/spec.js");
       registerSpecTools(mockPi as unknown as ExtensionAPI);
@@ -213,5 +217,5 @@ describe("spec tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });

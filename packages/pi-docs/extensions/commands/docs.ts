@@ -51,13 +51,13 @@ export async function handleDocsCommand(args: string, ctx: ExtensionCommandConte
 
   switch (subcommand) {
     case "init": {
-      const result = store.initLedger();
+      const result = await store.initLedgerAsync();
       return `Initialized docs memory at ${result.root}`;
     }
     case "create": {
       const parsed = parseCreateArgs(rest.join(" "));
       return renderDocumentationDetail(
-        store.createDoc({
+        await store.createDoc({
           title: parsed.title,
           docType: parsed.docType,
           sourceTarget: { kind: "workspace", ref: "repo" },
@@ -66,7 +66,7 @@ export async function handleDocsCommand(args: string, ctx: ExtensionCommandConte
       );
     }
     case "list": {
-      const docs = store.listDocs();
+      const docs = await store.listDocs();
       return docs.length > 0
         ? docs.map((doc) => `${doc.id} [${doc.status}/${doc.docType}] ${doc.title}`).join("\n")
         : "No documentation records.";
@@ -74,18 +74,18 @@ export async function handleDocsCommand(args: string, ctx: ExtensionCommandConte
     case "show": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /docs show <doc>");
-      return renderDocumentationDetail(store.readDoc(ref));
+      return renderDocumentationDetail(await store.readDoc(ref));
     }
     case "packet": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /docs packet <doc>");
-      return store.readDoc(ref).packet;
+      return (await store.readDoc(ref)).packet;
     }
     case "update": {
       const parsed = parseUpdateArgs(rest.join(" "));
       const prepared = parsed.updateReason
-        ? store.updateDoc(parsed.ref, { updateReason: parsed.updateReason })
-        : store.readDoc(parsed.ref);
+        ? await store.updateDoc(parsed.ref, { updateReason: parsed.updateReason })
+        : await store.readDoc(parsed.ref);
       const newSessionResult = await ctx.newSession({
         parentSession: ctx.sessionManager.getSessionFile(),
       });
@@ -98,12 +98,12 @@ export async function handleDocsCommand(args: string, ctx: ExtensionCommandConte
     case "dashboard": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /docs dashboard <doc>");
-      return renderDashboard(store.readDoc(ref).dashboard);
+      return renderDashboard((await store.readDoc(ref)).dashboard);
     }
     case "archive": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /docs archive <doc>");
-      return renderDocumentationDetail(store.archiveDoc(ref));
+      return renderDocumentationDetail(await store.archiveDoc(ref));
     }
     default:
       throw new Error(`Unknown /docs subcommand: ${subcommand}`);

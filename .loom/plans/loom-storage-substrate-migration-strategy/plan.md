@@ -1,7 +1,7 @@
 # Loom storage substrate migration strategy
 
 ## Purpose / Big Picture
-Turn the finalized storage spec into a staged migration sequence and initial ticket set that can be implemented without losing correctness, reviewability, or cross-repo flexibility.
+Track the full multi-phase storage migration, not just the foundational storage package slice, and keep package-level cutover work explicit until all Loom packages stop treating neighboring file-backed `.loom` state as canonical truth.
 
 ## Progress
 - [x] Ticket t-0044 — Update policy and extract storage contract (policy-and-contract)
@@ -10,56 +10,54 @@ Turn the finalized storage spec into a staged migration sequence and initial tic
 - [x] Ticket t-0047 — Design reserved-branch export and hydration (sync-hydration)
 - [x] Ticket t-0048 — Separate durable worker history from local runtime state (worker-runtime-carveout)
 - [x] Ticket t-0049 — Validate backend portability and prepare PostgreSQL path (postgres-portability)
+- [ ] Ticket t-0050 [ready] — Migrate constitution, research, and initiative stores to shared storage (upstream-package-cutover)
+- [ ] Ticket t-0051 [ready] — Migrate specs, plans, and ticketing stores to shared storage (execution-package-cutover)
+- [ ] Ticket t-0052 [ready] — Migrate critique, Ralph, and docs stores to shared storage (review-docs-package-cutover)
+- [ ] Ticket t-0053 [ready] — Migrate worker package and tool surfaces onto shared storage (worker-package-cutover)
+- [ ] Ticket t-0054 [ready] — Cut remaining package tools over and remove stale file-canonical assumptions (final-cutover-and-critique)
 
 ## Surprises & Discoveries
-- Observation: The migration requires package-boundary redesign because current stores reopen neighboring `.loom` files directly and treat repo-relative paths as identity and truth.
-  Evidence: README.md; packages/pi-ticketing/extensions/domain/store.ts; packages/pi-plans/extensions/domain/store.ts; packages/pi-workers/extensions/domain/store.ts
+- Observation: The first closed ticket set implemented only the shared storage substrate, not package-level cutover.
+  Evidence: No existing package imports `@pi-loom/pi-storage`; representative stores still reopen `.loom/...` files directly.
 
-- Observation: SQLite WAL, backup, and session changesets help local operation but do not provide the merge-aware git sync surface needed by the user or the backend portability needed for PostgreSQL.
-  Evidence: https://sqlite.org/wal.html ; https://sqlite.org/backup.html ; https://sqlite.org/sessionintro.html
+- Observation: Foundation verification and critique were valuable, but package migrations remain the dominant remaining work.
+  Evidence: Closed tickets t-0044 through t-0049 plus critique `storage-migration-implementation-review` cover substrate behavior only.
 
 ## Decision Log
-- Decision: Use one user-level shared catalog as the default canonical topology instead of one database per repo.
-  Rationale: Tickets, initiatives, and plans must span repositories, making repo-scoped canonical databases the wrong default boundary.
-  Date/Author: 2026-03-16 / assistant
-
-- Decision: Keep docs authoritative in repos and treat other human-facing artifacts as deterministic projections from canonical operational state.
-  Rationale: Docs derive their value from living with code review, while most operational Loom records benefit from shared queryable storage.
-  Date/Author: 2026-03-16 / assistant
-
-- Decision: Use deterministic reserved-branch exports for sync/hydration instead of syncing raw SQLite files.
-  Rationale: Git mergeability and future PostgreSQL compatibility require a textual projection surface rather than backend-specific binary state.
+- Decision: Treat tickets t-0044 through t-0049 as foundational substrate work rather than the complete migration.
+  Rationale: Verification after implementation showed all current Loom packages still use file-backed stores directly, so claiming completion of the full migration would be false.
   Date/Author: 2026-03-16 / assistant
 
 ## Outcomes & Retrospective
 No retrospective recorded yet.
 
 ## Context and Orientation
-The finalized spec `sqlite-first-canonical-storage-substrate` now defines seven capabilities and six sequenced implementation tasks. The migration changes project policy: operational Loom truth moves to a shared local database while docs remain repo-authoritative and selected review artifacts become deterministic projections. The current codebase still hard-codes file-backed stores under `<cwd>/.loom/...`, so the strategy must change policy and package boundaries before backend cutover.
+The finalized spec remains valid, but verification after the first implementation slice shows the initial ticket set was only the substrate/bootstrap phase: policy updates, shared storage package, SQLite catalog, sync bundle, runtime carve-out, and backend-neutral tests. The existing Loom packages still reopen `.loom/...` files directly and have not yet been rewired to the new storage contract. This plan must therefore remain active until package migrations and canonical cutover are complete.
 
 Source target: initiative:loom-storage-substrate-migration
 
-Scope paths: CONSTITUTION.md, packages/pi-constitution/, packages/pi-critique/, packages/pi-docs/, packages/pi-initiatives/, packages/pi-plans/, packages/pi-ralph/, packages/pi-research/, packages/pi-specs/, packages/pi-ticketing/, packages/pi-workers/, README.md
+Scope paths: CONSTITUTION.md, packages/pi-constitution/, packages/pi-critique/, packages/pi-docs/, packages/pi-initiatives/, packages/pi-plans/, packages/pi-ralph/, packages/pi-research/, packages/pi-specs/, packages/pi-storage/, packages/pi-ticketing/, packages/pi-workers/, README.md
 
 Roadmap: item-008
 Initiatives: loom-storage-substrate-migration
 Research: sqlite-first-storage-substrate-and-sync-architecture
 Specs: sqlite-first-canonical-storage-substrate
+Critiques: storage-migration-implementation-review
 
 ## Plan of Work
-Phase 1 rewrites policy and extracts the backend-agnostic storage contract, including spaces/projects, repositories, worktrees, global IDs, and projection semantics. Phase 2 migrates core operational state onto SQLite while keeping deterministic repo projections and import of current `.loom` artifacts. Phase 3 adds the reserved sync-branch export/hydration system and conflict handling. Phase 4 hardens the worker runtime carve-out and backend-portability test matrix so PostgreSQL can later satisfy the same contract.
+Phase 1 (complete) established the foundation: policy updates plus `@pi-loom/pi-storage` with IDs, SQLite catalog, sync export/import, runtime carve-out, and backend-neutral tests. Phase 2 must migrate package stores by dependency order so they stop treating repo files as canonical operational state. Phase 3 must cut package tools/commands over to the shared storage contract while preserving repo-materialized constitution/docs/spec markdown bodies and deliberate projections. Phase 4 can then harden projection cleanup, reserved-branch workflows, and broader adoption.
 
 ## Concrete Steps
-1. Update constitutional and README policy so repo-visible `.loom` files are no longer assumed canonical for operational state.
-2. Define the backend-agnostic storage contract and stop cross-package direct file reads.
-3. Introduce stable global IDs, ownership metadata, and version semantics for all durable entities.
-4. Implement the SQLite backend plus deterministic projection generation and import from current file artifacts.
-5. Add reserved-branch export/import, artifact manifests, and explicit conflict handling.
-6. Separate durable worker history from clone-local runtime/worktree control-plane state with leases or equivalent liveness semantics.
-7. Add backend-neutral contract tests and document PostgreSQL as the multi-machine path.
+1. Keep the foundation slice as a reusable substrate, but do not treat it as full migration completion.
+2. Migrate upstream layers first: constitution, research, initiatives, specs, plans, tickets.
+3. Migrate critique, Ralph, and docs onto the contract with their markdown carve-outs preserved.
+4. Migrate workers carefully so durable worker history uses shared storage while clone-local runtime attachments remain local.
+5. Rewire package tools and commands to use the shared storage contract rather than neighboring file reads.
+6. Remove stale assumptions that repo `.loom` JSON metadata is canonical once package cutover lands.
+7. Re-run critique after package migration, not just after substrate creation.
 
 ## Validation and Acceptance
-For planning, validate against scenario packets: single repo, multiple worktrees of one repo, multiple unrelated repos, one cross-repo initiative with tickets in two repos, fresh-machine hydration from the reserved branch, non-conflicting sync merge, conflicting sync import, and stale worker-runtime recovery. For implementation, every ticket should prove both contract-level behavior and deterministic projection/output stability where relevant.
+The foundation slice is verified. Remaining migration must be validated package-by-package: each migrated package needs focused tests proving it reads/writes shared storage truthfully, preserves repo-materialized markdown carve-outs where intended, and no longer depends on neighboring file-backed stores for canonical state.
 
 ## Tickets
 - t-0044 [closed] Update policy and extract storage contract — policy-and-contract
@@ -68,6 +66,11 @@ For planning, validate against scenario packets: single repo, multiple worktrees
 - t-0047 [closed] Design reserved-branch export and hydration — sync-hydration
 - t-0048 [closed] Separate durable worker history from local runtime state — worker-runtime-carveout
 - t-0049 [closed] Validate backend portability and prepare PostgreSQL path — postgres-portability
+- t-0050 [ready] Migrate constitution, research, and initiative stores to shared storage — upstream-package-cutover
+- t-0051 [ready] Migrate specs, plans, and ticketing stores to shared storage — execution-package-cutover
+- t-0052 [ready] Migrate critique, Ralph, and docs stores to shared storage — review-docs-package-cutover
+- t-0053 [ready] Migrate worker package and tool surfaces onto shared storage — worker-package-cutover
+- t-0054 [ready] Cut remaining package tools over and remove stale file-canonical assumptions — final-cutover-and-critique
 
 ## Risks and open questions
-Highest-risk edges remain policy drift, global-ID migration bugs, reviewability loss if projections are removed instead of demoted, overuse of SQLite-only semantics, and worker stale-running state if canonical liveness is under-specified. Open questions remain around the default space topology, the exact export format (snapshot, event, or hybrid), and how much durable worker history belongs in shared storage versus local runtime.
+The main risk is false completion: a shared storage package existing does not mean the migration is done. Until package stores, tools, and commands are rewired, the system remains mostly file-backed in practice. Open questions remain about package migration batching, projection cleanup timing, and exactly when auxiliary `.loom` metadata should stop being committed.

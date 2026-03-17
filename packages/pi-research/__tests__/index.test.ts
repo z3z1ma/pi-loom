@@ -45,7 +45,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-research-index-"));
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -124,6 +127,7 @@ describe("pi-research extension", () => {
   it("routes /research output through the registered command handler and initializes research memory", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { default: piResearch } = await import("../extensions/index.js");
       piResearch(mockPi as unknown as ExtensionAPI);
@@ -147,6 +151,7 @@ describe("pi-research extension", () => {
   it("augments the system prompt with research doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { default: piResearch } = await import("../extensions/index.js");
       piResearch(mockPi as unknown as ExtensionAPI);

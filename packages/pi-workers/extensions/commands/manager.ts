@@ -85,11 +85,11 @@ export async function handleManagerCommand(args: string, _ctx: ExtensionCommandC
 
   switch (subcommand) {
     case "overview":
-      return renderManagerOverview(store.managerOverview());
+      return renderManagerOverview(await store.managerOverviewAsync());
     case "supervise": {
       const apply = rest.includes("apply");
       const refs = rest.filter((part) => part !== "apply");
-      const results = store.superviseWorkers(refs, apply);
+      const results = await store.superviseWorkersAsync(refs, apply);
       return results
         .map(
           (result) =>
@@ -99,48 +99,48 @@ export async function handleManagerCommand(args: string, _ctx: ExtensionCommandC
     }
     case "message": {
       const parsed = parseMessageArgs(rest.join(" "));
-      store.appendMessage(parsed.ref, {
+      await store.appendMessageAsync(parsed.ref, {
         direction: "manager_to_worker",
         kind: parsed.kind as never,
         text: parsed.text,
       });
-      return store.renderDetail(parsed.ref);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "ack": {
       const parsed = parseMessageStateArgs(rest.join(" "));
-      store.acknowledgeMessage(parsed.ref, parsed.messageId, "manager", parsed.note);
-      return store.renderDetail(parsed.ref);
+      await store.acknowledgeMessageAsync(parsed.ref, parsed.messageId, "manager", parsed.note);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "resolve": {
       const parsed = parseMessageStateArgs(rest.join(" "));
-      store.resolveMessage(parsed.ref, parsed.messageId, "manager", parsed.note);
-      return store.renderDetail(parsed.ref);
+      await store.resolveMessageAsync(parsed.ref, parsed.messageId, "manager", parsed.note);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "approve": {
       const parsed = parseApprovalArgs(rest.join(" "));
       const mapped =
         parsed.status === "approve" ? "approved" : parsed.status === "reject" ? "rejected_for_revision" : "escalated";
-      store.decideApproval(parsed.ref, {
+      await store.decideApprovalAsync(parsed.ref, {
         status: mapped,
         summary: parsed.summary,
         rationale: parsed.rationale,
         decidedBy: "manager",
       });
-      return store.renderDetail(parsed.ref);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "resume": {
       const parsed = parseResumeArgs(rest.join(" "));
-      store.prepareLaunch(parsed.ref, true, "Prepared by manager surface.", parsed.runtime);
+      await store.prepareLaunchAsync(parsed.ref, true, "Prepared by manager surface.", parsed.runtime);
       if (parsed.mode === "run") {
-        const running = store.startLaunchExecution(parsed.ref);
+        const running = await store.startLaunchExecutionAsync(parsed.ref);
         if (!running.launch) {
           throw new Error("Worker launch descriptor was not created");
         }
         const execution = await runWorkerLaunch(running.launch, undefined, undefined, sdkSessionConfig);
-        store.finishLaunchExecution(parsed.ref, execution);
-        return `${store.renderLaunch(parsed.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim();
+        await store.finishLaunchExecutionAsync(parsed.ref, execution);
+        return `${await store.renderLaunchAsync(parsed.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim();
       }
-      return store.renderLaunch(parsed.ref);
+      return store.renderLaunchAsync(parsed.ref);
     }
     case "schedule": {
       const apply = rest.includes("apply");

@@ -41,11 +41,11 @@ export default function piWorkers(pi: ExtensionAPI): void {
   registerWorkerTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
-    createWorkerStore(ctx.cwd).initLedger();
+    await createWorkerStore(ctx.cwd).initLedgerAsync();
   });
 
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
-    createWorkerStore(ctx.cwd).initLedger();
+    await createWorkerStore(ctx.cwd).initLedgerAsync();
     return {
       systemPrompt: `${event.systemPrompt}\n\n${buildWorkerSystemPrompt(ctx.cwd)}`,
     };

@@ -32,7 +32,3 @@ export function getInitiativeStatePath(cwd: string, initiativeId: string): strin
 export function getInitiativeDecisionsPath(cwd: string, initiativeId: string): string {
   return join(getInitiativeDir(cwd, initiativeId), "decisions.jsonl");
 }
-
-export function getInitiativeDashboardPath(cwd: string, initiativeId: string): string {
-  return join(getInitiativeDir(cwd, initiativeId), "dashboard.json");
-}

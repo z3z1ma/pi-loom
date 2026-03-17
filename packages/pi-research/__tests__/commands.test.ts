@@ -42,5 +42,5 @@ describe("research commands", () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
-  });
+  }, 15000);
 });

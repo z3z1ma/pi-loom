@@ -9,6 +9,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  appendEntityEvent,
+  findEntityByDisplayId,
+  upsertEntityByDisplayId,
+  upsertProjectionForEntity,
+} from "@pi-loom/pi-storage/storage/entities.js";
+import { findOrBootstrapEntityByDisplayId, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { analyzeSpecChange } from "./analysis.js";
 import { buildSpecChecklist } from "./checklist.js";
 import { parseBulletLines, parseMarkdownArtifact, parseSections } from "./frontmatter.js";
@@ -43,6 +50,7 @@ import {
   getChangeDir,
   getChangeSpecsDir,
   getDecisionLogPath,
+  getProjectionPath,
   getSpecsPaths,
 } from "./paths.js";
 import {
@@ -54,6 +62,21 @@ import {
   renderProposalMarkdown,
   renderTasksMarkdown,
 } from "./render.js";
+
+const SPEC_CHANGE_ENTITY_KIND = "spec_change" as const;
+const SPEC_CAPABILITY_ENTITY_KIND = "spec_capability" as const;
+
+interface SpecChangeEntityAttributes {
+  state: SpecChangeState;
+  decisions: SpecDecisionRecord[];
+  analysis: string;
+  checklist: string;
+  projection: SpecTicketProjection | null;
+}
+
+interface SpecCapabilityEntityAttributes {
+  record: CanonicalCapabilityRecord;
+}
 
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
@@ -196,7 +219,7 @@ export class SpecStore {
     this.cwd = resolve(cwd);
   }
 
-  initLedger(): { initialized: true; root: string } {
+  async initLedger(): Promise<{ initialized: true; root: string }> {
     const paths = getSpecsPaths(this.cwd);
     ensureDir(paths.changesDir);
     ensureDir(paths.capabilitiesDir);
@@ -227,14 +250,11 @@ export class SpecStore {
     };
   }
 
-  private writeState(changeDir: string, state: SpecChangeState): void {
-    writeJson(join(changeDir, "state.json"), state);
-  }
-
-  private readState(changeDir: string): SpecChangeState {
-    const state = readJson<SpecChangeState>(join(changeDir, "state.json"));
+  private normalizeState(state: SpecChangeState): SpecChangeState {
     return {
       ...state,
+      changeId: normalizeChangeId(state.changeId),
+      title: state.title.trim(),
       status: normalizeStatus(state.status),
       initiativeIds: normalizeStringList(state.initiativeIds),
       researchIds: normalizeStringList(state.researchIds),
@@ -260,6 +280,14 @@ export class SpecStore {
       })),
       artifactVersions: { ...artifactVersions(), ...state.artifactVersions },
     };
+  }
+
+  private writeState(changeDir: string, state: SpecChangeState): void {
+    writeJson(join(changeDir, "state.json"), state);
+  }
+
+  private readState(changeDir: string): SpecChangeState {
+    return this.normalizeState(readJson<SpecChangeState>(join(changeDir, "state.json")));
   }
 
   private changeDirectories(): string[] {
@@ -329,26 +357,51 @@ export class SpecStore {
     return statuses;
   }
 
-  private syncArtifacts(changeDir: string, state: SpecChangeState): void {
-    const decisions = this.readDecisionLog(changeDir);
+  private changeDirForState(state: SpecChangeState): string {
+    const activeDir = getChangeDir(this.cwd, state.changeId);
+    if (!state.archivedPath) {
+      return activeDir;
+    }
+    const archivedDir = fromRepoRelativePath(this.cwd, state.archivedPath);
+    if (existsSync(activeDir) && activeDir !== archivedDir && !existsSync(archivedDir)) {
+      ensureDir(dirname(archivedDir));
+      renameSync(activeDir, archivedDir);
+    }
+    return archivedDir;
+  }
+
+  private syncArtifacts(
+    changeDir: string,
+    state: SpecChangeState,
+    decisions: SpecDecisionRecord[],
+    projection: SpecTicketProjection | null,
+    analysis: string,
+    checklist: string,
+  ): void {
+    ensureDir(changeDir);
+    ensureDir(join(changeDir, "specs"));
+
+    writeFileAtomic(
+      join(changeDir, "decisions.jsonl"),
+      `${decisions.map((decision) => JSON.stringify(decision)).join("\n")}${decisions.length > 0 ? "\n" : ""}`,
+    );
 
     const proposalPath = join(changeDir, "proposal.md");
     writeFileAtomic(proposalPath, renderProposalMarkdown(state, decisions));
     state.artifactVersions.proposal = fileUpdatedAt(proposalPath);
 
+    const designPath = join(changeDir, "design.md");
     if (state.designNotes.trim() || state.capabilities.length > 0 || state.requirements.length > 0) {
-      const designPath = join(changeDir, "design.md");
       writeFileAtomic(designPath, renderDesignMarkdown(state));
       state.artifactVersions.design = fileUpdatedAt(designPath);
     }
 
+    const tasksPath = join(changeDir, "tasks.md");
     if (state.tasks.length > 0) {
-      const tasksPath = join(changeDir, "tasks.md");
       writeFileAtomic(tasksPath, renderTasksMarkdown(state));
       state.artifactVersions.tasks = fileUpdatedAt(tasksPath);
     }
 
-    ensureDir(join(changeDir, "specs"));
     for (const capability of state.capabilities) {
       const path = join(changeDir, "specs", `${capability.id}.md`);
       writeFileAtomic(
@@ -357,11 +410,222 @@ export class SpecStore {
       );
     }
 
+    if (analysis) {
+      const analysisPath = join(changeDir, "analysis.md");
+      writeFileAtomic(analysisPath, analysis);
+      state.artifactVersions.analysis = fileUpdatedAt(analysisPath);
+    }
+
+    if (checklist) {
+      const checklistPath = join(changeDir, "checklist.md");
+      writeFileAtomic(checklistPath, checklist);
+      state.artifactVersions.checklist = fileUpdatedAt(checklistPath);
+    }
+
+    if (projection) {
+      writeJson(getProjectionPath(this.cwd, state.changeId), projection);
+    }
+
     this.writeState(changeDir, state);
   }
 
-  listChanges(filter: SpecListFilter = {}): SpecChangeSummary[] {
-    this.initLedger();
+  private materializeChangeRecord(
+    state: SpecChangeState,
+    decisions: SpecDecisionRecord[],
+    projection: SpecTicketProjection | null,
+    analysis: string,
+    checklist: string,
+  ): SpecChangeRecord {
+    const normalized = this.normalizeState(state);
+    const changeDir = this.changeDirForState(normalized);
+    this.syncArtifacts(changeDir, normalized, decisions, projection, analysis, checklist);
+    const archived = Boolean(normalized.archivedPath);
+    return {
+      state: normalized,
+      summary: summarizeChange(this.cwd, normalized, changeDir, archived),
+      artifacts: this.artifactStatuses(changeDir, normalized),
+      proposal: readText(join(changeDir, "proposal.md")),
+      design: readText(join(changeDir, "design.md")),
+      tasksMarkdown: readText(join(changeDir, "tasks.md")),
+      analysis: analysis || readText(join(changeDir, "analysis.md")),
+      checklist: checklist || readText(join(changeDir, "checklist.md")),
+      decisions,
+      capabilitySpecs: normalized.capabilities.map((capability) =>
+        capabilityFromState(this.cwd, normalized, capability.id, join(changeDir, "specs", `${capability.id}.md`)),
+      ),
+      projection,
+    };
+  }
+
+  private async loadCanonicalChange(ref: string): Promise<SpecChangeRecord> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const changeId = normalizeChangeId(ref.split(/[\\/]/).pop() ?? ref);
+    const entity = await findOrBootstrapEntityByDisplayId(
+      this.cwd,
+      storage,
+      identity.space.id,
+      SPEC_CHANGE_ENTITY_KIND,
+      changeId,
+    );
+    if (!entity) {
+      throw new Error(`Unknown spec change: ${ref}`);
+    }
+    const attributes = entity.attributes as unknown as SpecChangeEntityAttributes;
+    return this.materializeChangeRecord(
+      this.normalizeState(attributes.state),
+      attributes.decisions ?? [],
+      attributes.projection ?? null,
+      attributes.analysis ?? "",
+      attributes.checklist ?? "",
+    );
+  }
+
+  private async persistCanonicalChange(
+    state: SpecChangeState,
+    decisions: SpecDecisionRecord[],
+    projection: SpecTicketProjection | null,
+    analysis: string,
+    checklist: string,
+  ): Promise<SpecChangeRecord> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId);
+    const version = (existing?.version ?? 0) + 1;
+    const record = this.materializeChangeRecord(state, decisions, projection, analysis, checklist);
+    const changePath = record.summary.path;
+    const entity = await upsertEntityByDisplayId(storage, {
+      kind: SPEC_CHANGE_ENTITY_KIND,
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: record.state.changeId,
+      title: record.state.title,
+      summary: record.state.proposalSummary || record.state.title,
+      status: record.state.status,
+      version,
+      tags: ["spec-change"],
+      pathScopes: [
+        { repositoryId: identity.repository.id, relativePath: changePath, role: "canonical" },
+        {
+          repositoryId: identity.repository.id,
+          relativePath: `${changePath}/proposal.md`,
+          role: "projection",
+        },
+        {
+          repositoryId: identity.repository.id,
+          relativePath: `${changePath}/design.md`,
+          role: "projection",
+        },
+        {
+          repositoryId: identity.repository.id,
+          relativePath: `${changePath}/tasks.md`,
+          role: "projection",
+        },
+      ],
+      attributes: {
+        state: record.state,
+        decisions: record.decisions,
+        analysis: record.analysis,
+        checklist: record.checklist,
+        projection: record.projection,
+      },
+      createdAt: existing?.createdAt ?? record.state.createdAt,
+      updatedAt: record.state.updatedAt,
+    });
+
+    await upsertProjectionForEntity(
+      storage,
+      entity.id,
+      "spec_markdown_body",
+      "repo_materialized",
+      identity.repository.id,
+      `${changePath}/proposal.md`,
+      record.proposal,
+      version,
+      record.state.createdAt,
+      record.state.updatedAt,
+    );
+    if (record.design) {
+      await upsertProjectionForEntity(
+        storage,
+        entity.id,
+        "spec_markdown_body",
+        "repo_materialized",
+        identity.repository.id,
+        `${changePath}/design.md`,
+        record.design,
+        version,
+        record.state.createdAt,
+        record.state.updatedAt,
+      );
+    }
+    if (record.tasksMarkdown) {
+      await upsertProjectionForEntity(
+        storage,
+        entity.id,
+        "spec_markdown_body",
+        "repo_materialized",
+        identity.repository.id,
+        `${changePath}/tasks.md`,
+        record.tasksMarkdown,
+        version,
+        record.state.createdAt,
+        record.state.updatedAt,
+      );
+    }
+    return record;
+  }
+
+  private async mergeCanonicalCapability(state: SpecChangeState, capabilityId: string): Promise<void> {
+    const path = getCanonicalCapabilityPath(this.cwd, capabilityId);
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, SPEC_CAPABILITY_ENTITY_KIND, capabilityId);
+    const current = existing
+      ? ((existing.attributes as unknown as SpecCapabilityEntityAttributes | undefined)?.record ?? null)
+      : existsSync(path)
+        ? parseCanonicalCapability(this.cwd, path)
+        : null;
+    const next = capabilityFromState(this.cwd, state, capabilityId, path);
+    const merged: CanonicalCapabilityRecord = {
+      id: next.id,
+      title: next.title,
+      summary: next.summary || current?.summary || "",
+      requirements: union(current?.requirements ?? [], next.requirements),
+      scenarios: union(current?.scenarios ?? [], next.scenarios),
+      sourceChanges: union(current?.sourceChanges ?? [], [state.changeId]),
+      updatedAt: currentTimestamp(),
+      path: toRepoRelativePath(this.cwd, path),
+    };
+    writeFileAtomic(path, renderCanonicalCapabilityMarkdown(merged));
+    const version = (existing?.version ?? 0) + 1;
+    const entity = await upsertEntityByDisplayId(storage, {
+      kind: SPEC_CAPABILITY_ENTITY_KIND,
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: merged.id,
+      title: merged.title,
+      summary: merged.summary || merged.title,
+      status: "active",
+      version,
+      tags: ["spec-capability"],
+      pathScopes: [{ repositoryId: identity.repository.id, relativePath: merged.path, role: "canonical" }],
+      attributes: { record: merged },
+      createdAt: existing?.createdAt ?? merged.updatedAt,
+      updatedAt: merged.updatedAt,
+    });
+    await upsertProjectionForEntity(
+      storage,
+      entity.id,
+      "spec_markdown_body",
+      "repo_materialized",
+      identity.repository.id,
+      merged.path,
+      readText(path),
+      version,
+      existing?.createdAt ?? merged.updatedAt,
+      merged.updatedAt,
+    );
+  }
+
+  listChangesProjection(filter: SpecListFilter = {}): SpecChangeSummary[] {
     const active = this.changeDirectories().map((path) => ({ path, archived: false }));
     const archived = filter.includeArchived
       ? this.archivedChangeDirectories().map((path) => ({ path, archived: true }))
@@ -383,8 +647,34 @@ export class SpecStore {
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  listCapabilities(): CanonicalCapabilityRecord[] {
-    this.initLedger();
+  async listChanges(filter: SpecListFilter = {}): Promise<SpecChangeSummary[]> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    return (await storage.listEntities(identity.space.id, SPEC_CHANGE_ENTITY_KIND))
+      .map((entity) => {
+        const attributes = entity.attributes as unknown as SpecChangeEntityAttributes;
+        const state = this.normalizeState(attributes.state);
+        const path = state.archivedPath ? fromRepoRelativePath(this.cwd, state.archivedPath) : getChangeDir(this.cwd, state.changeId);
+        return summarizeChange(this.cwd, state, path, Boolean(state.archivedPath));
+      })
+      .filter((summary) => {
+        if (!filter.includeArchived && summary.archived) {
+          return false;
+        }
+        if (filter.status && summary.status !== filter.status) {
+          return false;
+        }
+        if (filter.text) {
+          const haystack = `${summary.id} ${summary.title}`.toLowerCase();
+          if (!haystack.includes(filter.text.toLowerCase())) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  listCapabilitiesProjection(): CanonicalCapabilityRecord[] {
     const directory = getSpecsPaths(this.cwd).capabilitiesDir;
     if (!existsSync(directory)) {
       return [];
@@ -395,7 +685,14 @@ export class SpecStore {
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  readCapability(ref: string): CanonicalCapabilityRecord {
+  async listCapabilities(): Promise<CanonicalCapabilityRecord[]> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    return (await storage.listEntities(identity.space.id, SPEC_CAPABILITY_ENTITY_KIND))
+      .map((entity) => (entity.attributes as unknown as SpecCapabilityEntityAttributes).record)
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  readCapabilityProjection(ref: string): CanonicalCapabilityRecord {
     const capabilityId = normalizeCapabilityId(ref.split(/[\\/]/).pop()?.replace(/\.md$/, "") ?? ref);
     const path = getCanonicalCapabilityPath(this.cwd, capabilityId);
     if (!existsSync(path)) {
@@ -404,8 +701,23 @@ export class SpecStore {
     return parseCanonicalCapability(this.cwd, path);
   }
 
-  readChange(ref: string): SpecChangeRecord {
-    this.initLedger();
+  async readCapability(ref: string): Promise<CanonicalCapabilityRecord> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const capabilityId = normalizeCapabilityId(ref.split(/[\\/]/).pop()?.replace(/\.md$/, "") ?? ref);
+    const entity = await findOrBootstrapEntityByDisplayId(
+      this.cwd,
+      storage,
+      identity.space.id,
+      SPEC_CAPABILITY_ENTITY_KIND,
+      capabilityId,
+    );
+    if (!entity) {
+      throw new Error(`Unknown capability: ${ref}`);
+    }
+    return (entity.attributes as unknown as SpecCapabilityEntityAttributes).record;
+  }
+
+  readChangeProjection(ref: string): SpecChangeRecord {
     const { path, archived } = this.resolveChangeDirectory(ref);
     const state = this.readState(path);
     return {
@@ -425,50 +737,63 @@ export class SpecStore {
     };
   }
 
-  createChange(input: CreateSpecChangeInput): SpecChangeRecord {
-    this.initLedger();
-    const timestamp = currentTimestamp();
-    const state = this.defaultState(input, timestamp);
-    const changeDir = getChangeDir(this.cwd, state.changeId);
-    if (existsSync(join(changeDir, "state.json"))) {
-      throw new Error(`Spec change already exists: ${state.changeId}`);
-    }
-    ensureDir(changeDir);
-    ensureDir(getChangeSpecsDir(this.cwd, state.changeId));
-    writeFileAtomic(getDecisionLogPath(this.cwd, state.changeId), "");
-    this.syncArtifacts(changeDir, state);
-    return this.readChange(state.changeId);
+  async readChange(ref: string): Promise<SpecChangeRecord> {
+    return this.loadCanonicalChange(ref);
   }
 
-  recordClarification(
+  async createChange(input: CreateSpecChangeInput): Promise<SpecChangeRecord> {
+    await this.initLedger();
+    const timestamp = currentTimestamp();
+    const state = this.defaultState(input, timestamp);
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    if (await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId)) {
+      throw new Error(`Spec change already exists: ${state.changeId}`);
+    }
+    return this.persistCanonicalChange(state, [], null, "", "");
+  }
+
+  async recordClarification(
     ref: string,
     question: string,
     answer: string,
     kind: SpecDecisionKind = "clarification",
-  ): SpecChangeRecord {
-    const { path } = this.resolveChangeDirectory(ref);
-    const state = this.readState(path);
+  ): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
     const decision: SpecDecisionRecord = {
       id: nextSequenceId(
-        this.readDecisionLog(path).map((entry) => entry.id),
+        record.decisions.map((entry) => entry.id),
         "decision",
       ),
-      changeId: state.changeId,
+      changeId: record.state.changeId,
       createdAt: currentTimestamp(),
       kind,
       question: question.trim(),
       answer: answer.trim(),
     };
-    appendFileSync(join(path, "decisions.jsonl"), `${JSON.stringify(decision)}\n`, "utf-8");
-    state.status = state.status === "proposed" ? "clarifying" : state.status;
-    state.updatedAt = decision.createdAt;
-    this.syncArtifacts(path, state);
-    return this.readChange(state.changeId);
+    const nextState = this.normalizeState({
+      ...record.state,
+      status: record.state.status === "proposed" ? "clarifying" : record.state.status,
+      updatedAt: decision.createdAt,
+    });
+    const nextDecisions = [...record.decisions, decision];
+    const persisted = await this.persistCanonicalChange(
+      nextState,
+      nextDecisions,
+      record.projection,
+      record.analysis,
+      record.checklist,
+    );
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, record.state.changeId);
+    if (entity) {
+      await appendEntityEvent(storage, entity.id, "decision_recorded", "spec-store", { decision }, decision.createdAt);
+    }
+    return persisted;
   }
 
-  updatePlan(ref: string, input: SpecPlanInput): SpecChangeRecord {
-    const { path } = this.resolveChangeDirectory(ref);
-    const state = this.readState(path);
+  async updatePlan(ref: string, input: SpecPlanInput): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    const state = this.normalizeState({ ...record.state });
     if (input.designNotes !== undefined) {
       state.designNotes = input.designNotes.trim();
     }
@@ -521,13 +846,12 @@ export class SpecStore {
 
     state.updatedAt = currentTimestamp();
     state.status = state.tasks.length > 0 ? "tasked" : "planned";
-    this.syncArtifacts(path, state);
-    return this.readChange(state.changeId);
+    return this.persistCanonicalChange(state, record.decisions, record.projection, record.analysis, record.checklist);
   }
 
-  updateTasks(ref: string, input: SpecTasksInput): SpecChangeRecord {
-    const { path } = this.resolveChangeDirectory(ref);
-    const state = this.readState(path);
+  async updateTasks(ref: string, input: SpecTasksInput): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    const state = this.normalizeState({ ...record.state });
     const nextTasks = input.replace ? [] : [...state.tasks];
 
     for (const taskInput of input.tasks) {
@@ -566,62 +890,59 @@ export class SpecStore {
     state.tasks = nextTasks.sort((left, right) => left.id.localeCompare(right.id));
     state.updatedAt = currentTimestamp();
     state.status = "tasked";
-    this.syncArtifacts(path, state);
-    return this.readChange(state.changeId);
+    return this.persistCanonicalChange(state, record.decisions, record.projection, record.analysis, record.checklist);
   }
 
-  setInitiativeIds(ref: string, initiativeIds: string[]): SpecChangeRecord {
-    const { path } = this.resolveChangeDirectory(ref);
-    const state = this.readState(path);
-    state.initiativeIds = normalizeStringList(initiativeIds);
-    state.updatedAt = currentTimestamp();
-    this.syncArtifacts(path, state);
-    return this.readChange(state.changeId);
+  async setInitiativeIds(ref: string, initiativeIds: string[]): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    const state = this.normalizeState({ ...record.state, initiativeIds: normalizeStringList(initiativeIds), updatedAt: currentTimestamp() });
+    return this.persistCanonicalChange(state, record.decisions, record.projection, record.analysis, record.checklist);
   }
 
-  setResearchIds(ref: string, researchIds: string[]): SpecChangeRecord {
-    const { path } = this.resolveChangeDirectory(ref);
-    const state = this.readState(path);
-    state.researchIds = normalizeStringList(researchIds);
-    state.updatedAt = currentTimestamp();
-    this.syncArtifacts(path, state);
-    return this.readChange(state.changeId);
+  setInitiativeIdsProjection(ref: string, initiativeIds: string[]): SpecChangeRecord {
+    const record = this.readChangeProjection(ref);
+    const state = this.normalizeState({ ...record.state, initiativeIds: normalizeStringList(initiativeIds), updatedAt: currentTimestamp() });
+    return this.materializeChangeRecord(state, record.decisions, record.projection, record.analysis, record.checklist);
   }
 
-  analyzeChange(ref: string): SpecChangeRecord {
-    const { path } = this.resolveChangeDirectory(ref);
-    const state = this.readState(path);
-    const result = analyzeSpecChange(state);
-    const analysisPath = join(path, "analysis.md");
-    writeFileAtomic(analysisPath, renderAnalysisMarkdown(result));
-    state.artifactVersions.analysis = fileUpdatedAt(analysisPath);
-    state.updatedAt = currentTimestamp();
-    this.writeState(path, state);
-    return this.readChange(state.changeId);
+  async setResearchIds(ref: string, researchIds: string[]): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    const state = this.normalizeState({ ...record.state, researchIds: normalizeStringList(researchIds), updatedAt: currentTimestamp() });
+    return this.persistCanonicalChange(state, record.decisions, record.projection, record.analysis, record.checklist);
   }
 
-  generateChecklist(ref: string): SpecChangeRecord {
-    const { path } = this.resolveChangeDirectory(ref);
-    const state = this.readState(path);
-    const result = buildSpecChecklist(state);
-    const checklistPath = join(path, "checklist.md");
-    writeFileAtomic(checklistPath, renderChecklistMarkdown(result));
-    state.artifactVersions.checklist = fileUpdatedAt(checklistPath);
-    state.updatedAt = currentTimestamp();
-    this.writeState(path, state);
-    return this.readChange(state.changeId);
+  async setProjection(ref: string, projection: SpecTicketProjection | null): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    const state = this.normalizeState({ ...record.state, updatedAt: currentTimestamp() });
+    return this.persistCanonicalChange(state, record.decisions, projection, record.analysis, record.checklist);
   }
 
-  finalizeChange(ref: string): SpecChangeRecord {
-    const { path } = this.resolveChangeDirectory(ref);
-    let state = this.readState(path);
-    this.analyzeChange(state.changeId);
-    this.generateChecklist(state.changeId);
-    state = this.readState(path);
-    const analysisArtifact = parseMarkdownArtifact(
-      readFileSync(join(path, "analysis.md"), "utf-8"),
-      join(path, "analysis.md"),
-    );
+  setResearchIdsProjection(ref: string, researchIds: string[]): SpecChangeRecord {
+    const record = this.readChangeProjection(ref);
+    const state = this.normalizeState({ ...record.state, researchIds: normalizeStringList(researchIds), updatedAt: currentTimestamp() });
+    return this.materializeChangeRecord(state, record.decisions, record.projection, record.analysis, record.checklist);
+  }
+
+  async analyzeChange(ref: string): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    const state = this.normalizeState({ ...record.state, updatedAt: currentTimestamp() });
+    const analysis = renderAnalysisMarkdown(analyzeSpecChange(state));
+    return this.persistCanonicalChange(state, record.decisions, record.projection, analysis, record.checklist);
+  }
+
+  async generateChecklist(ref: string): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    const state = this.normalizeState({ ...record.state, updatedAt: currentTimestamp() });
+    const checklist = renderChecklistMarkdown(buildSpecChecklist(state));
+    return this.persistCanonicalChange(state, record.decisions, record.projection, record.analysis, checklist);
+  }
+
+  async finalizeChange(ref: string): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    let state = this.normalizeState({ ...record.state });
+    const analysis = renderAnalysisMarkdown(analyzeSpecChange(state));
+    const checklist = renderChecklistMarkdown(buildSpecChecklist(state));
+    const analysisArtifact = parseMarkdownArtifact(analysis, `${state.changeId}/analysis.md`);
     const ready = analysisArtifact.frontmatter.ready === "true";
     if (!ready) {
       throw new Error(`Spec change ${state.changeId} failed analysis and cannot be finalized.`);
@@ -629,54 +950,29 @@ export class SpecStore {
     state.status = "finalized";
     state.finalizedAt = currentTimestamp();
     state.updatedAt = state.finalizedAt;
-    this.syncArtifacts(path, state);
-    return this.readChange(state.changeId);
+    return this.persistCanonicalChange(state, record.decisions, record.projection, analysis, checklist);
   }
 
-  private mergeCanonicalCapability(state: SpecChangeState, capabilityId: string): void {
-    const path = getCanonicalCapabilityPath(this.cwd, capabilityId);
-    const current = existsSync(path) ? parseCanonicalCapability(this.cwd, path) : null;
-    const next = capabilityFromState(this.cwd, state, capabilityId, path);
-    const merged: CanonicalCapabilityRecord = {
-      id: next.id,
-      title: next.title,
-      summary: next.summary || current?.summary || "",
-      requirements: union(current?.requirements ?? [], next.requirements),
-      scenarios: union(current?.scenarios ?? [], next.scenarios),
-      sourceChanges: union(current?.sourceChanges ?? [], [state.changeId]),
-      updatedAt: currentTimestamp(),
-      path,
-    };
-    writeFileAtomic(path, renderCanonicalCapabilityMarkdown(merged));
-  }
-
-  archiveChange(ref: string): SpecChangeRecord {
-    const { path, archived } = this.resolveChangeDirectory(ref);
-    if (archived) {
-      throw new Error(`Spec change ${ref} is already archived.`);
+  async archiveChange(ref: string): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    if (record.state.status !== "finalized") {
+      throw new Error(`Spec change ${record.state.changeId} must be finalized before archive.`);
     }
-    const state = this.readState(path);
-    if (state.status !== "finalized") {
-      throw new Error(`Spec change ${state.changeId} must be finalized before archive.`);
-    }
-    for (const capability of state.capabilities) {
-      this.mergeCanonicalCapability(state, capability.id);
+    for (const capability of record.state.capabilities) {
+      await this.mergeCanonicalCapability(record.state, capability.id);
     }
     const archivedAt = currentTimestamp();
-    state.status = "archived";
-    state.archivedAt = archivedAt;
-    state.archivedPath = toRepoRelativePath(
-      this.cwd,
-      getArchivedChangeDir(this.cwd, archivedAt.slice(0, 10), state.changeId),
-    );
-    state.updatedAt = archivedAt;
-    this.syncArtifacts(path, state);
-    const archivedPath = state.archivedPath;
-    if (!archivedPath) {
-      throw new Error(`Missing archive path for ${state.changeId}`);
-    }
-    renameSync(path, fromRepoRelativePath(this.cwd, archivedPath));
-    return this.readChange(state.changeId);
+    const state = this.normalizeState({
+      ...record.state,
+      status: "archived",
+      archivedAt,
+      archivedPath: toRepoRelativePath(
+        this.cwd,
+        getArchivedChangeDir(this.cwd, archivedAt.slice(0, 10), record.state.changeId),
+      ),
+      updatedAt: archivedAt,
+    });
+    return this.persistCanonicalChange(state, record.decisions, record.projection, record.analysis, record.checklist);
   }
 }
 

@@ -54,7 +54,3 @@ export function getDocumentationMarkdownPath(cwd: string, sectionGroup: DocSecti
 export function getDocumentationRevisionsPath(cwd: string, sectionGroup: DocSectionGroup, docId: string): string {
   return join(getDocumentationDir(cwd, sectionGroup, docId), "revisions.jsonl");
 }
-
-export function getDocumentationDashboardPath(cwd: string, sectionGroup: DocSectionGroup, docId: string): string {
-  return join(getDocumentationDir(cwd, sectionGroup, docId), "dashboard.json");
-}

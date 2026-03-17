@@ -1,5 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { findEntityByDisplayId, upsertEntityByDisplayId, upsertProjectionForEntity } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildWorkerDashboard, filterWorkersByTelemetry, filterWorkersByText } from "./dashboard.js";
 import type {
@@ -68,6 +70,12 @@ import {
   type WorkerSdkSessionConfig,
   writeRuntimeDescriptor,
 } from "./runtime.js";
+
+const ENTITY_KIND = "worker" as const;
+
+interface WorkerEntityAttributes {
+  worker: WorkerReadResult;
+}
 
 function ensureDir(filePath: string): void {
   mkdirSync(filePath, { recursive: true });
@@ -534,10 +542,62 @@ export class WorkerStore {
       artifacts.checkpoints,
       `${worker.checkpoints.map((entry) => JSON.stringify(entry)).join("\n")}${worker.checkpoints.length > 0 ? "\n" : ""}`,
     );
-    writeJson(artifacts.dashboard, buildWorkerDashboard(this.cwd, worker));
     if (worker.launch) {
       writeRuntimeDescriptor(artifacts.launch, worker.launch);
     }
+  }
+
+  private async upsertCanonicalWorker(worker: WorkerReadResult): Promise<WorkerReadResult> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, worker.summary.id);
+    const version = (existing?.version ?? 0) + 1;
+    const entity = await upsertEntityByDisplayId(storage, {
+      kind: ENTITY_KIND,
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: worker.summary.id,
+      title: worker.summary.title,
+      summary: worker.state.summary || worker.state.objective,
+      status: worker.summary.status,
+      version,
+      tags: [worker.summary.telemetryState, ...(worker.state.linkedRefs.ticketIds ?? [])],
+      pathScopes: [
+        { repositoryId: identity.repository.id, relativePath: worker.summary.path, role: "canonical" },
+        { repositoryId: identity.repository.id, relativePath: relativePath(this.cwd, worker.artifacts.worker), role: "projection" },
+        { repositoryId: identity.repository.id, relativePath: relativePath(this.cwd, worker.artifacts.messages), role: "projection" },
+        { repositoryId: identity.repository.id, relativePath: relativePath(this.cwd, worker.artifacts.checkpoints), role: "projection" },
+      ],
+      attributes: { worker },
+      createdAt: existing?.createdAt ?? worker.state.createdAt,
+      updatedAt: worker.state.updatedAt,
+    });
+    await upsertProjectionForEntity(
+      storage,
+      entity.id,
+      "packet_markdown_projection",
+      "repo_materialized",
+      identity.repository.id,
+      relativePath(this.cwd, worker.artifacts.worker),
+      worker.worker,
+      version,
+      worker.state.createdAt,
+      worker.state.updatedAt,
+    );
+    return worker;
+  }
+
+  private async syncProjectionWorkersToCanonical(): Promise<void> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    for (const summary of this.listWorkersProjection({})) {
+      const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, summary.id);
+      if (!existing || existing.updatedAt !== summary.updatedAt) {
+        await this.upsertCanonicalWorker(this.readWorkerProjection(summary.id));
+      }
+    }
+  }
+
+  private entityWorker(entity: { attributes: unknown }): WorkerReadResult {
+    return (entity.attributes as WorkerEntityAttributes).worker;
   }
 
   private linkWorkerIntoTickets(worker: WorkerState): void {
@@ -1392,6 +1452,157 @@ export class WorkerStore {
       throw new Error("Worker launch descriptor has not been prepared");
     }
     return renderLaunchDescriptor(worker.launch);
+  }
+
+  initLedgerAsync(): Promise<{ initialized: true; root: string }> {
+    return Promise.resolve(this.initLedger());
+  }
+
+  listWorkersProjection(filter: WorkerListFilter = {}): WorkerSummary[] {
+    return this.listWorkers(filter);
+  }
+
+  readWorkerProjection(ref: string): WorkerReadResult {
+    return this.readWorker(ref);
+  }
+
+  managerOverviewProjection(): ManagerOverview {
+    return this.managerOverview();
+  }
+
+  async listWorkersAsync(filter: WorkerListFilter = {}): Promise<WorkerSummary[]> {
+    await this.syncProjectionWorkersToCanonical();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    return (await storage.listEntities(identity.space.id, ENTITY_KIND))
+      .map((entity) => this.entityWorker(entity).summary)
+      .filter((worker) => {
+        if (filter.status && worker.status !== filter.status) return false;
+        if (filter.telemetryState && worker.telemetryState !== filter.telemetryState) return false;
+        if (filter.pendingApproval !== undefined && worker.pendingApproval !== filter.pendingApproval) return false;
+        return !filter.text || filterWorkersByText([worker], filter.text).length > 0;
+      });
+  }
+
+  async readWorkerAsync(ref: string): Promise<WorkerReadResult> {
+    await this.syncProjectionWorkersToCanonical();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const workerId = this.resolveWorkerRef(ref);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, workerId);
+    if (!entity) {
+      const projection = this.readWorkerProjection(ref);
+      await this.upsertCanonicalWorker(projection);
+      return projection;
+    }
+    return this.entityWorker(entity);
+  }
+
+  async managerOverviewAsync(): Promise<ManagerOverview> {
+    const workers = await this.listWorkersAsync({});
+    return {
+      workers,
+      unresolvedInboxWorkers: workers.filter((worker) => worker.unresolvedInboxCount > 0),
+      pendingManagerActionWorkers: workers.filter((worker) => worker.pendingManagerActionCount > 0),
+      pendingApprovalWorkers: workers.filter((worker) => worker.pendingApproval),
+      resumeCandidates: workers.filter(
+        (worker) =>
+          worker.unresolvedInboxCount > 0 &&
+          (worker.status === "requested" ||
+            worker.status === "ready" ||
+            worker.status === "active" ||
+            worker.status === "blocked" ||
+            (worker.status === "waiting_for_review" && !worker.pendingApproval)),
+      ),
+    };
+  }
+
+  async createWorkerAsync(input: CreateWorkerInput): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.createWorker(input));
+  }
+
+  async updateWorkerAsync(ref: string, input: UpdateWorkerInput): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.updateWorker(ref, input));
+  }
+
+  async appendMessageAsync(ref: string, input: AppendWorkerMessageInput): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.appendMessage(ref, input));
+  }
+
+  async acknowledgeMessageAsync(ref: string, messageId: string, actor = "worker", note?: string): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.acknowledgeMessage(ref, messageId, actor, note));
+  }
+
+  async resolveMessageAsync(ref: string, messageId: string, actor = "worker", note?: string): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.resolveMessage(ref, messageId, actor, note));
+  }
+
+  async readInboxAsync(ref: string): Promise<ReturnType<WorkerStore["readInbox"]>> {
+    return this.readInbox(ref);
+  }
+
+  async appendCheckpointAsync(ref: string, input: AppendWorkerCheckpointInput): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.appendCheckpoint(ref, input));
+  }
+
+  async setTelemetryAsync(ref: string, input: SetWorkerTelemetryInput): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.setTelemetry(ref, input));
+  }
+
+  async requestCompletionAsync(ref: string, input: RequestWorkerCompletionInput): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.requestCompletion(ref, input));
+  }
+
+  async decideApprovalAsync(ref: string, input: DecideWorkerApprovalInput): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.decideApproval(ref, input));
+  }
+
+  async recordConsolidationAsync(ref: string, input: RecordWorkerConsolidationInput): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.recordConsolidation(ref, input));
+  }
+
+  async superviseWorkersAsync(refs?: string[], apply = false): Promise<Array<{ ref: string; decision: WorkerSupervisionDecision }>> {
+    return this.superviseWorkers(refs, apply);
+  }
+
+  async prepareLaunchAsync(
+    ref: string,
+    resume = false,
+    note?: string,
+    runtime?: WorkerRuntimeDescriptor["runtime"],
+  ): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.prepareLaunch(ref, resume, note, runtime));
+  }
+
+  async startLaunchExecutionAsync(ref: string): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.startLaunchExecution(ref));
+  }
+
+  async finishLaunchExecutionAsync(ref: string, execution: WorkerExecutionResult): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.finishLaunchExecution(ref, execution));
+  }
+
+  async retireWorkerAsync(ref: string, note?: string): Promise<WorkerReadResult> {
+    return this.upsertCanonicalWorker(this.retireWorker(ref, note));
+  }
+
+  renderListAsync(filter: WorkerListFilter = {}): Promise<string> {
+    return this.listWorkersAsync(filter).then((workers) => renderWorkerList(workers));
+  }
+
+  renderDetailAsync(ref: string): Promise<string> {
+    return this.readWorkerAsync(ref).then((worker) => renderWorkerDetail(worker));
+  }
+
+  renderDashboardAsync(ref: string): Promise<string> {
+    return this.readWorkerAsync(ref).then((worker) => renderWorkerDashboard(worker.dashboard));
+  }
+
+  renderLaunchAsync(ref: string): Promise<string> {
+    return this.readWorkerAsync(ref).then((worker) => {
+      if (!worker.launch) {
+        throw new Error("Worker launch descriptor has not been prepared");
+      }
+      return renderLaunchDescriptor(worker.launch);
+    });
   }
 }
 

@@ -4,7 +4,7 @@
     "title": "Loom storage substrate migration",
     "status": "active",
     "objective": "Replace Pi Loom's file-backed canonical state with a shared local database substrate that supports cross-repo coordination, worktree-aware execution, deterministic repo projection, and future PostgreSQL backends.",
-    "statusSummary": "Strategic migration initiative is active with a finalized spec, an active migration plan, and six projected execution tickets covering policy/contract extraction, ID migration, SQLite backend cutover, sync export/import, worker-runtime carve-outs, and PostgreSQL readiness.",
+    "statusSummary": "Verification after the initial implementation slice shows the closed tickets only cover the storage foundation (`@pi-loom/pi-storage`, policy updates, sync bundle, runtime carve-out, portability tests). The full migration is not complete because the existing Loom packages still reopen file-backed `.loom` state directly and do not yet use the shared storage contract. Additional execution tickets are required to migrate package stores and wire the canonical DB into real package behavior.",
     "targetWindow": "2026 multi-phase migration",
     "owners": [
       "pi-loom maintainers"
@@ -20,7 +20,7 @@
     "roadmapRefs": [
       "item-008"
     ],
-    "updatedAt": "2026-03-16T17:28:05.832Z"
+    "updatedAt": "2026-03-16T19:07:28.492Z"
   },
   "linkedRoadmap": {
     "total": 1,
@@ -80,7 +80,7 @@
         "researchIds": [
           "sqlite-first-storage-substrate-and-sync-architecture"
         ],
-        "updatedAt": "2026-03-16T17:40:15.372Z",
+        "updatedAt": "2026-03-17T00:40:26.902Z",
         "archived": false,
         "path": ".loom/specs/changes/sqlite-first-canonical-storage-substrate"
       }
@@ -147,7 +147,7 @@
         "priority": "medium",
         "type": "task",
         "createdAt": "2026-03-16T17:26:27.768Z",
-        "updatedAt": "2026-03-16T18:29:19.943Z",
+        "updatedAt": "2026-03-16T18:57:09.598Z",
         "deps": [
           "t-0044"
         ],
@@ -184,7 +184,7 @@
         "priority": "medium",
         "type": "task",
         "createdAt": "2026-03-16T17:26:27.788Z",
-        "updatedAt": "2026-03-16T18:34:08.850Z",
+        "updatedAt": "2026-03-16T18:57:09.615Z",
         "deps": [
           "t-0044",
           "t-0045"
@@ -225,7 +225,7 @@
         "priority": "medium",
         "type": "task",
         "createdAt": "2026-03-16T17:26:27.811Z",
-        "updatedAt": "2026-03-16T18:37:52.683Z",
+        "updatedAt": "2026-03-16T18:57:09.629Z",
         "deps": [
           "t-0045",
           "t-0046"
@@ -357,6 +357,12 @@
   "unlinkedReferences": {
     "roadmapRefs": [],
     "specChangeIds": [],
-    "ticketIds": []
+    "ticketIds": [
+      "t-0050",
+      "t-0051",
+      "t-0052",
+      "t-0053",
+      "t-0054"
+    ]
   }
 }

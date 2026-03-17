@@ -116,45 +116,45 @@ export async function handleTicketCommand(args: string, ctx: ExtensionCommandCon
 
   switch (subcommand) {
     case "init": {
-      const result = store.initLedger();
+      const result = await store.initLedgerAsync();
       return `Initialized ticket ledger at ${result.root}`;
     }
     case "create": {
       const title = rest.join(" ").trim();
-      const result = store.createTicket({ title });
+      const result = await store.createTicketAsync({ title });
       return renderTicketDetail(result);
     }
     case "list": {
       const status = rest[0] as "open" | "ready" | "in_progress" | "blocked" | "review" | "closed" | undefined;
-      const tickets = store.listTickets({ includeClosed: status === "closed", status });
+      const tickets = await store.listTicketsAsync({ includeClosed: status === "closed", status });
       return tickets.length > 0 ? tickets.map(renderTicketSummary).join("\n") : "No tickets.";
     }
     case "show": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ticket show <ref>");
-      return renderTicketDetail(store.readTicket(ref));
+      return renderTicketDetail(await store.readTicketAsync(ref));
     }
     case "update": {
       const { ref, updates } = parseUpdateArgs(rest);
-      return renderTicketDetail(store.updateTicket(ref, updates));
+      return renderTicketDetail(await store.updateTicketAsync(ref, updates));
     }
     case "start": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ticket start <ref>");
-      return renderTicketDetail(store.startTicket(ref));
+      return renderTicketDetail(await store.startTicketAsync(ref));
     }
     case "close": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ticket close <ref> [verification note]");
-      return renderTicketDetail(store.closeTicket(ref, rest.slice(1).join(" ")));
+      return renderTicketDetail(await store.closeTicketAsync(ref, rest.slice(1).join(" ")));
     }
     case "ready":
-      return renderGraph(store.graph());
+      return renderGraph(await store.graphAsync());
     case "blocked":
-      return renderGraph(store.graph());
+      return renderGraph(await store.graphAsync());
     case "note": {
       const { ref, text } = parseRefAndText(rest.join(" "));
-      return renderTicketDetail(store.addNote(ref, text));
+      return renderTicketDetail(await store.addNoteAsync(ref, text));
     }
     case "dep": {
       const [action, ref, depRef] = rest;
@@ -162,21 +162,21 @@ export async function handleTicketCommand(args: string, ctx: ExtensionCommandCon
         throw new Error("Usage: /ticket dep <add|remove> <ref> <depRef>");
       }
       return renderTicketDetail(
-        action === "add" ? store.addDependency(ref, depRef) : store.removeDependency(ref, depRef),
+        action === "add" ? await store.addDependencyAsync(ref, depRef) : await store.removeDependencyAsync(ref, depRef),
       );
     }
     case "journal": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ticket journal <ref>");
-      return renderJournal(store.readTicket(ref).journal);
+      return renderJournal((await store.readTicketAsync(ref)).journal);
     }
     case "attach": {
       const { ref, input } = parseAttachArgs(rest);
-      return renderTicketDetail(store.attachArtifact(ref, input));
+      return renderTicketDetail(await store.attachArtifactAsync(ref, input));
     }
     case "checkpoint": {
       const { ref, input } = parseCheckpointArgs(rest.join(" "));
-      return renderTicketDetail(store.recordCheckpoint(ref, input));
+      return renderTicketDetail(await store.recordCheckpointAsync(ref, input));
     }
     default:
       throw new Error(`Unknown /ticket subcommand: ${subcommand}`);

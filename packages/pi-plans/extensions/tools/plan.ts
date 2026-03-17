@@ -162,7 +162,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     ],
     parameters: PlanListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const plans = getStore(ctx).listPlans(params);
+      const plans = await getStore(ctx).listPlans(params);
       return machineResult(
         { plans },
         plans.length > 0 ? plans.map((plan) => `${plan.id} [${plan.status}] ${plan.title}`).join("\n") : "No plans.",
@@ -182,7 +182,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     ],
     parameters: PlanReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = getStore(ctx).readPlan(params.ref);
+      const result = await getStore(ctx).readPlan(params.ref);
       if (params.mode === "packet") {
         return machineResult({ plan: result.summary, packet: result.packet }, result.packet);
       }
@@ -211,22 +211,22 @@ export function registerPlanTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "init": {
-          const result = store.initLedger();
+          const result = await store.initLedger();
           return machineResult(
             { action: params.action, initialized: result },
             `Initialized plan memory at ${result.root}`,
           );
         }
         case "create": {
-          const plan = store.createPlan(toCreateInput(params));
+          const plan = await store.createPlan(toCreateInput(params));
           return machineResult({ action: params.action, plan }, renderPlanDetail(plan));
         }
         case "update": {
-          const plan = store.updatePlan(requireRef(params.ref), toUpdateInput(params));
+          const plan = await store.updatePlan(requireRef(params.ref), toUpdateInput(params));
           return machineResult({ action: params.action, plan }, renderPlanDetail(plan));
         }
         case "archive": {
-          const plan = store.archivePlan(requireRef(params.ref));
+          const plan = await store.archivePlan(requireRef(params.ref));
           return machineResult({ action: params.action, plan }, renderPlanDetail(plan));
         }
       }
@@ -242,7 +242,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     promptGuidelines: ["Prefer the packet when synthesizing or revising a plan from linked durable context."],
     parameters: PlanPacketParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const plan = getStore(ctx).readPlan(params.ref);
+      const plan = await getStore(ctx).readPlan(params.ref);
       return machineResult({ plan: plan.summary, packet: plan.packet }, plan.packet);
     },
   });
@@ -262,8 +262,8 @@ export function registerPlanTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       const plan =
         params.action === "link"
-          ? store.linkPlanTicket(params.ref, { ticketId: params.ticketId, role: params.role, order: params.order })
-          : store.unlinkPlanTicket(params.ref, params.ticketId);
+          ? await store.linkPlanTicket(params.ref, { ticketId: params.ticketId, role: params.role, order: params.order })
+          : await store.unlinkPlanTicket(params.ref, params.ticketId);
       return machineResult({ action: params.action, plan }, renderPlanDetail(plan));
     },
   });
@@ -278,7 +278,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     ],
     parameters: PlanDashboardParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const plan = getStore(ctx).readPlan(params.ref);
+      const plan = await getStore(ctx).readPlan(params.ref);
       return machineResult({ dashboard: plan.dashboard }, renderDashboard(plan.dashboard));
     },
   });

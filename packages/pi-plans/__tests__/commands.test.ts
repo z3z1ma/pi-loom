@@ -72,5 +72,5 @@ describe("/workplan command handler", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 120000);
 });

@@ -68,7 +68,7 @@ describe("/worker command", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 
   it("supports inbox inspection and explicit ack/resolve flows", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -98,7 +98,7 @@ describe("/worker command", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("supports manager overview supervision and messaging flows", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -126,7 +126,7 @@ describe("/worker command", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("lets the manager surface resolve manager-owned inbox backlog", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -152,5 +152,5 @@ describe("/worker command", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 });

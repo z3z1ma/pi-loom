@@ -38,10 +38,6 @@ export function getResearchArtifactsPath(cwd: string, researchId: string): strin
   return join(getResearchDir(cwd, researchId), "artifacts.json");
 }
 
-export function getResearchDashboardPath(cwd: string, researchId: string): string {
-  return join(getResearchDir(cwd, researchId), "dashboard.json");
-}
-
 export function artifactDirectoryName(kind: ResearchArtifactKind): string {
   switch (kind) {
     case "note":

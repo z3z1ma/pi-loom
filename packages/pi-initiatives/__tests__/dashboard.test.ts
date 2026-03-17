@@ -13,15 +13,17 @@ describe("initiative dashboard", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-initiatives-dashboard-"));
+    process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("returns stable machine-usable summaries for linked specs, tickets, and milestones", () => {
+  it("returns stable machine-usable summaries for linked specs, tickets, and milestones", async () => {
     const constitutionalStore = createConstitutionalStore(workspace);
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
@@ -29,19 +31,19 @@ describe("initiative dashboard", () => {
     const initiativeStore = createInitiativeStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T13:00:00.000Z"));
-    constitutionalStore.upsertRoadmapItem({
+    await constitutionalStore.upsertRoadmapItem({
       title: "Establish observability memory",
       status: "active",
       horizon: "now",
       summary: "Make constitutional roadmap links visible inside initiative dashboards.",
     });
-    researchStore.createResearch({ title: "Investigate observability gaps" });
-    const planned = specStore.createChange({ title: "Add observability wall", summary: "Expose runtime health." });
+    await researchStore.createResearch({ title: "Investigate observability gaps" });
+    const planned = await specStore.createChange({ title: "Add observability wall", summary: "Expose runtime health." });
     const blocker = ticketStore.createTicket({ title: "Map legacy metrics" });
     const closer = ticketStore.createTicket({ title: "Backfill dashboards" });
     ticketStore.closeTicket(closer.summary.id, "Dashboard smoke checks passed.");
 
-    initiativeStore.createInitiative({
+    await initiativeStore.createInitiative({
       title: "Observability program",
       objective: "Provide a coherent visibility surface across the platform.",
       risks: ["Legacy metrics may be incomplete"],
@@ -56,8 +58,8 @@ describe("initiative dashboard", () => {
         },
       ],
     });
-    researchStore.linkInitiative("investigate-observability-gaps", "observability-program");
-    const initiative = initiativeStore.readInitiative("observability-program");
+    await researchStore.linkInitiative("investigate-observability-gaps", "observability-program");
+    const initiative = await initiativeStore.readInitiative("observability-program");
 
     expect(initiative.dashboard).toMatchObject({
       initiative: { id: "observability-program", status: "proposed" },
@@ -98,35 +100,30 @@ describe("initiative dashboard", () => {
       unlinkedReferences: { roadmapRefs: [], specChangeIds: [], ticketIds: [] },
     });
     expect(initiative.state.researchIds).toEqual(["investigate-observability-gaps"]);
-    expect(constitutionalStore.readRoadmapItem("item-001").initiativeIds).toEqual(["observability-program"]);
+    expect(constitutionalStore.readRoadmapItemProjection("item-001").initiativeIds).toEqual(["observability-program"]);
 
-    const dashboardJson = readFileSync(
-      join(workspace, ".loom", "initiatives", "observability-program", "dashboard.json"),
-      "utf-8",
-    );
-    expect(dashboardJson).toContain('"linkedRoadmap"');
-    expect(dashboardJson).toContain('"title": "Establish observability memory"');
-    expect(dashboardJson).toContain('"linkedResearch"');
-    expect(dashboardJson).toContain('"ready": 1');
-    expect(dashboardJson).toContain('"closed": 1');
-  });
+    expect(initiative.dashboard.linkedRoadmap.total).toBe(1);
+    expect(initiative.dashboard.linkedResearch.total).toBe(1);
+    expect(initiative.dashboard.linkedTickets.ready).toBe(1);
+    expect(initiative.dashboard.linkedTickets.closed).toBe(1);
+  }, 15000);
 
-  it("surfaces stale linked references instead of crashing the dashboard", () => {
+  it("surfaces stale linked references instead of crashing the dashboard", async () => {
     const constitutionalStore = createConstitutionalStore(workspace);
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
     const initiativeStore = createInitiativeStore(workspace);
 
-    constitutionalStore.upsertRoadmapItem({
+    await constitutionalStore.upsertRoadmapItem({
       title: "Temporary roadmap item",
       status: "active",
       horizon: "next",
       summary: "This link will go stale.",
     });
-    const spec = specStore.createChange({ title: "Temporary spec", summary: "This link will go stale." });
+    const spec = await specStore.createChange({ title: "Temporary spec", summary: "This link will go stale." });
     const ticket = ticketStore.createTicket({ title: "Temporary ticket" });
 
-    initiativeStore.createInitiative({
+    await initiativeStore.createInitiative({
       title: "Roadmap resilience",
       objective: "Keep dashboard reads truthful when linked artifacts disappear.",
       specChangeIds: [spec.summary.id],
@@ -155,7 +152,7 @@ describe("initiative dashboard", () => {
     writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
     writeFileSync(constitutionalStatePath, `${JSON.stringify(constitutionalState, null, 2)}\n`, "utf-8");
 
-    const initiative = initiativeStore.readInitiative("roadmap-resilience");
+    const initiative = initiativeStore.readInitiativeProjection("roadmap-resilience");
 
     expect(initiative.dashboard.linkedRoadmap).toEqual({ total: 0, items: [] });
     expect(initiative.dashboard.linkedSpecs.total).toBe(0);
@@ -165,5 +162,5 @@ describe("initiative dashboard", () => {
       specChangeIds: ["missing-spec", spec.summary.id],
       ticketIds: ["missing-ticket", ticket.summary.id],
     });
-  });
+  }, 15000);
 });

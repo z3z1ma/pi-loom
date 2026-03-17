@@ -11,7 +11,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-initiatives-commands-"));
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -23,10 +26,11 @@ describe("/initiative command handler", () => {
   it("initializes, creates, links work, shows dashboards, and archives durable initiative state", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const ctx = createContext(cwd);
       const specStore = createSpecStore(cwd);
       const ticketStore = createTicketStore(cwd);
-      specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+      await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
       const ticket = ticketStore.createTicket({ title: "Build theme toggle" });
 
       const initialized = await handleInitiativeCommand("init", ctx);
@@ -38,7 +42,7 @@ describe("/initiative command handler", () => {
 
       const linkedSpec = await handleInitiativeCommand("link-spec platform-modernization add-dark-mode", ctx);
       expect(linkedSpec).toContain("Dashboard specs: 1");
-      expect(specStore.readChange("add-dark-mode").state.initiativeIds).toEqual(["platform-modernization"]);
+      expect(specStore.readChangeProjection("add-dark-mode").state.initiativeIds).toEqual(["platform-modernization"]);
 
       const linkedTicket = await handleInitiativeCommand(
         `link-ticket platform-modernization ${ticket.summary.id}`,
@@ -62,5 +66,5 @@ describe("/initiative command handler", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });

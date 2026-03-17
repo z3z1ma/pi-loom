@@ -121,15 +121,15 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
 
   switch (subcommand) {
     case "init": {
-      const result = store.initLedger();
+      const result = await store.initLedgerAsync();
       return `Initialized Ralph memory at ${result.root}`;
     }
     case "create": {
       const parsed = parseCreateArgs(rest.join(" "));
-      return renderRalphDetail(store.createRun({ title: parsed.title, objective: parsed.objective }));
+      return renderRalphDetail(await store.createRunAsync({ title: parsed.title, objective: parsed.objective }));
     }
     case "list": {
-      const runs = store.listRuns();
+      const runs = await store.listRunsAsync();
       return runs.length > 0
         ? runs.map((run) => `${run.id} [${run.status}/${run.phase}] ${run.title}`).join("\n")
         : "No Ralph runs.";
@@ -137,21 +137,21 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
     case "show": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ralph show <run>");
-      return renderRalphDetail(store.readRun(ref));
+      return renderRalphDetail(await store.readRunAsync(ref));
     }
     case "packet": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ralph packet <run>");
-      return store.readRun(ref).packet;
+      return (await store.readRunAsync(ref)).packet;
     }
     case "update": {
       const parsed = parseUpdateArgs(rest.join(" "));
-      return renderRalphDetail(store.updateRun(parsed.ref, { summary: parsed.summary, objective: parsed.objective }));
+      return renderRalphDetail(await store.updateRunAsync(parsed.ref, { summary: parsed.summary, objective: parsed.objective }));
     }
     case "iteration": {
       const parsed = parseIterationArgs(rest.join(" "));
       return renderRalphDetail(
-        store.appendIteration(parsed.ref, {
+        await store.appendIterationAsync(parsed.ref, {
           status: parsed.status as never,
           focus: parsed.focus,
           summary: parsed.summary,
@@ -161,7 +161,7 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
     case "verifier": {
       const parsed = parseVerifierArgs(rest.join(" "));
       return renderRalphDetail(
-        store.setVerifier(parsed.ref, {
+        await store.setVerifierAsync(parsed.ref, {
           sourceKind: parsed.sourceKind as never,
           sourceRef: parsed.sourceRef,
           verdict: parsed.verdict as never,
@@ -173,7 +173,7 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
     case "critique": {
       const parsed = parseCritiqueArgs(rest.join(" "));
       return renderRalphDetail(
-        store.linkCritique(parsed.ref, {
+        await store.linkCritiqueAsync(parsed.ref, {
           critiqueId: parsed.critiqueId,
           kind: parsed.kind as never,
           verdict: parsed.verdict as never,
@@ -185,7 +185,7 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
     case "decide": {
       const parsed = parseDecisionArgs(rest.join(" "));
       return renderRalphDetail(
-        store.decideRun(parsed.ref, {
+        await store.decideRunAsync(parsed.ref, {
           workerRequestedCompletion: parsed.shortcut === "worker-done",
           operatorRequestedStop: parsed.shortcut === "stop",
           timeoutExceeded: parsed.shortcut === "timeout",
@@ -199,14 +199,14 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
     case "launch": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ralph launch <run>");
-      const previous = store.readRun(ref);
-      const result = store.prepareLaunch(ref);
+      const previous = await store.readRunAsync(ref);
+      const result = await store.prepareLaunchAsync(ref);
       const newSessionResult = await ctx.newSession({ parentSession: ctx.sessionManager.getSessionFile() });
       if (!newSessionResult.cancelled) {
         ctx.ui.setEditorText(renderLaunchPrompt(ctx.cwd, result.launch));
         ctx.ui.notify("Fresh Ralph session ready. Submit when ready.", "info");
       } else {
-        store.cancelLaunch(ref, previous.state, result.launch.iterationId, "Interactive Ralph launch was cancelled.");
+        await store.cancelLaunchAsync(ref, previous.state, result.launch.iterationId, "Interactive Ralph launch was cancelled.");
         return `Cancelled Ralph launch for ${ref}.`;
       }
       return renderLaunchDescriptor(ctx.cwd, result.launch);
@@ -214,14 +214,14 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
     case "resume": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ralph resume <run>");
-      const previous = store.readRun(ref);
-      const result = store.resumeRun(ref);
+      const previous = await store.readRunAsync(ref);
+      const result = await store.resumeRunAsync(ref);
       const newSessionResult = await ctx.newSession({ parentSession: ctx.sessionManager.getSessionFile() });
       if (!newSessionResult.cancelled) {
         ctx.ui.setEditorText(renderLaunchPrompt(ctx.cwd, result.launch));
         ctx.ui.notify("Fresh Ralph resume session ready. Submit when ready.", "info");
       } else {
-        store.cancelLaunch(ref, previous.state, result.launch.iterationId, "Interactive Ralph resume was cancelled.");
+        await store.cancelLaunchAsync(ref, previous.state, result.launch.iterationId, "Interactive Ralph resume was cancelled.");
         return `Cancelled Ralph resume for ${ref}.`;
       }
       return renderLaunchDescriptor(ctx.cwd, result.launch);
@@ -229,12 +229,12 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
     case "dashboard": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ralph dashboard <run>");
-      return renderDashboard(store.readRun(ref).dashboard);
+      return renderDashboard((await store.readRunAsync(ref)).dashboard);
     }
     case "archive": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /ralph archive <run>");
-      return renderRalphDetail(store.archiveRun(ref));
+      return renderRalphDetail(await store.archiveRunAsync(ref));
     }
     default:
       throw new Error(`Unknown /ralph subcommand: ${subcommand}`);

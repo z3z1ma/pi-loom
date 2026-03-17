@@ -145,7 +145,7 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     ],
     parameters: DocsListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const docs = getStore(ctx).listDocs(params);
+      const docs = await getStore(ctx).listDocs(params);
       return machineResult(
         { docs },
         docs.length > 0
@@ -167,7 +167,7 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     ],
     parameters: DocsReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = getStore(ctx).readDoc(params.ref);
+      const result = await getStore(ctx).readDoc(params.ref);
       if (params.mode === "packet") {
         return machineResult({ documentation: result.summary, packet: result.packet }, result.packet);
       }
@@ -196,22 +196,22 @@ export function registerDocsTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "init": {
-          const result = store.initLedger();
+          const result = await store.initLedgerAsync();
           return machineResult(
             { action: params.action, initialized: result },
             `Initialized docs memory at ${result.root}`,
           );
         }
         case "create": {
-          const documentation = store.createDoc(toCreateInput(params));
+          const documentation = await store.createDoc(toCreateInput(params));
           return machineResult({ action: params.action, documentation }, renderDocumentationDetail(documentation));
         }
         case "update": {
-          const documentation = store.updateDoc(requireRef(params.ref), toUpdateInput(params));
+          const documentation = await store.updateDoc(requireRef(params.ref), toUpdateInput(params));
           return machineResult({ action: params.action, documentation }, renderDocumentationDetail(documentation));
         }
         case "archive": {
-          const documentation = store.archiveDoc(requireRef(params.ref));
+          const documentation = await store.archiveDoc(requireRef(params.ref));
           return machineResult({ action: params.action, documentation }, renderDocumentationDetail(documentation));
         }
       }
@@ -229,7 +229,7 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     ],
     parameters: DocsPacketParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const documentation = getStore(ctx).readDoc(params.ref);
+      const documentation = await getStore(ctx).readDoc(params.ref);
       return machineResult(
         { documentation: documentation.summary, packet: documentation.packet },
         documentation.packet,
@@ -253,8 +253,8 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const store = getStore(ctx);
       const prepared = params.updateReason
-        ? store.updateDoc(params.ref, { updateReason: params.updateReason })
-        : store.readDoc(params.ref);
+        ? await store.updateDoc(params.ref, { updateReason: params.updateReason })
+        : await store.readDoc(params.ref);
       const previousRevisionId = prepared.state.lastRevisionId;
       const execution = await runDocsUpdate(ctx.cwd, renderUpdatePrompt(ctx.cwd, prepared.state), signal, (text) => {
         onUpdate?.({
@@ -265,7 +265,7 @@ export function registerDocsTools(pi: ExtensionAPI): void {
           },
         });
       });
-      const refreshed = store.readDoc(params.ref);
+      const refreshed = await store.readDoc(params.ref);
       if (execution.exitCode !== 0) {
         throw new Error(
           [
@@ -303,7 +303,7 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     ],
     parameters: DocsDashboardParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const documentation = getStore(ctx).readDoc(params.ref);
+      const documentation = await getStore(ctx).readDoc(params.ref);
       return machineResult({ dashboard: documentation.dashboard }, renderDashboard(documentation.dashboard));
     },
   });

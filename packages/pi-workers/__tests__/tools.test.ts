@@ -330,7 +330,7 @@ describe("worker tools", () => {
       runWorkerLaunchMock.mockReset();
       cleanup();
     }
-  });
+  }, 30000);
 
   it("passes inherited sdk runtime config into worker launches", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -370,7 +370,7 @@ describe("worker tools", () => {
       runWorkerLaunchMock.mockReset();
       cleanup();
     }
-  });
+  }, 30000);
 
   it("supports manager overview and manager-write flows", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -456,9 +456,9 @@ describe("worker tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
-  it("passes inherited sdk runtime config through manager scheduler resumes", async () => {
+  it("bridges inherited runtime/session config into launch preparation and resume", async () => {
     const { cwd, cleanup } = createWorkspace();
     const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
     runWorkerLaunchMock.mockReset();

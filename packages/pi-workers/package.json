@@ -22,6 +22,7 @@
     "@sinclair/typebox": "^0.34.41"
   },
   "dependencies": {
+    "@pi-loom/pi-storage": "0.1.0",
     "@pi-loom/pi-ticketing": "0.1.0"
   },
   "license": "MIT"

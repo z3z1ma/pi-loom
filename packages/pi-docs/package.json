@@ -26,6 +26,7 @@
     "@pi-loom/pi-initiatives": "0.1.0",
     "@pi-loom/pi-research": "0.1.0",
     "@pi-loom/pi-specs": "0.1.0",
+    "@pi-loom/pi-storage": "0.1.0",
     "@pi-loom/pi-ticketing": "0.1.0"
   },
   "license": "MIT"

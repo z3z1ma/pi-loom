@@ -22,6 +22,7 @@
 	},
 	"dependencies": {
 		"@pi-loom/pi-constitution": "0.1.0",
+		"@pi-loom/pi-storage": "0.1.0",
 		"@pi-loom/pi-specs": "0.1.0",
 		"@pi-loom/pi-ticketing": "0.1.0"
 	},

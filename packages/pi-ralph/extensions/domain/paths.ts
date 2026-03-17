@@ -12,7 +12,6 @@ export interface RalphArtifactPaths {
   packet: string;
   run: string;
   iterations: string;
-  dashboard: string;
   launch: string;
 }
 
@@ -49,7 +48,6 @@ export function normalizeRalphRunRef(value: string): string {
     withoutExtension === "packet" ||
     withoutExtension === "run" ||
     withoutExtension === "iterations" ||
-    withoutExtension === "dashboard" ||
     withoutExtension === "launch"
       ? (withoutAt.split(/[\\/]/).slice(-2, -1)[0] ?? withoutExtension)
       : withoutExtension;
@@ -86,10 +84,6 @@ export function getRalphIterationsPath(cwd: string, runId: string): string {
   return join(getRalphRunDir(cwd, runId), "iterations.jsonl");
 }
 
-export function getRalphDashboardPath(cwd: string, runId: string): string {
-  return join(getRalphRunDir(cwd, runId), "dashboard.json");
-}
-
 export function getRalphLaunchPath(cwd: string, runId: string): string {
   return join(getRalphRunDir(cwd, runId), "launch.json");
 }
@@ -101,7 +95,6 @@ export function getRalphArtifactPaths(cwd: string, runId: string): RalphArtifact
     packet: getRalphPacketPath(cwd, runId),
     run: getRalphRunMarkdownPath(cwd, runId),
     iterations: getRalphIterationsPath(cwd, runId),
-    dashboard: getRalphDashboardPath(cwd, runId),
     launch: getRalphLaunchPath(cwd, runId),
   };
 }

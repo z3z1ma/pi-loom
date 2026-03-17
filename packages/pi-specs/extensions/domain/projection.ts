@@ -211,9 +211,9 @@ function projectedTicketMatches(
   );
 }
 
-export function projectSpecTickets(cwd: string, ref: string): SpecChangeRecord {
+export async function projectSpecTickets(cwd: string, ref: string): Promise<SpecChangeRecord> {
   const specStore = createSpecStore(cwd);
-  const change = specStore.readChange(ref);
+  const change = await specStore.readChange(ref);
   if (change.summary.archived || change.state.status !== "finalized") {
     throw new Error(`Spec change ${change.state.changeId} must be active and finalized before ticket projection.`);
   }
@@ -295,5 +295,5 @@ export function projectSpecTickets(cwd: string, ref: string): SpecChangeRecord {
     tickets: nextEntries,
   };
   writeJson(getProjectionPath(cwd, change.state.changeId), projection);
-  return specStore.readChange(change.state.changeId);
+  return specStore.setProjection(change.state.changeId, projection);
 }

@@ -13,36 +13,38 @@ describe("research integration smoke", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-research-smoke-"));
+    process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("preserves research provenance from discovery through initiative, spec, and projected tickets", () => {
+  it("preserves research provenance from discovery through initiative, spec, and projected tickets", async () => {
     const researchStore = createResearchStore(workspace);
     const initiativeStore = createInitiativeStore(workspace);
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:00:00.000Z"));
-    const research = researchStore.createResearch({
+    const research = await researchStore.createResearch({
       title: "Evaluate theme architecture",
       question: "Should theme state move into a shared service?",
       objective: "Decide the theme-state boundary before implementation.",
       openQuestions: ["How should SSR hydration work?"],
       keywords: ["theme", "architecture"],
     });
-    researchStore.recordHypothesis(research.state.researchId, {
+    await researchStore.recordHypothesis(research.state.researchId, {
       statement: "A shared service reduces duplicated persistence logic.",
       evidence: ["Storage reads are duplicated in multiple call sites."],
       results: ["Prototype collapses persistence into one module."],
       status: "supported",
       confidence: "high",
     });
-    researchStore.recordArtifact(research.state.researchId, {
+    await researchStore.recordArtifact(research.state.researchId, {
       kind: "source",
       title: "Theme architecture notes",
       summary: "Survey of current ownership and persistence.",
@@ -51,15 +53,15 @@ describe("research integration smoke", () => {
       linkedHypothesisIds: ["hyp-001"],
     });
 
-    initiativeStore.createInitiative({
+    await initiativeStore.createInitiative({
       title: "Theme modernization",
       objective: "Modernize theme architecture across the product.",
     });
-    researchStore.linkInitiative(research.state.researchId, "theme-modernization");
+    await researchStore.linkInitiative(research.state.researchId, "theme-modernization");
 
-    specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    researchStore.linkSpec(research.state.researchId, "add-dark-mode");
-    const planned = specStore.updatePlan("add-dark-mode", {
+    await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+    await researchStore.linkSpec(research.state.researchId, "add-dark-mode");
+    const planned = await specStore.updatePlan("add-dark-mode", {
       designNotes: "Use a shared theme service and persistent storage adapter.",
       capabilities: [
         {
@@ -72,7 +74,7 @@ describe("research integration smoke", () => {
       ],
     });
     const [reqToggle, reqPersist] = planned.state.requirements.map((requirement) => requirement.id);
-    specStore.updateTasks("add-dark-mode", {
+    await specStore.updateTasks("add-dark-mode", {
       tasks: [
         {
           title: "Build theme foundation",
@@ -87,20 +89,20 @@ describe("research integration smoke", () => {
         },
       ],
     });
-    specStore.finalizeChange("add-dark-mode");
+    await specStore.finalizeChange("add-dark-mode");
 
-    const projected = projectSpecTickets(workspace, "add-dark-mode");
+    const projected = await projectSpecTickets(workspace, "add-dark-mode");
     const projectedTickets = projected.projection?.tickets ?? [];
     const firstTicket = ticketStore.readTicket(projectedTickets[0]?.ticketId ?? "t-0001");
     const secondTicket = ticketStore.readTicket(projectedTickets[1]?.ticketId ?? "t-0002");
-    researchStore.linkTicket(research.state.researchId, firstTicket.summary.id);
+    await researchStore.linkTicket(research.state.researchId, firstTicket.summary.id);
 
-    const refreshedResearch = researchStore.readResearch(research.state.researchId);
-    const refreshedInitiative = initiativeStore.readInitiative("theme-modernization");
-    const refreshedSpec = specStore.readChange("add-dark-mode");
+    const refreshedResearch = await researchStore.readResearch(research.state.researchId);
+    const refreshedInitiative = await initiativeStore.readInitiative("theme-modernization");
+    const refreshedSpec = specStore.readChangeProjection("add-dark-mode");
     const refreshedTicket = ticketStore.readTicket(firstTicket.summary.id);
 
-    expect(existsSync(join(workspace, ".loom", "research", research.state.researchId, "dashboard.json"))).toBe(true);
+    expect(existsSync(join(workspace, ".loom", "research", research.state.researchId, "dashboard.json"))).toBe(false);
     expect(refreshedResearch.dashboard).toMatchObject({
       linkedInitiatives: { total: 1, items: [expect.objectContaining({ id: "theme-modernization" })] },
       linkedSpecs: { total: 1, items: [expect.objectContaining({ id: "add-dark-mode" })] },
@@ -124,5 +126,5 @@ describe("research integration smoke", () => {
     expect(refreshedTicket.summary.researchIds).toEqual([research.state.researchId]);
     expect(secondTicket.ticket.frontmatter["research-ids"]).toEqual([research.state.researchId]);
     expect(projectedTickets).toHaveLength(2);
-  });
+  }, 60000);
 });

@@ -178,7 +178,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       text: Type.Optional(Type.String()),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const workers = getStore(ctx).listWorkers(params);
+      const workers = await getStore(ctx).listWorkersAsync(params);
       return machineResult({ workers }, renderWorkerList(workers));
     },
   });
@@ -192,7 +192,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       mode: Type.Optional(StringEnum(["full", "state", "packet", "worker", "dashboard", "inbox"] as const)),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const worker = getStore(ctx).readWorker(params.ref);
+      const worker = await getStore(ctx).readWorkerAsync(params.ref);
       const mode = params.mode ?? "full";
       if (mode === "state") return machineResult({ state: worker.state }, JSON.stringify(worker.state, null, 2));
       if (mode === "packet") return machineResult({ packet: worker.packet }, worker.packet);
@@ -241,12 +241,12 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "init": {
-          const result = store.initLedger();
+          const result = await store.initLedgerAsync();
           return machineResult(result, `Initialized worker memory at ${result.root}`);
         }
         case "create": {
           if (!params.title?.trim()) throw new Error("title is required for create");
-          const worker = store.createWorker({
+          const worker = await store.createWorkerAsync({
             title: params.title,
             objective: params.objective,
             summary: params.summary,
@@ -258,7 +258,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
         }
         case "update": {
           if (!params.ref) throw new Error("ref is required for update");
-          const worker = store.updateWorker(params.ref, {
+          const worker = await store.updateWorkerAsync(params.ref, {
             title: params.title,
             objective: params.objective,
             summary: params.summary,
@@ -271,13 +271,13 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
         }
         case "append_message": {
           if (!params.ref || !params.message) throw new Error("ref and message are required for append_message");
-          const worker = store.appendMessage(params.ref, params.message);
+          const worker = await store.appendMessageAsync(params.ref, params.message);
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         case "acknowledge_message": {
           if (!params.ref || !params.message?.replyTo)
             throw new Error("ref and message.replyTo are required for acknowledge_message");
-          const worker = store.acknowledgeMessage(
+          const worker = await store.acknowledgeMessageAsync(
             params.ref,
             params.message.replyTo,
             params.message.from ?? "worker",
@@ -288,7 +288,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
         case "resolve_message": {
           if (!params.ref || !params.message?.replyTo)
             throw new Error("ref and message.replyTo are required for resolve_message");
-          const worker = store.resolveMessage(
+          const worker = await store.resolveMessageAsync(
             params.ref,
             params.message.replyTo,
             params.message.from ?? "worker",
@@ -299,33 +299,33 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
         case "append_checkpoint": {
           if (!params.ref || !params.checkpoint)
             throw new Error("ref and checkpoint are required for append_checkpoint");
-          const worker = store.appendCheckpoint(params.ref, params.checkpoint);
+          const worker = await store.appendCheckpointAsync(params.ref, params.checkpoint);
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         case "set_telemetry": {
           if (!params.ref || !params.telemetry) throw new Error("ref and telemetry are required for set_telemetry");
-          const worker = store.setTelemetry(params.ref, params.telemetry);
+          const worker = await store.setTelemetryAsync(params.ref, params.telemetry);
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         case "request_completion": {
           if (!params.ref) throw new Error("ref is required for request_completion");
-          const worker = store.requestCompletion(params.ref, params.completion ?? {});
+          const worker = await store.requestCompletionAsync(params.ref, params.completion ?? {});
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         case "decide_approval": {
           if (!params.ref || !params.approval) throw new Error("ref and approval are required for decide_approval");
-          const worker = store.decideApproval(params.ref, params.approval);
+          const worker = await store.decideApprovalAsync(params.ref, params.approval);
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         case "record_consolidation": {
           if (!params.ref || !params.consolidation)
             throw new Error("ref and consolidation are required for record_consolidation");
-          const worker = store.recordConsolidation(params.ref, params.consolidation);
+          const worker = await store.recordConsolidationAsync(params.ref, params.consolidation);
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         case "retire": {
           if (!params.ref) throw new Error("ref is required for retire");
-          const worker = store.retireWorker(params.ref, params.note);
+          const worker = await store.retireWorkerAsync(params.ref, params.note);
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         default:
@@ -355,19 +355,19 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
       const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
-      const prepared = store.prepareLaunch(params.ref, false, params.note, params.runtime);
+      const prepared = await store.prepareLaunchAsync(params.ref, false, params.note, params.runtime);
       if (params.prepareOnly === true) {
-        return machineResult({ launch: prepared.launch }, store.renderLaunch(params.ref));
+        return machineResult({ launch: prepared.launch }, await store.renderLaunchAsync(params.ref));
       }
-      const running = store.startLaunchExecution(params.ref);
+      const running = await store.startLaunchExecutionAsync(params.ref);
       if (!running.launch) {
         throw new Error("Worker launch descriptor was not created");
       }
       const execution = await runWorkerLaunch(running.launch, signal, undefined, sdkSessionConfig);
-      const finalized = store.finishLaunchExecution(params.ref, execution);
+      const finalized = await store.finishLaunchExecutionAsync(params.ref, execution);
       return machineResult(
         { launch: finalized.launch, execution },
-        `${store.renderLaunch(params.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim(),
+        `${await store.renderLaunchAsync(params.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim(),
       );
     },
   });
@@ -392,19 +392,19 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
       const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
-      const prepared = store.prepareLaunch(params.ref, true, params.note ?? "Resume requested", params.runtime);
+      const prepared = await store.prepareLaunchAsync(params.ref, true, params.note ?? "Resume requested", params.runtime);
       if (params.prepareOnly === true) {
-        return machineResult({ launch: prepared.launch }, store.renderLaunch(params.ref));
+        return machineResult({ launch: prepared.launch }, await store.renderLaunchAsync(params.ref));
       }
-      const running = store.startLaunchExecution(params.ref);
+      const running = await store.startLaunchExecutionAsync(params.ref);
       if (!running.launch) {
         throw new Error("Worker launch descriptor was not created");
       }
       const execution = await runWorkerLaunch(running.launch, signal, undefined, sdkSessionConfig);
-      const finalized = store.finishLaunchExecution(params.ref, execution);
+      const finalized = await store.finishLaunchExecutionAsync(params.ref, execution);
       return machineResult(
         { launch: finalized.launch, execution },
-        `${store.renderLaunch(params.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim(),
+        `${await store.renderLaunchAsync(params.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim(),
       );
     },
   });
@@ -415,7 +415,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     description: "Render a concise worker dashboard view.",
     parameters: Type.Object({ ref: Type.String() }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const worker = getStore(ctx).readWorker(params.ref);
+      const worker = await getStore(ctx).readWorkerAsync(params.ref);
       return machineResult({ dashboard: worker.dashboard }, renderWorkerDashboard(worker.dashboard));
     },
   });

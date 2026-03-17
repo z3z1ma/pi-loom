@@ -6,9 +6,9 @@ This package adds a bounded Ralph-specific orchestration layer under `.loom/ralp
 
 ## Capabilities
 
-- `/ralph` command surface for init/create/list/show/packet/update/iteration/verifier/critique/decide/launch/resume/dashboard/archive flows
+- `/ralph` command surface for init/create/list/show/packet/update/iteration/verifier/critique/decide/launch/resume/dashboard flows
 - `ralph_*` tools for list/read/write/launch/resume/dashboard workflows
-- durable Ralph run records with `state.json`, `packet.md`, `run.md`, `iterations.jsonl`, `dashboard.json`, and `launch.json`
+- durable Ralph run records with canonical `state.json` and `iterations.jsonl`, plus repo-materialized `packet.md` and `run.md`; dashboard views are computed from canonical state instead of written as `dashboard.json`, and `launch.json` remains runtime-only
 - policy-aware run state that records linked Loom refs, verifier summaries, critique links, and explicit continuation decisions
 - fresh-context launch descriptors plus a default subprocess runtime for bounded Ralph launch and resume execution
 - extension lifecycle hooks that initialize the Ralph ledger and teach the agent to treat `.loom/ralph/` as canonical orchestration state
@@ -26,7 +26,7 @@ This package adds a bounded Ralph-specific orchestration layer under `.loom/ralp
 
 ## Artifact policy
 
-- commit canonical Ralph state: `state.json`, `packet.md`, `run.md`, `iterations.jsonl`, and stable `dashboard.json`
+- commit canonical Ralph state: `state.json`, `packet.md`, `run.md`, and `iterations.jsonl`; dashboards are computed from canonical state and should not be committed as `dashboard.json`
 - treat stored path fields inside Ralph artifacts as repo-relative from the workspace root
 - do not commit `launch.json`; it is a runtime handoff descriptor for a specific fresh-session or subprocess launch, not the source of truth for the run
 
@@ -44,7 +44,6 @@ The package already ships the `/ralph` command namespace, `ralph_*` tools, durab
       packet.md
       run.md
       iterations.jsonl
-      dashboard.json
       launch.json
 ```
 

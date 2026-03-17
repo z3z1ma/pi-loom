@@ -32,7 +32,7 @@ export function buildResearchDashboard(
     .listInitiatives({ includeArchived: true })
     .filter((summary: InitiativeSummary) => state.initiativeIds.includes(summary.id));
   const linkedSpecs = specStore
-    .listChanges({ includeArchived: true })
+    .listChangesProjection({ includeArchived: true })
     .filter((summary: SpecChangeSummary) => state.specChangeIds.includes(summary.id));
   const linkedTickets = ticketStore
     .listTickets({ includeClosed: true })

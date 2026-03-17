@@ -10,11 +10,13 @@ describe("TicketStore durable ledger", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-ticketing-store-"));
+    process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
   });
 

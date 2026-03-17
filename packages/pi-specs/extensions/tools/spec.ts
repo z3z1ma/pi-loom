@@ -125,12 +125,12 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     ],
     parameters: SpecListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const changes = getStore(ctx).listChanges({
+      const changes = await getStore(ctx).listChanges({
         status: params.status,
         includeArchived: params.includeArchived,
         text: params.text,
       });
-      const capabilities = getStore(ctx).listCapabilities();
+      const capabilities = await getStore(ctx).listCapabilities();
       return machineResult(
         { changes, capabilities },
         [
@@ -156,14 +156,14 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     parameters: SpecReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       if (params.kind === "capability") {
-        const capability = getStore(ctx).readCapability(params.ref);
+        const capability = await getStore(ctx).readCapability(params.ref);
         return machineResult({ capability }, renderCapabilityDetail(capability));
       }
       try {
-        const change = getStore(ctx).readChange(params.ref);
+        const change = await getStore(ctx).readChange(params.ref);
         return machineResult({ change }, renderSpecDetail(change));
       } catch {
-        const capability = getStore(ctx).readCapability(params.ref);
+        const capability = await getStore(ctx).readCapability(params.ref);
         return machineResult({ capability }, renderCapabilityDetail(capability));
       }
     },
@@ -186,7 +186,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "init": {
-          const result = store.initLedger();
+          const result = await store.initLedger();
           return machineResult(
             { action: params.action, initialized: result },
             `Initialized spec memory at ${result.root}`,
@@ -194,30 +194,30 @@ export function registerSpecTools(pi: ExtensionAPI): void {
         }
         case "propose": {
           if (!params.title?.trim()) throw new Error("title is required for propose");
-          const change = store.createChange({ title: params.title, summary: params.summary });
+          const change = await store.createChange({ title: params.title, summary: params.summary });
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "clarify": {
           if (!params.question?.trim() || !params.answer?.trim()) {
             throw new Error("question and answer are required for clarify");
           }
-          const change = store.recordClarification(requireRef(params.ref), params.question, params.answer);
+          const change = await store.recordClarification(requireRef(params.ref), params.question, params.answer);
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "plan": {
-          const change = store.updatePlan(requireRef(params.ref), toPlanInput(params));
+          const change = await store.updatePlan(requireRef(params.ref), toPlanInput(params));
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "tasks": {
-          const change = store.updateTasks(requireRef(params.ref), toTasksInput(params));
+          const change = await store.updateTasks(requireRef(params.ref), toTasksInput(params));
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "finalize": {
-          const change = store.finalizeChange(requireRef(params.ref));
+          const change = await store.finalizeChange(requireRef(params.ref));
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "archive": {
-          const change = store.archiveChange(requireRef(params.ref));
+          const change = await store.archiveChange(requireRef(params.ref));
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
       }
@@ -239,15 +239,15 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const store = getStore(ctx);
       if (params.mode === "checklist") {
-        const change = store.generateChecklist(params.ref);
+        const change = await store.generateChecklist(params.ref);
         return machineResult({ mode: params.mode, change }, renderSpecDetail(change));
       }
       if (params.mode === "both") {
-        store.analyzeChange(params.ref);
-        const change = store.generateChecklist(params.ref);
+        await store.analyzeChange(params.ref);
+        const change = await store.generateChecklist(params.ref);
         return machineResult({ mode: params.mode, change }, renderSpecDetail(change));
       }
-      const change = store.analyzeChange(params.ref);
+      const change = await store.analyzeChange(params.ref);
       return machineResult({ mode: params.mode ?? "analysis", change }, renderSpecDetail(change));
     },
   });
@@ -265,7 +265,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     ],
     parameters: SpecProjectParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const change = projectSpecTickets(ctx.cwd, params.ref);
+      const change = await projectSpecTickets(ctx.cwd, params.ref);
       return machineResult({ change }, renderSpecDetail(change));
     },
   });

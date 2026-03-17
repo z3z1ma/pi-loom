@@ -41,10 +41,6 @@ export function getCritiqueFindingsPath(cwd: string, critiqueId: string): string
   return join(getCritiqueDir(cwd, critiqueId), "findings.jsonl");
 }
 
-export function getCritiqueDashboardPath(cwd: string, critiqueId: string): string {
-  return join(getCritiqueDir(cwd, critiqueId), "dashboard.json");
-}
-
 export function getCritiqueLaunchPath(cwd: string, critiqueId: string): string {
   return join(getCritiqueDir(cwd, critiqueId), "launch.json");
 }

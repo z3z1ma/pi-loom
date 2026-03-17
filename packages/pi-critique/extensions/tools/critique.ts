@@ -252,7 +252,7 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
     ],
     parameters: CritiqueListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const critiques = getStore(ctx).listCritiques(params);
+      const critiques = await getStore(ctx).listCritiquesAsync(params);
       return machineResult(
         { critiques },
         critiques.length > 0
@@ -276,7 +276,7 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
     ],
     parameters: CritiqueReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = getStore(ctx).readCritique(params.ref);
+      const result = await getStore(ctx).readCritiqueAsync(params.ref);
       if (params.mode === "packet") {
         return machineResult({ critique: result.summary, packet: result.packet }, result.packet);
       }
@@ -305,22 +305,22 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "init": {
-          const result = store.initLedger();
+          const result = await store.initLedgerAsync();
           return machineResult(
             { action: params.action, initialized: result },
             `Initialized critique memory at ${result.root}`,
           );
         }
         case "create": {
-          const critique = store.createCritique(toCreateInput(params));
+          const critique = await store.createCritiqueAsync(toCreateInput(params));
           return machineResult({ action: params.action, critique }, renderCritiqueDetail(critique));
         }
         case "update": {
-          const critique = store.updateCritique(requireRef(params.ref), toUpdateInput(params));
+          const critique = await store.updateCritiqueAsync(requireRef(params.ref), toUpdateInput(params));
           return machineResult({ action: params.action, critique }, renderCritiqueDetail(critique));
         }
         case "resolve": {
-          const critique = store.resolveCritique(requireRef(params.ref), params.verdict);
+          const critique = await store.resolveCritiqueAsync(requireRef(params.ref), params.verdict);
           return machineResult({ action: params.action, critique }, renderCritiqueDetail(critique));
         }
       }
@@ -343,7 +343,7 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
     parameters: CritiqueLaunchParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const store = getStore(ctx);
-      const launched = store.launchCritique(params.ref);
+      const launched = await store.launchCritiqueAsync(params.ref);
       const previousLastRunId = launched.critique.state.lastRunId;
       const execution = await runCritiqueLaunch(ctx.cwd, launched.launch, signal, (text) => {
         onUpdate?.({
@@ -356,7 +356,7 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
           },
         });
       });
-      const critique = store.readCritique(params.ref);
+      const critique = await store.readCritiqueAsync(params.ref);
       if (execution.exitCode !== 0) {
         throw new Error(
           [
@@ -401,7 +401,7 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
     ],
     parameters: CritiqueRunParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const critique = getStore(ctx).recordRun(params.ref, params);
+      const critique = await getStore(ctx).recordRunAsync(params.ref, params);
       return machineResult({ critique }, renderCritiqueDetail(critique));
     },
   });
@@ -422,15 +422,15 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "create": {
-          const critique = store.addFinding(params.ref, toCreateFindingInput(params));
+          const critique = await store.addFindingAsync(params.ref, toCreateFindingInput(params));
           return machineResult({ critique }, renderCritiqueDetail(critique));
         }
         case "update": {
-          const critique = store.updateFinding(params.ref, toUpdateFindingInput(params));
+          const critique = await store.updateFindingAsync(params.ref, toUpdateFindingInput(params));
           return machineResult({ critique }, renderCritiqueDetail(critique));
         }
         case "ticketify": {
-          const critique = store.ticketifyFinding(params.ref, {
+          const critique = await store.ticketifyFindingAsync(params.ref, {
             findingId: requireRef(params.id),
             title: params.ticketTitle,
           });
@@ -451,7 +451,7 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
     ],
     parameters: CritiqueDashboardParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const critique = getStore(ctx).readCritique(params.ref);
+      const critique = await getStore(ctx).readCritiqueAsync(params.ref);
       return machineResult({ dashboard: critique.dashboard }, renderDashboard(critique.dashboard));
     },
   });

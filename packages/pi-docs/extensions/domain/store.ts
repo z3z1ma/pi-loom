@@ -20,6 +20,8 @@ import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/mode
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import { findEntityByDisplayId, upsertEntityByDisplayId, upsertProjectionForEntity } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildDocumentationDashboard, summarizeDocumentation } from "./dashboard.js";
@@ -52,7 +54,6 @@ import {
   summarizeDocument,
 } from "./normalize.js";
 import {
-  getDocumentationDashboardPath,
   getDocumentationDir,
   getDocumentationMarkdownPath,
   getDocumentationPacketPath,
@@ -61,6 +62,12 @@ import {
   getDocumentationStatePath,
 } from "./paths.js";
 import { renderDocumentationMarkdown } from "./render.js";
+
+const ENTITY_KIND = "documentation" as const;
+
+interface DocumentationEntityAttributes {
+  record: DocumentationReadResult;
+}
 
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
@@ -187,6 +194,70 @@ export class DocumentationStore {
     return { initialized: true, root: paths.docsDir };
   }
 
+  private async upsertCanonicalRecord(record: DocumentationReadResult): Promise<DocumentationReadResult> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, record.summary.id);
+    const version = (existing?.version ?? 0) + 1;
+    const entity = await upsertEntityByDisplayId(storage, {
+      kind: ENTITY_KIND,
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: record.summary.id,
+      title: record.summary.title,
+      summary: record.state.summary,
+      status: record.summary.status,
+      version,
+      tags: [record.summary.docType, ...record.state.guideTopics],
+      pathScopes: [
+        { repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" },
+        { repositoryId: identity.repository.id, relativePath: record.dashboard.packetPath, role: "projection" },
+        { repositoryId: identity.repository.id, relativePath: record.dashboard.documentPath, role: "projection" },
+      ],
+      attributes: { record },
+      createdAt: existing?.createdAt ?? record.state.createdAt,
+      updatedAt: record.state.updatedAt,
+    });
+    await upsertProjectionForEntity(
+      storage,
+      entity.id,
+      "packet_markdown_projection",
+      "repo_materialized",
+      identity.repository.id,
+      record.dashboard.packetPath,
+      record.packet,
+      version,
+      record.state.createdAt,
+      record.state.updatedAt,
+    );
+    await upsertProjectionForEntity(
+      storage,
+      entity.id,
+      "documentation_markdown_body",
+      "repo_materialized",
+      identity.repository.id,
+      record.dashboard.documentPath,
+      record.document,
+      version,
+      record.state.createdAt,
+      record.state.updatedAt,
+    );
+    return record;
+  }
+
+  private async syncProjectionDocsToCanonical(): Promise<void> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    for (const summary of this.listDocsProjection({})) {
+      const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, summary.id);
+      if (!existing || existing.updatedAt !== summary.updatedAt) {
+        await this.upsertCanonicalRecord(this.readDocProjection(summary.id));
+      }
+    }
+  }
+
+  private entityRecord(entity: { attributes: unknown }): DocumentationReadResult {
+    return (entity.attributes as DocumentationEntityAttributes).record;
+  }
+
   private sectionGroups(): DocSectionGroup[] {
     return ["overviews", "guides", "concepts", "operations"];
   }
@@ -296,7 +367,7 @@ export class DocumentationStore {
       return null;
     }
     try {
-      return createConstitutionalStore(this.cwd).readConstitution();
+      return createConstitutionalStore(this.cwd).readConstitutionProjection();
     } catch {
       return null;
     }
@@ -304,7 +375,7 @@ export class DocumentationStore {
 
   private safeReadInitiative(id: string): InitiativeRecord | null {
     try {
-      return createInitiativeStore(this.cwd).readInitiative(id);
+      return createInitiativeStore(this.cwd).readInitiativeProjection(id);
     } catch {
       return null;
     }
@@ -312,7 +383,7 @@ export class DocumentationStore {
 
   private safeReadResearch(id: string): ResearchRecord | null {
     try {
-      return createResearchStore(this.cwd).readResearch(id);
+      return createResearchStore(this.cwd).readResearchProjection(id);
     } catch {
       return null;
     }
@@ -320,7 +391,7 @@ export class DocumentationStore {
 
   private safeReadSpec(id: string): SpecChangeRecord | null {
     try {
-      return createSpecStore(this.cwd).readChange(id);
+      return createSpecStore(this.cwd).readChangeProjection(id);
     } catch {
       return null;
     }
@@ -456,7 +527,7 @@ export class DocumentationStore {
       ? contextRefs.roadmapItemIds
           .map((itemId) => {
             try {
-              return createConstitutionalStore(this.cwd).readRoadmapItem(itemId);
+              return createConstitutionalStore(this.cwd).readRoadmapItemProjection(itemId);
             } catch {
               return null;
             }
@@ -664,7 +735,6 @@ export class DocumentationStore {
     this.writeState(state);
     writeFileAtomic(getDocumentationPacketPath(this.cwd, state.sectionGroup, state.docId), packet);
     writeFileAtomic(getDocumentationMarkdownPath(this.cwd, state.sectionGroup, state.docId), document);
-    writeJson(getDocumentationDashboardPath(this.cwd, state.sectionGroup, state.docId), dashboard);
 
     const summary = summarizeDocumentation(state, docDir, revisions.length);
     return {
@@ -704,7 +774,7 @@ export class DocumentationStore {
     };
   }
 
-  listDocs(filter: DocumentationListFilter = {}) {
+  listDocsProjection(filter: DocumentationListFilter = {}) {
     this.initLedger();
     return this.documentationDirectories()
       .map((directory) => {
@@ -742,7 +812,7 @@ export class DocumentationStore {
       });
   }
 
-  readDoc(ref: string): DocumentationReadResult {
+  readDocProjection(ref: string): DocumentationReadResult {
     this.initLedger();
     const docDir = this.resolveDocDirectory(ref);
     const state = this.readState(docDir);
@@ -751,7 +821,7 @@ export class DocumentationStore {
     return this.writeArtifacts(state, revisions, documentBody);
   }
 
-  createDoc(input: CreateDocumentationInput): DocumentationReadResult {
+  createDocProjection(input: CreateDocumentationInput): DocumentationReadResult {
     this.initLedger();
     const timestamp = currentTimestamp();
     const docId = this.nextDocId(input.title);
@@ -767,8 +837,8 @@ export class DocumentationStore {
     return this.writeArtifacts(nextState, [], documentBody);
   }
 
-  updateDoc(ref: string, input: UpdateDocumentationInput): DocumentationReadResult {
-    const current = this.readDoc(ref);
+  updateDocProjection(ref: string, input: UpdateDocumentationInput): DocumentationReadResult {
+    const current = this.readDocProjection(ref);
     const documentBody =
       input.document?.trim() ||
       this.readDocumentBody(this.resolveDocDirectory(ref)) ||
@@ -827,8 +897,8 @@ export class DocumentationStore {
     );
   }
 
-  archiveDoc(ref: string): DocumentationReadResult {
-    const current = this.readDoc(ref);
+  archiveDocProjection(ref: string): DocumentationReadResult {
+    const current = this.readDocProjection(ref);
     return this.writeArtifacts(
       {
         ...current.state,
@@ -838,6 +908,62 @@ export class DocumentationStore {
       current.revisions,
       this.readDocumentBody(this.resolveDocDirectory(ref)) || this.defaultDocumentBody(current.state),
     );
+  }
+
+  async initLedgerAsync(): Promise<{ initialized: true; root: string }> {
+    return this.initLedger();
+  }
+
+  async listDocs(filter: DocumentationListFilter = {}): Promise<ReturnType<DocumentationStore["listDocsProjection"]>> {
+    await this.syncProjectionDocsToCanonical();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    return (await storage.listEntities(identity.space.id, ENTITY_KIND))
+      .map((entity) => this.entityRecord(entity))
+      .filter((record) => {
+        const summary = record.summary;
+        if (filter.status && summary.status !== filter.status) return false;
+        if (filter.docType && summary.docType !== filter.docType) return false;
+        if (filter.sectionGroup && summary.sectionGroup !== filter.sectionGroup) return false;
+        if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) return false;
+        if (filter.topic) {
+          if (!record.state.guideTopics.includes(filter.topic)) return false;
+        }
+        if (!filter.text) return true;
+        const text = filter.text.toLowerCase();
+        return [summary.id, summary.title, summary.summary, summary.docType, summary.sourceKind, summary.sourceRef]
+          .join(" ")
+          .toLowerCase()
+          .includes(text);
+      })
+      .map((record) => record.summary);
+  }
+
+  async readDoc(ref: string): Promise<DocumentationReadResult> {
+    await this.syncProjectionDocsToCanonical();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const docId = normalizeDocRef(ref);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, docId);
+    if (!entity) {
+      const projection = this.readDocProjection(ref);
+      await this.upsertCanonicalRecord(projection);
+      return projection;
+    }
+    return this.entityRecord(entity);
+  }
+
+  async createDoc(input: CreateDocumentationInput): Promise<DocumentationReadResult> {
+    const record = this.createDocProjection(input);
+    return this.upsertCanonicalRecord(record);
+  }
+
+  async updateDoc(ref: string, input: UpdateDocumentationInput): Promise<DocumentationReadResult> {
+    const record = this.updateDocProjection(ref, input);
+    return this.upsertCanonicalRecord(record);
+  }
+
+  async archiveDoc(ref: string): Promise<DocumentationReadResult> {
+    const record = this.archiveDocProjection(ref);
+    return this.upsertCanonicalRecord(record);
   }
 }
 

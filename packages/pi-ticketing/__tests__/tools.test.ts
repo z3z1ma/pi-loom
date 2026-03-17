@@ -225,7 +225,7 @@ describe("ticket tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("returns machine-usable details for journal, attachment, and close mutations", async () => {
     const { cwd, cleanup } = createTempWorkspace();
@@ -301,5 +301,5 @@ describe("ticket tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });

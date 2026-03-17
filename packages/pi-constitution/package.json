@@ -21,5 +21,8 @@
 		"@mariozechner/pi-coding-agent": ">=0.57.0",
 		"@sinclair/typebox": "^0.34.41"
 	},
+	"dependencies": {
+		"@pi-loom/pi-storage": "0.1.0"
+	},
 	"license": "MIT"
 }

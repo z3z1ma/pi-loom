@@ -26,7 +26,7 @@ export function buildResearchMap(
   const edges: ResearchMap["edges"] = [];
 
   for (const initiativeId of state.initiativeIds) {
-    const initiative = initiativeStore.readInitiative(initiativeId);
+    const initiative = initiativeStore.readInitiativeProjection(initiativeId);
     nodes[`initiative:${initiativeId}`] = {
       id: `initiative:${initiativeId}`,
       kind: "initiative",
@@ -38,7 +38,7 @@ export function buildResearchMap(
   }
 
   for (const changeId of state.specChangeIds) {
-    const change = specStore.readChange(changeId);
+    const change = specStore.readChangeProjection(changeId);
     nodes[`spec:${changeId}`] = {
       id: `spec:${changeId}`,
       kind: "spec",

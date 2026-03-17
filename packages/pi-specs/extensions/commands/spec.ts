@@ -101,63 +101,63 @@ export async function handleSpecCommand(args: string, ctx: ExtensionCommandConte
 
   switch (subcommand) {
     case "init": {
-      const result = store.initLedger();
+      const result = await store.initLedger();
       return `Initialized spec memory at ${result.root}`;
     }
     case "propose": {
       const title = rest.join(" ").trim();
       if (!title) throw new Error("Usage: /spec propose <title>");
-      return renderSpecDetail(store.createChange({ title }));
+      return renderSpecDetail(await store.createChange({ title }));
     }
     case "list": {
-      const changes = store.listChanges({ includeArchived: true });
+      const changes = await store.listChanges({ includeArchived: true });
       return changes.length > 0 ? changes.map(renderSpecSummary).join("\n") : "No spec changes.";
     }
     case "show": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /spec show <change-or-capability>");
       try {
-        return renderSpecDetail(store.readChange(ref));
+        return renderSpecDetail(await store.readChange(ref));
       } catch {
-        return renderCapabilityDetail(store.readCapability(ref));
+        return renderCapabilityDetail(await store.readCapability(ref));
       }
     }
     case "clarify": {
       const { ref, question, answer } = parseClarifyArgs(rest.join(" "));
-      return renderSpecDetail(store.recordClarification(ref, question, answer));
+      return renderSpecDetail(await store.recordClarification(ref, question, answer));
     }
     case "plan": {
       const { ref, input } = parsePlanArgs(rest.join(" "));
-      return renderSpecDetail(store.updatePlan(ref, input));
+      return renderSpecDetail(await store.updatePlan(ref, input));
     }
     case "tasks": {
       const { ref, input } = parseTasksArgs(rest.join(" "));
-      return renderSpecDetail(store.updateTasks(ref, input));
+      return renderSpecDetail(await store.updateTasks(ref, input));
     }
     case "analyze": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /spec analyze <change>");
-      return renderSpecDetail(store.analyzeChange(ref));
+      return renderSpecDetail(await store.analyzeChange(ref));
     }
     case "checklist": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /spec checklist <change>");
-      return renderSpecDetail(store.generateChecklist(ref));
+      return renderSpecDetail(await store.generateChecklist(ref));
     }
     case "finalize": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /spec finalize <change>");
-      return renderSpecDetail(store.finalizeChange(ref));
+      return renderSpecDetail(await store.finalizeChange(ref));
     }
     case "tickets": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /spec tickets <change>");
-      return renderSpecDetail(projectSpecTickets(ctx.cwd, ref));
+      return renderSpecDetail(await projectSpecTickets(ctx.cwd, ref));
     }
     case "archive": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /spec archive <change>");
-      return renderSpecDetail(store.archiveChange(ref));
+      return renderSpecDetail(await store.archiveChange(ref));
     }
     default:
       throw new Error(`Unknown /spec subcommand: ${subcommand}`);

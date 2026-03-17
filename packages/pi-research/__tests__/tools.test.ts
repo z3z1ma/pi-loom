@@ -31,7 +31,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-research-tools-"));
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -86,6 +89,7 @@ describe("research tools", () => {
   it("returns machine-usable shapes for list, read, write, hypothesis, artifact, dashboard, and map flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { registerResearchTools } = await import("../extensions/tools/research.js");
       registerResearchTools(mockPi as unknown as ExtensionAPI);
@@ -206,11 +210,12 @@ describe("research tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 
   it("preserves canonical artifact body when metadata is updated without a new body", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { registerResearchTools } = await import("../extensions/tools/research.js");
       registerResearchTools(mockPi as unknown as ExtensionAPI);

@@ -33,11 +33,11 @@ function readLinkedRoadmap(cwd: string, roadmapRefs: string[]): { items: Roadmap
   const items: RoadmapItem[] = [];
   const missingRefs: string[] = [];
   for (const roadmapRef of roadmapRefs) {
-    if (!constitutionalStore.hasRoadmapItem(roadmapRef)) {
+    if (!constitutionalStore.hasRoadmapItemProjection(roadmapRef)) {
       missingRefs.push(roadmapRef);
       continue;
     }
-    items.push(constitutionalStore.readRoadmapItem(roadmapRef));
+    items.push(constitutionalStore.readRoadmapItemProjection(roadmapRef));
   }
   return {
     items: items.sort((left, right) => left.id.localeCompare(right.id)),
@@ -117,7 +117,7 @@ export function buildInitiativeDashboard(cwd: string, state: InitiativeState): I
   const linkedRoadmap = readLinkedRoadmap(cwd, state.roadmapRefs);
   const linkedResearch = readLinkedResearch(cwd, state.researchIds);
 
-  const allSpecs = specStore.listChanges({ includeArchived: true }) as InitiativeAwareSpecSummary[];
+  const allSpecs = specStore.listChangesProjection({ includeArchived: true }) as InitiativeAwareSpecSummary[];
   const linkedSpecs = allSpecs.filter((summary) => state.specChangeIds.includes(summary.id));
   const missingSpecIds = state.specChangeIds.filter((id) => !linkedSpecs.some((summary) => summary.id === id));
   const specCounts = zeroCounts(SPEC_STATUSES);
@@ -150,8 +150,8 @@ export function buildInitiativeDashboard(cwd: string, state: InitiativeState): I
   ]);
   const unlinkedRoadmapRefs = normalizeStringList([
     ...constitutionalStore
-      .listRoadmapItems()
-      .filter((item) => item.initiativeIds.includes(state.initiativeId))
+      .readConstitutionProjection()
+      .state.roadmapItems.filter((item) => item.initiativeIds.includes(state.initiativeId))
       .map((item) => item.id)
       .filter((id) => !state.roadmapRefs.includes(id)),
     ...linkedRoadmap.missingRefs,

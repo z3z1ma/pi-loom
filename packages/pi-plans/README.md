@@ -8,7 +8,7 @@ This package adds a first-class planning layer under `.loom/plans/` so bounded p
 
 - `/workplan` command surface for initializing, creating, inspecting, linking, unlinking, listing, and archiving plan records
 - `plan_*` tools for list/read/write/packet/ticket-link/dashboard workflows
-- durable plan records with `state.json`, `packet.md`, `plan.md`, and `dashboard.json`
+- durable plan records with canonical `state.json` plus repo-materialized `packet.md` and `plan.md`; dashboard views are computed from canonical state instead of committed as `dashboard.json`
 - bounded planning packets that pull linked constitution, research, initiative, spec, ticket, critique, and docs context into one durable handoff
 - linked ticket tracking that keeps plan markdown detailed at the execution-strategy layer while tickets remain the high-fidelity execution source of truth and self-contained units of work
 
@@ -30,7 +30,6 @@ This package adds a first-class planning layer under `.loom/plans/` so bounded p
       state.json
       packet.md
       plan.md
-      dashboard.json
 ```
 
 ## Local use

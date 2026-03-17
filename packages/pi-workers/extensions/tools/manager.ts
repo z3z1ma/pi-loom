@@ -40,7 +40,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     description: "Summarize worker fleet state, unresolved inbox backlog, pending approvals, and resume candidates.",
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const overview = getStore(ctx).managerOverview();
+      const overview = await getStore(ctx).managerOverviewAsync();
       return machineResult({ overview }, renderManagerOverview(overview));
     },
   });
@@ -54,7 +54,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
       apply: Type.Optional(Type.Boolean()),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const results = getStore(ctx).superviseWorkers(params.refs, params.apply === true);
+      const results = await getStore(ctx).superviseWorkersAsync(params.refs, params.apply === true);
       return machineResult(
         { results },
         results
@@ -132,7 +132,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
           if (!params.kind || !params.text?.trim()) {
             throw new Error("kind and text are required for manager message action");
           }
-          const worker = store.appendMessage(params.ref, {
+          const worker = await store.appendMessageAsync(params.ref, {
             direction: "manager_to_worker",
             kind: params.kind,
             text: params.text,
@@ -143,7 +143,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
           if (!params.approvalStatus) {
             throw new Error("approvalStatus is required for manager approve action");
           }
-          const worker = store.decideApproval(params.ref, {
+          const worker = await store.decideApprovalAsync(params.ref, {
             status: params.approvalStatus,
             summary: params.text,
             rationale: params.rationale,
@@ -155,35 +155,35 @@ export function registerManagerTools(pi: ExtensionAPI): void {
           if (!params.messageId) {
             throw new Error("messageId is required for manager acknowledge_message action");
           }
-          const worker = store.acknowledgeMessage(params.ref, params.messageId, "manager", params.text);
+          const worker = await store.acknowledgeMessageAsync(params.ref, params.messageId, "manager", params.text);
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         case "resolve_message": {
           if (!params.messageId) {
             throw new Error("messageId is required for manager resolve_message action");
           }
-          const worker = store.resolveMessage(params.ref, params.messageId, "manager", params.text);
+          const worker = await store.resolveMessageAsync(params.ref, params.messageId, "manager", params.text);
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         case "resume": {
-          const prepared = store.prepareLaunch(
+          const prepared = await store.prepareLaunchAsync(
             params.ref,
             true,
             params.note ?? "Prepared by manager tool.",
             params.runtime,
           );
           if (params.prepareOnly === true) {
-            return machineResult({ launch: prepared.launch }, store.renderLaunch(params.ref));
+            return machineResult({ launch: prepared.launch }, await store.renderLaunchAsync(params.ref));
           }
-          const running = store.startLaunchExecution(params.ref);
+          const running = await store.startLaunchExecutionAsync(params.ref);
           if (!running.launch) {
             throw new Error("Worker launch descriptor was not created");
           }
           const execution = await runWorkerLaunch(running.launch, signal, undefined, sdkSessionConfig);
-          const finalized = store.finishLaunchExecution(params.ref, execution);
+          const finalized = await store.finishLaunchExecutionAsync(params.ref, execution);
           return machineResult(
             { launch: finalized.launch, execution },
-            `${store.renderLaunch(params.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim(),
+            `${await store.renderLaunchAsync(params.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim(),
           );
         }
         default:

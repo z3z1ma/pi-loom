@@ -45,7 +45,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-initiatives-index-"));
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -121,6 +124,7 @@ describe("pi-initiatives extension", () => {
   it("routes /initiative output through the registered command handler and initializes the ledger", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { default: piInitiatives } = await import("../extensions/index.js");
       piInitiatives(mockPi as unknown as ExtensionAPI);
@@ -144,6 +148,7 @@ describe("pi-initiatives extension", () => {
   it("augments the system prompt with initiative doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { default: piInitiatives } = await import("../extensions/index.js");
       piInitiatives(mockPi as unknown as ExtensionAPI);

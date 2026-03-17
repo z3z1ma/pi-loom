@@ -61,13 +61,13 @@ export async function handleWorkplanCommand(args: string, ctx: ExtensionCommandC
 
   switch (subcommand) {
     case "init": {
-      const result = store.initLedger();
+      const result = await store.initLedger();
       return `Initialized plan memory at ${result.root}`;
     }
     case "create": {
       const parsed = parseCreateArgs(rest.join(" "));
       return renderPlanDetail(
-        store.createPlan({
+        await store.createPlan({
           title: parsed.title,
           summary: parsed.summary,
           purpose: parsed.summary,
@@ -77,23 +77,23 @@ export async function handleWorkplanCommand(args: string, ctx: ExtensionCommandC
       );
     }
     case "list": {
-      const plans = store.listPlans();
+      const plans = await store.listPlans();
       return plans.length > 0 ? plans.map(renderPlanSummary).join("\n") : "No plans.";
     }
     case "show": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /workplan show <plan>");
-      return renderPlanDetail(store.readPlan(ref));
+      return renderPlanDetail(await store.readPlan(ref));
     }
     case "packet": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /workplan packet <plan>");
-      return store.readPlan(ref).packet;
+      return (await store.readPlan(ref)).packet;
     }
     case "update": {
       const parsed = parseUpdateArgs(rest.join(" "));
       return renderPlanDetail(
-        store.updatePlan(parsed.ref, {
+        await store.updatePlan(parsed.ref, {
           summary: parsed.purpose,
           purpose: parsed.purpose,
           planOfWork: parsed.planOfWork,
@@ -107,7 +107,7 @@ export async function handleWorkplanCommand(args: string, ctx: ExtensionCommandC
         throw new Error("Usage: /workplan link-ticket <plan> <ticket> [role]");
       }
       return renderPlanDetail(
-        store.linkPlanTicket(ref, { ticketId: ticketRef, role: roleParts.join(" ") || undefined }),
+        await store.linkPlanTicket(ref, { ticketId: ticketRef, role: roleParts.join(" ") || undefined }),
       );
     }
     case "unlink-ticket": {
@@ -115,17 +115,17 @@ export async function handleWorkplanCommand(args: string, ctx: ExtensionCommandC
       if (!ref || !ticketRef) {
         throw new Error("Usage: /workplan unlink-ticket <plan> <ticket>");
       }
-      return renderPlanDetail(store.unlinkPlanTicket(ref, ticketRef));
+      return renderPlanDetail(await store.unlinkPlanTicket(ref, ticketRef));
     }
     case "dashboard": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /workplan dashboard <plan>");
-      return renderDashboard(store.readPlan(ref).dashboard);
+      return renderDashboard((await store.readPlan(ref)).dashboard);
     }
     case "archive": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /workplan archive <plan>");
-      return renderPlanDetail(store.archivePlan(ref));
+      return renderPlanDetail(await store.archivePlan(ref));
     }
     default:
       throw new Error(`Unknown /workplan subcommand: ${subcommand}`);

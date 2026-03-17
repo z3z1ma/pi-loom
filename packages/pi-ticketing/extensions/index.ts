@@ -25,11 +25,11 @@ export default function piTicketing(pi: ExtensionAPI): void {
   registerTicketTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
-    createTicketStore(ctx.cwd).initLedger();
+    await createTicketStore(ctx.cwd).initLedgerAsync();
   });
 
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
-    createTicketStore(ctx.cwd).initLedger();
+    await createTicketStore(ctx.cwd).initLedgerAsync();
     return {
       systemPrompt: `${event.systemPrompt}\n\n${buildTicketingSystemPrompt(ctx.cwd)}`,
     };

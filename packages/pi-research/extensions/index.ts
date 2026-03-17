@@ -25,11 +25,11 @@ export default function piResearch(pi: ExtensionAPI): void {
   registerResearchTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
-    createResearchStore(ctx.cwd).initLedger();
+    await createResearchStore(ctx.cwd).initLedger();
   });
 
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
-    createResearchStore(ctx.cwd).initLedger();
+    await createResearchStore(ctx.cwd).initLedger();
     return {
       systemPrompt: `${event.systemPrompt}\n\n${buildResearchSystemPrompt(ctx.cwd)}`,
     };

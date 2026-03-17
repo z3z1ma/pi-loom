@@ -25,11 +25,11 @@ export default function piConstitution(pi: ExtensionAPI): void {
   registerConstitutionTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
-    createConstitutionalStore(ctx.cwd).initLedger();
+    await createConstitutionalStore(ctx.cwd).initLedger();
   });
 
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
-    createConstitutionalStore(ctx.cwd).initLedger();
+    await createConstitutionalStore(ctx.cwd).initLedger();
     return {
       systemPrompt: `${event.systemPrompt}\n\n${buildConstitutionalSystemPrompt(ctx.cwd)}`,
     };

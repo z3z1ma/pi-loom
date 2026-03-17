@@ -142,12 +142,12 @@ export async function handleConstitutionCommand(args: string, ctx: ExtensionComm
 
   switch (subcommand) {
     case "init": {
-      const result = store.initLedger();
+      const result = await store.initLedger();
       return `Initialized constitutional memory at ${result.root}`;
     }
     case "show": {
       const section = rest[0];
-      const record = store.readConstitution();
+      const record = await store.readConstitution();
       switch (section) {
         case undefined:
         case "all":
@@ -177,13 +177,13 @@ export async function handleConstitutionCommand(args: string, ctx: ExtensionComm
       switch (section) {
         case "vision": {
           const [visionSummary, visionNarrative] = parseDoubleColonArgs(payload);
-          return renderConstitutionDetail(store.updateVision({ visionSummary, visionNarrative }));
+          return renderConstitutionDetail(await store.updateVision({ visionSummary, visionNarrative }));
         }
         case "principles": {
-          return renderConstitutionDetail(store.setPrinciples(parseEntries(payload, "principles")));
+          return renderConstitutionDetail(await store.setPrinciples(parseEntries(payload, "principles")));
         }
         case "constraints": {
-          return renderConstitutionDetail(store.setConstraints(parseEntries(payload, "constraints")));
+          return renderConstitutionDetail(await store.setConstraints(parseEntries(payload, "constraints")));
         }
         case "roadmap": {
           const [strategicDirectionSummary, currentFocusRaw, openQuestionsRaw] = parseDoubleColonArgs(payload);
@@ -192,7 +192,7 @@ export async function handleConstitutionCommand(args: string, ctx: ExtensionComm
             currentFocus: currentFocusRaw ? parseList(currentFocusRaw) : undefined,
             openConstitutionQuestions: openQuestionsRaw ? parseList(openQuestionsRaw) : undefined,
           };
-          return renderConstitutionDetail(store.updateRoadmap(updates));
+          return renderConstitutionDetail(await store.updateRoadmap(updates));
         }
         default:
           throw new Error("Usage: /constitution update <vision|principles|constraints|roadmap> ...");
@@ -205,7 +205,7 @@ export async function handleConstitutionCommand(args: string, ctx: ExtensionComm
       }
       switch (roadmapCommand) {
         case "list": {
-          const items = store.listRoadmapItems();
+          const items = await store.listRoadmapItems();
           return items.length > 0 ? items.map(renderRoadmapItemDetail).join("\n\n") : "No roadmap items.";
         }
         case "show": {
@@ -213,14 +213,14 @@ export async function handleConstitutionCommand(args: string, ctx: ExtensionComm
           if (!itemId) {
             throw new Error("Usage: /constitution roadmap show <item-id>");
           }
-          return renderRoadmapItemDetail(store.readRoadmapItem(itemId));
+          return renderRoadmapItemDetail(await store.readRoadmapItem(itemId));
         }
         case "add": {
-          return renderConstitutionDetail(store.upsertRoadmapItem(parseRoadmapCreate(roadmapArgs.join(" "))));
+          return renderConstitutionDetail(await store.upsertRoadmapItem(parseRoadmapCreate(roadmapArgs.join(" "))));
         }
         case "update": {
           const { updates } = parseRoadmapUpdate(roadmapArgs);
-          return renderConstitutionDetail(store.upsertRoadmapItem(updates));
+          return renderConstitutionDetail(await store.upsertRoadmapItem(updates));
         }
         default:
           throw new Error("Usage: /constitution roadmap <list|show|add|update>");
@@ -231,17 +231,17 @@ export async function handleConstitutionCommand(args: string, ctx: ExtensionComm
       if (!itemId || !initiativeId) {
         throw new Error("Usage: /constitution link-initiative <item-id> <initiative-id>");
       }
-      return renderConstitutionDetail(store.linkInitiative(itemId, initiativeId));
+      return renderConstitutionDetail(await store.linkInitiative(itemId, initiativeId));
     }
     case "decision": {
       const { kind, question, answer, affectedArtifacts } = parseDecision(rest.join(" "));
-      return renderConstitutionDetail(store.recordDecision(question, answer, kind, affectedArtifacts));
+      return renderConstitutionDetail(await store.recordDecision(question, answer, kind, affectedArtifacts));
     }
     case "brief": {
-      return store.readConstitution().brief;
+      return (await store.readConstitution()).brief;
     }
     case "dashboard": {
-      return renderConstitutionDashboard(store.readConstitution().dashboard);
+      return renderConstitutionDashboard((await store.readConstitution()).dashboard);
     }
     default:
       throw new Error(`Unknown /constitution subcommand: ${subcommand}`);

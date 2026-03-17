@@ -329,7 +329,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     ],
     parameters: RalphListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const runs = getStore(ctx).listRuns(params);
+      const runs = await getStore(ctx).listRunsAsync(params);
       return machineResult(
         { runs },
         runs.length > 0
@@ -351,7 +351,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     ],
     parameters: RalphReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = getStore(ctx).readRun(params.ref);
+      const result = await getStore(ctx).readRunAsync(params.ref);
       if (params.mode === "packet") {
         return machineResult({ run: result.summary, packet: result.packet }, result.packet);
       }
@@ -381,38 +381,38 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "init": {
-          const initialized = store.initLedger();
+          const result = await store.initLedgerAsync();
           return machineResult(
-            { action: params.action, initialized },
-            `Initialized Ralph memory at ${initialized.root}`,
+            { action: params.action, initialized: result },
+            `Initialized Ralph memory at ${result.root}`,
           );
         }
         case "create": {
-          const run = store.createRun(createInput(params));
+          const run = await store.createRunAsync(createInput(params));
           return machineResult({ action: params.action, run }, renderRalphDetail(run));
         }
         case "update": {
-          const run = store.updateRun(requireRef(params.ref), updateInput(params));
+          const run = await store.updateRunAsync(requireRef(params.ref), updateInput(params));
           return machineResult({ action: params.action, run }, renderRalphDetail(run));
         }
         case "append_iteration": {
-          const run = store.appendIteration(requireRef(params.ref), iterationInput(params));
+          const run = await store.appendIterationAsync(requireRef(params.ref), iterationInput(params));
           return machineResult({ action: params.action, run }, renderRalphDetail(run));
         }
         case "set_verifier": {
-          const run = store.setVerifier(requireRef(params.ref), verifierInput(params));
+          const run = await store.setVerifierAsync(requireRef(params.ref), verifierInput(params));
           return machineResult({ action: params.action, run }, renderRalphDetail(run));
         }
         case "link_critique": {
-          const run = store.linkCritique(requireRef(params.ref), critiqueInput(params));
+          const run = await store.linkCritiqueAsync(requireRef(params.ref), critiqueInput(params));
           return machineResult({ action: params.action, run }, renderRalphDetail(run));
         }
         case "decide": {
-          const run = store.decideRun(requireRef(params.ref), decisionInput(params));
+          const run = await store.decideRunAsync(requireRef(params.ref), decisionInput(params));
           return machineResult({ action: params.action, run }, renderRalphDetail(run));
         }
         case "archive": {
-          const run = store.archiveRun(requireRef(params.ref));
+          const run = await store.archiveRunAsync(requireRef(params.ref));
           return machineResult({ action: params.action, run }, renderRalphDetail(run));
         }
       }
@@ -433,10 +433,10 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     parameters: RalphLaunchParams,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
-      let run = store.prepareLaunch(params.ref, { focus: params.focus, instructions: params.instructions });
+      let run = await store.prepareLaunchAsync(params.ref, { focus: params.focus, instructions: params.instructions });
       const execution = await runRalphLaunch(ctx.cwd, run.launch, signal, undefined);
       if (execution.exitCode !== 0) {
-        run = store.decideRun(params.ref, {
+        run = await store.decideRunAsync(params.ref, {
           runtimeFailure: true,
           summary: execution.stderr || execution.output || "Ralph launch subprocess exited unsuccessfully.",
           decidedBy: "runtime",
@@ -460,10 +460,10 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     parameters: RalphResumeParams,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
-      let run = store.resumeRun(params.ref, { focus: params.focus, instructions: params.instructions });
+      let run = await store.resumeRunAsync(params.ref, { focus: params.focus, instructions: params.instructions });
       const execution = await runRalphLaunch(ctx.cwd, run.launch, signal, undefined);
       if (execution.exitCode !== 0) {
-        run = store.decideRun(params.ref, {
+        run = await store.decideRunAsync(params.ref, {
           runtimeFailure: true,
           summary: execution.stderr || execution.output || "Ralph resume subprocess exited unsuccessfully.",
           decidedBy: "runtime",
@@ -485,7 +485,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     ],
     parameters: RalphDashboardParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const dashboard = getStore(ctx).readRun(params.ref).dashboard;
+      const dashboard = (await getStore(ctx).readRunAsync(params.ref)).dashboard;
       return machineResult({ dashboard }, renderDashboard(dashboard));
     },
   });

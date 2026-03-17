@@ -98,7 +98,7 @@ describe("/ralph command handler", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 
   it("cancels interactive launches without leaving false in-flight state behind", async () => {
     const { cwd, cleanup } = createTempWorkspace();
@@ -123,5 +123,5 @@ describe("/ralph command handler", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });

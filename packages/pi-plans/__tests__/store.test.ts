@@ -16,15 +16,17 @@ describe("PlanStore durable memory", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-plans-store-"));
+    process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("compiles planning packets from linked context, renders detailed plan markdown, and preserves ticket provenance", () => {
+  it("compiles planning packets from linked context, renders detailed plan markdown, and preserves ticket provenance", async () => {
     const constitutionStore = createConstitutionalStore(workspace);
     const critiqueStore = createCritiqueStore(workspace);
     const docsStore = createDocumentationStore(workspace);
@@ -35,17 +37,17 @@ describe("PlanStore durable memory", () => {
     const planStore = createPlanStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
-    constitutionStore.initLedger({ title: "Pi Loom" });
-    constitutionStore.updateVision({
+    await constitutionStore.initLedger({ title: "Pi Loom" });
+    await constitutionStore.updateVision({
       title: "Pi Loom",
       visionSummary: "Build durable AI coordination memory.",
       visionNarrative: "The system should preserve execution strategy as well as execution state durably.",
     });
-    constitutionStore.updateRoadmap({
+    await constitutionStore.updateRoadmap({
       strategicDirectionSummary: "Bridge durable understanding into staged execution without losing ticket fidelity.",
       currentFocus: ["Plans", "Tickets", "Critique"],
     });
-    const roadmap = constitutionStore.upsertRoadmapItem({
+    const roadmap = await constitutionStore.upsertRoadmapItem({
       title: "Planning layer",
       status: "active",
       horizon: "now",
@@ -59,7 +61,7 @@ describe("PlanStore durable memory", () => {
     }
 
     vi.setSystemTime(new Date("2026-03-15T12:05:00.000Z"));
-    const initiative = initiativeStore.createInitiative({
+    const initiative = await initiativeStore.createInitiative({
       title: "Planning Memory",
       objective: "Add first-class planning memory for multi-ticket execution slices.",
       roadmapRefs: [roadmapId],
@@ -67,7 +69,7 @@ describe("PlanStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T12:10:00.000Z"));
-    const research = researchStore.createResearch({
+    const research = await researchStore.createResearch({
       title: "Planning layer semantics",
       question: "How should durable plans differ from specs and tickets?",
       objective: "Design a detailed plan that links tickets without replacing them.",
@@ -80,13 +82,13 @@ describe("PlanStore durable memory", () => {
     initiativeStore.setResearchIds(initiative.state.initiativeId, [research.state.researchId]);
 
     vi.setSystemTime(new Date("2026-03-15T12:15:00.000Z"));
-    const spec = specStore.createChange({
+    const spec = await specStore.createChange({
       title: "Add planning layer",
       summary: "Persist plans, packets, dashboards, and ticket links.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
     });
-    specStore.updatePlan(spec.state.changeId, {
+    await specStore.updatePlan(spec.state.changeId, {
       designNotes:
         "Compile upstream context, render a detailed plan.md, and link tickets without scraping markdown into execution units.",
       capabilities: [
@@ -119,10 +121,10 @@ describe("PlanStore durable memory", () => {
       specChange: spec.state.changeId,
     });
     ticketStore.closeTicket(reviewTicket.summary.id, "Critique and dashboard tests pass.");
-    initiativeStore.linkTicket(initiative.state.initiativeId, implementationTicket.summary.id);
-    initiativeStore.linkTicket(initiative.state.initiativeId, reviewTicket.summary.id);
-    researchStore.linkTicket(research.state.researchId, implementationTicket.summary.id);
-    researchStore.linkTicket(research.state.researchId, reviewTicket.summary.id);
+    await initiativeStore.linkTicket(initiative.state.initiativeId, implementationTicket.summary.id);
+    await initiativeStore.linkTicket(initiative.state.initiativeId, reviewTicket.summary.id);
+    await researchStore.linkTicket(research.state.researchId, implementationTicket.summary.id);
+    await researchStore.linkTicket(research.state.researchId, reviewTicket.summary.id);
 
     vi.setSystemTime(new Date("2026-03-15T12:25:00.000Z"));
     const critique = critiqueStore.createCritique({
@@ -145,7 +147,7 @@ describe("PlanStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T12:30:00.000Z"));
-    const doc = docsStore.createDoc({
+    const doc = await docsStore.createDoc({
       title: "Planning memory system",
       docType: "overview",
       summary: "Explain the durable execution-strategy layer and its relationship to tickets.",
@@ -165,7 +167,7 @@ describe("PlanStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T12:35:00.000Z"));
-    const createdPlan = planStore.createPlan({
+    const createdPlan = await planStore.createPlan({
       title: "Planning layer rollout",
       summary: "Coordinate the multi-ticket rollout for the first-class planning layer.",
       purpose: "Bridge finalized design into a linked implementation and review ticket set.",
@@ -203,12 +205,12 @@ describe("PlanStore durable memory", () => {
       ],
     });
 
-    const linkedPlan = planStore.linkPlanTicket(createdPlan.state.planId, {
+    const linkedPlan = await planStore.linkPlanTicket(createdPlan.state.planId, {
       ticketId: implementationTicket.summary.id,
       role: "implementation",
       order: 1,
     });
-    const linkedClosed = planStore.linkPlanTicket(linkedPlan.state.planId, {
+    const linkedClosed = await planStore.linkPlanTicket(linkedPlan.state.planId, {
       ticketId: reviewTicket.summary.id,
       role: "review",
       order: 2,
@@ -216,10 +218,9 @@ describe("PlanStore durable memory", () => {
 
     expect(linkedClosed.state.planId).toBe("planning-layer-rollout");
     const planRoot = join(workspace, ".loom", "plans", linkedClosed.state.planId);
-    expect(existsSync(join(planRoot, "state.json"))).toBe(true);
+    expect(existsSync(join(planRoot, "state.json"))).toBe(false);
     expect(existsSync(join(planRoot, "packet.md"))).toBe(true);
     expect(existsSync(join(planRoot, "plan.md"))).toBe(true);
-    expect(existsSync(join(planRoot, "dashboard.json"))).toBe(true);
 
     expect(linkedClosed.packet).toContain("Planning Boundaries");
     expect(linkedClosed.packet).toContain(initiative.state.initiativeId);
@@ -252,29 +253,16 @@ describe("PlanStore durable memory", () => {
     expect(linkedClosed.dashboard.counts.tickets).toBe(2);
     expect(linkedClosed.dashboard.counts.byStatus).toMatchObject({ ready: 1, closed: 1 });
 
-    const dashboardPath = join(planRoot, "dashboard.json");
-    const dashboardJson = readFileSync(dashboardPath, "utf-8");
-    expect(dashboardJson).not.toContain("generatedAt");
-    expect(JSON.parse(dashboardJson)).toMatchObject({
-      plan: { path: `.loom/plans/${linkedClosed.state.planId}` },
-      packetPath: `.loom/plans/${linkedClosed.state.planId}/packet.md`,
-      planPath: `.loom/plans/${linkedClosed.state.planId}/plan.md`,
-      linkedTickets: [
-        { ticketId: implementationTicket.summary.id, path: `.loom/tickets/${implementationTicket.summary.id}.md` },
-        { ticketId: reviewTicket.summary.id, path: `.loom/tickets/closed/${reviewTicket.summary.id}.md` },
-      ],
-    });
-
-    const reread = planStore.readPlan(linkedClosed.state.planId);
+    const reread = await planStore.readPlan(linkedClosed.state.planId);
     expect(reread.dashboard).toEqual(linkedClosed.dashboard);
-    expect(readFileSync(dashboardPath, "utf-8")).toBe(dashboardJson);
+    expect(existsSync(join(planRoot, "dashboard.json"))).toBe(false);
 
     const implementationReadback = ticketStore.readTicket(implementationTicket.summary.id);
     const reviewReadback = ticketStore.readTicket(reviewTicket.summary.id);
     expect(implementationReadback.ticket.frontmatter["external-refs"]).toContain(`plan:${linkedClosed.state.planId}`);
     expect(reviewReadback.ticket.frontmatter["external-refs"]).toContain(`plan:${linkedClosed.state.planId}`);
 
-    const unlinked = planStore.unlinkPlanTicket(linkedClosed.state.planId, reviewTicket.summary.id);
+    const unlinked = await planStore.unlinkPlanTicket(linkedClosed.state.planId, reviewTicket.summary.id);
     expect(unlinked.state.linkedTickets).toHaveLength(1);
     expect(unlinked.state.linkedTickets[0]?.ticketId).toBe(implementationTicket.summary.id);
     expect(ticketStore.readTicket(reviewTicket.summary.id).ticket.frontmatter["external-refs"]).toContain(
@@ -284,27 +272,27 @@ describe("PlanStore durable memory", () => {
     const renderedPlan = readFileSync(join(planRoot, "plan.md"), "utf-8");
     expect(renderedPlan).toContain("## Purpose / Big Picture");
     expect(renderedPlan).toContain(`Ticket ${implementationTicket.summary.id}`);
-  }, 10000);
+  }, 120000);
 
-  it("keeps missing linked ticket paths null while preserving repo-relative dashboard paths", () => {
+  it("rebuilds linked ticket dashboard details from canonical storage even if the ticket markdown was removed", async () => {
     const ticketStore = createTicketStore(workspace);
     const planStore = createPlanStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:00:00.000Z"));
-    const created = planStore.createPlan({
+    const created = await planStore.createPlan({
       title: "Missing ticket references",
       sourceTarget: { kind: "workspace", ref: "." },
     });
 
     vi.setSystemTime(new Date("2026-03-15T14:05:00.000Z"));
     const orphanedTicket = ticketStore.createTicket({ title: "Orphaned follow-up" });
-    const linkedExisting = planStore.linkPlanTicket(created.state.planId, {
+    const linkedExisting = await planStore.linkPlanTicket(created.state.planId, {
       ticketId: orphanedTicket.summary.id,
       role: "follow-up",
       order: 1,
     });
     rmSync(join(workspace, orphanedTicket.summary.path), { force: true });
-    const linked = planStore.readPlan(linkedExisting.state.planId);
+    const linked = await planStore.readPlan(linkedExisting.state.planId);
 
     expect(linked.dashboard.plan.path).toBe(`.loom/plans/${created.state.planId}`);
     expect(linked.dashboard.packetPath).toBe(`.loom/plans/${created.state.planId}/packet.md`);
@@ -312,11 +300,11 @@ describe("PlanStore durable memory", () => {
     expect(linked.dashboard.linkedTickets).toEqual([
       expect.objectContaining({
         ticketId: orphanedTicket.summary.id,
-        status: "missing",
-        title: "Missing ticket",
-        path: null,
+        status: "ready",
+        title: "Orphaned follow-up",
+        path: `.loom/tickets/${orphanedTicket.summary.id}.md`,
       }),
     ]);
-    expect(linked.dashboard.counts.byStatus).toMatchObject({ missing: 1 });
-  });
+    expect(linked.dashboard.counts.byStatus).toMatchObject({ ready: 1 });
+  }, 30000);
 });

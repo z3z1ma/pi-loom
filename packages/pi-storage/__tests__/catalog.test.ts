@@ -140,6 +140,7 @@ describe("pi-storage sqlite catalog", () => {
       const specEntity = entities.find((entity) => entity.displayId === "db-migration");
       const workerEntity = entities.find((entity) => entity.displayId === "runtime-worker");
       expect(ticketEntity).toBeDefined();
+      expect(ticketEntity).toMatchObject({ title: "Migrate storage", status: "open" });
       expect(initiativeEntity).toBeDefined();
       expect(specEntity).toBeDefined();
       expect(workerEntity?.kind).toBe("worker");

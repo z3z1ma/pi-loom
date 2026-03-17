@@ -25,11 +25,11 @@ export default function piPlans(pi: ExtensionAPI): void {
   registerPlanTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
-    createPlanStore(ctx.cwd).initLedger();
+    await createPlanStore(ctx.cwd).initLedger();
   });
 
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
-    createPlanStore(ctx.cwd).initLedger();
+    await createPlanStore(ctx.cwd).initLedger();
     return {
       systemPrompt: `${event.systemPrompt}\n\n${buildPlanSystemPrompt(ctx.cwd)}`,
     };

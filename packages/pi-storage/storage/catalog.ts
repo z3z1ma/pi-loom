@@ -60,15 +60,39 @@ function parseJsonSummary(content: string): { title: string | null; summary: str
   }
 }
 
-function parseMarkdownSummary(content: string): { title: string | null; summary: string | null } {
+function parseMarkdownFrontmatter(content: string): Record<string, string> {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) {
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const field = line.match(/^([a-z0-9-]+):\s*(.*)$/i);
+    if (!field) {
+      continue;
+    }
+    const key = field[1]?.trim().toLowerCase();
+    const rawValue = field[2]?.trim() ?? "";
+    if (!key || !rawValue) {
+      continue;
+    }
+    result[key] = rawValue.replace(/^['"]|['"]$/g, "").trim();
+  }
+  return result;
+}
+
+function parseMarkdownSummary(content: string): { title: string | null; summary: string | null; status: string | null } {
+  const frontmatter = parseMarkdownFrontmatter(content);
   const titleMatch = content.match(/^#\s+(.+)$/m);
   const paragraphMatch = content
     .split(/\r?\n\r?\n/)
     .map((part) => part.trim())
     .find((part) => part.length > 0 && !part.startsWith("---") && !part.startsWith("#"));
   return {
-    title: titleMatch?.[1]?.trim() ?? null,
+    title: pickText(frontmatter.title) ?? titleMatch?.[1]?.trim() ?? null,
     summary: paragraphMatch ?? null,
+    status: pickText(frontmatter.status),
   };
 }
 
@@ -86,7 +110,7 @@ function resolveEntityBucket(relativePath: string, content: string): ImportedEnt
     displayId,
     title: jsonSummary?.title ?? markdownSummary?.title ?? titleFallback,
     summary: jsonSummary?.summary ?? markdownSummary?.summary ?? "",
-    status: jsonSummary?.status ?? "active",
+    status: jsonSummary?.status ?? markdownSummary?.status ?? "active",
     files: [{ relativePath, content }],
   });
 

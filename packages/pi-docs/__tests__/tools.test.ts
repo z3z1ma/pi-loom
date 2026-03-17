@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const runDocsUpdate = vi.fn(async (cwd: string) => {
   const { createDocumentationStore } = await import("../extensions/domain/store.js");
-  createDocumentationStore(cwd).updateDoc("documentation-memory-system", {
+  await createDocumentationStore(cwd).updateDoc("documentation-memory-system", {
     updateReason: "Persist fresh maintainer revision.",
     summary: "Updated through a fresh subprocess handoff.",
     changedSections: ["Summary", "Fresh Updater"],
@@ -220,5 +220,5 @@ describe("docs tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });

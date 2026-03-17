@@ -174,10 +174,10 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
     parameters: ConstitutionReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       if ((params as ConstitutionReadParamsValue).itemId) {
-        const item = getStore(ctx).readRoadmapItem((params as ConstitutionReadParamsValue).itemId as string);
+        const item = await getStore(ctx).readRoadmapItem((params as ConstitutionReadParamsValue).itemId as string);
         return machineResult({ item }, renderRoadmapItemDetail(item));
       }
-      const record = getStore(ctx).readConstitution();
+      const record = await getStore(ctx).readConstitution();
       const section = (params as ConstitutionReadParamsValue).section ?? "all";
       switch (section) {
         case "state":
@@ -215,21 +215,21 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch ((params as ConstitutionWriteParamsValue).action) {
         case "init": {
-          const initialized = store.initLedger({ title: params.title, projectId: params.projectId });
+          const initialized = await store.initLedger({ title: params.title, projectId: params.projectId });
           return machineResult(
-            { action: params.action, initialized, constitution: store.readConstitution() },
+            { action: params.action, initialized, constitution: await store.readConstitution() },
             `Initialized constitutional memory at ${initialized.root}`,
           );
         }
         case "update_vision": {
-          const constitution = store.updateVision(toVisionUpdate(params as ConstitutionWriteParamsValue));
+          const constitution = await store.updateVision(toVisionUpdate(params as ConstitutionWriteParamsValue));
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "update_principles": {
           if (!(params as ConstitutionWriteParamsValue).principles) {
             throw new Error("principles are required for update_principles");
           }
-          const constitution = store.setPrinciples(
+          const constitution = await store.setPrinciples(
             (params as ConstitutionWriteParamsValue).principles as ConstitutionalEntryInput[],
           );
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
@@ -238,13 +238,13 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
           if (!(params as ConstitutionWriteParamsValue).constraints) {
             throw new Error("constraints are required for update_constraints");
           }
-          const constitution = store.setConstraints(
+          const constitution = await store.setConstraints(
             (params as ConstitutionWriteParamsValue).constraints as ConstitutionalEntryInput[],
           );
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "update_roadmap": {
-          const constitution = store.updateRoadmap(toRoadmapUpdate(params as ConstitutionWriteParamsValue));
+          const constitution = await store.updateRoadmap(toRoadmapUpdate(params as ConstitutionWriteParamsValue));
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "record_decision": {
@@ -254,7 +254,7 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
           ) {
             throw new Error("question and answer are required for record_decision");
           }
-          const constitution = store.recordDecision(
+          const constitution = await store.recordDecision(
             (params as ConstitutionWriteParamsValue).question as string,
             (params as ConstitutionWriteParamsValue).answer as string,
             (params as ConstitutionWriteParamsValue).decisionKind,
@@ -282,18 +282,20 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch ((params as ConstitutionRoadmapParamsValue).action) {
         case "create_item": {
-          const constitution = store.upsertRoadmapItem(toRoadmapCreate(params as ConstitutionRoadmapParamsValue));
+          const constitution = await store.upsertRoadmapItem(toRoadmapCreate(params as ConstitutionRoadmapParamsValue));
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "update_item": {
-          const constitution = store.upsertRoadmapItem(toRoadmapUpdateItem(params as ConstitutionRoadmapParamsValue));
+          const constitution = await store.upsertRoadmapItem(
+            toRoadmapUpdateItem(params as ConstitutionRoadmapParamsValue),
+          );
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "link_initiative": {
           if (!(params as ConstitutionRoadmapParamsValue).initiativeId?.trim()) {
             throw new Error("initiativeId is required for link_initiative");
           }
-          const constitution = store.linkInitiative(
+          const constitution = await store.linkInitiative(
             requireItemId((params as ConstitutionRoadmapParamsValue).itemId),
             (params as ConstitutionRoadmapParamsValue).initiativeId as string,
           );
@@ -303,7 +305,7 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
           if (!(params as ConstitutionRoadmapParamsValue).initiativeId?.trim()) {
             throw new Error("initiativeId is required for unlink_initiative");
           }
-          const constitution = store.unlinkInitiative(
+          const constitution = await store.unlinkInitiative(
             requireItemId((params as ConstitutionRoadmapParamsValue).itemId),
             (params as ConstitutionRoadmapParamsValue).initiativeId as string,
           );
@@ -324,7 +326,7 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
     ],
     parameters: ConstitutionDashboardParams,
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const constitution = getStore(ctx).readConstitution();
+      const constitution = await getStore(ctx).readConstitution();
       return machineResult(
         { dashboard: constitution.dashboard, constitution },
         renderConstitutionDashboard(constitution.dashboard),

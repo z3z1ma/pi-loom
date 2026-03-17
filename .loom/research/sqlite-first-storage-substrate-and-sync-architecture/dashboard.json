@@ -62,7 +62,7 @@
         "milestoneCount": 1,
         "specChangeCount": 1,
         "ticketCount": 6,
-        "updatedAt": "2026-03-16T17:28:05.832Z",
+        "updatedAt": "2026-03-16T19:07:28.492Z",
         "tags": [
           "migration",
           "multi-repo",
@@ -107,7 +107,7 @@
         "researchIds": [
           "sqlite-first-storage-substrate-and-sync-architecture"
         ],
-        "updatedAt": "2026-03-16T17:40:15.372Z",
+        "updatedAt": "2026-03-17T00:40:26.902Z",
         "archived": false,
         "path": ".loom/specs/changes/sqlite-first-canonical-storage-substrate"
       }

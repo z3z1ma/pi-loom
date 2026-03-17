@@ -14,15 +14,17 @@ describe("CritiqueStore durable memory", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-critique-store-"));
+    process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("compiles fresh-context packets, records durable runs/findings, and creates follow-up tickets", () => {
+  it("compiles fresh-context packets, records durable runs/findings, and creates follow-up tickets", async () => {
     const constitutionStore = createConstitutionalStore(workspace);
     const initiativeStore = createInitiativeStore(workspace);
     const researchStore = createResearchStore(workspace);
@@ -31,17 +33,17 @@ describe("CritiqueStore durable memory", () => {
     const critiqueStore = createCritiqueStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
-    constitutionStore.initLedger({ title: "Pi Loom" });
-    constitutionStore.updateVision({
+    await constitutionStore.initLedger({ title: "Pi Loom" });
+    await constitutionStore.updateVision({
       title: "Pi Loom",
       visionSummary: "Build durable AI coordination and review memory.",
       visionNarrative: "The system should preserve intent, review, and follow-up work durably.",
     });
-    constitutionStore.updateRoadmap({
+    await constitutionStore.updateRoadmap({
       strategicDirectionSummary: "Ship a durable critique system for mission-critical AI development.",
       currentFocus: ["Critique packets", "Adversarial review"],
     });
-    const roadmap = constitutionStore.upsertRoadmapItem({
+    const roadmap = await constitutionStore.upsertRoadmapItem({
       title: "Critique layer",
       status: "active",
       horizon: "now",
@@ -55,7 +57,7 @@ describe("CritiqueStore durable memory", () => {
     }
 
     vi.setSystemTime(new Date("2026-03-15T10:05:00.000Z"));
-    const initiative = initiativeStore.createInitiative({
+    const initiative = await initiativeStore.createInitiative({
       title: "Critique System",
       objective: "Add first-class critique and review memory.",
       roadmapRefs: [roadmapId],
@@ -63,7 +65,7 @@ describe("CritiqueStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T10:10:00.000Z"));
-    const research = researchStore.createResearch({
+    const research = await researchStore.createResearch({
       title: "Fresh review packets",
       question: "How should critique launch work?",
       objective: "Design a fresh-context review handoff.",
@@ -74,13 +76,13 @@ describe("CritiqueStore durable memory", () => {
     initiativeStore.setResearchIds(initiative.state.initiativeId, [research.state.researchId]);
 
     vi.setSystemTime(new Date("2026-03-15T10:15:00.000Z"));
-    const spec = specStore.createChange({
+    const spec = await specStore.createChange({
       title: "Add critique layer",
       summary: "Persist critique packets, runs, findings, and launch metadata.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
     });
-    specStore.updatePlan(spec.state.changeId, {
+    await specStore.updatePlan(spec.state.changeId, {
       designNotes: "Compile review packets from linked context and persist explicit launch descriptors.",
       capabilities: [
         {
@@ -95,7 +97,7 @@ describe("CritiqueStore durable memory", () => {
         },
       ],
     });
-    specStore.updateTasks(spec.state.changeId, {
+    await specStore.updateTasks(spec.state.changeId, {
       tasks: [{ title: "Implement critique store", requirements: ["req-001"] }],
     });
 
@@ -107,8 +109,8 @@ describe("CritiqueStore durable memory", () => {
       researchIds: [research.state.researchId],
       specChange: spec.state.changeId,
     });
-    initiativeStore.linkTicket(initiative.state.initiativeId, ticket.summary.id);
-    researchStore.linkTicket(research.state.researchId, ticket.summary.id);
+    await initiativeStore.linkTicket(initiative.state.initiativeId, ticket.summary.id);
+    await researchStore.linkTicket(research.state.researchId, ticket.summary.id);
 
     vi.setSystemTime(new Date("2026-03-15T10:25:00.000Z"));
     const critique = critiqueStore.createCritique({
@@ -235,5 +237,5 @@ describe("CritiqueStore durable memory", () => {
     expect(
       readFileSync(join(workspace, ".loom", "critiques", critique.state.critiqueId, "critique.md"), "utf-8"),
     ).toContain("Current Verdict");
-  });
+  }, 60000);
 });

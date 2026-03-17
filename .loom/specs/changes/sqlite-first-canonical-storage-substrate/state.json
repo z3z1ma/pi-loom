@@ -3,7 +3,7 @@
   "title": "SQLite-first canonical storage substrate",
   "status": "finalized",
   "createdAt": "2026-03-16T17:12:54.867Z",
-  "updatedAt": "2026-03-16T17:40:15.372Z",
+  "updatedAt": "2026-03-17T00:40:26.902Z",
   "finalizedAt": "2026-03-16T17:40:15.372Z",
   "archivedAt": null,
   "archivedPath": null,
@@ -604,9 +604,9 @@
     }
   ],
   "artifactVersions": {
-    "proposal": "2026-03-16T17:40:15.372Z",
-    "design": "2026-03-16T17:40:15.373Z",
-    "tasks": "2026-03-16T17:40:15.373Z",
+    "proposal": "2026-03-17T00:40:26.906Z",
+    "design": "2026-03-17T00:40:26.907Z",
+    "tasks": "2026-03-17T00:40:26.908Z",
     "analysis": "2026-03-16T17:40:15.362Z",
     "checklist": "2026-03-16T17:40:15.369Z"
   }

@@ -25,11 +25,11 @@ export default function piRalph(pi: ExtensionAPI): void {
   registerRalphTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
-    createRalphStore(ctx.cwd).initLedger();
+    await createRalphStore(ctx.cwd).initLedgerAsync();
   });
 
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
-    createRalphStore(ctx.cwd).initLedger();
+    await createRalphStore(ctx.cwd).initLedgerAsync();
     return {
       systemPrompt: `${event.systemPrompt}\n\n${buildRalphSystemPrompt(ctx.cwd)}`,
     };

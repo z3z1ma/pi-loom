@@ -216,7 +216,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = getStore(ctx).readResearch(params.ref);
+      const research = await getStore(ctx).readResearch(params.ref);
       return machineResult({ research }, renderResearchDetail(research));
     },
   });
@@ -237,52 +237,52 @@ export function registerResearchTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "init": {
-          const result = store.initLedger();
+          const result = await store.initLedger();
           return machineResult(
             { action: params.action, initialized: result },
             `Initialized research memory at ${result.root}`,
           );
         }
         case "create": {
-          const research = store.createResearch(toCreateInput(params));
+          const research = await store.createResearch(toCreateInput(params));
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "update": {
-          const research = store.updateResearch(requireRef(params.ref), toUpdateInput(params));
+          const research = await store.updateResearch(requireRef(params.ref), toUpdateInput(params));
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "archive": {
-          const research = store.archiveResearch(requireRef(params.ref));
+          const research = await store.archiveResearch(requireRef(params.ref));
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "link_initiative": {
           if (!params.initiativeId?.trim()) throw new Error("initiativeId is required for link_initiative");
-          const research = store.linkInitiative(requireRef(params.ref), params.initiativeId);
+          const research = await store.linkInitiative(requireRef(params.ref), params.initiativeId);
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "unlink_initiative": {
           if (!params.initiativeId?.trim()) throw new Error("initiativeId is required for unlink_initiative");
-          const research = store.unlinkInitiative(requireRef(params.ref), params.initiativeId);
+          const research = await store.unlinkInitiative(requireRef(params.ref), params.initiativeId);
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "link_spec": {
           if (!params.specChangeId?.trim()) throw new Error("specChangeId is required for link_spec");
-          const research = store.linkSpec(requireRef(params.ref), params.specChangeId);
+          const research = await store.linkSpec(requireRef(params.ref), params.specChangeId);
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "unlink_spec": {
           if (!params.specChangeId?.trim()) throw new Error("specChangeId is required for unlink_spec");
-          const research = store.unlinkSpec(requireRef(params.ref), params.specChangeId);
+          const research = await store.unlinkSpec(requireRef(params.ref), params.specChangeId);
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "link_ticket": {
           if (!params.ticketId?.trim()) throw new Error("ticketId is required for link_ticket");
-          const research = store.linkTicket(requireRef(params.ref), params.ticketId);
+          const research = await store.linkTicket(requireRef(params.ref), params.ticketId);
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "unlink_ticket": {
           if (!params.ticketId?.trim()) throw new Error("ticketId is required for unlink_ticket");
-          const research = store.unlinkTicket(requireRef(params.ref), params.ticketId);
+          const research = await store.unlinkTicket(requireRef(params.ref), params.ticketId);
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
       }
@@ -301,7 +301,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchHypothesisParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = getStore(ctx).recordHypothesis(params.ref, params as ResearchHypothesisInput);
+      const research = await getStore(ctx).recordHypothesis(params.ref, params as ResearchHypothesisInput);
       return machineResult({ research }, renderResearchDetail(research));
     },
   });
@@ -319,7 +319,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchArtifactParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = getStore(ctx).recordArtifact(params.ref, params as ResearchArtifactInput);
+      const research = await getStore(ctx).recordArtifact(params.ref, params as ResearchArtifactInput);
       return machineResult({ research }, renderResearchDetail(research));
     },
   });
@@ -335,7 +335,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchDashboardParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = getStore(ctx).readResearch(params.ref);
+      const research = await getStore(ctx).readResearch(params.ref);
       return machineResult({ dashboard: research.dashboard, research }, renderResearchDashboard(research.dashboard));
     },
   });
@@ -351,7 +351,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchMapParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = getStore(ctx).readResearch(params.ref);
+      const research = await getStore(ctx).readResearch(params.ref);
       return machineResult({ map: research.map, research }, renderResearchMap(research.map));
     },
   });

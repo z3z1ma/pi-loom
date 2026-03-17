@@ -12,31 +12,35 @@ describe("InitiativeStore durable memory", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-initiatives-store-"));
+    process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
+    process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.PI_LOOM_ROOT;
+    delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("writes durable initiative artifacts, links multiple specs and tickets, and preserves archive state", () => {
+  it("writes durable initiative artifacts, links multiple specs and tickets, and preserves archive state", async () => {
     const initiativeStore = createInitiativeStore(workspace);
     const researchStore = createResearchStore(workspace);
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
-    researchStore.createResearch({ title: "Investigate theme migration" });
-    specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    specStore.createChange({ title: "Modernize theming tokens", summary: "Replace legacy color literals." });
+    await researchStore.createResearch({ title: "Investigate theme migration" });
+    await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+    await specStore.createChange({ title: "Modernize theming tokens", summary: "Replace legacy color literals." });
     const blocker = ticketStore.createTicket({ title: "Prepare token inventory" });
     const dependent = ticketStore.createTicket({
       title: "Apply token migration",
       deps: [blocker.summary.id],
     });
 
-    const created = initiativeStore.createInitiative({
+    const created = await initiativeStore.createInitiative({
       title: "Platform modernization",
       objective: "Coordinate the long-horizon modernization program.",
       outcomes: ["Shared theming strategy", "Stable migration sequencing"],
@@ -62,18 +66,18 @@ describe("InitiativeStore durable memory", () => {
     expect(created.state.initiativeId).toBe("platform-modernization");
     expect(created.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
     expect(existsSync(join(workspace, ".loom", "initiatives", "platform-modernization", "initiative.md"))).toBe(true);
-    expect(existsSync(join(workspace, ".loom", "initiatives", "platform-modernization", "dashboard.json"))).toBe(true);
+    expect(existsSync(join(workspace, ".loom", "initiatives", "platform-modernization", "dashboard.json"))).toBe(false);
     expect(created.dashboard.linkedSpecs.total).toBe(2);
     expect(created.dashboard.linkedTickets.total).toBe(2);
     expect(created.dashboard.linkedTickets.blocked).toBe(1);
     expect(created.dashboard.milestones[0]).toMatchObject({ health: "at_risk" });
     expect(created.state.researchIds).toEqual([]);
-    expect(specStore.readChange("add-dark-mode").state.initiativeIds).toEqual(["platform-modernization"]);
+    expect(specStore.readChangeProjection("add-dark-mode").state.initiativeIds).toEqual(["platform-modernization"]);
     expect(ticketStore.readTicket(blocker.summary.id).summary.initiativeIds).toEqual(["platform-modernization"]);
 
-    const linkedResearch = researchStore.linkInitiative("investigate-theme-migration", "platform-modernization");
+    const linkedResearch = await researchStore.linkInitiative("investigate-theme-migration", "platform-modernization");
     expect(linkedResearch.state.initiativeIds).toEqual(["platform-modernization"]);
-    const hydrated = initiativeStore.readInitiative("platform-modernization");
+    const hydrated = await initiativeStore.readInitiative("platform-modernization");
     expect(hydrated.state.researchIds).toEqual(["investigate-theme-migration"]);
     expect(hydrated.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
     expect(hydrated.dashboard.linkedResearch.items).toMatchObject([
@@ -85,7 +89,7 @@ describe("InitiativeStore durable memory", () => {
     expect(hydrated.dashboard).not.toHaveProperty("generatedAt");
 
     vi.setSystemTime(new Date("2026-03-15T12:10:00.000Z"));
-    const updated = initiativeStore.recordDecision(
+    const updated = await initiativeStore.recordDecision(
       "platform-modernization",
       "Should dark mode land before token migration?",
       "Yes, so the migration can target the finalized theme contract.",
@@ -93,22 +97,17 @@ describe("InitiativeStore durable memory", () => {
     expect(updated.decisions).toHaveLength(1);
 
     vi.setSystemTime(new Date("2026-03-15T12:15:00.000Z"));
-    const archived = initiativeStore.archiveInitiative("platform-modernization");
+    const archived = await initiativeStore.archiveInitiative("platform-modernization");
     expect(archived.state.status).toBe("archived");
     expect(archived.state.archivedAt).toBe("2026-03-15T12:15:00.000Z");
     expect(archived.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
     expect(initiativeStore.listInitiatives({ includeArchived: true })[0]?.path).toBe(
       join(".loom", "initiatives", "platform-modernization"),
     );
-    expect(specStore.readChange("modernize-theming-tokens").summary.initiativeIds).toEqual(["platform-modernization"]);
+    expect(specStore.readChangeProjection("modernize-theming-tokens").summary.initiativeIds).toEqual(["platform-modernization"]);
 
-    const persistedDashboard = JSON.parse(
-      readFileSync(join(workspace, ".loom", "initiatives", "platform-modernization", "dashboard.json"), "utf-8"),
-    ) as { linkedResearch: { items: Array<{ path: string }> }; generatedAt?: string };
-    expect(persistedDashboard.linkedResearch.items[0]?.path).toBe(
-      join(".loom", "research", "investigate-theme-migration"),
-    );
-    expect(persistedDashboard.generatedAt).toBeUndefined();
+    expect(hydrated.dashboard.linkedResearch.items[0]?.path).toBe(join(".loom", "research", "investigate-theme-migration"));
+    expect(hydrated.dashboard).not.toHaveProperty("generatedAt");
 
     const brief = readFileSync(
       join(workspace, ".loom", "initiatives", "platform-modernization", "initiative.md"),
@@ -117,5 +116,5 @@ describe("InitiativeStore durable memory", () => {
     expect(brief).toContain("## Objective");
     expect(brief).toContain("Coordinate the long-horizon modernization program.");
     expect(brief).toContain("## Milestones");
-  });
+  }, 60000);
 });

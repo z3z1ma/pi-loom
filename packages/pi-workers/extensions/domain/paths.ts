@@ -13,7 +13,6 @@ export interface WorkerArtifactPaths {
   worker: string;
   messages: string;
   checkpoints: string;
-  dashboard: string;
   launch: string;
 }
 
@@ -50,7 +49,6 @@ export function normalizeWorkerRef(value: string): string {
     withoutExtension === "worker" ||
     withoutExtension === "messages" ||
     withoutExtension === "checkpoints" ||
-    withoutExtension === "dashboard" ||
     withoutExtension === "launch"
       ? (withoutAt.split(/[\\/]/).slice(-2, -1)[0] ?? withoutExtension)
       : withoutExtension;
@@ -84,7 +82,6 @@ export function getWorkerArtifactPaths(cwd: string, workerId: string): WorkerArt
     worker: join(dir, "worker.md"),
     messages: join(dir, "messages.jsonl"),
     checkpoints: join(dir, "checkpoints.jsonl"),
-    dashboard: join(dir, "dashboard.json"),
     launch: join(dir, "launch.json"),
   };
 }

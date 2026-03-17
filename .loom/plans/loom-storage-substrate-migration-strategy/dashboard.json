@@ -3,11 +3,11 @@
     "id": "loom-storage-substrate-migration-strategy",
     "title": "Loom storage substrate migration strategy",
     "status": "active",
-    "updatedAt": "2026-03-16T17:27:40.449Z",
+    "updatedAt": "2026-03-16T19:10:26.588Z",
     "sourceKind": "initiative",
     "sourceRef": "loom-storage-substrate-migration",
-    "linkedTicketCount": 6,
-    "summary": "Execution strategy for migrating Pi Loom from file backed repo .loom state to a shared SQLite first substrate with global IDs, repo native docs, deterministic sync exports, and future PostgreSQL support.",
+    "linkedTicketCount": 11,
+    "summary": "Execution strategy for migrating Pi Loom from file backed repo .loom state to a shared SQLite first substrate with global IDs, repo native markdown carve outs, deterministic sync exports, and future PostgreSQL support.",
     "path": ".loom/plans/loom-storage-substrate-migration-strategy"
   },
   "packetPath": ".loom/plans/loom-storage-substrate-migration-strategy/packet.md",
@@ -29,8 +29,17 @@
     "specChangeIds": [
       "sqlite-first-canonical-storage-substrate"
     ],
-    "ticketIds": [],
-    "critiqueIds": [],
+    "ticketIds": [
+      "t-0044",
+      "t-0045",
+      "t-0046",
+      "t-0047",
+      "t-0048",
+      "t-0049"
+    ],
+    "critiqueIds": [
+      "storage-migration-implementation-review"
+    ],
     "docIds": []
   },
   "scopePaths": [
@@ -43,6 +52,7 @@
     "packages/pi-ralph/",
     "packages/pi-research/",
     "packages/pi-specs/",
+    "packages/pi-storage/",
     "packages/pi-ticketing/",
     "packages/pi-workers/",
     "README.md"
@@ -95,12 +105,53 @@
       "status": "closed",
       "title": "Validate backend portability and prepare PostgreSQL path",
       "path": ".loom/tickets/closed/t-0049.md"
+    },
+    {
+      "ticketId": "t-0050",
+      "role": "upstream-package-cutover",
+      "order": 7,
+      "status": "ready",
+      "title": "Migrate constitution, research, and initiative stores to shared storage",
+      "path": ".loom/tickets/t-0050.md"
+    },
+    {
+      "ticketId": "t-0051",
+      "role": "execution-package-cutover",
+      "order": 8,
+      "status": "ready",
+      "title": "Migrate specs, plans, and ticketing stores to shared storage",
+      "path": ".loom/tickets/t-0051.md"
+    },
+    {
+      "ticketId": "t-0052",
+      "role": "review-docs-package-cutover",
+      "order": 9,
+      "status": "ready",
+      "title": "Migrate critique, Ralph, and docs stores to shared storage",
+      "path": ".loom/tickets/t-0052.md"
+    },
+    {
+      "ticketId": "t-0053",
+      "role": "worker-package-cutover",
+      "order": 10,
+      "status": "ready",
+      "title": "Migrate worker package and tool surfaces onto shared storage",
+      "path": ".loom/tickets/t-0053.md"
+    },
+    {
+      "ticketId": "t-0054",
+      "role": "final-cutover-and-critique",
+      "order": 11,
+      "status": "ready",
+      "title": "Cut remaining package tools over and remove stale file-canonical assumptions",
+      "path": ".loom/tickets/t-0054.md"
     }
   ],
   "counts": {
-    "tickets": 6,
+    "tickets": 11,
     "byStatus": {
-      "closed": 6
+      "closed": 6,
+      "ready": 5
     }
   }
 }

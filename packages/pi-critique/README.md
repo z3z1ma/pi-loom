@@ -8,13 +8,13 @@ This package adds a first-class critique layer under `.loom/critiques/` so revie
 
 - `/critique` command surface for creating, reading, launching, and resolving critiques
 - `critique_*` tools for list/read/write/launch/run/finding/dashboard workflows
-- durable critique records with canonical `state.json`, `packet.md`, `critique.md`, `runs.jsonl`, `findings.jsonl`, and `dashboard.json`, plus runtime-only `launch.json`
+- durable critique records with canonical `state.json`, `runs.jsonl`, and `findings.jsonl`, plus repo-materialized `packet.md` and `critique.md`; dashboard views are computed from canonical state instead of written as `dashboard.json`, and `launch.json` remains runtime-only
 - packet compilation that pulls linked constitution, initiative, research, spec, and ticket context into a fresh-review handoff
 - follow-up ticket creation for accepted findings
 
 ## Artifact policy
 
-- commit `state.json`, `packet.md`, `critique.md`, `runs.jsonl`, `findings.jsonl`, and `dashboard.json`; they are the durable repo-visible critique record
+- commit `state.json`, `packet.md`, `critique.md`, `runs.jsonl`, and `findings.jsonl`; dashboards are computed on demand from canonical state and should not be committed as `dashboard.json`
 - do not commit `launch.json`; it is only a local handoff descriptor for launching or resuming a critique run in a fresh session or subprocess
 - generated packets and dashboards are still canonical when they capture critique state another clone needs to inspect or continue the review truthfully
 
@@ -40,7 +40,6 @@ This package adds a first-class critique layer under `.loom/critiques/` so revie
       critique.md
       runs.jsonl
       findings.jsonl
-      dashboard.json
       launch.json      # runtime-only; do not commit
 ```
 

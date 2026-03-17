@@ -25,11 +25,11 @@ export default function piCritique(pi: ExtensionAPI): void {
   registerCritiqueTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
-    createCritiqueStore(ctx.cwd).initLedger();
+    await createCritiqueStore(ctx.cwd).initLedgerAsync();
   });
 
   pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: ExtensionContext) => {
-    createCritiqueStore(ctx.cwd).initLedger();
+    await createCritiqueStore(ctx.cwd).initLedgerAsync();
     return {
       systemPrompt: `${event.systemPrompt}\n\n${buildCritiqueSystemPrompt(ctx.cwd)}`,
     };

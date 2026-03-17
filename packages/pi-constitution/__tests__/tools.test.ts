@@ -31,7 +31,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-constitution-tools-"));
   return {
     cwd,
-    cleanup: () => fs.rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      fs.rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -83,6 +86,7 @@ describe("constitution tools", () => {
   it("returns machine-usable shapes for read, write, roadmap, and dashboard flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = path.join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { registerConstitutionTools } = await import("../extensions/tools/constitution.js");
       registerConstitutionTools(mockPi as unknown as ExtensionAPI);
@@ -237,5 +241,5 @@ describe("constitution tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });

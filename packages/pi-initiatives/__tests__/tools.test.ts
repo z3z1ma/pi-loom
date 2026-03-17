@@ -33,7 +33,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-initiatives-tools-"));
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -85,6 +88,7 @@ describe("initiative tools", () => {
   it("returns machine-usable shapes for list, read, write, and dashboard flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const specStore = createSpecStore(cwd);
       const ticketStore = createTicketStore(cwd);
       specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
@@ -196,5 +200,5 @@ describe("initiative tools", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });

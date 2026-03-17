@@ -196,7 +196,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     ],
     parameters: TicketListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const tickets = getStore(ctx).listTickets({
+      const tickets = await getStore(ctx).listTicketsAsync({
         status: params.status as TicketStatus | undefined,
         type: params.type,
         includeClosed: params.includeClosed,
@@ -221,7 +221,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     ],
     parameters: TicketReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = getStore(ctx).readTicket(params.ref);
+      const result = await getStore(ctx).readTicketAsync(params.ref);
       return machineResult({ ticket: result }, renderTicketDetail(result));
     },
   });
@@ -242,44 +242,44 @@ export function registerTicketTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "create": {
-          const result = store.createTicket(toCreateInput(params));
+          const result = await store.createTicketAsync(toCreateInput(params));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "update": {
-          const result = store.updateTicket(requireRef(params.ref), toUpdateInput(params));
+          const result = await store.updateTicketAsync(requireRef(params.ref), toUpdateInput(params));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "start": {
-          const result = store.startTicket(requireRef(params.ref));
+          const result = await store.startTicketAsync(requireRef(params.ref));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "close": {
-          const result = store.closeTicket(requireRef(params.ref), params.verification);
+          const result = await store.closeTicketAsync(requireRef(params.ref), params.verification);
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "add_note": {
           if (!params.text?.trim()) throw new Error("text is required for add_note");
-          const result = store.addNote(requireRef(params.ref), params.text);
+          const result = await store.addNoteAsync(requireRef(params.ref), params.text);
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "add_journal_entry": {
           if (!params.text?.trim()) throw new Error("text is required for add_journal_entry");
-          const result = store.addJournalEntry(requireRef(params.ref), params.journalKind ?? "progress", params.text);
+          const result = await store.addJournalEntryAsync(requireRef(params.ref), params.journalKind ?? "progress", params.text);
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "attach_artifact": {
           if (!params.artifact) throw new Error("artifact is required for attach_artifact");
-          const result = store.attachArtifact(requireRef(params.ref), params.artifact as AttachArtifactInput);
+          const result = await store.attachArtifactAsync(requireRef(params.ref), params.artifact as AttachArtifactInput);
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "add_dependency": {
           if (!params.dependency) throw new Error("dependency is required for add_dependency");
-          const result = store.addDependency(requireRef(params.ref), params.dependency);
+          const result = await store.addDependencyAsync(requireRef(params.ref), params.dependency);
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "remove_dependency": {
           if (!params.dependency) throw new Error("dependency is required for remove_dependency");
-          const result = store.removeDependency(requireRef(params.ref), params.dependency);
+          const result = await store.removeDependencyAsync(requireRef(params.ref), params.dependency);
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
       }
@@ -297,7 +297,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     ],
     parameters: TicketGraphParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const graph = getStore(ctx).graph();
+      const graph = await getStore(ctx).graphAsync();
       if (params.ref) {
         const ticketId = getStore(ctx).resolveTicketRef(params.ref);
         return machineResult(
@@ -329,7 +329,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const store = getStore(ctx);
       if (params.action === "read") {
-        const result = store.readTicket(params.ref);
+        const result = await store.readTicketAsync(params.ref);
         return machineResult(
           { checkpoints: result.checkpoints },
           result.checkpoints.map((checkpoint) => `${checkpoint.id} ${checkpoint.title}`).join("\n") ||
@@ -339,7 +339,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
       if (!params.title?.trim() || !params.body?.trim()) {
         throw new Error("title and body are required for checkpoint creation");
       }
-      const result = store.recordCheckpoint(params.ref, {
+      const result = await store.recordCheckpointAsync(params.ref, {
         title: params.title,
         body: params.body,
         supersedes: params.supersedes,

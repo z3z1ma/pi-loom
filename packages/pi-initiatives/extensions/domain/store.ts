@@ -1,3 +1,5 @@
+import { appendEntityEvent, findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { findOrBootstrapEntityByDisplayId, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import {
   appendFileSync,
   existsSync,
@@ -39,12 +41,18 @@ import {
 } from "./normalize.js";
 import {
   getInitiativeBriefPath,
-  getInitiativeDashboardPath,
   getInitiativeDecisionsPath,
   getInitiativeDir,
   getInitiativesPaths,
 } from "./paths.js";
 import { renderInitiativeMarkdown } from "./render.js";
+
+const ENTITY_KIND = "initiative" as const;
+
+interface InitiativeEntityAttributes {
+  state: InitiativeState;
+  decisions: InitiativeDecisionRecord[];
+}
 
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
@@ -120,7 +128,7 @@ export class InitiativeStore {
 
   private defaultState(input: CreateInitiativeInput, timestamp: string): InitiativeState {
     const initiativeId = normalizeInitiativeId(input.initiativeId ?? slugifyTitle(input.title));
-    const roadmapRefs = createConstitutionalStore(this.cwd).validateRoadmapRefs(input.roadmapRefs ?? []);
+    const roadmapRefs = createConstitutionalStore(this.cwd).validateRoadmapRefsProjection(input.roadmapRefs ?? []);
     return {
       initiativeId,
       title: input.title.trim(),
@@ -149,12 +157,24 @@ export class InitiativeStore {
     };
   }
 
-  private writeState(initiativeDir: string, state: InitiativeState): void {
-    writeJson(join(initiativeDir, "state.json"), state);
+  private initiativeDirectories(): string[] {
+    const directory = getInitiativesPaths(this.cwd).initiativesDir;
+    if (!existsSync(directory)) {
+      return [];
+    }
+    return readdirSync(directory)
+      .map((entry) => join(directory, entry))
+      .filter((pathValue) => statSync(pathValue).isDirectory())
+      .sort((left, right) => basename(left).localeCompare(basename(right)));
   }
 
-  private readState(initiativeDir: string): InitiativeState {
-    const state = readJson<InitiativeState>(join(initiativeDir, "state.json"));
+  private resolveInitiativeDirectory(ref: string): string {
+    const directId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
+    return getInitiativeDir(this.cwd, directId);
+  }
+
+  private readStateFromFiles(initiativeId: string): InitiativeState {
+    const state = readJson<InitiativeState>(join(getInitiativeDir(this.cwd, initiativeId), "state.json"));
     return {
       ...state,
       status: normalizeStatus(state.status),
@@ -181,110 +201,30 @@ export class InitiativeStore {
       ticketIds: normalizeStringList(state.ticketIds),
       capabilityIds: normalizeStringList(state.capabilityIds),
       supersedes: normalizeStringList(state.supersedes),
-      // Persisted initiatives may outlive linked roadmap items; preserve stale refs so the dashboard can report them.
       roadmapRefs: normalizeStringList(state.roadmapRefs),
     };
   }
 
-  private initiativeDirectories(): string[] {
-    const directory = getInitiativesPaths(this.cwd).initiativesDir;
-    if (!existsSync(directory)) {
+  private readDecisionLogFromFiles(initiativeId: string): InitiativeDecisionRecord[] {
+    const decisionPath = getInitiativeDecisionsPath(this.cwd, initiativeId);
+    if (!existsSync(decisionPath)) {
       return [];
     }
-    return readdirSync(directory)
-      .map((entry) => join(directory, entry))
-      .filter((path) => statSync(path).isDirectory())
-      .sort((left, right) => basename(left).localeCompare(basename(right)));
-  }
-
-  private resolveInitiativeDirectory(ref: string): string {
-    const directId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
-    const directPath = getInitiativeDir(this.cwd, directId);
-    if (existsSync(join(directPath, "state.json"))) {
-      return directPath;
-    }
-    throw new Error(`Unknown initiative: ${ref}`);
-  }
-
-  private readDecisionLog(initiativeDir: string): InitiativeDecisionRecord[] {
-    const path = join(initiativeDir, "decisions.jsonl");
-    if (!existsSync(path)) {
-      return [];
-    }
-    return readFileSync(path, "utf-8")
+    return readFileSync(decisionPath, "utf-8")
       .split(/\r?\n/)
       .filter(Boolean)
       .map((line) => JSON.parse(line) as InitiativeDecisionRecord);
   }
 
-  private syncSpecMembership(initiativeId: string, previousIds: string[], nextIds: string[]): void {
-    const store = createSpecStore(this.cwd);
-    const impactedIds = normalizeStringList([...previousIds, ...nextIds]);
-    for (const changeId of impactedIds) {
-      const change = store.readChange(changeId);
-      const shouldLink = nextIds.includes(changeId);
-      const nextInitiativeIds = shouldLink
-        ? normalizeStringList([...change.state.initiativeIds, initiativeId])
-        : change.state.initiativeIds.filter((id) => id !== initiativeId);
-      if (JSON.stringify(nextInitiativeIds) !== JSON.stringify(change.state.initiativeIds)) {
-        store.setInitiativeIds(changeId, nextInitiativeIds);
-      }
-    }
-  }
-
-  private syncTicketMembership(initiativeId: string, previousIds: string[], nextIds: string[]): void {
-    const store = createTicketStore(this.cwd);
-    const impactedIds = normalizeStringList([...previousIds, ...nextIds]);
-    for (const ticketId of impactedIds) {
-      const ticket = store.readTicket(ticketId);
-      const shouldLink = nextIds.includes(ticketId);
-      const nextInitiativeIds = shouldLink
-        ? normalizeStringList([...ticket.summary.initiativeIds, initiativeId])
-        : ticket.summary.initiativeIds.filter((id) => id !== initiativeId);
-      if (JSON.stringify(nextInitiativeIds) !== JSON.stringify(ticket.summary.initiativeIds)) {
-        store.setInitiativeIds(ticketId, nextInitiativeIds);
-      }
-    }
-  }
-
-  private syncRoadmapMembership(initiativeId: string, previousRefs: string[], nextRefs: string[]): void {
-    const store = createConstitutionalStore(this.cwd);
-    const impactedRefs = normalizeStringList([...previousRefs, ...nextRefs]);
-    for (const roadmapRef of impactedRefs) {
-      const item = store.readRoadmapItem(roadmapRef);
-      const shouldLink = nextRefs.includes(roadmapRef);
-      const nextInitiativeIds = shouldLink
-        ? normalizeStringList([...item.initiativeIds, initiativeId])
-        : item.initiativeIds.filter((id) => id !== initiativeId);
-      if (JSON.stringify(nextInitiativeIds) !== JSON.stringify(item.initiativeIds)) {
-        store.upsertRoadmapItem({ id: item.id, initiativeIds: nextInitiativeIds });
-      }
-    }
-  }
-
-  private syncLinkedEntities(
-    initiativeId: string,
-    previousRoadmapRefs: string[],
-    previousSpecIds: string[],
-    previousTicketIds: string[],
-    nextRoadmapRefs: string[],
-    nextSpecIds: string[],
-    nextTicketIds: string[],
-  ): void {
-    this.syncRoadmapMembership(initiativeId, previousRoadmapRefs, nextRoadmapRefs);
-    this.syncSpecMembership(initiativeId, previousSpecIds, nextSpecIds);
-    this.syncTicketMembership(initiativeId, previousTicketIds, nextTicketIds);
-  }
-
-  private syncArtifacts(initiativeDir: string, state: InitiativeState): InitiativeRecord {
-    const decisions = this.readDecisionLog(initiativeDir);
+  private materializeArtifacts(state: InitiativeState, decisions: InitiativeDecisionRecord[]): InitiativeRecord {
+    const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
     const dashboard = buildInitiativeDashboard(this.cwd, state);
+    writeFileAtomic(getInitiativeBriefPath(this.cwd, state.initiativeId), renderInitiativeMarkdown(state, decisions, dashboard));
+    writeJson(join(initiativeDir, "state.json"), state);
     writeFileAtomic(
-      getInitiativeBriefPath(this.cwd, state.initiativeId),
-      renderInitiativeMarkdown(state, decisions, dashboard),
+      getInitiativeDecisionsPath(this.cwd, state.initiativeId),
+      `${decisions.map((decision) => JSON.stringify(decision)).join("\n")}${decisions.length > 0 ? "\n" : ""}`,
     );
-    this.writeState(initiativeDir, state);
-    writeJson(getInitiativeDashboardPath(this.cwd, state.initiativeId), dashboard);
     return {
       state,
       summary: summarizeInitiative(this.cwd, state, initiativeDir),
@@ -294,67 +234,169 @@ export class InitiativeStore {
     };
   }
 
+  private async loadRecord(ref: string): Promise<InitiativeRecord> {
+    this.initLedger();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const initiativeId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
+    let entity = await findOrBootstrapEntityByDisplayId(this.cwd, storage, identity.space.id, ENTITY_KIND, initiativeId);
+    if (!entity) {
+      const timestamp = currentTimestamp();
+      const state = this.defaultState({ title: initiativeId, initiativeId }, timestamp);
+      entity = await upsertEntityByDisplayId(storage, {
+        kind: ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: state.initiativeId,
+        title: state.title,
+        summary: state.statusSummary || state.objective,
+        status: state.status,
+        version: 1,
+        tags: state.tags,
+        pathScopes: [
+          { repositoryId: identity.repository.id, relativePath: `.loom/initiatives/${state.initiativeId}/initiative.md`, role: "projection" },
+        ],
+        attributes: { state, decisions: [] },
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt,
+      });
+    }
+    const attributes = entity.attributes as unknown as InitiativeEntityAttributes;
+    const state = attributes?.state ?? this.defaultState({ title: initiativeId, initiativeId }, currentTimestamp());
+    return this.materializeArtifacts(state, attributes?.decisions ?? []);
+  }
+
+  private async persistRecord(state: InitiativeState, decisions: InitiativeDecisionRecord[]): Promise<InitiativeRecord> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.initiativeId);
+    const version = (existing?.version ?? 0) + 1;
+    const record = this.materializeArtifacts(state, decisions);
+    await upsertEntityByDisplayId(storage, {
+      kind: ENTITY_KIND,
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: record.state.initiativeId,
+      title: record.state.title,
+      summary: record.state.statusSummary || record.state.objective,
+      status: record.state.status,
+      version,
+      tags: record.state.tags,
+      pathScopes: [
+        { repositoryId: identity.repository.id, relativePath: `.loom/initiatives/${record.state.initiativeId}/initiative.md`, role: "projection" },
+      ],
+      attributes: { state: record.state, decisions: record.decisions },
+      createdAt: existing?.createdAt ?? record.state.createdAt,
+      updatedAt: record.state.updatedAt,
+    });
+    return record;
+  }
+
+  private async syncSpecMembership(initiativeId: string, previousIds: string[], nextIds: string[]): Promise<void> {
+    const store = createSpecStore(this.cwd);
+    const impactedIds = normalizeStringList([...previousIds, ...nextIds]);
+    for (const changeId of impactedIds) {
+      const change = await store.readChange(changeId);
+      const shouldLink = nextIds.includes(changeId);
+      const nextInitiativeIds = shouldLink
+        ? normalizeStringList([...change.state.initiativeIds, initiativeId])
+        : change.state.initiativeIds.filter((id) => id !== initiativeId);
+      if (JSON.stringify(nextInitiativeIds) !== JSON.stringify(change.state.initiativeIds)) {
+        await store.setInitiativeIds(changeId, nextInitiativeIds);
+      }
+    }
+  }
+
+  private syncTicketMembership(initiativeId: string, previousIds: string[], nextIds: string[]): void {
+    const store = createTicketStore(this.cwd);
+    const impactedIds = normalizeStringList([...previousIds, ...nextIds]);
+    for (const ticketId of impactedIds) {
+      const ticket = store.readTicketProjection(ticketId);
+      const shouldLink = nextIds.includes(ticketId);
+      const nextInitiativeIds = shouldLink
+        ? normalizeStringList([...ticket.summary.initiativeIds, initiativeId])
+        : ticket.summary.initiativeIds.filter((id) => id !== initiativeId);
+      if (JSON.stringify(nextInitiativeIds) !== JSON.stringify(ticket.summary.initiativeIds)) {
+        store.setInitiativeIdsProjection(ticketId, nextInitiativeIds);
+      }
+    }
+  }
+
+  private syncRoadmapMembership(initiativeId: string, previousRefs: string[], nextRefs: string[]): void {
+    const store = createConstitutionalStore(this.cwd);
+    const impactedRefs = normalizeStringList([...previousRefs, ...nextRefs]);
+    for (const roadmapRef of impactedRefs) {
+      const item = store.readRoadmapItemProjection(roadmapRef);
+      const shouldLink = nextRefs.includes(roadmapRef);
+      const nextInitiativeIds = shouldLink
+        ? normalizeStringList([...item.initiativeIds, initiativeId])
+        : item.initiativeIds.filter((id) => id !== initiativeId);
+      if (JSON.stringify(nextInitiativeIds) !== JSON.stringify(item.initiativeIds)) {
+        store.upsertRoadmapItemProjection({ id: item.id, initiativeIds: nextInitiativeIds });
+      }
+    }
+  }
+
+  private async syncLinkedEntities(
+    initiativeId: string,
+    previousRoadmapRefs: string[],
+    previousSpecIds: string[],
+    previousTicketIds: string[],
+    nextRoadmapRefs: string[],
+    nextSpecIds: string[],
+    nextTicketIds: string[],
+  ): Promise<void> {
+    this.syncRoadmapMembership(initiativeId, previousRoadmapRefs, nextRoadmapRefs);
+    await this.syncSpecMembership(initiativeId, previousSpecIds, nextSpecIds);
+    this.syncTicketMembership(initiativeId, previousTicketIds, nextTicketIds);
+  }
+
   listInitiatives(filter: InitiativeListFilter = {}): InitiativeSummary[] {
     this.initLedger();
     return this.initiativeDirectories()
-      .map((path) => summarizeInitiative(this.cwd, this.readState(path), path))
+      .map((pathValue) => summarizeInitiative(this.cwd, this.readStateFromFiles(basename(pathValue)), pathValue))
       .filter((summary) => {
-        if (!filter.includeArchived && summary.status === "archived") {
-          return false;
-        }
-        if (filter.status && summary.status !== filter.status) {
-          return false;
-        }
-        if (filter.tag && !summary.tags.includes(filter.tag)) {
-          return false;
-        }
+        if (!filter.includeArchived && summary.status === "archived") return false;
+        if (filter.status && summary.status !== filter.status) return false;
+        if (filter.tag && !summary.tags.includes(filter.tag)) return false;
         if (filter.text) {
           const haystack = `${summary.id} ${summary.title}`.toLowerCase();
-          if (!haystack.includes(filter.text.toLowerCase())) {
-            return false;
-          }
+          if (!haystack.includes(filter.text.toLowerCase())) return false;
         }
         return true;
       })
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  readInitiative(ref: string): InitiativeRecord {
-    this.initLedger();
-    const path = this.resolveInitiativeDirectory(ref);
-    const state = this.readState(path);
-    return this.syncArtifacts(path, state);
+  async readInitiative(ref: string): Promise<InitiativeRecord> {
+    return this.loadRecord(ref);
   }
 
-  createInitiative(input: CreateInitiativeInput): InitiativeRecord {
+  readInitiativeProjection(ref: string): InitiativeRecord {
+    this.initLedger();
+    const initiativeId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
+    return this.materializeArtifacts(this.readStateFromFiles(initiativeId), this.readDecisionLogFromFiles(initiativeId));
+  }
+
+  async createInitiative(input: CreateInitiativeInput): Promise<InitiativeRecord> {
     this.initLedger();
     const timestamp = currentTimestamp();
     const state = this.defaultState(input, timestamp);
     const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
-    if (existsSync(join(initiativeDir, "state.json"))) {
-      throw new Error(`Initiative already exists: ${state.initiativeId}`);
-    }
     ensureDir(initiativeDir);
-    writeFileAtomic(getInitiativeDecisionsPath(this.cwd, state.initiativeId), "");
-    this.syncLinkedEntities(state.initiativeId, [], [], [], state.roadmapRefs, state.specChangeIds, state.ticketIds);
-    return this.syncArtifacts(initiativeDir, state);
+    await this.syncLinkedEntities(state.initiativeId, [], [], [], state.roadmapRefs, state.specChangeIds, state.ticketIds);
+    return this.persistRecord(state, []);
   }
 
-  updateInitiative(ref: string, updates: UpdateInitiativeInput): InitiativeRecord {
-    const initiativeDir = this.resolveInitiativeDirectory(ref);
-    const state = this.readState(initiativeDir);
+  async updateInitiative(ref: string, updates: UpdateInitiativeInput): Promise<InitiativeRecord> {
+    const record = await this.loadRecord(ref);
+    const state = { ...record.state };
     const previousRoadmapRefs = [...state.roadmapRefs];
     const previousSpecIds = [...state.specChangeIds];
     const previousTicketIds = [...state.ticketIds];
     if (updates.title !== undefined) state.title = updates.title.trim();
     if (updates.status !== undefined) {
       state.status = normalizeStatus(updates.status);
-      if (state.status === "completed") {
-        state.completedAt = currentTimestamp();
-      }
-      if (state.status === "archived") {
-        state.archivedAt = currentTimestamp();
-      }
+      if (state.status === "completed") state.completedAt = currentTimestamp();
+      if (state.status === "archived") state.archivedAt = currentTimestamp();
     }
     if (updates.objective !== undefined) state.objective = updates.objective.trim();
     if (updates.outcomes !== undefined) state.outcomes = normalizeStringList(updates.outcomes);
@@ -370,10 +412,11 @@ export class InitiativeStore {
     if (updates.ticketIds !== undefined) state.ticketIds = normalizeStringList(updates.ticketIds);
     if (updates.capabilityIds !== undefined) state.capabilityIds = normalizeStringList(updates.capabilityIds);
     if (updates.supersedes !== undefined) state.supersedes = normalizeStringList(updates.supersedes);
-    if (updates.roadmapRefs !== undefined)
-      state.roadmapRefs = createConstitutionalStore(this.cwd).validateRoadmapRefs(updates.roadmapRefs);
+    if (updates.roadmapRefs !== undefined) {
+      state.roadmapRefs = createConstitutionalStore(this.cwd).validateRoadmapRefsProjection(updates.roadmapRefs);
+    }
     state.updatedAt = currentTimestamp();
-    this.syncLinkedEntities(
+    await this.syncLinkedEntities(
       state.initiativeId,
       previousRoadmapRefs,
       previousSpecIds,
@@ -382,88 +425,99 @@ export class InitiativeStore {
       state.specChangeIds,
       state.ticketIds,
     );
-    return this.syncArtifacts(initiativeDir, state);
+    return this.persistRecord(state, record.decisions);
   }
 
-  setResearchIds(ref: string, researchIds: string[]): InitiativeRecord {
-    const initiativeDir = this.resolveInitiativeDirectory(ref);
-    const state = this.readState(initiativeDir);
-    state.researchIds = normalizeStringList(researchIds);
-    state.updatedAt = currentTimestamp();
-    return this.syncArtifacts(initiativeDir, state);
+  async setResearchIds(ref: string, researchIds: string[]): Promise<InitiativeRecord> {
+    const record = await this.loadRecord(ref);
+    const state = { ...record.state, researchIds: normalizeStringList(researchIds), updatedAt: currentTimestamp() };
+    return this.persistRecord(state, record.decisions);
   }
 
-  recordDecision(
+  setResearchIdsProjection(ref: string, researchIds: string[]): InitiativeRecord {
+    const record = this.readInitiativeProjection(ref);
+    const state = { ...record.state, researchIds: normalizeStringList(researchIds), updatedAt: currentTimestamp() };
+    return this.materializeArtifacts(state, record.decisions);
+  }
+
+  async recordDecision(
     ref: string,
     question: string,
     answer: string,
     kind: InitiativeDecisionKind = "decision",
-  ): InitiativeRecord {
-    const initiativeDir = this.resolveInitiativeDirectory(ref);
-    const state = this.readState(initiativeDir);
+  ): Promise<InitiativeRecord> {
+    const record = await this.loadRecord(ref);
     const decision: InitiativeDecisionRecord = {
-      id: nextSequenceId(
-        this.readDecisionLog(initiativeDir).map((entry) => entry.id),
-        "decision",
-      ),
-      initiativeId: state.initiativeId,
+      id: nextSequenceId(record.decisions.map((entry) => entry.id), "decision"),
+      initiativeId: record.state.initiativeId,
       createdAt: currentTimestamp(),
       kind: normalizeDecisionKind(kind),
       question: question.trim(),
       answer: answer.trim(),
     };
-    appendFileSync(join(initiativeDir, "decisions.jsonl"), `${JSON.stringify(decision)}\n`, "utf-8");
-    state.updatedAt = decision.createdAt;
-    return this.syncArtifacts(initiativeDir, state);
+    const decisions = [...record.decisions, decision];
+    const state = { ...record.state, updatedAt: decision.createdAt };
+    const persisted = await this.persistRecord(state, decisions);
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, persisted.state.initiativeId);
+    if (entity) {
+      await appendEntityEvent(storage, entity.id, "decision_recorded", "initiative-store", { decision }, decision.createdAt);
+    }
+    return persisted;
   }
 
-  linkSpec(ref: string, specChangeId: string): InitiativeRecord {
-    const initiativeDir = this.resolveInitiativeDirectory(ref);
-    const state = this.readState(initiativeDir);
-    const previousSpecIds = [...state.specChangeIds];
-    state.specChangeIds = normalizeStringList([...state.specChangeIds, specChangeId]);
-    state.updatedAt = currentTimestamp();
-    this.syncSpecMembership(state.initiativeId, previousSpecIds, state.specChangeIds);
-    return this.syncArtifacts(initiativeDir, state);
+  async linkSpec(ref: string, specChangeId: string): Promise<InitiativeRecord> {
+    const record = await this.loadRecord(ref);
+    const previousSpecIds = [...record.state.specChangeIds];
+    const state = {
+      ...record.state,
+      specChangeIds: normalizeStringList([...record.state.specChangeIds, specChangeId]),
+      updatedAt: currentTimestamp(),
+    };
+    await this.syncSpecMembership(record.state.initiativeId, previousSpecIds, state.specChangeIds);
+    return this.persistRecord(state, record.decisions);
   }
 
-  unlinkSpec(ref: string, specChangeId: string): InitiativeRecord {
-    const initiativeDir = this.resolveInitiativeDirectory(ref);
-    const state = this.readState(initiativeDir);
-    const previousSpecIds = [...state.specChangeIds];
-    state.specChangeIds = state.specChangeIds.filter((id) => id !== specChangeId.trim());
-    state.updatedAt = currentTimestamp();
-    this.syncSpecMembership(state.initiativeId, previousSpecIds, state.specChangeIds);
-    return this.syncArtifacts(initiativeDir, state);
+  async unlinkSpec(ref: string, specChangeId: string): Promise<InitiativeRecord> {
+    const record = await this.loadRecord(ref);
+    const previousSpecIds = [...record.state.specChangeIds];
+    const state = {
+      ...record.state,
+      specChangeIds: record.state.specChangeIds.filter((id) => id !== specChangeId.trim()),
+      updatedAt: currentTimestamp(),
+    };
+    await this.syncSpecMembership(record.state.initiativeId, previousSpecIds, state.specChangeIds);
+    return this.persistRecord(state, record.decisions);
   }
 
-  linkTicket(ref: string, ticketId: string): InitiativeRecord {
-    const initiativeDir = this.resolveInitiativeDirectory(ref);
-    const state = this.readState(initiativeDir);
-    const previousTicketIds = [...state.ticketIds];
-    state.ticketIds = normalizeStringList([...state.ticketIds, ticketId]);
-    state.updatedAt = currentTimestamp();
-    this.syncTicketMembership(state.initiativeId, previousTicketIds, state.ticketIds);
-    return this.syncArtifacts(initiativeDir, state);
+  async linkTicket(ref: string, ticketId: string): Promise<InitiativeRecord> {
+    const record = await this.loadRecord(ref);
+    const previousTicketIds = [...record.state.ticketIds];
+    const state = {
+      ...record.state,
+      ticketIds: normalizeStringList([...record.state.ticketIds, ticketId]),
+      updatedAt: currentTimestamp(),
+    };
+    this.syncTicketMembership(record.state.initiativeId, previousTicketIds, state.ticketIds);
+    return this.persistRecord(state, record.decisions);
   }
 
-  unlinkTicket(ref: string, ticketId: string): InitiativeRecord {
-    const initiativeDir = this.resolveInitiativeDirectory(ref);
-    const state = this.readState(initiativeDir);
-    const previousTicketIds = [...state.ticketIds];
-    state.ticketIds = state.ticketIds.filter((id) => id !== ticketId.trim());
-    state.updatedAt = currentTimestamp();
-    this.syncTicketMembership(state.initiativeId, previousTicketIds, state.ticketIds);
-    return this.syncArtifacts(initiativeDir, state);
+  async unlinkTicket(ref: string, ticketId: string): Promise<InitiativeRecord> {
+    const record = await this.loadRecord(ref);
+    const previousTicketIds = [...record.state.ticketIds];
+    const state = {
+      ...record.state,
+      ticketIds: record.state.ticketIds.filter((id) => id !== ticketId.trim()),
+      updatedAt: currentTimestamp(),
+    };
+    this.syncTicketMembership(record.state.initiativeId, previousTicketIds, state.ticketIds);
+    return this.persistRecord(state, record.decisions);
   }
 
-  upsertMilestone(ref: string, input: InitiativeMilestoneInput): InitiativeRecord {
-    const initiativeDir = this.resolveInitiativeDirectory(ref);
-    const state = this.readState(initiativeDir);
-    const milestone = normalizeMilestone(
-      input,
-      state.milestones.map((existing) => existing.id),
-    );
+  async upsertMilestone(ref: string, input: InitiativeMilestoneInput): Promise<InitiativeRecord> {
+    const record = await this.loadRecord(ref);
+    const state = { ...record.state };
+    const milestone = normalizeMilestone(input, state.milestones.map((existing) => existing.id));
     const index = state.milestones.findIndex((existing) => existing.id === milestone.id);
     if (index === -1) {
       state.milestones.push(milestone);
@@ -472,10 +526,10 @@ export class InitiativeStore {
     }
     state.milestones.sort((left, right) => left.id.localeCompare(right.id));
     state.updatedAt = currentTimestamp();
-    return this.syncArtifacts(initiativeDir, state);
+    return this.persistRecord(state, record.decisions);
   }
 
-  archiveInitiative(ref: string): InitiativeRecord {
+  async archiveInitiative(ref: string): Promise<InitiativeRecord> {
     return this.updateInitiative(ref, { status: "archived" });
   }
 }

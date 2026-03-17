@@ -71,7 +71,6 @@ describe("RalphStore durable memory", () => {
     expect(existsSync(created.artifacts.state)).toBe(true);
     expect(existsSync(created.artifacts.packet)).toBe(true);
     expect(existsSync(created.artifacts.run)).toBe(true);
-    expect(existsSync(created.artifacts.dashboard)).toBe(true);
     expect(existsSync(created.artifacts.launch)).toBe(true);
     expect(created.packet).toContain("# Ralph Packet: Ralph Rollout");
     expect(created.packet).toContain("plan-123 (unresolved)");

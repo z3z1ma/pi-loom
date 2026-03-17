@@ -61,7 +61,6 @@ describe("ralph runtime spawn resolution", () => {
         packet: "/workspace/.loom/ralph/run-123/packet.md",
         run: "/workspace/.loom/ralph/run-123/run.md",
         iterations: "/workspace/.loom/ralph/run-123/iterations.jsonl",
-        dashboard: "/workspace/.loom/ralph/run-123/dashboard.json",
         launch: "/workspace/.loom/ralph/run-123/launch.json",
       },
       ["pending", "running", "reviewing", "accepted", "rejected", "failed", "cancelled"],

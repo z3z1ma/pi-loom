@@ -17,6 +17,8 @@ import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/mode
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import { findEntityByDisplayId, upsertEntityByDisplayId, upsertProjectionForEntity } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { CreateTicketInput, TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildCritiqueDashboard, summarizeCritique } from "./dashboard.js";
@@ -59,7 +61,6 @@ import {
   slugifyTitle,
 } from "./normalize.js";
 import {
-  getCritiqueDashboardPath,
   getCritiqueDir,
   getCritiqueFindingsPath,
   getCritiqueLaunchPath,
@@ -70,6 +71,12 @@ import {
   getCritiqueStatePath,
 } from "./paths.js";
 import { renderCritiqueMarkdown, renderLaunchDescriptor } from "./render.js";
+
+const ENTITY_KIND = "critique" as const;
+
+interface CritiqueEntityAttributes {
+  record: CritiqueReadResult;
+}
 
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
@@ -368,7 +375,7 @@ export class CritiqueStore {
       return null;
     }
     try {
-      return createConstitutionalStore(this.cwd).readConstitution();
+      return createConstitutionalStore(this.cwd).readConstitutionProjection();
     } catch {
       return null;
     }
@@ -376,7 +383,7 @@ export class CritiqueStore {
 
   private safeReadInitiative(id: string): InitiativeRecord | null {
     try {
-      return createInitiativeStore(this.cwd).readInitiative(id);
+      return createInitiativeStore(this.cwd).readInitiativeProjection(id);
     } catch {
       return null;
     }
@@ -384,7 +391,7 @@ export class CritiqueStore {
 
   private safeReadResearch(id: string): ResearchRecord | null {
     try {
-      return createResearchStore(this.cwd).readResearch(id);
+      return createResearchStore(this.cwd).readResearchProjection(id);
     } catch {
       return null;
     }
@@ -392,7 +399,7 @@ export class CritiqueStore {
 
   private safeReadSpec(id: string): SpecChangeRecord | null {
     try {
-      return createSpecStore(this.cwd).readChange(id);
+      return createSpecStore(this.cwd).readChangeProjection(id);
     } catch {
       return null;
     }
@@ -523,7 +530,7 @@ export class CritiqueStore {
       ? contextRefs.roadmapItemIds
           .map((itemId) => {
             try {
-              return createConstitutionalStore(this.cwd).readRoadmapItem(itemId);
+              return createConstitutionalStore(this.cwd).readRoadmapItemProjection(itemId);
             } catch {
               return null;
             }
@@ -699,7 +706,6 @@ export class CritiqueStore {
     this.writeState(critiqueId, nextState);
     writeFileAtomic(getCritiquePacketPath(this.cwd, critiqueId), packet);
     writeFileAtomic(getCritiqueMarkdownPath(this.cwd, critiqueId), critique);
-    writeJson(getCritiqueDashboardPath(this.cwd, critiqueId), dashboard);
 
     const summary = summarizeCritique(nextState, critiqueDir);
     return {
@@ -1032,6 +1038,147 @@ export class CritiqueStore {
       critique.runs,
       critique.findings,
     );
+  }
+
+  private async upsertCanonicalRecord(record: CritiqueReadResult): Promise<CritiqueReadResult> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, record.summary.id);
+    const version = (existing?.version ?? 0) + 1;
+    const entity = await upsertEntityByDisplayId(storage, {
+      kind: ENTITY_KIND,
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: record.summary.id,
+      title: record.summary.title,
+      summary: record.state.reviewQuestion,
+      status: record.summary.status,
+      version,
+      tags: record.summary.focusAreas,
+      pathScopes: [
+        { repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" },
+        { repositoryId: identity.repository.id, relativePath: record.dashboard.packetPath, role: "projection" },
+        { repositoryId: identity.repository.id, relativePath: `${record.summary.path}/critique.md`, role: "projection" },
+      ],
+      attributes: { record },
+      createdAt: existing?.createdAt ?? record.state.createdAt,
+      updatedAt: record.state.updatedAt,
+    });
+    await upsertProjectionForEntity(
+      storage,
+      entity.id,
+      "packet_markdown_projection",
+      "repo_materialized",
+      identity.repository.id,
+      record.dashboard.packetPath,
+      record.packet,
+      version,
+      record.state.createdAt,
+      record.state.updatedAt,
+    );
+    await upsertProjectionForEntity(
+      storage,
+      entity.id,
+      "plan_markdown_projection",
+      "repo_materialized",
+      identity.repository.id,
+      `${record.summary.path}/critique.md`,
+      record.critique,
+      version,
+      record.state.createdAt,
+      record.state.updatedAt,
+    );
+    return record;
+  }
+
+  private async syncProjectionCritiquesToCanonical(): Promise<void> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    for (const summary of this.listCritiquesProjection({})) {
+      const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, summary.id);
+      if (!existing || existing.updatedAt !== summary.updatedAt) {
+        await this.upsertCanonicalRecord(this.readCritiqueProjection(summary.id));
+      }
+    }
+  }
+
+  private entityRecord(entity: { attributes: unknown }): CritiqueReadResult {
+    return (entity.attributes as CritiqueEntityAttributes).record;
+  }
+
+  listCritiquesProjection(filter: CritiqueListFilter = {}): CritiqueSummary[] {
+    return this.listCritiques(filter);
+  }
+
+  readCritiqueProjection(ref: string): CritiqueReadResult {
+    return this.readCritique(ref);
+  }
+
+  async initLedgerAsync(): Promise<{ initialized: true; root: string }> {
+    return this.initLedger();
+  }
+
+  async listCritiquesAsync(filter: CritiqueListFilter = {}): Promise<CritiqueSummary[]> {
+    await this.syncProjectionCritiquesToCanonical();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    return (await storage.listEntities(identity.space.id, ENTITY_KIND))
+      .map((entity) => this.entityRecord(entity).summary)
+      .filter((summary) => {
+        if (filter.status && summary.status !== filter.status) return false;
+        if (filter.verdict && summary.verdict !== filter.verdict) return false;
+        if (filter.targetKind && summary.targetKind !== filter.targetKind) return false;
+        if (filter.focusArea && !summary.focusAreas.includes(filter.focusArea)) return false;
+        if (!filter.text) return true;
+        const text = filter.text.toLowerCase();
+        return [summary.id, summary.title, summary.targetRef, summary.targetKind, ...summary.focusAreas]
+          .join(" ")
+          .toLowerCase()
+          .includes(text);
+      });
+  }
+
+  async readCritiqueAsync(ref: string): Promise<CritiqueReadResult> {
+    await this.syncProjectionCritiquesToCanonical();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const critiqueId = normalizeCritiqueRef(ref);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, critiqueId);
+    if (!entity) {
+      const projection = this.readCritiqueProjection(ref);
+      await this.upsertCanonicalRecord(projection);
+      return projection;
+    }
+    return this.entityRecord(entity);
+  }
+
+  async createCritiqueAsync(input: CreateCritiqueInput): Promise<CritiqueReadResult> {
+    return this.upsertCanonicalRecord(this.createCritique(input));
+  }
+
+  async updateCritiqueAsync(ref: string, input: UpdateCritiqueInput): Promise<CritiqueReadResult> {
+    return this.upsertCanonicalRecord(this.updateCritique(ref, input));
+  }
+
+  async launchCritiqueAsync(ref: string): Promise<{ critique: CritiqueReadResult; launch: CritiqueLaunchDescriptor; text: string }> {
+    const launched = this.launchCritique(ref);
+    return { ...launched, critique: await this.upsertCanonicalRecord(launched.critique) };
+  }
+
+  async recordRunAsync(ref: string, input: CreateCritiqueRunInput): Promise<CritiqueReadResult> {
+    return this.upsertCanonicalRecord(this.recordRun(ref, input));
+  }
+
+  async addFindingAsync(ref: string, input: CreateCritiqueFindingInput): Promise<CritiqueReadResult> {
+    return this.upsertCanonicalRecord(this.addFinding(ref, input));
+  }
+
+  async updateFindingAsync(ref: string, input: UpdateCritiqueFindingInput): Promise<CritiqueReadResult> {
+    return this.upsertCanonicalRecord(this.updateFinding(ref, input));
+  }
+
+  async ticketifyFindingAsync(ref: string, input: TicketifyCritiqueFindingInput): Promise<CritiqueReadResult> {
+    return this.upsertCanonicalRecord(this.ticketifyFinding(ref, input));
+  }
+
+  async resolveCritiqueAsync(ref: string, verdict?: CritiqueState["currentVerdict"]): Promise<CritiqueReadResult> {
+    return this.upsertCanonicalRecord(this.resolveCritique(ref, verdict));
   }
 }
 

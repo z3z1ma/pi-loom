@@ -138,13 +138,13 @@ export async function handleInitiativeCommand(args: string, ctx: ExtensionComman
 
   switch (subcommand) {
     case "init": {
-      const result = store.initLedger();
+      const result = await store.initLedger();
       return `Initialized initiative memory at ${result.root}`;
     }
     case "create": {
       const title = rest.join(" ").trim();
       if (!title) throw new Error("Usage: /initiative create <title>");
-      return renderInitiativeDetail(store.createInitiative({ title }));
+      return renderInitiativeDetail(await store.createInitiative({ title }));
     }
     case "list": {
       const status = rest[0] as UpdateInitiativeInput["status"] | undefined;
@@ -154,49 +154,49 @@ export async function handleInitiativeCommand(args: string, ctx: ExtensionComman
     case "show": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /initiative show <initiative>");
-      return renderInitiativeDetail(store.readInitiative(ref));
+      return renderInitiativeDetail(await store.readInitiative(ref));
     }
     case "update": {
       const { ref, updates } = parseUpdateArgs(rest);
-      return renderInitiativeDetail(store.updateInitiative(ref, updates));
+      return renderInitiativeDetail(await store.updateInitiative(ref, updates));
     }
     case "decision": {
       const { ref, question, answer } = parseDecisionArgs(rest.join(" "));
-      return renderInitiativeDetail(store.recordDecision(ref, question, answer));
+      return renderInitiativeDetail(await store.recordDecision(ref, question, answer));
     }
     case "link-spec": {
       const [ref, specChangeId] = rest;
       if (!ref || !specChangeId) throw new Error("Usage: /initiative link-spec <initiative> <change>");
-      return renderInitiativeDetail(store.linkSpec(ref, specChangeId));
+      return renderInitiativeDetail(await store.linkSpec(ref, specChangeId));
     }
     case "unlink-spec": {
       const [ref, specChangeId] = rest;
       if (!ref || !specChangeId) throw new Error("Usage: /initiative unlink-spec <initiative> <change>");
-      return renderInitiativeDetail(store.unlinkSpec(ref, specChangeId));
+      return renderInitiativeDetail(await store.unlinkSpec(ref, specChangeId));
     }
     case "link-ticket": {
       const [ref, ticketId] = rest;
       if (!ref || !ticketId) throw new Error("Usage: /initiative link-ticket <initiative> <ticket>");
-      return renderInitiativeDetail(store.linkTicket(ref, ticketId));
+      return renderInitiativeDetail(await store.linkTicket(ref, ticketId));
     }
     case "unlink-ticket": {
       const [ref, ticketId] = rest;
       if (!ref || !ticketId) throw new Error("Usage: /initiative unlink-ticket <initiative> <ticket>");
-      return renderInitiativeDetail(store.unlinkTicket(ref, ticketId));
+      return renderInitiativeDetail(await store.unlinkTicket(ref, ticketId));
     }
     case "milestone": {
       const { ref, input } = parseMilestoneArgs(rest.join(" "));
-      return renderInitiativeDetail(store.upsertMilestone(ref, input));
+      return renderInitiativeDetail(await store.upsertMilestone(ref, input));
     }
     case "dashboard": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /initiative dashboard <initiative>");
-      return renderInitiativeDashboard(store.readInitiative(ref).dashboard);
+      return renderInitiativeDashboard((await store.readInitiative(ref)).dashboard);
     }
     case "archive": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /initiative archive <initiative>");
-      return renderInitiativeDetail(store.archiveInitiative(ref));
+      return renderInitiativeDetail(await store.archiveInitiative(ref));
     }
     default:
       throw new Error(`Unknown /initiative subcommand: ${subcommand}`);

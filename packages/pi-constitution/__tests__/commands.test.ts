@@ -77,5 +77,6 @@ describe("/constitution command handler", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });
+

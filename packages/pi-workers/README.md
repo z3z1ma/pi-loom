@@ -10,7 +10,7 @@ This package adds a first-class worker layer under `.loom/workers/` so Pi Loom c
 - `/manager` command surface for fleet overview, supervision, manager-side inbox resolution, approvals, scheduling passes, and bounded resume operations
 - `worker_*` tools for AI-facing worker workflows
 - `manager_*` tools for AI-facing manager orchestration workflows
-- local durable worker records with `state.json`, `worker.md`, `messages.jsonl`, `checkpoints.jsonl`, `dashboard.json`, and runtime-only `launch.json`
+- local durable worker records with `state.json`, `worker.md`, `messages.jsonl`, `checkpoints.jsonl`, and runtime-only `launch.json`; dashboard views are computed on demand
 - durable inbox semantics with explicit pending/acknowledged/resolved lifecycle, unresolved backlog visibility, manager-side inbox resolution, and inbox-aware packets
 - portable workspace intent modeled separately from clone-local runtime attachment details
 - worker runtime abstraction supporting the current subprocess path, an SDK-backed live-worker path, and an RPC fallback seam
@@ -32,7 +32,7 @@ This package adds a first-class worker layer under `.loom/workers/` so Pi Loom c
 
 ## Artifact policy
 
-- keep worker records local: `state.json`, `worker.md`, `messages.jsonl`, `checkpoints.jsonl`, and `dashboard.json` persist under `.loom/workers/` so a clone can resume supervision and worker context durably, but they do not belong in git
+- keep worker records local: `state.json`, `worker.md`, `messages.jsonl`, and `checkpoints.jsonl` persist under `.loom/workers/` so a clone can resume supervision and worker context durably, but they do not belong in git; dashboards are computed on demand instead of persisted as `dashboard.json`
 - treat stored paths in worker state as workspace-root-relative or logical descriptors, never clone-local absolute paths
 - `launch.json` is not part of the worker record; it is a runtime-only descriptor for local workspace attachment and launch/resume handoff
 - `.loom/runtime/` workspaces are scratch execution environments for one clone, not durable Loom memory; keep them ignored
@@ -65,7 +65,6 @@ Only force `subprocess` or `rpc` when you intentionally need those runtimes. Do 
       worker.md        # local durable worker notes; do not commit
       messages.jsonl   # local durable worker inbox/message history; do not commit
       checkpoints.jsonl # local durable worker checkpoint history; do not commit
-      dashboard.json   # local durable worker summary; do not commit
       launch.json      # runtime-only; do not commit
 ```
 

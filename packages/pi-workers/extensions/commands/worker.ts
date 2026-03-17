@@ -174,81 +174,80 @@ export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandCo
 
   switch (subcommand) {
     case "init": {
-      const result = store.initLedger();
+      const result = await store.initLedgerAsync();
       return `Initialized worker memory at ${result.root}`;
     }
     case "create": {
       const parsed = parseCreateArgs(rest.join(" "));
-      return store.renderDetail(
-        store.createWorker({
-          title: parsed.title,
-          objective: parsed.objective,
-          linkedRefs: { ticketIds: parsed.ticketIds },
-        }).state.workerId,
-      );
+      const created = await store.createWorkerAsync({
+        title: parsed.title,
+        objective: parsed.objective,
+        linkedRefs: { ticketIds: parsed.ticketIds },
+      });
+      return store.renderDetailAsync(created.state.workerId);
     }
     case "list":
-      return store.renderList();
+      return store.renderListAsync();
     case "show": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /worker show <worker>");
-      return store.renderDetail(ref);
+      return store.renderDetailAsync(ref);
     }
     case "dashboard": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /worker dashboard <worker>");
-      return store.renderDashboard(ref);
+      return store.renderDashboardAsync(ref);
     }
     case "inbox": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /worker inbox <worker>");
-      return JSON.stringify(store.readInbox(ref), null, 2);
+      return JSON.stringify(await store.readInboxAsync(ref), null, 2);
     }
     case "message": {
       const parsed = parseMessageArgs(rest.join(" "));
-      store.appendMessage(parsed.ref, {
+      await store.appendMessageAsync(parsed.ref, {
         direction: parsed.direction as never,
         kind: parsed.kind as never,
         text: parsed.text,
       });
-      return store.renderDetail(parsed.ref);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "ack": {
       const parsed = parseMessageStateArgs(rest.join(" "));
-      store.acknowledgeMessage(parsed.ref, parsed.messageId, "worker", parsed.note);
-      return store.renderDetail(parsed.ref);
+      await store.acknowledgeMessageAsync(parsed.ref, parsed.messageId, "worker", parsed.note);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "resolve": {
       const parsed = parseMessageStateArgs(rest.join(" "));
-      store.resolveMessage(parsed.ref, parsed.messageId, "worker", parsed.note);
-      return store.renderDetail(parsed.ref);
+      await store.resolveMessageAsync(parsed.ref, parsed.messageId, "worker", parsed.note);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "checkpoint": {
       const parsed = parseCheckpointArgs(rest.join(" "));
-      store.appendCheckpoint(parsed.ref, {
+      await store.appendCheckpointAsync(parsed.ref, {
         summary: parsed.summary,
         understanding: parsed.understanding,
         blockers: parsed.blockers,
         nextAction: parsed.nextAction,
         managerInputRequired: parsed.blockers.length > 0,
       });
-      return store.renderDetail(parsed.ref);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "complete": {
       const parsed = parseCompletionArgs(rest.join(" "));
-      store.requestCompletion(parsed.ref, {
+      await store.requestCompletionAsync(parsed.ref, {
         summary: parsed.summary,
         validationEvidence: parsed.validation,
         remainingRisks: parsed.risks,
       });
-      return store.renderDetail(parsed.ref);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "approve": {
       const parsed = parseApprovalArgs(rest.join(" "));
       const mapped =
         parsed.status === "approve" ? "approved" : parsed.status === "reject" ? "rejected_for_revision" : "escalated";
-      store.decideApproval(parsed.ref, { status: mapped, summary: parsed.summary, rationale: parsed.rationale });
-      return store.renderDetail(parsed.ref);
+      await store.decideApprovalAsync(parsed.ref, { status: mapped, summary: parsed.summary, rationale: parsed.rationale });
+      return store.renderDetailAsync(parsed.ref);
     }
     case "supervise": {
       const ref = rest[0];
@@ -267,15 +266,15 @@ export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandCo
       const ref = rest[0];
       const runtime = rest[1] as "subprocess" | "sdk" | "rpc" | undefined;
       if (!ref) throw new Error("Usage: /worker launch <worker> [subprocess|sdk|rpc] (default: sdk)");
-      store.prepareLaunch(ref, false, "Interactive launch prepared via command surface.", runtime);
-      return store.renderLaunch(ref);
+      await store.prepareLaunchAsync(ref, false, "Interactive launch prepared via command surface.", runtime);
+      return store.renderLaunchAsync(ref);
     }
     case "resume": {
       const ref = rest[0];
       const runtime = rest[1] as "subprocess" | "sdk" | "rpc" | undefined;
       if (!ref) throw new Error("Usage: /worker resume <worker> [subprocess|sdk|rpc] (default: sdk)");
-      store.prepareLaunch(ref, true, "Interactive resume prepared via command surface.", runtime);
-      return store.renderLaunch(ref);
+      await store.prepareLaunchAsync(ref, true, "Interactive resume prepared via command surface.", runtime);
+      return store.renderLaunchAsync(ref);
     }
     case "consolidate": {
       const parsed = parseConsolidationArgs(rest.join(" "));
@@ -293,19 +292,19 @@ export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandCo
         "validation-failed": { status: "validation_failed", strategy: "merge" },
         deferred: { status: "deferred", strategy: "manual" },
       };
-      store.recordConsolidation(parsed.ref, {
+      await store.recordConsolidationAsync(parsed.ref, {
         ...statusMap[parsed.status],
         summary: parsed.summary,
         validation: parsed.validation,
         conflicts: parsed.conflicts,
       });
-      return store.renderDetail(parsed.ref);
+      return store.renderDetailAsync(parsed.ref);
     }
     case "retire": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /worker retire <worker>");
-      store.retireWorker(ref, "Retired via command surface.");
-      return store.renderDetail(ref);
+      await store.retireWorkerAsync(ref, "Retired via command surface.");
+      return store.renderDetailAsync(ref);
     }
     default:
       throw new Error(`Unknown /worker subcommand: ${subcommand}`);

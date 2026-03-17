@@ -2,7 +2,7 @@
 
 `pi-initiatives` adds a durable strategic-memory layer to pi-compatible runtimes.
 
-When active, the extension teaches the model to use initiatives as first-class strategic containers above specs and tickets. Initiative state lives in repo-visible files under `.loom/initiatives/`, with durable briefs, machine-readable state, append-only strategic decisions, and cached dashboards over linked spec changes and tickets.
+When active, the extension teaches the model to use initiatives as first-class strategic containers above specs and tickets. Initiative canonical state lives in shared storage, with repo-materialized initiative briefs and append-only strategic decisions under `.loom/initiatives/`.
 
 ## Features
 
@@ -12,7 +12,7 @@ When active, the extension teaches the model to use initiatives as first-class s
 - AI-facing `initiative_*` tools with built-in prompt guidance
 - `/initiative` slash command namespace for human entrypoints
 - system-prompt augmentation via `before_agent_start`
-- stable machine-readable initiative dashboards over linked work
+- computed dashboard views over linked work (not repo-materialized `dashboard.json`)
 
 ## Local layout
 
@@ -23,7 +23,6 @@ When active, the extension teaches the model to use initiatives as first-class s
       initiative.md
       state.json
       decisions.jsonl
-      dashboard.json
 ```
 
 ## Development

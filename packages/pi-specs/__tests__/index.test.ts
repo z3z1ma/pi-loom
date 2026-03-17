@@ -45,7 +45,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-specs-index-"));
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -122,6 +125,7 @@ describe("pi-specs extension", () => {
   it("routes /spec output through the registered command handler and initializes the spec memory", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { default: piSpecs } = await import("../extensions/index.js");
       piSpecs(mockPi as unknown as ExtensionAPI);
@@ -146,6 +150,7 @@ describe("pi-specs extension", () => {
   it("augments the system prompt with spec doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { default: piSpecs } = await import("../extensions/index.js");
       piSpecs(mockPi as unknown as ExtensionAPI);

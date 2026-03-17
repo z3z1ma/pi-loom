@@ -3,7 +3,7 @@ id: loom-storage-substrate-migration
 title: "Loom storage substrate migration"
 status: active
 created-at: 2026-03-16T17:12:27.621Z
-updated-at: 2026-03-16T17:28:05.832Z
+updated-at: 2026-03-16T19:07:28.492Z
 owners:
   - "pi-loom maintainers"
 tags:
@@ -54,10 +54,10 @@ Replace Pi Loom's file-backed canonical state with a shared local database subst
 - A finalized storage spec can express single-repo, multi-worktree, and multi-repo coordination without path-derived identity hacks.
 - A fresh machine can hydrate a local SQLite DB from a reserved sync branch and preserve stable IDs/links.
 - A later PostgreSQL backend can satisfy the same storage contract with no domain-level semantic drift.
-- Docs remain truthful and reviewable in-repo after canonical state migration.
+- All Loom packages stop treating neighboring `.loom` files as canonical operational state and instead use the shared storage contract or deliberate projections.
 
 ## Status Summary
-Strategic migration initiative is active with a finalized spec, an active migration plan, and six projected execution tickets covering policy/contract extraction, ID migration, SQLite backend cutover, sync export/import, worker-runtime carve-outs, and PostgreSQL readiness.
+Verification after the initial implementation slice shows the closed tickets only cover the storage foundation (`@pi-loom/pi-storage`, policy updates, sync bundle, runtime carve-out, portability tests). The full migration is not complete because the existing Loom packages still reopen file-backed `.loom` state directly and do not yet use the shared storage contract. Additional execution tickets are required to migrate package stores and wire the canonical DB into real package behavior.
 
 ## Risks
 - Constitutional mismatch if policy is not updated before implementation.

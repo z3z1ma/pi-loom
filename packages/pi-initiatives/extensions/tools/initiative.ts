@@ -184,7 +184,7 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
     ],
     parameters: InitiativeReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const initiative = getStore(ctx).readInitiative(params.ref);
+      const initiative = await getStore(ctx).readInitiative(params.ref);
       return machineResult({ initiative }, renderInitiativeDetail(initiative));
     },
   });
@@ -204,25 +204,25 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
       const store = getStore(ctx);
       switch (params.action) {
         case "init": {
-          const result = store.initLedger();
+          const result = await store.initLedger();
           return machineResult(
             { action: params.action, initialized: result },
             `Initialized initiative memory at ${result.root}`,
           );
         }
         case "create": {
-          const initiative = store.createInitiative(toCreateInput(params));
+          const initiative = await store.createInitiative(toCreateInput(params));
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "update": {
-          const initiative = store.updateInitiative(requireRef(params.ref), toUpdateInput(params));
+          const initiative = await store.updateInitiative(requireRef(params.ref), toUpdateInput(params));
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "add_decision": {
           if (!params.question?.trim() || !params.answer?.trim()) {
             throw new Error("question and answer are required for add_decision");
           }
-          const initiative = store.recordDecision(
+          const initiative = await store.recordDecision(
             requireRef(params.ref),
             params.question,
             params.answer,
@@ -232,34 +232,34 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
         }
         case "link_spec": {
           if (!params.specChangeId?.trim()) throw new Error("specChangeId is required for link_spec");
-          const initiative = store.linkSpec(requireRef(params.ref), params.specChangeId);
+          const initiative = await store.linkSpec(requireRef(params.ref), params.specChangeId);
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "unlink_spec": {
           if (!params.specChangeId?.trim()) throw new Error("specChangeId is required for unlink_spec");
-          const initiative = store.unlinkSpec(requireRef(params.ref), params.specChangeId);
+          const initiative = await store.unlinkSpec(requireRef(params.ref), params.specChangeId);
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "link_ticket": {
           if (!params.ticketId?.trim()) throw new Error("ticketId is required for link_ticket");
-          const initiative = store.linkTicket(requireRef(params.ref), params.ticketId);
+          const initiative = await store.linkTicket(requireRef(params.ref), params.ticketId);
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "unlink_ticket": {
           if (!params.ticketId?.trim()) throw new Error("ticketId is required for unlink_ticket");
-          const initiative = store.unlinkTicket(requireRef(params.ref), params.ticketId);
+          const initiative = await store.unlinkTicket(requireRef(params.ref), params.ticketId);
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "upsert_milestone": {
           if (!params.milestone) throw new Error("milestone is required for upsert_milestone");
-          const initiative = store.upsertMilestone(
+          const initiative = await store.upsertMilestone(
             requireRef(params.ref),
             params.milestone as InitiativeMilestoneInput,
           );
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "archive": {
-          const initiative = store.archiveInitiative(requireRef(params.ref));
+          const initiative = await store.archiveInitiative(requireRef(params.ref));
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
       }
@@ -277,7 +277,7 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
     ],
     parameters: InitiativeDashboardParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const initiative = getStore(ctx).readInitiative(params.ref);
+      const initiative = await getStore(ctx).readInitiative(params.ref);
       return machineResult(
         { dashboard: initiative.dashboard, initiative },
         renderInitiativeDashboard(initiative.dashboard),

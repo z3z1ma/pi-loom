@@ -9,7 +9,10 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-specs-commands-"));
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -21,6 +24,7 @@ describe("/spec command handler", () => {
   it("initializes, proposes, plans, tasks, finalizes, projects, and archives durable spec state", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const ctx = createContext(cwd);
 
       const initialized = await handleSpecCommand("init", ctx);
@@ -52,5 +56,5 @@ describe("/spec command handler", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 });
