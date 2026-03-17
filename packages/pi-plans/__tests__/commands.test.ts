@@ -42,10 +42,10 @@ describe("/workplan command handler", () => {
       );
       expect(created).toContain("planning-layer [active] Planning layer");
 
-      const ticket = ticketStore.createTicket({
+      const ticket = await ticketStore.createTicketAsync({
         title: "Implement plan package",
         summary: "Create the planning layer and its durable artifacts.",
-      });
+      })
 
       const linked = await handleWorkplanCommand(`link-ticket planning-layer ${ticket.summary.id} implementation`, ctx);
       expect(linked).toContain("Linked tickets: 1");

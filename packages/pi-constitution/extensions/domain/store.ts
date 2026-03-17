@@ -2,10 +2,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   appendEntityEvent,
+  findEntityByDisplayId,
   upsertEntityByDisplayId,
   upsertProjectionForEntity,
 } from "@pi-loom/pi-storage/storage/entities.js";
-import { findOrBootstrapEntityByDisplayId, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { buildConstitutionalDashboard } from "./dashboard.js";
 import type {
   ConstitutionalEntry,
@@ -361,17 +362,11 @@ export class ConstitutionalStore {
   }> {
     this.ensureMaterializationDirs();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    let entity = await findOrBootstrapEntityByDisplayId(
-      this.cwd,
-      storage,
-      identity.space.id,
-      "constitution",
-      CONSTITUTION_ENTITY_DISPLAY_ID,
-    );
+    let entity = await findEntityByDisplayId(storage, identity.space.id, "constitution", CONSTITUTION_ENTITY_DISPLAY_ID);
 
     if (!entity) {
-      const bootstrapState = this.readStateFromFiles();
-      const bootstrapDecisions = this.readDecisionsFromFiles();
+      const timestamp = currentTimestamp();
+      const bootstrapState = this.defaultState({}, timestamp);
       entity = await upsertEntityByDisplayId(storage, {
         kind: "constitution",
         spaceId: identity.space.id,
@@ -401,44 +396,12 @@ export class ConstitutionalStore {
         createdAt: bootstrapState.createdAt,
         updatedAt: bootstrapState.updatedAt,
       });
-      for (const decision of bootstrapDecisions) {
-        await appendEntityEvent(
-          storage,
-          entity.id,
-          "decision_recorded",
-          "constitution-bootstrap",
-          { decision },
-          decision.createdAt,
-        );
-      }
-      const record = this.materializeArtifacts(bootstrapState, bootstrapDecisions);
+      const record = this.materializeArtifacts(bootstrapState, []);
       return { record, storage };
     }
 
     if (!hasStructuredConstitutionAttributes(entity.attributes)) {
-      const projectionState = this.readStateFromFiles();
-      const projectionDecisions = this.readDecisionsFromFiles();
-      const existingDecisionIds = new Set(
-        (await storage.listEvents(entity.id))
-          .filter((event) => event.kind === "decision_recorded")
-          .map((event) => (event.payload.decision as ConstitutionDecisionRecord).id),
-      );
-      for (const decision of projectionDecisions) {
-        if (!existingDecisionIds.has(decision.id)) {
-          await appendEntityEvent(
-            storage,
-            entity.id,
-            "decision_recorded",
-            "constitution-rehydrate",
-            { decision },
-            decision.createdAt,
-          );
-        }
-      }
-      return {
-        record: await this.persistCanonical(projectionState, projectionDecisions),
-        storage,
-      };
+      throw new Error("Constitution entity is missing structured attributes");
     }
 
     const attributes = entity.attributes;
@@ -465,13 +428,7 @@ export class ConstitutionalStore {
   ): Promise<ConstitutionalRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const normalized = this.normalizeState(state);
-    const existing = await findOrBootstrapEntityByDisplayId(
-      this.cwd,
-      storage,
-      identity.space.id,
-      "constitution",
-      CONSTITUTION_ENTITY_DISPLAY_ID,
-    );
+    const existing = await findEntityByDisplayId(storage, identity.space.id, "constitution", CONSTITUTION_ENTITY_DISPLAY_ID);
     const version = (existing?.version ?? 0) + 1;
     const entity = await upsertEntityByDisplayId(storage, {
       kind: "constitution",
@@ -748,13 +705,7 @@ export class ConstitutionalStore {
       answer: answer.trim(),
       affectedArtifacts: normalizeStringList(affectedArtifacts),
     };
-    const entity = await findOrBootstrapEntityByDisplayId(
-      this.cwd,
-      storage,
-      identity.space.id,
-      "constitution",
-      CONSTITUTION_ENTITY_DISPLAY_ID,
-    );
+    const entity = await findEntityByDisplayId(storage, identity.space.id, "constitution", CONSTITUTION_ENTITY_DISPLAY_ID);
     if (entity) {
       await appendEntityEvent(storage, entity.id, "decision_recorded", "constitution-store", { decision }, timestamp);
     }

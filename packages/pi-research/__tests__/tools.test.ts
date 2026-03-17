@@ -333,7 +333,6 @@ describe("research tools", () => {
       if (!entity) {
         throw new Error("Expected research entity to exist");
       }
-      const researchDir = join(cwd, ".loom", "research", "evaluate-control-surfaces");
       await upsertEntityByDisplayId(storage, {
         kind: entity.kind,
         spaceId: entity.spaceId,
@@ -346,27 +345,22 @@ describe("research tools", () => {
         tags: entity.tags,
         pathScopes: entity.pathScopes,
         attributes: {
-          importedFrom: "filesystem",
-          filesByPath: {
-            ".loom/research/evaluate-control-surfaces/state.json": readFileSync(join(researchDir, "state.json"), "utf-8"),
-            ".loom/research/evaluate-control-surfaces/research.md": readFileSync(join(researchDir, "research.md"), "utf-8"),
-            ".loom/research/evaluate-control-surfaces/hypotheses.jsonl": readFileSync(
-              join(researchDir, "hypotheses.jsonl"),
-              "utf-8",
-            ),
-            ".loom/research/evaluate-control-surfaces/artifacts.json": readFileSync(join(researchDir, "artifacts.json"), "utf-8"),
+          ...(entity.attributes as Record<string, unknown>),
+          state: {
+            ...(entity.attributes as { state: Record<string, unknown> }).state,
+            initiativeIds: ["workspace-backed-manager-worker-coordination"],
+            specChangeIds: ["manager-worker-runtime-contract"],
+            ticketIds: ["ticket-404"],
           },
         },
         createdAt: entity.createdAt,
         updatedAt: new Date().toISOString(),
       });
-      rmSync(researchDir, { recursive: true, force: true });
 
       const listed = await researchList.execute("call-list", { includeArchived: true }, undefined, undefined, ctx);
       expect(listed.details).toMatchObject({
         research: [expect.objectContaining({ id: "evaluate-control-surfaces" })],
       });
-      expect(readFileSync(statePath, "utf-8")).toContain("workspace-backed-manager-worker-coordination");
 
       const read = await researchRead.execute("call-2", { ref: "evaluate-control-surfaces" }, undefined, undefined, ctx);
       expect(read.details).toMatchObject({

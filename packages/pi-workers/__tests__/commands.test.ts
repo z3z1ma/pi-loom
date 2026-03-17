@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
@@ -10,13 +9,14 @@ import { handleWorkerCommand } from "../extensions/commands/worker.js";
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-workers-commands-"));
-  execFileSync("git", ["init"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd, encoding: "utf-8" });
-  writeFileSync(join(cwd, "README.md"), "seed\n", "utf-8");
-  execFileSync("git", ["add", "README.md"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["commit", "-m", "seed"], { cwd, encoding: "utf-8" });
-  return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+  return {
+    cwd,
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
+  };
 }
 
 function createCtx(cwd: string): ExtensionCommandContext {
@@ -29,7 +29,7 @@ describe("/worker command", () => {
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
 
       const created = await handleWorkerCommand("create Foundation Worker :: Build the package :: t-0001", ctx);
@@ -50,7 +50,7 @@ describe("/worker command", () => {
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
       await handleWorkerCommand("create Flow Worker :: Build the workflow :: t-0001", ctx);
       await handleWorkerCommand(
@@ -75,7 +75,7 @@ describe("/worker command", () => {
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
 
       await handleWorkerCommand("create Inbox Worker :: Process manager messages :: t-0001", ctx);
@@ -105,7 +105,7 @@ describe("/worker command", () => {
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
 
       await handleWorkerCommand("create Managed Worker :: Managed by manager surface :: t-0001", ctx);
@@ -133,7 +133,7 @@ describe("/worker command", () => {
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const ctx = createCtx(cwd);
 
       await handleWorkerCommand("create Escalation Worker :: Needs manager action :: t-0001", ctx);

@@ -77,17 +77,8 @@ interface WorkerEntityAttributes {
   worker: WorkerReadResult;
 }
 
-interface FilesystemImportedWorkerAttributes {
-  importedFrom?: string;
-  filesByPath?: Record<string, string>;
-}
-
 function hasStructuredWorkerAttributes(attributes: unknown): attributes is WorkerEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "worker" in attributes);
-}
-
-function hasFilesystemImportedWorkerAttributes(attributes: unknown): attributes is FilesystemImportedWorkerAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
 }
 
 function ensureDir(filePath: string): void {
@@ -107,10 +98,6 @@ function writeJson(filePath: string, value: unknown): void {
 
 function readJson<T>(filePath: string): T {
   return JSON.parse(readFileSync(filePath, "utf-8")) as T;
-}
-
-function parseJsonText<T>(content: string): T {
-  return JSON.parse(content) as T;
 }
 
 function readJsonl<T>(filePath: string): T[] {
@@ -637,176 +624,6 @@ export class WorkerStore {
 
   private entityWorker(entity: { attributes: unknown }): WorkerReadResult {
     return (entity.attributes as WorkerEntityAttributes).worker;
-  }
-
-  private readImportedWorker(
-    workerId: string,
-    attributes: unknown,
-    fallback?: { title: string; status: WorkerStatus; updatedAt: string },
-  ): WorkerReadResult | null {
-    if (!hasFilesystemImportedWorkerAttributes(attributes) || !attributes.filesByPath) {
-      return null;
-    }
-    const artifacts = getWorkerArtifactPaths(this.cwd, workerId);
-    const statePath = relativePath(this.cwd, artifacts.state);
-    const stateText = attributes.filesByPath[statePath];
-    if (!stateText) {
-      const workerMarkdown = attributes.filesByPath[relativePath(this.cwd, artifacts.worker)];
-      if (!workerMarkdown || !fallback) {
-        return null;
-      }
-      const state: WorkerState = {
-        workerId,
-        title: fallback.title,
-        objective: fallback.title,
-        summary: "Imported worker projection awaiting canonical rehydration.",
-        status: fallback.status,
-        createdAt: fallback.updatedAt,
-        updatedAt: fallback.updatedAt,
-        managerRef: defaultManagerRef(),
-        linkedRefs: normalizeLinkedRefs({}),
-        workspace: defaultWorkspaceDescriptor(workerId),
-        latestTelemetry: defaultTelemetry(),
-        latestCheckpointId: null,
-        latestCheckpointSummary: "",
-        lastMessageAt: null,
-        lastLaunchAt: null,
-        lastSchedulerAt: null,
-        lastSchedulerSummary: "",
-        launchCount: 0,
-        lastRuntimeKind: null,
-        interventionCount: 0,
-        completionRequest: {
-          requestedAt: null,
-          scopeComplete: [],
-          validationEvidence: [],
-          remainingRisks: [],
-          branchState: "",
-          summary: "",
-          requestedBy: "",
-        },
-        approval: defaultApproval(),
-        consolidation: defaultConsolidation(),
-        packetSummary: "Imported worker projection awaiting canonical rehydration.",
-      };
-      const summary: WorkerSummary = {
-        id: workerId,
-        title: fallback.title,
-        objectiveSummary: fallback.title,
-        status: fallback.status,
-        updatedAt: fallback.updatedAt,
-        managerKind: state.managerRef.kind,
-        ticketCount: 0,
-        runtimeKind: null,
-        telemetryState: state.latestTelemetry.state,
-        latestCheckpointSummary: "",
-        lastSchedulerSummary: "",
-        acknowledgedInboxCount: 0,
-        unresolvedInboxCount: 0,
-        pendingManagerActionCount: 0,
-        pendingApproval: false,
-        path: `.loom/workers/${workerId}`,
-      };
-      return {
-        state,
-        summary,
-        worker: workerMarkdown,
-        messages: [],
-        checkpoints: [],
-        launch: null,
-        dashboard: {
-          worker: summary,
-          workerPath: `.loom/workers/${workerId}/worker.md`,
-          launchPath: `.loom/workers/${workerId}/launch.json`,
-          latestTelemetry: state.latestTelemetry,
-          latestCheckpoint: null,
-          latestMessage: null,
-          unresolvedInbox: [],
-          pendingManagerActions: [],
-          counts: { messages: 0, checkpoints: 0, acknowledgedInbox: 0, unresolvedMessages: 0, pendingManagerActions: 0 },
-          approval: state.approval,
-          consolidation: state.consolidation,
-          stale: false,
-        },
-        packet: workerMarkdown,
-        artifacts,
-      };
-    }
-    const worker: WorkerReadResult = {
-      state: normalizeWorkerState(parseJsonText<WorkerState>(stateText)),
-      summary: {} as WorkerSummary,
-      worker: attributes.filesByPath[relativePath(this.cwd, artifacts.worker)] ?? "",
-      messages: (attributes.filesByPath[relativePath(this.cwd, artifacts.messages)] ?? "")
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((line) => {
-          const message = JSON.parse(line) as Partial<WorkerMessageRecord>;
-          return {
-            id: message.id ?? `${workerId}-message-imported`,
-            workerId: message.workerId ?? workerId,
-            createdAt: message.createdAt ?? currentTimestamp(),
-            direction: normalizeMessageDirection(message.direction),
-            awaiting: normalizeMessageAwaiting(message.awaiting),
-            kind: normalizeMessageKind(message.kind),
-            status: normalizeMessageStatus(message.status),
-            from: message.from ?? "imported",
-            text: message.text ?? "",
-            relatedRefs: normalizeStringList(message.relatedRefs),
-            replyTo: normalizeOptionalString(message.replyTo),
-            acknowledgedAt: normalizeOptionalString(message.acknowledgedAt),
-            acknowledgedBy: normalizeOptionalString(message.acknowledgedBy),
-            resolvedAt: normalizeOptionalString(message.resolvedAt),
-            resolvedBy: normalizeOptionalString(message.resolvedBy),
-          } satisfies WorkerMessageRecord;
-        }),
-      checkpoints: (attributes.filesByPath[relativePath(this.cwd, artifacts.checkpoints)] ?? "")
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((line) => {
-          const checkpoint = JSON.parse(line) as Partial<WorkerCheckpointRecord>;
-          return {
-            id: checkpoint.id ?? `${workerId}-checkpoint-imported`,
-            workerId: checkpoint.workerId ?? workerId,
-            createdAt: checkpoint.createdAt ?? currentTimestamp(),
-            summary: checkpoint.summary ?? "",
-            understanding: checkpoint.understanding ?? "",
-            recentChanges: normalizeStringList(checkpoint.recentChanges),
-            validation: normalizeStringList(checkpoint.validation),
-            blockers: normalizeStringList(checkpoint.blockers),
-            nextAction: checkpoint.nextAction ?? "",
-            acknowledgedMessageIds: normalizeStringList(checkpoint.acknowledgedMessageIds),
-            resolvedMessageIds: normalizeStringList(checkpoint.resolvedMessageIds),
-            remainingInboxCount: checkpoint.remainingInboxCount ?? 0,
-            managerInputRequired: checkpoint.managerInputRequired ?? false,
-          } satisfies WorkerCheckpointRecord;
-        }),
-      launch: attributes.filesByPath[relativePath(this.cwd, artifacts.launch)]
-        ? parseJsonText<WorkerRuntimeDescriptor>(attributes.filesByPath[relativePath(this.cwd, artifacts.launch)])
-        : null,
-      dashboard: {} as WorkerDashboard,
-      packet: "",
-      artifacts,
-    };
-    syncDerivedViews(this.cwd, worker);
-    if (!worker.worker) {
-      worker.worker = renderWorkerMarkdown(worker);
-    }
-    return worker;
-  }
-
-  private async repairWorkerToCanonical(
-    workerId: string,
-    attributes?: unknown,
-    fallback?: { title: string; status: WorkerStatus; updatedAt: string },
-  ): Promise<WorkerReadResult> {
-    const imported = this.readImportedWorker(workerId, attributes, fallback);
-    if (imported) {
-      return this.upsertCanonicalWorker(imported);
-    }
-    if (existsSync(getWorkerArtifactPaths(this.cwd, workerId).state)) {
-      return this.upsertCanonicalWorker(this.readWorkerProjection(workerId));
-    }
-    throw new Error(`Worker entity ${workerId} is missing structured attributes`);
   }
 
   private linkWorkerIntoTickets(worker: WorkerState): void {
@@ -1684,13 +1501,10 @@ export class WorkerStore {
     const workers = await Promise.all(
       (await storage.listEntities(identity.space.id, ENTITY_KIND)).map(async (entity) => {
         const workerId = this.resolveWorkerRef(entity.displayId);
-        return hasStructuredWorkerAttributes(entity.attributes)
-          ? this.entityWorker(entity)
-          : this.repairWorkerToCanonical(workerId, entity.attributes, {
-              title: entity.title,
-              status: entity.status as WorkerStatus,
-              updatedAt: entity.updatedAt,
-            });
+        if (!hasStructuredWorkerAttributes(entity.attributes)) {
+          throw new Error(`Worker entity ${workerId} is missing structured attributes`);
+        }
+        return this.entityWorker(entity);
       }),
     );
     return workers
@@ -1709,15 +1523,12 @@ export class WorkerStore {
     const workerId = this.resolveWorkerRef(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, workerId);
     if (!entity) {
-      return this.repairWorkerToCanonical(workerId);
+      throw new Error(`Unknown worker: ${workerId}`);
     }
-    return hasStructuredWorkerAttributes(entity.attributes)
-      ? this.entityWorker(entity)
-      : this.repairWorkerToCanonical(workerId, entity.attributes, {
-          title: entity.title,
-          status: entity.status as WorkerStatus,
-          updatedAt: entity.updatedAt,
-        });
+    if (!hasStructuredWorkerAttributes(entity.attributes)) {
+      throw new Error(`Worker entity ${workerId} is missing structured attributes`);
+    }
+    return this.entityWorker(entity);
   }
 
   async managerOverviewAsync(): Promise<ManagerOverview> {

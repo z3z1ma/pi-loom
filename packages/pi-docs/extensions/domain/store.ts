@@ -74,11 +74,6 @@ interface DocumentationEntityAttributes {
   record: DocumentationReadResult;
 }
 
-interface FilesystemImportedDocumentationEntityAttributes {
-  importedFrom?: string;
-  filesByPath?: Record<string, string>;
-}
-
 interface DocumentationSnapshot {
   state: DocumentationState;
   revisions: DocumentationRevisionRecord[];
@@ -87,12 +82,6 @@ interface DocumentationSnapshot {
 
 function hasStructuredDocumentationAttributes(attributes: unknown): attributes is DocumentationEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
-}
-
-function hasFilesystemImportedDocumentationAttributes(
-  attributes: unknown,
-): attributes is FilesystemImportedDocumentationEntityAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
 }
 
 function ensureDir(path: string): void {
@@ -114,10 +103,6 @@ function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
 }
 
-function parseJsonText<T>(content: string): T {
-  return JSON.parse(content) as T;
-}
-
 function appendJsonl(path: string, value: unknown): void {
   ensureDir(dirname(path));
   appendFileSync(path, `${JSON.stringify(value)}\n`, "utf-8");
@@ -131,50 +116,6 @@ function readJsonl<T>(path: string): T[] {
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => JSON.parse(line) as T);
-}
-
-function parseJsonlText<T>(content: string): T[] {
-  return content
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as T);
-}
-
-function frontmatterString(
-  frontmatter: Readonly<Record<string, string | null | string[]>> | undefined,
-  key: string,
-): string | null {
-  const value = frontmatter?.[key];
-  return typeof value === "string" ? value : null;
-}
-
-function frontmatterStringList(
-  frontmatter: Readonly<Record<string, string | null | string[]>> | undefined,
-  key: string,
-): string[] {
-  const value = frontmatter?.[key];
-  if (Array.isArray(value)) {
-    return normalizeStringList(value);
-  }
-  return value ? normalizeStringList([value]) : [];
-}
-
-function safeParseMarkdown(
-  content: string | undefined,
-  filePath: string,
-): { frontmatter: Record<string, string | null | string[]>; body: string } | null {
-  if (!content) {
-    return null;
-  }
-  try {
-    return parseMarkdownArtifact(content, filePath);
-  } catch {
-    return null;
-  }
-}
-
-function findImportedFile(filesByPath: Record<string, string>, preferredPath: string, suffix: string): string | null {
-  return filesByPath[preferredPath] ?? Object.entries(filesByPath).find(([path]) => path.endsWith(suffix))?.[1] ?? null;
 }
 
 function mergeContextRefs(...refs: Array<Partial<DocsContextRefs> | undefined>): DocsContextRefs {
@@ -333,17 +274,8 @@ export class DocumentationStore {
 
   private async entityRecord(entity: LoomEntityRecord): Promise<DocumentationReadResult> {
     if (!hasStructuredDocumentationAttributes(entity.attributes)) {
-      return this.repairCanonicalEntity(entity);
-    }
-    const docId = entity.displayId ?? entity.attributes.record.summary.id;
-    const statePath = this.sectionGroups()
-      .map((sectionGroup) => getDocumentationStatePath(this.cwd, sectionGroup, docId))
-      .find((path) => existsSync(path));
-    if (statePath) {
-      const projectionRecord = this.readDocProjection(docId);
-      if (projectionRecord.state.updatedAt !== entity.attributes.record.state.updatedAt) {
-        return this.upsertCanonicalRecord(projectionRecord);
-      }
+      const docId = entity.displayId ?? entity.id;
+      throw new Error(`Documentation entity ${docId} is missing structured attributes`);
     }
     return this.buildCanonicalRecord({
       state: entity.attributes.record.state,
@@ -545,6 +477,14 @@ export class DocumentationStore {
     }
   }
 
+  private async safeReadTicketAsync(id: string): Promise<TicketReadResult | null> {
+    try {
+      return await createTicketStore(this.cwd).readTicketAsync(id);
+    } catch {
+      return null;
+    }
+  }
+
   private safeReadCritique(id: string): CritiqueReadResult | null {
     try {
       return createCritiqueStore(this.cwd).readCritique(id);
@@ -647,9 +587,26 @@ export class DocumentationStore {
     state: DocumentationState,
   ): Promise<{ summary: string; contextRefs: DocsContextRefs }> {
     switch (state.sourceTarget.kind) {
-      case "ticket":
       case "workspace":
         return this.resolveSourceSummary(state);
+      case "ticket": {
+        const ticket = await this.safeReadTicketAsync(state.sourceTarget.ref);
+        if (!ticket) {
+          return {
+            summary: `Ticket ${state.sourceTarget.ref} could not be loaded. Update the document from the referenced code and packet context directly.`,
+            contextRefs: mergeContextRefs({ ticketIds: [state.sourceTarget.ref] }),
+          };
+        }
+        return {
+          summary: [
+            `${ticket.summary.id} [${ticket.summary.status}] ${ticket.summary.title}`,
+            `Summary: ${excerpt(ticket.ticket.body.summary)}`,
+            `Verification: ${excerpt(ticket.ticket.body.verification)}`,
+            `Review status: ${ticket.ticket.frontmatter["review-status"] ?? "none"}`,
+          ].join("\n"),
+          contextRefs: deriveContextRefsFromTicket(ticket),
+        };
+      }
       case "spec": {
         const change = await this.safeReadSpecAsync(state.sourceTarget.ref);
         if (!change) {
@@ -850,8 +807,7 @@ export class DocumentationStore {
         (record) =>
           `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} tasks=${record.state.tasks.length}`,
       );
-    const tickets = contextRefs.ticketIds
-      .map((ticketId) => this.safeReadTicket(ticketId))
+    const tickets = (await Promise.all(contextRefs.ticketIds.map((ticketId) => this.safeReadTicketAsync(ticketId))))
       .filter((record): record is TicketReadResult => record !== null)
       .map(
         (record) =>
@@ -1034,140 +990,6 @@ export class DocumentationStore {
         docDir,
       ),
     };
-  }
-
-  private readSnapshotFromImportedEntity(docId: string, attributes: unknown): DocumentationSnapshot | null {
-    if (!hasFilesystemImportedDocumentationAttributes(attributes) || !attributes.filesByPath) {
-      return null;
-    }
-    const stateEntry = Object.entries(attributes.filesByPath).find(([path]) => path.endsWith(`/${docId}/state.json`));
-    if (!stateEntry) {
-      return null;
-    }
-    const basePath = stateEntry[0].slice(0, -"/state.json".length);
-    const state = parseJsonText<DocumentationState>(stateEntry[1]);
-    return {
-      state,
-      revisions: parseJsonlText<DocumentationRevisionRecord>(
-        attributes.filesByPath[`${basePath}/revisions.jsonl`] ?? "",
-      ),
-      documentBody: parseMarkdownArtifact(
-        attributes.filesByPath[`${basePath}/doc.md`] ?? this.defaultDocumentBody(state),
-        `${basePath}/doc.md`,
-      ).body,
-    };
-  }
-
-  private buildMarkdownOnlyImportedRecord(entity: LoomEntityRecord): DocumentationReadResult | null {
-    if (!hasFilesystemImportedDocumentationAttributes(entity.attributes) || !entity.attributes.filesByPath) {
-      return null;
-    }
-    const filesByPath = entity.attributes.filesByPath as Record<string, string>;
-    const docId = entity.displayId ?? "";
-    if (!docId) {
-      return null;
-    }
-    const packet = findImportedFile(filesByPath, `.loom/docs/${docId}/packet.md`, `/${docId}/packet.md`);
-    const document = findImportedFile(filesByPath, `.loom/docs/${docId}/doc.md`, `/${docId}/doc.md`);
-    const exactDocumentPath = Object.keys(filesByPath).find((path) => path.endsWith(`/${docId}/doc.md`)) ?? null;
-    if (!packet && !document) {
-      return null;
-    }
-
-    const packetArtifact = safeParseMarkdown(packet ?? undefined, `.loom/docs/${docId}/packet.md`);
-    const documentArtifact = safeParseMarkdown(
-      document ?? undefined,
-      exactDocumentPath ?? `.loom/docs/${docId}/doc.md`,
-    );
-    const sectionFromPath = exactDocumentPath?.split("/").at(-3);
-    const sectionGroup = normalizeSectionGroup(
-      frontmatterString(documentArtifact?.frontmatter ?? {}, "section") ??
-        frontmatterString(packetArtifact?.frontmatter ?? {}, "section") ??
-        sectionFromPath ??
-        undefined,
-    );
-    const sourceValue =
-      frontmatterString(documentArtifact?.frontmatter ?? {}, "source") ??
-      frontmatterString(packetArtifact?.frontmatter ?? {}, "source");
-    const sourceSeparator = sourceValue?.indexOf(":") ?? -1;
-    const hasStructuredSource = sourceSeparator > 0;
-    const docType = normalizeDocType(
-      frontmatterString(documentArtifact?.frontmatter ?? {}, "type") ??
-        frontmatterString(packetArtifact?.frontmatter ?? {}, "type") ??
-        (sectionGroup === "guides"
-          ? "guide"
-          : sectionGroup === "concepts"
-            ? "concept"
-            : sectionGroup === "operations"
-              ? "operations"
-              : "overview"),
-    );
-    const documentBody =
-      documentArtifact?.body ?? (document?.trim() || "Imported documentation markdown body is unavailable.");
-    const state: DocumentationState = {
-      docId,
-      title: frontmatterString(documentArtifact?.frontmatter ?? {}, "title") ?? entity.title,
-      status: normalizeDocStatus(entity.status),
-      docType,
-      sectionGroup,
-      createdAt: frontmatterString(packetArtifact?.frontmatter ?? {}, "created-at") ?? entity.createdAt,
-      updatedAt:
-        frontmatterString(documentArtifact?.frontmatter ?? {}, "updated-at") ??
-        frontmatterString(packetArtifact?.frontmatter ?? {}, "updated-at") ??
-        entity.updatedAt,
-      summary: entity.summary || summarizeDocument(documentBody),
-      audience: normalizeAudience(frontmatterStringList(documentArtifact?.frontmatter ?? {}, "audience")),
-      scopePaths: [],
-      contextRefs: normalizeContextRefs({}),
-      sourceTarget: {
-        kind: hasStructuredSource ? normalizeSourceTargetKind(sourceValue?.slice(0, sourceSeparator)) : "workspace",
-        ref: hasStructuredSource
-          ? sourceValue?.slice(sourceSeparator + 1).trim() || "(unavailable in markdown-only import)"
-          : "(unavailable in markdown-only import)",
-      },
-      updateReason: "Imported markdown-only documentation record; structured update metadata is unavailable.",
-      guideTopics: [],
-      linkedOutputPaths: [],
-      lastRevisionId: null,
-    };
-    const docDir = getDocumentationDir(this.cwd, sectionGroup, docId);
-    const revisions: DocumentationRevisionRecord[] = [];
-    return {
-      state,
-      summary: summarizeDocumentation(state, docDir, revisions.length),
-      packet: packet ?? "Imported documentation packet markdown is unavailable.",
-      document: document ?? renderDocumentationMarkdown(state, documentBody),
-      revisions,
-      dashboard: buildDocumentationDashboard(
-        state,
-        revisions,
-        getDocumentationPacketPath(this.cwd, sectionGroup, docId),
-        getDocumentationMarkdownPath(this.cwd, sectionGroup, docId),
-        docDir,
-      ),
-    };
-  }
-
-  private async repairCanonicalEntity(entity: LoomEntityRecord): Promise<DocumentationReadResult> {
-    const docId = entity.displayId ?? "";
-    if (!docId) {
-      throw new Error(`Documentation entity ${entity.id} is missing a display id`);
-    }
-    const importedSnapshot = this.readSnapshotFromImportedEntity(docId, entity.attributes);
-    if (importedSnapshot) {
-      return this.upsertCanonicalRecord(await this.buildCanonicalRecord(importedSnapshot));
-    }
-    const markdownOnlyRecord = this.buildMarkdownOnlyImportedRecord(entity);
-    if (markdownOnlyRecord) {
-      return markdownOnlyRecord;
-    }
-    const statePath = this.sectionGroups()
-      .map((sectionGroup) => getDocumentationStatePath(this.cwd, sectionGroup, docId))
-      .find((path) => existsSync(path));
-    if (statePath) {
-      return this.upsertCanonicalRecord(this.readDocProjection(docId));
-    }
-    throw new Error(`Documentation entity ${docId} is missing structured attributes`);
   }
 
   private defaultDocumentBody(state: DocumentationState): string {
@@ -1457,7 +1279,7 @@ export class DocumentationStore {
     const docId = normalizeDocRef(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, docId);
     if (!entity) {
-      return this.upsertCanonicalRecord(this.readDocProjection(ref));
+      throw new Error(`Unknown documentation: ${docId}`);
     }
     return this.entityRecord(entity);
   }

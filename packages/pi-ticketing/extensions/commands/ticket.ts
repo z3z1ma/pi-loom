@@ -186,16 +186,10 @@ async function promptFieldUpdate(
     );
   }
   if (field === "risk") {
-    return buildFieldUpdate(
-      field,
-      await ctx.ui.input(`Edit ${ref} risk (${TICKET_RISKS.join(", ")})`, currentValue),
-    );
+    return buildFieldUpdate(field, await ctx.ui.input(`Edit ${ref} risk (${TICKET_RISKS.join(", ")})`, currentValue));
   }
   if (field === "type") {
-    return buildFieldUpdate(
-      field,
-      await ctx.ui.input(`Edit ${ref} type (${TICKET_TYPES.join(", ")})`, currentValue),
-    );
+    return buildFieldUpdate(field, await ctx.ui.input(`Edit ${ref} type (${TICKET_TYPES.join(", ")})`, currentValue));
   }
   if (field === "reviewStatus") {
     return buildFieldUpdate(
@@ -236,7 +230,9 @@ function parseOpenCommand(parts: string[]): { view: TicketWorkspaceView; action:
     if (maybeAction === "status") {
       const [status, ...noteParts] = rest;
       if (!status || !["open", "reopen", "in_progress", "review", "close"].includes(status)) {
-        throw new Error("Usage: /ticket open detail <ref> status <open|reopen|in_progress|review|close> [verification note]");
+        throw new Error(
+          "Usage: /ticket open detail <ref> status <open|reopen|in_progress|review|close> [verification note]",
+        );
       }
       return {
         view: { kind: "detail", ref },
@@ -258,7 +254,9 @@ function parseOpenCommand(parts: string[]): { view: TicketWorkspaceView; action:
         action: { kind: "dependency", ref, mode, dependencyRef },
       };
     }
-    throw new Error("Usage: /ticket open detail <ref> [edit <field> <value...>|status <open|reopen|in_progress|review|close> [verification note]|dependency <add|remove> <depRef>]");
+    throw new Error(
+      "Usage: /ticket open detail <ref> [edit <field> <value...>|status <open|reopen|in_progress|review|close> [verification note]|dependency <add|remove> <depRef>]",
+    );
   }
   throw new Error("Usage: /ticket open [home|list|board|timeline|detail <ref>]");
 }
@@ -317,10 +315,7 @@ async function performWorkspaceAction(
           : ctx.hasUI
             ? (await ctx.ui.editor(`Close ${action.ref}: verification`, ""))?.trim()
             : undefined;
-        updated = await store.closeTicketAsync(
-          action.ref,
-          verificationNote,
-        );
+        updated = await store.closeTicketAsync(action.ref, verificationNote);
       }
       await safeSyncTicketHomeWidget(ctx);
       notifyTicketResult(ctx, updated);
@@ -357,7 +352,7 @@ async function openTicketWorkspace(initialView: TicketWorkspaceView, ctx: Extens
 
   let view = initialView;
   while (true) {
-    const action = await openInteractiveTicketWorkspace(ctx, await loadTicketWorkspaceSnapshot(store, view));
+    const action = await openInteractiveTicketWorkspace(ctx, store, await loadTicketWorkspaceSnapshot(store, view));
     if (!action || action.kind === "close") {
       await safeSyncTicketHomeWidget(ctx);
       return "";

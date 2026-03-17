@@ -15,7 +15,7 @@ import {
   upsertEntityByDisplayId,
   upsertProjectionForEntity,
 } from "@pi-loom/pi-storage/storage/entities.js";
-import { findOrBootstrapEntityByDisplayId, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { analyzeSpecChange } from "./analysis.js";
 import { buildSpecChecklist } from "./checklist.js";
 import { parseBulletLines, parseMarkdownArtifact, parseSections } from "./frontmatter.js";
@@ -78,19 +78,8 @@ interface SpecCapabilityEntityAttributes {
   record: CanonicalCapabilityRecord;
 }
 
-interface FilesystemImportedSpecChangeAttributes {
-  importedFrom?: string;
-  filesByPath?: Record<string, string>;
-}
-
 function hasStructuredSpecChangeAttributes(attributes: unknown): attributes is SpecChangeEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
-}
-
-function hasFilesystemImportedSpecChangeAttributes(
-  attributes: unknown,
-): attributes is FilesystemImportedSpecChangeAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
 }
 
 function ensureDir(path: string): void {
@@ -110,10 +99,6 @@ function writeJson(path: string, value: unknown): void {
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
-}
-
-function parseJsonText<T>(content: string): T {
-  return JSON.parse(content) as T;
 }
 
 function readText(path: string): string {
@@ -479,25 +464,12 @@ export class SpecStore {
   private async loadCanonicalChange(ref: string): Promise<SpecChangeRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const changeId = normalizeChangeId(ref.split(/[\\/]/).pop() ?? ref);
-    const entity = await findOrBootstrapEntityByDisplayId(
-      this.cwd,
-      storage,
-      identity.space.id,
-      SPEC_CHANGE_ENTITY_KIND,
-      changeId,
-    );
+    const entity = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, changeId);
     if (!entity) {
       throw new Error(`Unknown spec change: ${ref}`);
     }
     if (!hasStructuredSpecChangeAttributes(entity.attributes)) {
-      const projection = this.readImportedChange(changeId, entity.attributes) ?? this.readChangeProjection(changeId);
-      return this.persistCanonicalChange(
-        projection.state,
-        projection.decisions,
-        projection.projection,
-        projection.analysis,
-        projection.checklist,
-      );
+      throw new Error(`Spec change entity ${changeId} is missing structured attributes`);
     }
     const attributes = entity.attributes;
     return this.materializeChangeRecord(
@@ -507,74 +479,6 @@ export class SpecStore {
       attributes.analysis ?? "",
       attributes.checklist ?? "",
     );
-  }
-
-  private readImportedChange(changeId: string, attributes: unknown): SpecChangeRecord | null {
-    if (!hasFilesystemImportedSpecChangeAttributes(attributes) || !attributes.filesByPath) {
-      return null;
-    }
-    const statePath = `.loom/specs/changes/${changeId}/state.json`;
-    const archivedStatePath = Object.keys(attributes.filesByPath).find((path) =>
-      path.endsWith(`/${changeId}/state.json`) && path.includes(".loom/specs/archive/"),
-    );
-    const resolvedStatePath = attributes.filesByPath[statePath] ? statePath : archivedStatePath;
-    const proposalPath = Object.keys(attributes.filesByPath).find((path) =>
-      path.endsWith(`/${changeId}/proposal.md`) && path.includes(".loom/specs/"),
-    );
-    if (!resolvedStatePath && !proposalPath) {
-      return null;
-    }
-    const baseDir = resolvedStatePath
-      ? resolvedStatePath.slice(0, -"/state.json".length)
-      : (proposalPath as string).slice(0, -"/proposal.md".length);
-    const state = resolvedStatePath
-      ? this.normalizeState(parseJsonText<SpecChangeState>(attributes.filesByPath[resolvedStatePath]))
-      : this.normalizeState({
-          changeId,
-          title: parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter.title ?? changeId,
-          status: parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter.status ?? "proposed",
-          createdAt:
-            parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter["created-at"] ??
-            currentTimestamp(),
-          updatedAt:
-            parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter["updated-at"] ??
-            currentTimestamp(),
-          finalizedAt: null,
-          archivedAt: null,
-          archivedPath: baseDir.includes(".loom/specs/archive/") ? baseDir : null,
-          initiativeIds: normalizeStringList(
-            parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter.initiatives,
-          ),
-          researchIds: normalizeStringList(
-            parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).frontmatter.research,
-          ),
-          supersedes: [],
-          proposalSummary: parseMarkdownArtifact(attributes.filesByPath[proposalPath as string], proposalPath as string).body.trim() || changeId,
-          designNotes: "",
-          requirements: [],
-          capabilities: [],
-          tasks: [],
-          artifactVersions: artifactVersions(),
-        });
-    const decisionsText = attributes.filesByPath[`${baseDir}/decisions.jsonl`] ?? "";
-    const decisions = decisionsText
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as SpecDecisionRecord);
-    const projectionText = attributes.filesByPath[`${baseDir}/ticket-projection.json`];
-    return {
-      state,
-      summary: summarizeChange(this.cwd, state, fromRepoRelativePath(this.cwd, baseDir), Boolean(state.archivedPath)),
-      artifacts: [],
-      proposal: attributes.filesByPath[`${baseDir}/proposal.md`] ?? "",
-      design: attributes.filesByPath[`${baseDir}/design.md`] ?? "",
-      tasksMarkdown: attributes.filesByPath[`${baseDir}/tasks.md`] ?? "",
-      analysis: attributes.filesByPath[`${baseDir}/analysis.md`] ?? "",
-      checklist: attributes.filesByPath[`${baseDir}/checklist.md`] ?? "",
-      decisions,
-      capabilitySpecs: [],
-      projection: projectionText ? parseJsonText<SpecTicketProjection>(projectionText) : null,
-    };
   }
 
   private async persistCanonicalChange(
@@ -756,15 +660,7 @@ export class SpecStore {
         summaries.push(summarizeChange(this.cwd, state, path, Boolean(state.archivedPath)));
         continue;
       }
-      const projection = this.readImportedChange(entity.displayId, entity.attributes) ?? this.readChangeProjection(entity.displayId);
-      const repaired = await this.persistCanonicalChange(
-        projection.state,
-        projection.decisions,
-        projection.projection,
-        projection.analysis,
-        projection.checklist,
-      );
-      summaries.push(repaired.summary);
+      throw new Error(`Spec change entity ${entity.displayId} is missing structured attributes`);
     }
     return summaries
       .filter((summary) => {
@@ -815,17 +711,15 @@ export class SpecStore {
   async readCapability(ref: string): Promise<CanonicalCapabilityRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const capabilityId = normalizeCapabilityId(ref.split(/[\\/]/).pop()?.replace(/\.md$/, "") ?? ref);
-    const entity = await findOrBootstrapEntityByDisplayId(
-      this.cwd,
-      storage,
-      identity.space.id,
-      SPEC_CAPABILITY_ENTITY_KIND,
-      capabilityId,
-    );
+    const entity = await findEntityByDisplayId(storage, identity.space.id, SPEC_CAPABILITY_ENTITY_KIND, capabilityId);
     if (!entity) {
       throw new Error(`Unknown capability: ${ref}`);
     }
-    return (entity.attributes as unknown as SpecCapabilityEntityAttributes).record;
+    const record = (entity.attributes as unknown as SpecCapabilityEntityAttributes | undefined)?.record;
+    if (!record) {
+      throw new Error(`Capability entity ${capabilityId} is missing structured attributes`);
+    }
+    return record;
   }
 
   readChangeProjection(ref: string): SpecChangeRecord {

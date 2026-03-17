@@ -40,9 +40,17 @@ Old slash subcommands such as `list`, `show`, `start`, `close`, `journal`, `atta
 
 ## Focused views and fallbacks
 
-In an interactive UI, focused ticket views are rendered through `ctx.ui.custom(...)`.
+In an interactive UI, `/ticket open ...` now enters a centered overlay workbench rendered through `ctx.ui.custom(...)`.
 
-Today the persistent widget is still textual. That is deliberate and truthful: current runtimes need a string-safe home surface that works in RPC and other non-custom contexts. When custom UI is unavailable, `/ticket open ...` falls back to textual views instead of pretending a richer widget exists.
+That workbench is intentionally selector-shaped rather than command-shaped:
+
+- a bounded shell instead of a full-screen text dump
+- tabbed top-level navigation (`Overview`, `Inbox`, `List`, `Board`, `Timeline`, `Detail`)
+- contextual detail preview while browsing
+- bounded action menus for status, editing, and dependency updates
+- Esc-to-back behavior inside the shell before Esc closes it entirely
+
+The persistent home widget is still textual. That is deliberate and truthful: current runtimes need a string-safe summary that works in RPC and other non-custom contexts. When custom UI is unavailable, `/ticket open ...` falls back to textual views instead of pretending the overlay workbench exists.
 
 Textual fallback also preserves direct detail actions when custom UI is unavailable. The same human command surface can drive focused ticket changes through detail-scoped actions such as:
 
@@ -50,13 +58,14 @@ Textual fallback also preserves direct detail actions when custom UI is unavaila
 - `/ticket open detail <ref> status <open|reopen|in_progress|review|close> [verification note]`
 - `/ticket open detail <ref> dependency <add|remove> <depRef>`
 
-Current focused views:
+Current interactive workbench surfaces:
 
-- home
-- list
-- board
-- timeline
-- detail
+- overview — hero counts, ready-now work, blocked attention, recent movement
+- inbox — review-focused blocked and ready queues
+- list — full backlog browsing
+- board — status-lane browsing
+- timeline — recent change chronology
+- detail — full ticket drill-in with journal, checkpoint, and attachment context
 
 Current direct workspace operations:
 
@@ -65,6 +74,8 @@ Current direct workspace operations:
 - change status to open or reopen, in-progress, review, and close
 - add or remove dependencies
 - inspect ticket detail together with journal, checkpoint, and attachment context
+
+In interactive mode those operations are launched from contextual action menus inside the workbench. In textual fallback mode they remain available through detail-scoped command paths.
 
 The durable ticket ledger remains the source of truth. The workspace is a lens over tickets, not a shadow store.
 

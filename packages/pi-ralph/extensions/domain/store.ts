@@ -16,13 +16,13 @@ import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain
 import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
 import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
   upsertProjectionForEntity,
 } from "@pi-loom/pi-storage/storage/entities.js";
-import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
-import { findOrBootstrapEntityByDisplayId, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildRalphDashboard, summarizeRalphRun } from "./dashboard.js";
 import { parseMarkdownArtifact, renderBulletList, renderSection } from "./frontmatter.js";
@@ -90,17 +90,8 @@ interface RalphEntityAttributes {
   record: RalphReadResult;
 }
 
-interface FilesystemImportedEntityAttributes {
-  importedFrom?: string;
-  filesByPath?: Record<string, string>;
-}
-
 function hasStructuredRalphAttributes(attributes: unknown): attributes is RalphEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
-}
-
-function hasFilesystemImportedRalphAttributes(attributes: unknown): attributes is FilesystemImportedEntityAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
 }
 
 function ensureDir(path: string): void {
@@ -131,10 +122,6 @@ function writeJson(path: string, value: unknown): void {
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
-}
-
-function parseJsonText<T>(content: string): T {
-  return JSON.parse(content) as T;
 }
 
 function appendJsonl(path: string, value: unknown): void {
@@ -176,28 +163,6 @@ function frontmatterStringList(
     return normalizeStringList(value);
   }
   return value ? normalizeStringList([value]) : [];
-}
-
-function safeParseMarkdown(
-  content: string | undefined,
-  filePath: string,
-): { frontmatter: Record<string, string | null | string[]>; body: string } | null {
-  if (!content) {
-    return null;
-  }
-  try {
-    return parseMarkdownArtifact(content, filePath);
-  } catch {
-    return null;
-  }
-}
-
-function findImportedFile(
-  filesByPath: Record<string, string>,
-  preferredPath: string,
-  suffix: string,
-): string | null {
-  return filesByPath[preferredPath] ?? Object.entries(filesByPath).find(([path]) => path.endsWith(suffix))?.[1] ?? null;
 }
 
 function expectEnum<T extends string>(
@@ -1442,159 +1407,6 @@ export class RalphStore {
     };
   }
 
-  private readImportedStructuredRecord(entity: LoomEntityRecord): RalphReadResult | null {
-    if (!hasFilesystemImportedRalphAttributes(entity.attributes) || !entity.attributes.filesByPath) {
-      return null;
-    }
-    const filesByPath = entity.attributes.filesByPath as Record<string, string>;
-    const runId = entity.displayId ?? "";
-    if (!runId) {
-      return null;
-    }
-    const basePath = `.loom/ralph/${runId}`;
-    const stateText = findImportedFile(filesByPath, `${basePath}/state.json`, `/${runId}/state.json`);
-    if (!stateText) {
-      return null;
-    }
-    const artifacts = getRalphArtifactPaths(this.cwd, runId);
-    const state = normalizeStoredRunState(parseJsonText<RalphRunState>(stateText));
-    const iterations = latestById(
-      parseJsonlText<RalphIterationRecord>(
-        findImportedFile(filesByPath, `${basePath}/iterations.jsonl`, `/${runId}/iterations.jsonl`) ?? "",
-      ).map((entry) => normalizeIteration(entry)),
-    ).sort((left, right) => left.iteration - right.iteration);
-    const normalizedState: RalphRunState = {
-      ...state,
-      lastIterationNumber: iterations.at(-1)?.iteration ?? state.lastIterationNumber,
-      packetSummary: createPacketSummary(state),
-    };
-    const launchText = findImportedFile(filesByPath, `${basePath}/launch.json`, `/${runId}/launch.json`);
-    const launch = launchText
-      ? {
-          ...parseJsonText<RalphLaunchDescriptor>(launchText),
-          runId,
-        }
-      : this.defaultLaunchDescriptor(normalizedState, iterations.at(-1) ?? null);
-    const summary = this.summarizeRun(normalizedState, artifacts.dir);
-    return {
-      state: normalizedState,
-      summary,
-      packet:
-        findImportedFile(filesByPath, `${basePath}/packet.md`, `/${runId}/packet.md`) ??
-        this.buildPacket(normalizedState, iterations),
-      run:
-        findImportedFile(filesByPath, `${basePath}/run.md`, `/${runId}/run.md`) ??
-        renderRalphMarkdown(normalizedState, iterations),
-      iterations,
-      launch,
-      dashboard: buildRalphDashboard(
-        normalizedState,
-        summary,
-        iterations,
-        artifacts,
-        RALPH_ITERATION_STATUSES,
-        RALPH_VERIFIER_VERDICTS,
-      ),
-      artifacts,
-    };
-  }
-
-  private buildMarkdownOnlyImportedRecord(entity: LoomEntityRecord): RalphReadResult | null {
-    if (!hasFilesystemImportedRalphAttributes(entity.attributes) || !entity.attributes.filesByPath) {
-      return null;
-    }
-    const filesByPath = entity.attributes.filesByPath as Record<string, string>;
-    const runId = entity.displayId ?? "";
-    if (!runId) {
-      return null;
-    }
-    const basePath = `.loom/ralph/${runId}`;
-    const packet = findImportedFile(filesByPath, `${basePath}/packet.md`, `/${runId}/packet.md`);
-    const run = findImportedFile(filesByPath, `${basePath}/run.md`, `/${runId}/run.md`);
-    if (!packet && !run) {
-      return null;
-    }
-
-    const runArtifact = safeParseMarkdown(run ?? undefined, `${basePath}/run.md`);
-    const linkedCritiqueIds = frontmatterStringList(runArtifact?.frontmatter ?? {}, "critiques");
-    const state: RalphRunState = {
-      runId,
-      title: frontmatterString(runArtifact?.frontmatter ?? {}, "title") ?? entity.title,
-      status: normalizeRunStatus(frontmatterString(runArtifact?.frontmatter ?? {}, "status") ?? entity.status),
-      phase: normalizeRunPhase(frontmatterString(runArtifact?.frontmatter ?? {}, "phase")),
-      waitingFor: normalizeWaitingFor(frontmatterString(runArtifact?.frontmatter ?? {}, "waiting")),
-      createdAt: entity.createdAt,
-      updatedAt: frontmatterString(runArtifact?.frontmatter ?? {}, "updated-at") ?? entity.updatedAt,
-      objective: "",
-      summary: entity.summary,
-      linkedRefs: normalizeLinkedRefs({
-        critiqueIds: linkedCritiqueIds,
-        planIds: frontmatterStringList(runArtifact?.frontmatter ?? {}, "plans"),
-        ticketIds: frontmatterStringList(runArtifact?.frontmatter ?? {}, "tickets"),
-      }),
-      policySnapshot: normalizePolicySnapshot(undefined),
-      verifierSummary: normalizeVerifierSummary(undefined),
-      critiqueLinks: normalizeCritiqueLinks(
-        linkedCritiqueIds.map((critiqueId) => ({
-          critiqueId,
-          kind: "context",
-          verdict: null,
-          required: false,
-          blocking: false,
-          reviewedAt: null,
-          findingIds: [],
-          summary: "Imported markdown-only Ralph record; critique link details are unavailable.",
-        })),
-      ),
-      latestDecision: null,
-      lastIterationNumber: 0,
-      currentIterationId: null,
-      lastLaunchAt: null,
-      launchCount: 0,
-      stopReason: null,
-      packetSummary: entity.summary,
-    };
-    const artifacts = getRalphArtifactPaths(this.cwd, runId);
-    const summary = this.summarizeRun(state, artifacts.dir);
-    const launch = this.defaultLaunchDescriptor(state, null);
-    return {
-      state,
-      summary,
-      packet: packet ?? "Imported Ralph packet markdown is unavailable.",
-      run: run ?? renderRalphMarkdown(state, []),
-      iterations: [],
-      launch,
-      dashboard: buildRalphDashboard(
-        state,
-        summary,
-        [],
-        artifacts,
-        RALPH_ITERATION_STATUSES,
-        RALPH_VERIFIER_VERDICTS,
-      ),
-      artifacts,
-    };
-  }
-
-  private async repairRunToCanonical(entity: LoomEntityRecord): Promise<RalphReadResult> {
-    const runId = entity.displayId ?? "";
-    if (!runId) {
-      throw new Error(`Ralph run entity ${entity.id} is missing a display id`);
-    }
-    const structuredImportedRecord = this.readImportedStructuredRecord(entity);
-    if (structuredImportedRecord) {
-      return this.upsertCanonicalRecord(structuredImportedRecord);
-    }
-    const markdownOnlyRecord = this.buildMarkdownOnlyImportedRecord(entity);
-    if (markdownOnlyRecord) {
-      return markdownOnlyRecord;
-    }
-    if (existsSync(getRalphArtifactPaths(this.cwd, runId).state)) {
-      return this.upsertCanonicalRecord(this.readRunProjection(runId));
-    }
-    throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
-  }
-
   private async upsertCanonicalRecord(record: RalphReadResult): Promise<RalphReadResult> {
     const materialized = await this.materializeCanonicalRecord(record);
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
@@ -1666,10 +1478,11 @@ export class RalphStore {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const summaries = await Promise.all(
       (await storage.listEntities(identity.space.id, ENTITY_KIND)).map(async (entity) => {
-        if (hasStructuredRalphAttributes(entity.attributes)) {
-          return this.entityRecord(entity).summary;
+        const runId = entity.displayId ?? entity.id;
+        if (!hasStructuredRalphAttributes(entity.attributes)) {
+          throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
         }
-        return (await this.repairRunToCanonical(entity)).summary;
+        return this.entityRecord(entity).summary;
       }),
     );
     return summaries.filter((summary) => {
@@ -1689,15 +1502,12 @@ export class RalphStore {
   async readRunAsync(ref: string): Promise<RalphReadResult> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const runId = normalizeRalphRunRef(ref);
-    const entity = await findOrBootstrapEntityByDisplayId(this.cwd, storage, identity.space.id, ENTITY_KIND, runId);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, runId);
     if (!entity) {
-      if (existsSync(getRalphArtifactPaths(this.cwd, runId).state)) {
-        return this.upsertCanonicalRecord(this.readRunProjection(ref));
-      }
       throw new Error(`Unknown Ralph run: ${ref}`);
     }
     if (!hasStructuredRalphAttributes(entity.attributes)) {
-      return this.repairRunToCanonical(entity);
+      throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
     }
     return this.materializeCanonicalRecord(this.entityRecord(entity));
   }

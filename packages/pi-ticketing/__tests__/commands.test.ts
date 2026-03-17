@@ -122,6 +122,10 @@ describe("/ticket command handler", () => {
 
       expect(result).toBe("");
       expect(ui.custom).toHaveBeenCalledTimes(1);
+      expect(ui.custom.mock.calls[0]?.[1]).toMatchObject({
+        overlay: true,
+        overlayOptions: expect.objectContaining({ anchor: "center" }),
+      });
     } finally {
       cleanup();
     }

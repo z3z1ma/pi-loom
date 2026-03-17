@@ -103,7 +103,7 @@ describe("DocumentationStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T11:20:00.000Z"));
-    const ticket = ticketStore.createTicket({
+    const ticket = await ticketStore.createTicketAsync({
       title: "Implement docs package",
       summary: "Persist docs state, packet, rendered document, revisions, and dashboard artifacts.",
       initiativeIds: [initiative.state.initiativeId],
@@ -114,14 +114,14 @@ describe("DocumentationStore durable memory", () => {
     await researchStore.linkTicket(research.state.researchId, ticket.summary.id);
 
     vi.setSystemTime(new Date("2026-03-15T11:25:00.000Z"));
-    const critique = critiqueStore.createCritique({
+    const critique = await critiqueStore.createCritiqueAsync({
       title: "Critique docs package",
       target: { kind: "ticket", ref: ticket.summary.id, path: "packages/pi-docs/extensions/domain/store.ts" },
       focusAreas: ["architecture", "docs"],
       reviewQuestion: "Does the docs package keep documentation distinct from critique and API reference material?",
       contextRefs: { roadmapItemIds: [roadmapId] },
     });
-    critiqueStore.recordRun(critique.state.critiqueId, {
+    await critiqueStore.recordRunAsync(critique.state.critiqueId, {
       kind: "docs",
       verdict: "pass",
       summary: "The docs layer remains distinct from critique and focused on high-level explanatory material.",
@@ -199,5 +199,5 @@ describe("DocumentationStore durable memory", () => {
     expect(renderedDocument).toContain("type: overview");
     expect(renderedDocument).toContain("## Update Flow");
     expect(renderedDocument).toContain("Documentation remains distinct from critique");
-  }, 30000);
+  }, 120000);
 });

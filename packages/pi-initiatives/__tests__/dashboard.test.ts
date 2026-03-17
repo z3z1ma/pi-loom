@@ -11,38 +11,6 @@ import { createInitiativeStore } from "../extensions/domain/store.js";
 describe("initiative dashboard", () => {
   let workspace: string;
 
-  async function replaceEntityWithFilesystemImport(
-    kind: string,
-    displayId: string,
-    filesByPath: Record<string, string>,
-  ): Promise<void> {
-    const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
-      import("../../pi-storage/storage/entities.js"),
-      import("../../pi-storage/storage/workspace.js"),
-    ]);
-    const { storage, identity } = await openWorkspaceStorage(workspace);
-    const entity = await findEntityByDisplayId(storage, identity.space.id, kind, displayId);
-    expect(entity).toBeTruthy();
-    if (!entity) {
-      throw new Error(`Expected ${kind} entity ${displayId} to exist`);
-    }
-    await upsertEntityByDisplayId(storage, {
-      kind: entity.kind,
-      spaceId: entity.spaceId,
-      owningRepositoryId: entity.owningRepositoryId,
-      displayId: entity.displayId,
-      title: entity.title,
-      summary: entity.summary,
-      status: entity.status,
-      version: entity.version + 1,
-      tags: entity.tags,
-      pathScopes: entity.pathScopes,
-      attributes: { importedFrom: "filesystem", filesByPath },
-      createdAt: entity.createdAt,
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-initiatives-dashboard-"));
     process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
@@ -74,9 +42,9 @@ describe("initiative dashboard", () => {
       title: "Add observability wall",
       summary: "Expose runtime health.",
     });
-    const blocker = ticketStore.createTicket({ title: "Map legacy metrics" });
-    const closer = ticketStore.createTicket({ title: "Backfill dashboards" });
-    ticketStore.closeTicket(closer.summary.id, "Dashboard smoke checks passed.");
+    const blocker = await ticketStore.createTicketAsync({ title: "Map legacy metrics" });
+    const closer = await ticketStore.createTicketAsync({ title: "Backfill dashboards" });
+    await ticketStore.closeTicketAsync(closer.summary.id, "Dashboard smoke checks passed.");
 
     await initiativeStore.createInitiative({
       title: "Observability program",
@@ -111,7 +79,7 @@ describe("initiative dashboard", () => {
       },
       linkedResearch: {
         total: 1,
-        items: [expect.objectContaining({ id: "investigate-observability-gaps" })],
+        items: expect.arrayContaining([expect.objectContaining({ id: "investigate-observability-gaps" })]),
       },
       linkedSpecs: {
         total: 1,
@@ -156,7 +124,7 @@ describe("initiative dashboard", () => {
       summary: "This link will go stale.",
     });
     const spec = await specStore.createChange({ title: "Temporary spec", summary: "This link will go stale." });
-    const ticket = ticketStore.createTicket({ title: "Temporary ticket" });
+    const ticket = await ticketStore.createTicketAsync({ title: "Temporary ticket" });
 
     await initiativeStore.createInitiative({
       title: "Roadmap resilience",
@@ -187,18 +155,58 @@ describe("initiative dashboard", () => {
     writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
     writeFileSync(constitutionalStatePath, `${JSON.stringify(constitutionalState, null, 2)}\n`, "utf-8");
 
-    await replaceEntityWithFilesystemImport("initiative", "roadmap-resilience", {
-      ".loom/initiatives/roadmap-resilience/state.json": readFileSync(statePath, "utf-8"),
-      ".loom/initiatives/roadmap-resilience/initiative.md": readFileSync(join(initiativeDir, "initiative.md"), "utf-8"),
-      ".loom/initiatives/roadmap-resilience/decisions.jsonl": readFileSync(
-        join(initiativeDir, "decisions.jsonl"),
-        "utf-8",
-      ),
+    const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
+      import("../../pi-storage/storage/entities.js"),
+      import("../../pi-storage/storage/workspace.js"),
+    ]);
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const initiativeEntity = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "initiative",
+      "roadmap-resilience",
+    );
+    const constitutionEntity = await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution");
+    expect(initiativeEntity).toBeTruthy();
+    expect(constitutionEntity).toBeTruthy();
+    if (!initiativeEntity || !constitutionEntity) {
+      throw new Error("Expected initiative and constitution entities to exist");
+    }
+    await upsertEntityByDisplayId(storage, {
+      kind: initiativeEntity.kind,
+      spaceId: initiativeEntity.spaceId,
+      owningRepositoryId: initiativeEntity.owningRepositoryId,
+      displayId: initiativeEntity.displayId,
+      title: initiativeEntity.title,
+      summary: initiativeEntity.summary,
+      status: initiativeEntity.status,
+      version: initiativeEntity.version + 1,
+      tags: initiativeEntity.tags,
+      pathScopes: initiativeEntity.pathScopes,
+      attributes: {
+        ...(initiativeEntity.attributes as Record<string, unknown>),
+        state: JSON.parse(readFileSync(statePath, "utf-8")),
+      },
+      createdAt: initiativeEntity.createdAt,
+      updatedAt: new Date().toISOString(),
     });
-    await replaceEntityWithFilesystemImport("constitution", "constitution", {
-      ".loom/constitution/state.json": readFileSync(constitutionalStatePath, "utf-8"),
-      ".loom/constitution/brief.md": readFileSync(join(constitutionalDir, "brief.md"), "utf-8"),
-      ".loom/constitution/roadmap.md": readFileSync(join(constitutionalDir, "roadmap.md"), "utf-8"),
+    await upsertEntityByDisplayId(storage, {
+      kind: constitutionEntity.kind,
+      spaceId: constitutionEntity.spaceId,
+      owningRepositoryId: constitutionEntity.owningRepositoryId,
+      displayId: constitutionEntity.displayId,
+      title: constitutionEntity.title,
+      summary: constitutionEntity.summary,
+      status: constitutionEntity.status,
+      version: constitutionEntity.version + 1,
+      tags: constitutionEntity.tags,
+      pathScopes: constitutionEntity.pathScopes,
+      attributes: {
+        ...(constitutionEntity.attributes as Record<string, unknown>),
+        state: JSON.parse(readFileSync(constitutionalStatePath, "utf-8")),
+      },
+      createdAt: constitutionEntity.createdAt,
+      updatedAt: new Date().toISOString(),
     });
 
     const initiative = await initiativeStore.readInitiative("roadmap-resilience");

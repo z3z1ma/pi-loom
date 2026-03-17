@@ -170,16 +170,16 @@ function buildUpdateInput(
   };
 }
 
-function ticketExists(cwd: string, ticketId: string): boolean {
+async function ticketExists(cwd: string, ticketId: string): Promise<boolean> {
   try {
-    createTicketStore(cwd).readTicket(ticketId);
+    await createTicketStore(cwd).readTicketAsync(ticketId);
     return true;
   } catch {
     return false;
   }
 }
 
-function projectedTicketMatches(
+async function projectedTicketMatches(
   cwd: string,
   ticketId: string,
   expectedDeps: string[],
@@ -189,8 +189,8 @@ function projectedTicketMatches(
   initiativeIds: string[],
   researchIds: string[],
   changeId: string,
-): boolean {
-  const result = createTicketStore(cwd).readTicket(ticketId);
+): Promise<boolean> {
+  const result = await createTicketStore(cwd).readTicketAsync(ticketId);
   return (
     result.ticket.frontmatter.title === task.title &&
     result.ticket.body.summary === task.summary &&
@@ -251,8 +251,8 @@ export async function projectSpecTickets(cwd: string, ref: string): Promise<Spec
     if (
       previousEntry &&
       previousEntry.signature === signature &&
-      ticketExists(cwd, previousEntry.ticketId) &&
-      projectedTicketMatches(
+      (await ticketExists(cwd, previousEntry.ticketId)) &&
+      (await projectedTicketMatches(
         cwd,
         previousEntry.ticketId,
         dependencyTicketIds,
@@ -262,17 +262,19 @@ export async function projectSpecTickets(cwd: string, ref: string): Promise<Spec
         change.state.initiativeIds,
         change.state.researchIds,
         change.state.changeId,
-      )
+      ))
     ) {
       ticketId = previousEntry.ticketId;
-    } else if (previousEntry && ticketExists(cwd, previousEntry.ticketId)) {
-      const updated = ticketStore.updateTicket(
+    } else if (previousEntry && (await ticketExists(cwd, previousEntry.ticketId))) {
+      const updated = await ticketStore.updateTicketAsync(
         previousEntry.ticketId,
         buildUpdateInput(change, task, dependencyTicketIds, capabilityIds),
       );
       ticketId = updated.summary.id;
     } else {
-      const created = ticketStore.createTicket(buildCreateInput(change, task, dependencyTicketIds, capabilityIds));
+      const created = await ticketStore.createTicketAsync(
+        buildCreateInput(change, task, dependencyTicketIds, capabilityIds),
+      );
       ticketId = created.summary.id;
     }
 

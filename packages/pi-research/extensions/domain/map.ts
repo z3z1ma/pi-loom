@@ -98,11 +98,18 @@ async function resolveInitiativeSummary(cwd: string, initiativeId: string): Prom
     };
   }
 
-  const projection = createInitiativeStore(cwd)
-    .listInitiativesProjection({ includeArchived: true })
-    .find((summary) => summary.id === initiativeId);
-  if (projection) {
-    return projection as InitiativeSummary;
+  if (entity) {
+    return {
+      id: initiativeId,
+      title: entity.title,
+      status: entity.status as InitiativeSummary["status"],
+      milestoneCount: 0,
+      specChangeCount: 0,
+      ticketCount: 0,
+      updatedAt: entity.updatedAt,
+      tags: entity.tags,
+      path: `.loom/initiatives/${initiativeId}`,
+    };
   }
   throw new Error(`Unknown initiative: ${initiativeId}`);
 }

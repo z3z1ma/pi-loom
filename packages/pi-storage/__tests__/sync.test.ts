@@ -1,10 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { importWorkspaceSnapshot } from "../storage/catalog.js";
+import { assertRepoRelativePath } from "../storage/contract.js";
+import { createEntityId, createProjectionId } from "../storage/ids.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
+import { resolveWorkspaceIdentity } from "../storage/repository.js";
 import { SqliteLoomCatalog } from "../storage/sqlite.js";
 import { exportSyncBundle, hydrateSyncBundle } from "../storage/sync.js";
 
@@ -24,10 +26,94 @@ function createWorkspace(): { cwd: string; cleanup: () => void } {
   return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
-function writeWorkspaceFile(cwd: string, relativePath: string, content: string): void {
-  const absolutePath = path.join(cwd, relativePath);
-  mkdirSync(path.dirname(absolutePath), { recursive: true });
-  writeFileSync(absolutePath, content, "utf-8");
+async function seedCanonicalCatalog(cwd: string, catalog: SqliteLoomCatalog): Promise<{ entityIds: string[] }> {
+  const identity = resolveWorkspaceIdentity(cwd);
+  const timestamps = {
+    createdAt: identity.space.createdAt,
+    updatedAt: identity.space.updatedAt,
+  };
+
+  await catalog.upsertSpace(identity.space);
+  await catalog.upsertRepository(identity.repository);
+  await catalog.upsertWorktree(identity.worktree);
+
+  const constitutionId = createEntityId("constitution", identity.space.id, "constitution", "constitution");
+  const specId = createEntityId("spec_change", identity.space.id, "db-migration", "db-migration");
+
+  await catalog.upsertEntity({
+    id: constitutionId,
+    kind: "constitution",
+    spaceId: identity.space.id,
+    owningRepositoryId: identity.repository.id,
+    displayId: "constitution",
+    title: "Constitution",
+    summary: "Constitution brief.",
+    status: "active",
+    version: 1,
+    tags: ["constitution"],
+    pathScopes: [
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/constitution/brief.md"),
+        role: "projection",
+      },
+    ],
+    attributes: {},
+    ...timestamps,
+  });
+  await catalog.upsertEntity({
+    id: specId,
+    kind: "spec_change",
+    spaceId: identity.space.id,
+    owningRepositoryId: identity.repository.id,
+    displayId: "db-migration",
+    title: "DB Migration",
+    summary: "Main proposal body.",
+    status: "planned",
+    version: 1,
+    tags: ["spec_change"],
+    pathScopes: [
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/proposal.md"),
+        role: "projection",
+      },
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/state.json"),
+        role: "canonical",
+      },
+    ],
+    attributes: { stage: "planned" },
+    ...timestamps,
+  });
+
+  await catalog.upsertProjection({
+    id: createProjectionId("markdown", constitutionId, ".loom/constitution/brief.md"),
+    entityId: constitutionId,
+    kind: "constitution_markdown_body",
+    materialization: "repo_materialized",
+    repositoryId: identity.repository.id,
+    relativePath: assertRepoRelativePath(".loom/constitution/brief.md"),
+    contentHash: null,
+    version: 1,
+    content: "# Brief\n\nConstitution brief.\n",
+    ...timestamps,
+  });
+  await catalog.upsertProjection({
+    id: createProjectionId("markdown", specId, ".loom/specs/changes/db-migration/proposal.md"),
+    entityId: specId,
+    kind: "spec_markdown_body",
+    materialization: "repo_materialized",
+    repositoryId: identity.repository.id,
+    relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/proposal.md"),
+    contentHash: null,
+    version: 1,
+    content: "# DB Migration\n\nMain proposal body.\n",
+    ...timestamps,
+  });
+
+  return { entityIds: [constitutionId, specId] };
 }
 
 describe("pi-storage sync bundle", () => {
@@ -48,17 +134,9 @@ describe("pi-storage sync bundle", () => {
     process.env.PI_LOOM_ROOT = catalogRoot;
     ensureLoomCatalogDirs(getLoomCatalogPaths());
 
-    writeWorkspaceFile(cwd, ".loom/constitution/brief.md", "# Brief\n\nConstitution brief.\n");
-    writeWorkspaceFile(cwd, ".loom/specs/changes/db-migration/proposal.md", "# DB Migration\n\nMain proposal body.\n");
-    writeWorkspaceFile(
-      cwd,
-      ".loom/specs/changes/db-migration/state.json",
-      `${JSON.stringify({ changeId: "db-migration", title: "DB Migration", status: "planned" }, null, 2)}\n`,
-    );
-
     const sourceCatalog = new SqliteLoomCatalog();
     try {
-      await importWorkspaceSnapshot(cwd, sourceCatalog);
+      const seeded = await seedCanonicalCatalog(cwd, sourceCatalog);
       const bundleDir = mkdtempSync(path.join(tmpdir(), "pi-storage-sync-bundle-"));
       cleanupPaths.push(bundleDir);
       const exported = await exportSyncBundle(cwd, sourceCatalog, bundleDir);
@@ -87,7 +165,8 @@ describe("pi-storage sync bundle", () => {
       try {
         const hydrated = await hydrateSyncBundle(targetCatalog, bundleDir);
         const hydratedEntities = await targetCatalog.listEntities();
-        expect(hydrated.hydratedEntityIds.length).toBe(hydratedEntities.length);
+        expect(hydrated.hydratedEntityIds).toEqual(seeded.entityIds.slice().sort((left, right) => left.localeCompare(right)));
+        expect(hydratedEntities.length).toBe(seeded.entityIds.length);
         expect(hydratedEntities.some((entity) => entity.displayId === "db-migration")).toBe(true);
         const specEntity = hydratedEntities.find((entity) => entity.displayId === "db-migration");
         const projections = await targetCatalog.listProjections(specEntity?.id ?? "missing");
@@ -124,11 +203,9 @@ describe("pi-storage sync bundle", () => {
     process.env.PI_LOOM_ROOT = catalogRoot;
     ensureLoomCatalogDirs(getLoomCatalogPaths());
 
-    writeWorkspaceFile(cwd, ".loom/constitution/brief.md", "# Brief\n\nConstitution brief.\n");
-
     const sourceCatalog = new SqliteLoomCatalog();
     try {
-      await importWorkspaceSnapshot(cwd, sourceCatalog);
+      await seedCanonicalCatalog(cwd, sourceCatalog);
       const bundleDir = mkdtempSync(path.join(tmpdir(), "pi-storage-sync-conflict-bundle-"));
       cleanupPaths.push(bundleDir);
       await exportSyncBundle(cwd, sourceCatalog, bundleDir);

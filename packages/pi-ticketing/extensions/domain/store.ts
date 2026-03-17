@@ -62,17 +62,8 @@ interface TicketEntityAttributes {
   record: TicketReadResult;
 }
 
-interface FilesystemImportedEntityAttributes {
-  importedFrom?: string;
-  filesByPath?: Record<string, string>;
-}
-
 function hasStructuredTicketAttributes(attributes: unknown): attributes is TicketEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
-}
-
-function hasFilesystemImportedTicketAttributes(attributes: unknown): attributes is FilesystemImportedEntityAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
 }
 
 function ensureDir(path: string): void {
@@ -115,61 +106,6 @@ function mediaTypeExtension(mediaType: string): string {
     default:
       return ".bin";
   }
-}
-
-function parseJsonText<T>(content: string): T {
-  return JSON.parse(content) as T;
-}
-
-function parseJournalEntriesText(ticketId: string, content: string): JournalEntry[] {
-  const lines = content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const entries: JournalEntry[] = [];
-  for (const line of lines) {
-    const parsed = JSON.parse(line) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      continue;
-    }
-    const record = parsed as Record<string, unknown>;
-    entries.push({
-      id: typeof record.id === "string" ? record.id : `${ticketId}-journal-unknown`,
-      ticketId: typeof record.ticketId === "string" ? record.ticketId : ticketId,
-      createdAt: typeof record.createdAt === "string" ? record.createdAt : new Date(0).toISOString(),
-      kind: typeof record.kind === "string" ? (record.kind as JournalKind) : "note",
-      text: typeof record.text === "string" ? record.text : "",
-      metadata:
-        record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
-          ? (record.metadata as Record<string, unknown>)
-          : {},
-    });
-  }
-  return entries.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-}
-
-function parseAttachmentsText(ticketId: string, content: string): AttachmentRecord[] {
-  const parsed = parseJsonText<unknown>(content);
-  if (!Array.isArray(parsed)) {
-    return [];
-  }
-  return parsed
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry)))
-    .map((entry) => ({
-      id: typeof entry.id === "string" ? entry.id : "",
-      ticketId: typeof entry.ticketId === "string" ? entry.ticketId : ticketId,
-      createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date(0).toISOString(),
-      label: typeof entry.label === "string" ? entry.label : "artifact",
-      mediaType: typeof entry.mediaType === "string" ? entry.mediaType : "application/octet-stream",
-      artifactPath: typeof entry.artifactPath === "string" ? entry.artifactPath : null,
-      sourcePath: typeof entry.sourcePath === "string" ? entry.sourcePath : null,
-      description: typeof entry.description === "string" ? entry.description : "",
-      metadata:
-        entry.metadata && typeof entry.metadata === "object" && !Array.isArray(entry.metadata)
-          ? (entry.metadata as Record<string, unknown>)
-          : {},
-    }))
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
 function relativeOrAbsolute(cwd: string, filePath: string): string {
@@ -245,52 +181,6 @@ export class TicketStore {
     return (entity.attributes as TicketEntityAttributes).record;
   }
 
-  private readImportedEntityRecord(ticketId: string, attributes: unknown): TicketReadResult | null {
-    if (!hasFilesystemImportedTicketAttributes(attributes) || !attributes.filesByPath) {
-      return null;
-    }
-    const openPath = relativeOrAbsolute(this.cwd, getTicketPath(this.cwd, ticketId, false));
-    const closedPath = relativeOrAbsolute(this.cwd, getTicketPath(this.cwd, ticketId, true));
-    const ticketPath = openPath in attributes.filesByPath ? openPath : closedPath in attributes.filesByPath ? closedPath : null;
-    if (!ticketPath) {
-      return null;
-    }
-    const ticket = parseTicket(attributes.filesByPath[ticketPath], ticketPath, ticketPath === closedPath);
-    const journalPath = relativeOrAbsolute(this.cwd, getJournalPath(this.cwd, ticketId));
-    const attachmentsPath = relativeOrAbsolute(this.cwd, getAttachmentsIndexPath(this.cwd, ticketId));
-    const checkpointIndexPath = relativeOrAbsolute(this.cwd, getCheckpointIndexPath(this.cwd, ticketId));
-    const checkpointIds = readCheckpointIdsFromRecord(parseJsonText<unknown>(attributes.filesByPath[checkpointIndexPath] ?? "[]"));
-    const checkpoints = checkpointIds.flatMap((checkpointId) => {
-      const checkpointPath = relativeOrAbsolute(this.cwd, getCheckpointPath(this.cwd, checkpointId));
-      const checkpointText =
-        attributes.filesByPath?.[checkpointPath] ??
-        (existsSync(resolve(this.cwd, checkpointPath)) ? readFileSync(resolve(this.cwd, checkpointPath), "utf-8") : null);
-      return checkpointText ? [withCheckpointPath(parseCheckpoint(checkpointText, checkpointPath), checkpointPath)] : [];
-    });
-    return {
-      ticket,
-      summary: summarizeTicket(ticket, ticket.closed ? "closed" : ticket.frontmatter.status),
-      journal: parseJournalEntriesText(ticketId, attributes.filesByPath[journalPath] ?? ""),
-      attachments: parseAttachmentsText(ticketId, attributes.filesByPath[attachmentsPath] ?? "[]"),
-      checkpoints,
-      children: [],
-      blockers: [],
-    };
-  }
-
-  private async repairTicketToCanonical(ticketId: string, attributes?: unknown): Promise<TicketReadResult> {
-    const imported = this.readImportedEntityRecord(ticketId, attributes);
-    if (imported) {
-      return this.upsertCanonicalRecord(imported);
-    }
-    const openPath = getTicketPath(this.cwd, ticketId, false);
-    const closedPath = getTicketPath(this.cwd, ticketId, true);
-    if (existsSync(openPath) || existsSync(closedPath)) {
-      return this.upsertCanonicalRecord(this.readTicketProjection(ticketId));
-    }
-    throw new Error(`Ticket entity ${ticketId} is missing structured attributes`);
-  }
-
   private materializeCanonicalRecord(record: TicketReadResult): void {
     this.initLedger();
     const ticketId = record.summary.id;
@@ -354,9 +244,10 @@ export class TicketStore {
     const records = new Map<string, TicketReadResult>();
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
       const ticketId = this.resolveTicketRef(entity.displayId);
-      const record = hasStructuredTicketAttributes(entity.attributes)
-        ? this.entityRecord(entity)
-        : await this.repairTicketToCanonical(ticketId, entity.attributes);
+      if (!hasStructuredTicketAttributes(entity.attributes)) {
+        throw new Error(`Ticket entity ${ticketId} is missing structured attributes`);
+      }
+      const record = this.entityRecord(entity);
       records.set(ticketId, record);
     }
     return [...records.values()].sort((left, right) => left.summary.id.localeCompare(right.summary.id));
@@ -960,13 +851,8 @@ export class TicketStore {
 
   async readTicketAsync(ref: string): Promise<TicketReadResult> {
     const ticketId = this.resolveTicketRef(ref);
-    let records = await this.canonicalRecords();
-    let record = records.find((entry) => entry.summary.id === ticketId);
-    if (!record) {
-      await this.repairTicketToCanonical(ticketId);
-      records = await this.canonicalRecords();
-      record = records.find((entry) => entry.summary.id === ticketId);
-    }
+    const records = await this.canonicalRecords();
+    const record = records.find((entry) => entry.summary.id === ticketId);
     if (!record) {
       throw new Error(`Unknown ticket: ${ticketId}`);
     }

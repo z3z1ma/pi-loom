@@ -6,26 +6,45 @@ import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store
 import { describe, expect, it } from "vitest";
 import { createWorkerStore } from "../extensions/domain/store.js";
 
-function createGitWorkspace(): { cwd: string; cleanup: () => void } {
+function createWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-workers-store-"));
+  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+  return {
+    cwd,
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
+  };
+}
+
+function createGitWorkspace(): { cwd: string; cleanup: () => void } {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-workers-store-git-"));
+  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
   execFileSync("git", ["init"], { cwd, encoding: "utf-8" });
   execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd, encoding: "utf-8" });
   execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd, encoding: "utf-8" });
   writeFileSync(join(cwd, "README.md"), "seed\n", "utf-8");
   execFileSync("git", ["add", "README.md"], { cwd, encoding: "utf-8" });
   execFileSync("git", ["commit", "-m", "seed"], { cwd, encoding: "utf-8" });
-  return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+  return {
+    cwd,
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
+  };
 }
 
-function createWorkerTicket(cwd: string, title = "Worker ticket"): void {
+async function createWorkerTicket(cwd: string, title = "Worker ticket"): Promise<void> {
   const ticketStore = createTicketStore(cwd);
   ticketStore.initLedger();
-  ticketStore.createTicket({ title, summary: "test", context: "context", plan: "plan" });
+  await ticketStore.createTicketAsync({ title, summary: "test", context: "context", plan: "plan" });
 }
 
 describe("WorkerStore", () => {
   it("rejects worker creation without a linked ticket", () => {
-    const { cwd, cleanup } = createGitWorkspace();
+    const { cwd, cleanup } = createWorkspace();
     try {
       const store = createWorkerStore(cwd);
       expect(() => store.createWorker({ title: "Ticketless Worker" })).toThrow(
@@ -36,10 +55,10 @@ describe("WorkerStore", () => {
     }
   });
 
-  it("creates portable worker records and links tickets", () => {
-    const { cwd, cleanup } = createGitWorkspace();
+  it("creates portable worker records and links tickets", async () => {
+    const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd, "Worker-linked ticket");
+      await createWorkerTicket(cwd, "Worker-linked ticket");
 
       const ticketStore = createTicketStore(cwd);
       const store = createWorkerStore(cwd);
@@ -63,10 +82,10 @@ describe("WorkerStore", () => {
     }
   });
 
-  it("tracks unresolved inbox backlog and explicit acknowledgment/resolution transitions", () => {
-    const { cwd, cleanup } = createGitWorkspace();
+  it("tracks unresolved inbox backlog and explicit acknowledgment/resolution transitions", async () => {
+    const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd, "Inbox ticket");
+      await createWorkerTicket(cwd, "Inbox ticket");
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Inbox Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -106,10 +125,10 @@ describe("WorkerStore", () => {
     }
   });
 
-  it("renders worker packets with unresolved inbox and explicit stop-condition contract", () => {
+  it("renders worker packets with unresolved inbox and explicit stop-condition contract", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {
-      createWorkerTicket(cwd, "Packet ticket");
+      await createWorkerTicket(cwd, "Packet ticket");
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Packet Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -138,10 +157,10 @@ describe("WorkerStore", () => {
     }
   });
 
-  it("records messages checkpoints approvals and consolidation outcomes durably", () => {
-    const { cwd, cleanup } = createGitWorkspace();
+  it("records messages checkpoints approvals and consolidation outcomes durably", async () => {
+    const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd, "Worker lifecycle ticket");
+      await createWorkerTicket(cwd, "Worker lifecycle ticket");
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Lifecycle Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -188,10 +207,10 @@ describe("WorkerStore", () => {
     }
   });
 
-  it("requires approval before recording consolidation outcomes", () => {
-    const { cwd, cleanup } = createGitWorkspace();
+  it("requires approval before recording consolidation outcomes", async () => {
+    const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd, "Approval gate ticket");
+      await createWorkerTicket(cwd, "Approval gate ticket");
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Approval Gate Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -231,10 +250,10 @@ describe("WorkerStore", () => {
     }
   });
 
-  it("prepares launch descriptors without leaking runtime paths into canonical state or claiming activity", () => {
+  it("prepares launch descriptors without leaking runtime paths into canonical state or claiming activity", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {
-      createWorkerTicket(cwd, "Runtime worker ticket");
+      await createWorkerTicket(cwd, "Runtime worker ticket");
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -254,11 +273,11 @@ describe("WorkerStore", () => {
     }
   });
 
-  it("refuses retirement cleanup for paths outside or different from the owning worker runtime", () => {
+  it("refuses retirement cleanup for paths outside or different from the owning worker runtime", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     const outsideDir = mkdtempSync(join(tmpdir(), "pi-workers-outside-"));
     try {
-      createWorkerTicket(cwd, "Retire worker ticket");
+      await createWorkerTicket(cwd, "Retire worker ticket");
 
       const store = createWorkerStore(cwd);
       const prepared = store.createWorker({ title: "Retire Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -308,10 +327,10 @@ describe("WorkerStore", () => {
     }
   });
 
-  it("produces durable supervision decisions and persists applied interventions", () => {
-    const { cwd, cleanup } = createGitWorkspace();
+  it("produces durable supervision decisions and persists applied interventions", async () => {
+    const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd, "Supervision worker ticket");
+      await createWorkerTicket(cwd, "Supervision worker ticket");
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Supervise Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -347,9 +366,9 @@ describe("WorkerStore", () => {
   });
 
   it("runs a bounded manager scheduler pass over unresolved inbox and approval backlog", async () => {
-    const { cwd, cleanup } = createGitWorkspace();
+    const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd, "Scheduler worker ticket");
+      await createWorkerTicket(cwd, "Scheduler worker ticket");
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Scheduler Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -378,9 +397,9 @@ describe("WorkerStore", () => {
   });
 
   it("treats blocked workers with new inbox instructions as resume candidates", async () => {
-    const { cwd, cleanup } = createGitWorkspace();
+    const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd, "Blocked worker ticket");
+      await createWorkerTicket(cwd, "Blocked worker ticket");
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Blocked Worker", linkedRefs: { ticketIds: ["t-0001"] } });
@@ -403,7 +422,7 @@ describe("WorkerStore", () => {
   it("does not double-resume workers that already have a running launch", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {
-      createWorkerTicket(cwd, "Running worker ticket");
+      await createWorkerTicket(cwd, "Running worker ticket");
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Running Worker", linkedRefs: { ticketIds: ["t-0001"] } });

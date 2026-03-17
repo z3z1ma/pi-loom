@@ -106,28 +106,28 @@ describe("PlanStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T12:20:00.000Z"));
-    const implementationTicket = ticketStore.createTicket({
+    const implementationTicket = await ticketStore.createTicketAsync({
       title: "Implement plan store",
       summary: "Persist state, packet, plan markdown, and dashboard artifacts.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
       specChange: spec.state.changeId,
     });
-    const reviewTicket = ticketStore.createTicket({
+    const reviewTicket = await ticketStore.createTicketAsync({
       title: "Review plan package",
       summary: "Verify the plan layer stays detailed at the execution-strategy level and ticket-linked.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
       specChange: spec.state.changeId,
     });
-    ticketStore.closeTicket(reviewTicket.summary.id, "Critique and dashboard tests pass.");
+    await ticketStore.closeTicketAsync(reviewTicket.summary.id, "Critique and dashboard tests pass.");
     await initiativeStore.linkTicket(initiative.state.initiativeId, implementationTicket.summary.id);
     await initiativeStore.linkTicket(initiative.state.initiativeId, reviewTicket.summary.id);
     await researchStore.linkTicket(research.state.researchId, implementationTicket.summary.id);
     await researchStore.linkTicket(research.state.researchId, reviewTicket.summary.id);
 
     vi.setSystemTime(new Date("2026-03-15T12:25:00.000Z"));
-    const critique = critiqueStore.createCritique({
+    const critique = await critiqueStore.createCritiqueAsync({
       title: "Critique planning layer",
       target: {
         kind: "ticket",
@@ -245,7 +245,7 @@ describe("PlanStore durable memory", () => {
 
     expect(linkedClosed.state.planId).toBe("planning-layer-rollout");
     const planRoot = join(workspace, ".loom", "plans", linkedClosed.state.planId);
-    expect(existsSync(join(planRoot, "state.json"))).toBe(false);
+    expect(existsSync(join(planRoot, "state.json"))).toBe(true);
     expect(existsSync(join(planRoot, "packet.md"))).toBe(true);
     expect(existsSync(join(planRoot, "plan.md"))).toBe(true);
 
@@ -320,7 +320,7 @@ describe("PlanStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T14:05:00.000Z"));
-    const orphanedTicket = ticketStore.createTicket({ title: "Orphaned follow-up" });
+    const orphanedTicket = await ticketStore.createTicketAsync({ title: "Orphaned follow-up" });
     const linkedExisting = await planStore.linkPlanTicket(created.state.planId, {
       ticketId: orphanedTicket.summary.id,
       role: "follow-up",

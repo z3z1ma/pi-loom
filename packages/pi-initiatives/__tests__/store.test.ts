@@ -34,11 +34,11 @@ describe("InitiativeStore durable memory", () => {
     await researchStore.createResearch({ title: "Investigate theme migration" });
     await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
     await specStore.createChange({ title: "Modernize theming tokens", summary: "Replace legacy color literals." });
-    const blocker = ticketStore.createTicket({ title: "Prepare token inventory" });
-    const dependent = ticketStore.createTicket({
+    const blocker = await ticketStore.createTicketAsync({ title: "Prepare token inventory" })
+    const dependent = await ticketStore.createTicketAsync({
       title: "Apply token migration",
       deps: [blocker.summary.id],
-    });
+    })
 
     const created = await initiativeStore.createInitiative({
       title: "Platform modernization",

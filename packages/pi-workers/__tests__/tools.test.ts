@@ -4,11 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
-import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
-import { getWorkerArtifactPaths } from "../extensions/domain/paths.js";
 import { runWorkerLaunch } from "../extensions/domain/runtime.js";
 import { createWorkerStore } from "../extensions/domain/store.js";
 import { registerManagerTools } from "../extensions/tools/manager.js";
@@ -45,13 +42,32 @@ vi.mock("../extensions/domain/runtime.js", async () => {
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-workers-tools-"));
+  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+  return {
+    cwd,
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
+  };
+}
+
+function createGitWorkspace(): { cwd: string; cleanup: () => void } {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-workers-tools-git-"));
+  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
   execFileSync("git", ["init"], { cwd, encoding: "utf-8" });
   execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd, encoding: "utf-8" });
   execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd, encoding: "utf-8" });
   writeFileSync(join(cwd, "README.md"), "seed\n", "utf-8");
   execFileSync("git", ["add", "README.md"], { cwd, encoding: "utf-8" });
   execFileSync("git", ["commit", "-m", "seed"], { cwd, encoding: "utf-8" });
-  return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+  return {
+    cwd,
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
+  };
 }
 
 function createMockPi(): { tools: Map<string, ToolDefinition>; registerTool: ReturnType<typeof vi.fn> } {
@@ -71,7 +87,7 @@ function createCtx(cwd: string): ExtensionContext {
 function createCtxWithRuntimeConfig(cwd: string): ExtensionContext {
   return {
     cwd,
-    model: { provider: "openai", id: "gpt-5.4" } as Model<any>,
+    model: { provider: "openai", id: "gpt-5.4" } as Model<unknown>,
     modelRegistry: { modelsJsonPath: "/tmp/omp-agent/models.json" },
     sessionManager: {
       getEntries: () => [{ type: "thinking_level_change", thinkingLevel: "high" }],
@@ -82,17 +98,17 @@ function createCtxWithRuntimeConfig(cwd: string): ExtensionContext {
   } as unknown as ExtensionContext;
 }
 
-function createWorkerTicket(cwd: string): void {
+async function createWorkerTicket(cwd: string): Promise<void> {
   const ticketStore = createTicketStore(cwd);
   ticketStore.initLedger();
-  ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+  await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
 }
 
 describe("worker tools", () => {
   it("registers worker tools and supports create/read/list flow", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd);
+      await createWorkerTicket(cwd);
 
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);
@@ -172,7 +188,7 @@ describe("worker tools", () => {
   it("supports explicit message acknowledgement and resolution actions", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd);
+      await createWorkerTicket(cwd);
 
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);
@@ -251,124 +267,6 @@ describe("worker tools", () => {
     }
   }, 15000);
 
-  it("repairs filesystem-imported worker entities during canonical list and read flows", async () => {
-    const { cwd, cleanup } = createWorkspace();
-    try {
-      createWorkerTicket(cwd);
-
-      const mockPi = createMockPi();
-      registerManagerTools(mockPi as unknown as ExtensionAPI);
-      registerWorkerTools(mockPi as unknown as ExtensionAPI);
-      const workerWrite = mockPi.tools.get("worker_write");
-      const workerRead = mockPi.tools.get("worker_read");
-      const workerList = mockPi.tools.get("worker_list");
-      expect(workerWrite && workerRead && workerList).toBeTruthy();
-
-      await workerWrite?.execute(
-        "call-create",
-        { action: "create", title: "Filesystem Imported Worker", linkedRefs: { ticketIds: ["t-0001"] } },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      await workerWrite?.execute(
-        "call-message",
-        {
-          action: "append_message",
-          ref: "filesystem-imported-worker",
-          message: {
-            direction: "manager_to_worker",
-            kind: "assignment",
-            text: "Recover this imported worker",
-          },
-        },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      await workerWrite?.execute(
-        "call-checkpoint",
-        {
-          action: "append_checkpoint",
-          ref: "filesystem-imported-worker",
-          checkpoint: { summary: "Imported checkpoint summary", details: "Imported checkpoint details" },
-        },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      await workerWrite?.execute(
-        "call-create-structured",
-        { action: "create", title: "Still Structured Worker", linkedRefs: { ticketIds: ["t-0001"] } },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-
-      const { storage, identity } = await openWorkspaceStorage(cwd);
-      const entity = await findEntityByDisplayId(storage, identity.space.id, "worker", "filesystem-imported-worker");
-      expect(entity).toBeTruthy();
-      if (!entity) {
-        throw new Error("Expected worker entity to exist");
-      }
-
-      const artifacts = getWorkerArtifactPaths(cwd, "filesystem-imported-worker");
-      await upsertEntityByDisplayId(storage, {
-        kind: entity.kind,
-        spaceId: entity.spaceId,
-        owningRepositoryId: entity.owningRepositoryId,
-        displayId: entity.displayId,
-        title: entity.title,
-        summary: entity.summary,
-        status: entity.status,
-        version: entity.version + 1,
-        tags: entity.tags,
-        pathScopes: entity.pathScopes,
-        attributes: {
-          importedFrom: "filesystem",
-          filesByPath: {
-            ".loom/workers/filesystem-imported-worker/state.json": readFileSync(artifacts.state, "utf-8"),
-            ".loom/workers/filesystem-imported-worker/worker.md": readFileSync(artifacts.worker, "utf-8"),
-            ".loom/workers/filesystem-imported-worker/messages.jsonl": readFileSync(artifacts.messages, "utf-8"),
-            ".loom/workers/filesystem-imported-worker/checkpoints.jsonl": readFileSync(artifacts.checkpoints, "utf-8"),
-          },
-        },
-        createdAt: entity.createdAt,
-        updatedAt: new Date("2026-03-17T00:00:00.000Z").toISOString(),
-      });
-
-      const listed = await workerList?.execute("call-list", {}, undefined, undefined, createCtx(cwd));
-      expect(JSON.stringify(listed)).toContain("filesystem-imported-worker");
-      expect(JSON.stringify(listed)).toContain("still-structured-worker");
-
-      const read = await workerRead?.execute(
-        "call-read",
-        { ref: "filesystem-imported-worker" },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      expect(read?.details).toMatchObject({
-        worker: {
-          summary: { id: "filesystem-imported-worker" },
-          messages: [expect.objectContaining({ text: "Recover this imported worker" })],
-          checkpoints: [expect.objectContaining({ summary: "Imported checkpoint summary" })],
-        },
-      });
-
-      const repaired = await findEntityByDisplayId(storage, identity.space.id, "worker", "filesystem-imported-worker");
-      expect(repaired?.attributes).toMatchObject({
-        worker: {
-          state: expect.objectContaining({ workerId: "filesystem-imported-worker" }),
-          messages: [expect.objectContaining({ text: "Recover this imported worker" })],
-          checkpoints: [expect.objectContaining({ summary: "Imported checkpoint summary" })],
-        },
-      });
-    } finally {
-      cleanup();
-    }
-  });
-
   it("enforces ticket links on create requests", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
@@ -393,11 +291,11 @@ describe("worker tools", () => {
   });
 
   it("keeps prepare-only launches truthful and persists launch outcomes", async () => {
-    const { cwd, cleanup } = createWorkspace();
+    const { cwd, cleanup } = createGitWorkspace();
     const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
     runWorkerLaunchMock.mockReset();
     try {
-      createWorkerTicket(cwd);
+      await createWorkerTicket(cwd);
 
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);
@@ -454,11 +352,11 @@ describe("worker tools", () => {
   }, 30000);
 
   it("passes inherited sdk runtime config into worker launches", async () => {
-    const { cwd, cleanup } = createWorkspace();
+    const { cwd, cleanup } = createGitWorkspace();
     const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
     runWorkerLaunchMock.mockReset();
     try {
-      createWorkerTicket(cwd);
+      await createWorkerTicket(cwd);
 
       const mockPi = createMockPi();
       registerWorkerTools(mockPi as unknown as ExtensionAPI);
@@ -475,7 +373,13 @@ describe("worker tools", () => {
       );
 
       runWorkerLaunchMock.mockResolvedValueOnce({ status: "completed", output: "Execution finished", error: null });
-      await workerLaunch?.execute("call-run", { ref: "inherited-runtime-worker" }, undefined, undefined, createCtxWithRuntimeConfig(cwd));
+      await workerLaunch?.execute(
+        "call-run",
+        { ref: "inherited-runtime-worker" },
+        undefined,
+        undefined,
+        createCtxWithRuntimeConfig(cwd),
+      );
 
       const sdkSessionConfig = runWorkerLaunchMock.mock.calls[0]?.[3];
       expect(sdkSessionConfig).toEqual(
@@ -496,7 +400,7 @@ describe("worker tools", () => {
   it("supports manager overview and manager-write flows", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
-      createWorkerTicket(cwd);
+      await createWorkerTicket(cwd);
 
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);
@@ -580,11 +484,11 @@ describe("worker tools", () => {
   }, 30000);
 
   it("bridges inherited runtime/session config into launch preparation and resume", async () => {
-    const { cwd, cleanup } = createWorkspace();
+    const { cwd, cleanup } = createGitWorkspace();
     const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
     runWorkerLaunchMock.mockReset();
     try {
-      createWorkerTicket(cwd);
+      await createWorkerTicket(cwd);
 
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);

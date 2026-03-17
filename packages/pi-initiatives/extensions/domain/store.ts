@@ -7,7 +7,7 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
-import { findOrBootstrapEntityByDisplayId, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildInitiativeDashboard, buildInitiativeDashboardProjection } from "./dashboard.js";
 import type {
@@ -87,26 +87,6 @@ function summarizeInitiative(cwd: string, state: InitiativeState, path: string):
     updatedAt: state.updatedAt,
     tags: [...state.tags],
     path: relativeOrAbsolute(cwd, path),
-  };
-}
-
-function summarizeImportedInitiativeEntity(entity: {
-  displayId: string;
-  title: string;
-  status: string;
-  updatedAt: string;
-  tags: string[];
-}): InitiativeSummary {
-  return {
-    id: normalizeInitiativeId(entity.displayId),
-    title: entity.title,
-    status: normalizeStatus(entity.status),
-    milestoneCount: 0,
-    specChangeCount: 0,
-    ticketCount: 0,
-    updatedAt: entity.updatedAt,
-    tags: entity.tags,
-    path: `.loom/initiatives/${normalizeInitiativeId(entity.displayId)}`,
   };
 }
 
@@ -263,11 +243,6 @@ export class InitiativeStore {
     return this.writeArtifacts(state, decisions, buildInitiativeDashboardProjection(this.cwd, state));
   }
 
-  private syncInitiativeToCanonical(initiativeId: string): Promise<InitiativeRecord> {
-    const projection = this.readInitiativeProjection(initiativeId);
-    return this.persistRecord(projection.state, projection.decisions);
-  }
-
   listInitiativesProjection(filter: InitiativeListFilter = {}): InitiativeSummary[] {
     this.initLedger();
     return this.initiativeDirectories()
@@ -289,17 +264,7 @@ export class InitiativeStore {
     this.initLedger();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const initiativeId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
-    let entity = await findOrBootstrapEntityByDisplayId(
-      this.cwd,
-      storage,
-      identity.space.id,
-      ENTITY_KIND,
-      initiativeId,
-    );
-    const statePath = join(getInitiativeDir(this.cwd, initiativeId), "state.json");
-    if (!entity && existsSync(statePath)) {
-      return this.syncInitiativeToCanonical(initiativeId);
-    }
+    let entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, initiativeId);
     if (!entity) {
       const timestamp = currentTimestamp();
       const state = this.defaultState({ title: initiativeId, initiativeId }, timestamp);
@@ -326,9 +291,6 @@ export class InitiativeStore {
       });
     }
     if (!hasStructuredInitiativeAttributes(entity.attributes)) {
-      if (existsSync(statePath)) {
-        return this.syncInitiativeToCanonical(initiativeId);
-      }
       throw new Error(`Initiative entity ${initiativeId} is missing structured attributes`);
     }
     const attributes = entity.attributes;
@@ -435,16 +397,15 @@ export class InitiativeStore {
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
       if (hasStructuredInitiativeAttributes(entity.attributes)) {
         summaries.push(
-          summarizeInitiative(this.cwd, entity.attributes.state, getInitiativeDir(this.cwd, entity.attributes.state.initiativeId)),
+          summarizeInitiative(
+            this.cwd,
+            entity.attributes.state,
+            getInitiativeDir(this.cwd, entity.attributes.state.initiativeId),
+          ),
         );
         continue;
       }
-      try {
-        const repaired = await this.syncInitiativeToCanonical(entity.displayId);
-        summaries.push(repaired.summary);
-      } catch {
-        summaries.push(summarizeImportedInitiativeEntity(entity));
-      }
+      throw new Error(`Initiative entity ${entity.displayId} is missing structured attributes`);
     }
     return summaries
       .filter((summary) => {

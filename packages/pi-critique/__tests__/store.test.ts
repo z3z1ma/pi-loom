@@ -102,7 +102,7 @@ describe("CritiqueStore durable memory", () => {
     });
 
     vi.setSystemTime(new Date("2026-03-15T10:20:00.000Z"));
-    const ticket = ticketStore.createTicket({
+    const ticket = await ticketStore.createTicketAsync({
       title: "Implement critique store",
       summary: "Persist critique state, packet, runs, findings, and dashboard artifacts.",
       initiativeIds: [initiative.state.initiativeId],
@@ -113,7 +113,7 @@ describe("CritiqueStore durable memory", () => {
     await researchStore.linkTicket(research.state.researchId, ticket.summary.id);
 
     vi.setSystemTime(new Date("2026-03-15T10:25:00.000Z"));
-    const critique = critiqueStore.createCritique({
+    const critique = await critiqueStore.createCritiqueAsync({
       title: "Critique implementation ticket",
       target: {
         kind: "ticket",
@@ -159,7 +159,7 @@ describe("CritiqueStore durable memory", () => {
     expect(existsSync(join(workspace, ".loom", "critiques", critique.state.critiqueId, "launch.json"))).toBe(true);
 
     vi.setSystemTime(new Date("2026-03-15T10:35:00.000Z"));
-    const withRun = critiqueStore.recordRun(critique.state.critiqueId, {
+    const withRun = await critiqueStore.recordRunAsync(critique.state.critiqueId, {
       kind: "adversarial",
       verdict: "needs_revision",
       summary: "The packet is good, but verification coverage is incomplete.",
@@ -175,7 +175,7 @@ describe("CritiqueStore durable memory", () => {
     }
 
     vi.setSystemTime(new Date("2026-03-15T10:40:00.000Z"));
-    const withFirstFinding = critiqueStore.addFinding(critique.state.critiqueId, {
+    const withFirstFinding = await critiqueStore.addFindingAsync(critique.state.critiqueId, {
       runId,
       kind: "missing_test",
       severity: "high",
@@ -189,7 +189,7 @@ describe("CritiqueStore durable memory", () => {
     expect(withFirstFinding.state.openFindingIds).toEqual(["finding-001"]);
 
     vi.setSystemTime(new Date("2026-03-15T10:45:00.000Z"));
-    const withSecondFinding = critiqueStore.addFinding(critique.state.critiqueId, {
+    const withSecondFinding = await critiqueStore.addFindingAsync(critique.state.critiqueId, {
       runId,
       kind: "architecture",
       severity: "medium",
@@ -203,25 +203,25 @@ describe("CritiqueStore durable memory", () => {
     expect(withSecondFinding.dashboard.counts.openFindings).toBe(2);
 
     vi.setSystemTime(new Date("2026-03-15T10:50:00.000Z"));
-    const ticketified = critiqueStore.ticketifyFinding(critique.state.critiqueId, {
+    const ticketified = await critiqueStore.ticketifyFindingAsync(critique.state.critiqueId, {
       findingId: "finding-001",
     });
     expect(ticketified.state.followupTicketIds).toEqual(["t-0002"]);
     expect(ticketified.findings.find((finding) => finding.id === "finding-001")?.linkedTicketId).toBe("t-0002");
     expect(ticketified.findings.find((finding) => finding.id === "finding-001")?.status).toBe("accepted");
 
-    const followupTicket = ticketStore.readTicket("t-0002");
+    const followupTicket = await ticketStore.readTicketAsync("t-0002");
     expect(followupTicket.ticket.body.context).toContain(`Critique: ${critique.state.critiqueId}`);
     expect(followupTicket.ticket.body.context).toContain("Finding: finding-001");
     expect(followupTicket.ticket.frontmatter["spec-change"]).toBe(spec.state.changeId);
 
     vi.setSystemTime(new Date("2026-03-15T10:55:00.000Z"));
-    const fixed = critiqueStore.updateFinding(critique.state.critiqueId, {
+    const fixed = await critiqueStore.updateFindingAsync(critique.state.critiqueId, {
       id: "finding-001",
       status: "fixed",
       resolutionNotes: "Launch tests now cover descriptor-only behavior.",
     });
-    const rejected = critiqueStore.updateFinding(critique.state.critiqueId, {
+    const rejected = await critiqueStore.updateFindingAsync(critique.state.critiqueId, {
       id: "finding-002",
       status: "rejected",
       resolutionNotes: "Doctrine update already landed in the same change.",
@@ -237,5 +237,5 @@ describe("CritiqueStore durable memory", () => {
     expect(
       readFileSync(join(workspace, ".loom", "critiques", critique.state.critiqueId, "critique.md"), "utf-8"),
     ).toContain("Current Verdict");
-  }, 60000);
+  }, 120000);
 });

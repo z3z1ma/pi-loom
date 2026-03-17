@@ -22,7 +22,12 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
     }
     return { messages: [], thinkingLevel, model: null };
   },
-  createCodingTools: vi.fn((cwd: string) => [{ name: "read", cwd }, { name: "bash", cwd }, { name: "edit", cwd }, { name: "write", cwd }]),
+  createCodingTools: vi.fn((cwd: string) => [
+    { name: "read", cwd },
+    { name: "bash", cwd },
+    { name: "edit", cwd },
+    { name: "write", cwd },
+  ]),
   DefaultResourceLoader: class {
     additionalExtensionPaths: string[];
 
@@ -48,13 +53,20 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-workers-runtime-"));
+  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
   execFileSync("git", ["init"], { cwd, encoding: "utf-8" });
   execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd, encoding: "utf-8" });
   execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd, encoding: "utf-8" });
   writeFileSync(join(cwd, "README.md"), "seed\n", "utf-8");
   execFileSync("git", ["add", "README.md"], { cwd, encoding: "utf-8" });
   execFileSync("git", ["commit", "-m", "seed"], { cwd, encoding: "utf-8" });
-  return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+  return {
+    cwd,
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
+  };
 }
 
 function writeWorkspaceFile(cwd: string, relativePath: string, content: string): void {
@@ -76,7 +88,13 @@ describe("worker runtime", () => {
       writeWorkspaceFile(cwd, "beta.ts", "export default {}\n");
 
       expect(
-        resolveCliExtensionPathsFromArgv(cwd, ["omp", "-e", "./extensions/alpha.ts", "--extension", join(cwd, "beta.ts")]),
+        resolveCliExtensionPathsFromArgv(cwd, [
+          "omp",
+          "-e",
+          "./extensions/alpha.ts",
+          "--extension",
+          join(cwd, "beta.ts"),
+        ]),
       ).toEqual([join(cwd, "extensions", "alpha.ts"), join(cwd, "beta.ts")]);
     } finally {
       cleanup();
@@ -111,12 +129,12 @@ describe("worker runtime", () => {
     );
   });
 
-  it("builds an explicit launch prompt instead of reusing the raw packet dump", () => {
+  it("builds an explicit launch prompt instead of reusing the raw packet dump", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Prompt Worker", linkedRefs: { ticketIds: ["t-0001"] } });
       store.appendMessage("prompt-worker", {
@@ -138,12 +156,12 @@ describe("worker runtime", () => {
     }
   });
 
-  it("provisions and retires Git worktree-backed worker attachments", () => {
+  it("provisions and retires Git worktree-backed worker attachments", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } });
       const launched = store.prepareLaunch("runtime-worker", false, "prepare launch");
@@ -160,12 +178,12 @@ describe("worker runtime", () => {
     }
   });
 
-  it("recreates a prepared workspace when durable branch state changes", () => {
+  it("recreates a prepared workspace when durable branch state changes", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } });
 
@@ -208,7 +226,7 @@ describe("worker runtime", () => {
 
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "SDK Worker", linkedRefs: { ticketIds: ["t-0001"] } });
       store.appendMessage("sdk-worker", {
@@ -295,12 +313,12 @@ describe("worker runtime", () => {
     }
   });
 
-  it("fails a completed launch that leaves no durable worker progress behind", () => {
+  it("fails a completed launch that leaves no durable worker progress behind", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "No Progress Worker", linkedRefs: { ticketIds: ["t-0001"] } });
       store.appendMessage("no-progress-worker", {
@@ -504,7 +522,7 @@ describe("worker runtime", () => {
     try {
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Recovery Worker", linkedRefs: { ticketIds: ["t-0001"] } });

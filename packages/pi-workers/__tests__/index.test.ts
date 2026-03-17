@@ -45,7 +45,14 @@ type MockPi = {
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-workers-index-"));
-  return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+  return {
+    cwd,
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
+  };
 }
 
 function createMockPi(): MockPi {
@@ -129,7 +136,7 @@ describe("pi-workers extension", () => {
 
       const ticketStore = createTicketStore(cwd);
       ticketStore.initLedger();
-      ticketStore.createTicket({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
 
       const command = getCommand(mockPi, "worker");
       const managerCommand = getCommand(mockPi, "manager");

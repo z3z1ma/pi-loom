@@ -3,8 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, w
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { importWorkspaceSnapshot, materializeRepositoryProjections } from "../storage/catalog.js";
-import { createEntityId, createRepositoryId } from "../storage/ids.js";
+import { assertRepoRelativePath } from "../storage/contract.js";
+import { materializeRepositoryProjections } from "../storage/catalog.js";
+import { createEntityId, createLinkId, createProjectionId, createRepositoryId } from "../storage/ids.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
 import { resolveWorkspaceIdentity } from "../storage/repository.js";
 import { SqliteLoomCatalog } from "../storage/sqlite.js";
@@ -29,6 +30,218 @@ function writeWorkspaceFile(cwd: string, relativePath: string, content: string):
   const absolutePath = path.join(cwd, relativePath);
   mkdirSync(path.dirname(absolutePath), { recursive: true });
   writeFileSync(absolutePath, content, "utf-8");
+}
+
+async function seedCanonicalCatalog(cwd: string, catalog: SqliteLoomCatalog): Promise<{ entityIds: string[] }> {
+  const identity = resolveWorkspaceIdentity(cwd);
+  const timestamps = {
+    createdAt: identity.space.createdAt,
+    updatedAt: identity.space.updatedAt,
+  };
+
+  await catalog.upsertSpace(identity.space);
+  await catalog.upsertRepository(identity.repository);
+  await catalog.upsertWorktree(identity.worktree);
+
+  const constitutionId = createEntityId("constitution", identity.space.id, "constitution", "constitution");
+  const documentationId = createEntityId("documentation", identity.space.id, "architecture", "architecture");
+  const specId = createEntityId("spec_change", identity.space.id, "db-migration", "db-migration");
+  const initiativeId = createEntityId("initiative", identity.space.id, "storage-migration", "storage-migration");
+  const ticketId = createEntityId("ticket", identity.space.id, "t-9001", "t-9001");
+  const workerId = createEntityId("worker", identity.space.id, "runtime-worker", "runtime-worker");
+
+  await catalog.upsertEntity({
+    id: constitutionId,
+    kind: "constitution",
+    spaceId: identity.space.id,
+    owningRepositoryId: identity.repository.id,
+    displayId: "constitution",
+    title: "Constitution",
+    summary: "Constitution brief.",
+    status: "active",
+    version: 1,
+    tags: ["constitution"],
+    pathScopes: [
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/constitution/brief.md"),
+        role: "projection",
+      },
+    ],
+    attributes: {},
+    ...timestamps,
+  });
+  await catalog.upsertEntity({
+    id: documentationId,
+    kind: "documentation",
+    spaceId: identity.space.id,
+    owningRepositoryId: identity.repository.id,
+    displayId: "architecture",
+    title: "Architecture",
+    summary: "Human-facing doc body.",
+    status: "active",
+    version: 1,
+    tags: ["documentation"],
+    pathScopes: [
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/docs/overviews/architecture/doc.md"),
+        role: "projection",
+      },
+    ],
+    attributes: { docType: "overview" },
+    ...timestamps,
+  });
+  await catalog.upsertEntity({
+    id: specId,
+    kind: "spec_change",
+    spaceId: identity.space.id,
+    owningRepositoryId: identity.repository.id,
+    displayId: "db-migration",
+    title: "DB Migration",
+    summary: "Main proposal body.",
+    status: "planned",
+    version: 1,
+    tags: ["spec_change"],
+    pathScopes: [
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/proposal.md"),
+        role: "projection",
+      },
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/state.json"),
+        role: "canonical",
+      },
+    ],
+    attributes: { stage: "planned" },
+    ...timestamps,
+  });
+  await catalog.upsertEntity({
+    id: initiativeId,
+    kind: "initiative",
+    spaceId: identity.space.id,
+    owningRepositoryId: identity.repository.id,
+    displayId: "storage-migration",
+    title: "Storage Migration",
+    summary: "Canonical initiative record.",
+    status: "active",
+    version: 1,
+    tags: ["initiative"],
+    pathScopes: [
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/initiatives/storage-migration/state.json"),
+        role: "canonical",
+      },
+    ],
+    attributes: {},
+    ...timestamps,
+  });
+  await catalog.upsertEntity({
+    id: ticketId,
+    kind: "ticket",
+    spaceId: identity.space.id,
+    owningRepositoryId: identity.repository.id,
+    displayId: "t-9001",
+    title: "Migrate storage",
+    summary: "Ticket body.",
+    status: "open",
+    version: 1,
+    tags: ["ticket"],
+    pathScopes: [
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/tickets/t-9001.md"),
+        role: "canonical",
+      },
+    ],
+    attributes: {},
+    ...timestamps,
+  });
+  await catalog.upsertEntity({
+    id: workerId,
+    kind: "worker",
+    spaceId: identity.space.id,
+    owningRepositoryId: identity.repository.id,
+    displayId: "runtime-worker",
+    title: "Runtime Worker",
+    summary: "Durable worker summary.",
+    status: "waiting_for_review",
+    version: 1,
+    tags: ["worker"],
+    pathScopes: [
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/workers/runtime-worker/state.json"),
+        role: "canonical",
+      },
+      {
+        repositoryId: identity.repository.id,
+        relativePath: assertRepoRelativePath(".loom/workers/runtime-worker/worker.md"),
+        role: "projection",
+      },
+    ],
+    attributes: { runtime: "managed" },
+    ...timestamps,
+  });
+
+  await catalog.upsertLink({
+    id: createLinkId("belongs_to", ticketId, initiativeId),
+    kind: "belongs_to",
+    fromEntityId: ticketId,
+    toEntityId: initiativeId,
+    metadata: {},
+    ...timestamps,
+  });
+  await catalog.upsertLink({
+    id: createLinkId("references", ticketId, specId),
+    kind: "references",
+    fromEntityId: ticketId,
+    toEntityId: specId,
+    metadata: {},
+    ...timestamps,
+  });
+
+  await catalog.upsertProjection({
+    id: createProjectionId("markdown", constitutionId, ".loom/constitution/brief.md"),
+    entityId: constitutionId,
+    kind: "constitution_markdown_body",
+    materialization: "repo_materialized",
+    repositoryId: identity.repository.id,
+    relativePath: assertRepoRelativePath(".loom/constitution/brief.md"),
+    contentHash: null,
+    version: 1,
+    content: "# Brief\n\nConstitution brief.\n",
+    ...timestamps,
+  });
+  await catalog.upsertProjection({
+    id: createProjectionId("markdown", documentationId, ".loom/docs/overviews/architecture/doc.md"),
+    entityId: documentationId,
+    kind: "documentation_markdown_body",
+    materialization: "repo_materialized",
+    repositoryId: identity.repository.id,
+    relativePath: assertRepoRelativePath(".loom/docs/overviews/architecture/doc.md"),
+    contentHash: null,
+    version: 1,
+    content: "# Architecture\n\nHuman-facing doc body.\n",
+    ...timestamps,
+  });
+  await catalog.upsertProjection({
+    id: createProjectionId("markdown", specId, ".loom/specs/changes/db-migration/proposal.md"),
+    entityId: specId,
+    kind: "spec_markdown_body",
+    materialization: "repo_materialized",
+    repositoryId: identity.repository.id,
+    relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/proposal.md"),
+    contentHash: null,
+    version: 1,
+    content: "# DB Migration\n\nMain proposal body.\n",
+    ...timestamps,
+  });
+
+  return { entityIds: [constitutionId, documentationId, initiativeId, specId, ticketId, workerId] };
 }
 
 describe("pi-storage sqlite catalog", () => {
@@ -67,7 +280,7 @@ describe("pi-storage sqlite catalog", () => {
     }
   });
 
-  it("imports workspace state into sqlite and rematerializes constitution/docs/spec markdown bodies", async () => {
+  it("materializes constitution/docs/spec markdown bodies from canonical sqlite records", async () => {
     const { cwd, cleanup } = createWorkspace();
     cleanupPaths.push(cwd);
     const catalogRoot = mkdtempSync(path.join(tmpdir(), "pi-storage-catalog-"));
@@ -75,64 +288,15 @@ describe("pi-storage sqlite catalog", () => {
     process.env.PI_LOOM_ROOT = catalogRoot;
     ensureLoomCatalogDirs(getLoomCatalogPaths());
 
-    writeWorkspaceFile(cwd, ".loom/constitution/brief.md", "# Brief\n\nConstitution brief.\n");
-    writeWorkspaceFile(cwd, ".loom/docs/overviews/architecture/doc.md", "# Architecture\n\nHuman-facing doc body.\n");
-    writeWorkspaceFile(
-      cwd,
-      ".loom/docs/overviews/architecture/state.json",
-      `${JSON.stringify({ docId: "architecture", title: "Architecture", status: "active" }, null, 2)}\n`,
-    );
-    writeWorkspaceFile(cwd, ".loom/specs/changes/db-migration/proposal.md", "# DB Migration\n\nMain proposal body.\n");
-    writeWorkspaceFile(
-      cwd,
-      ".loom/specs/changes/db-migration/state.json",
-      `${JSON.stringify({ changeId: "db-migration", title: "DB Migration", status: "planned" }, null, 2)}\n`,
-    );
     writeWorkspaceFile(
       cwd,
       ".loom/specs/changes/db-migration/analysis.md",
       "# Analysis\n\nMachine-oriented analysis.\n",
     );
-    writeWorkspaceFile(
-      cwd,
-      ".loom/initiatives/storage-migration/state.json",
-      `${JSON.stringify({ initiativeId: "storage-migration", title: "Storage Migration", status: "active" }, null, 2)}\n`,
-    );
-    writeWorkspaceFile(
-      cwd,
-      ".loom/tickets/t-9001.md",
-      [
-        "---",
-        "id: t-9001",
-        "title: Migrate storage",
-        "status: open",
-        "initiative-ids:",
-        "  - storage-migration",
-        "spec-change: db-migration",
-        "---",
-        "",
-        "# Migrate storage",
-        "",
-        "Ticket body.",
-        "",
-      ].join("\n"),
-    );
-    writeWorkspaceFile(cwd, ".loom/workers/runtime-worker/worker.md", "# Runtime Worker\n\nDurable worker summary.\n");
-    writeWorkspaceFile(
-      cwd,
-      ".loom/workers/runtime-worker/state.json",
-      `${JSON.stringify({ workerId: "runtime-worker", title: "Runtime Worker", status: "waiting_for_review" }, null, 2)}\n`,
-    );
-    writeWorkspaceFile(
-      cwd,
-      ".loom/workers/runtime-worker/launch.json",
-      `${JSON.stringify({ note: "local runtime only" }, null, 2)}\n`,
-    );
 
     const catalog = new SqliteLoomCatalog();
     try {
-      const imported = await importWorkspaceSnapshot(cwd, catalog);
-      expect(imported.importedEntityIds.length).toBeGreaterThan(0);
+      const seeded = await seedCanonicalCatalog(cwd, catalog);
 
       const entities = await catalog.listEntities();
       const ticketEntity = entities.find((entity) => entity.displayId === "t-9001");
@@ -143,16 +307,11 @@ describe("pi-storage sqlite catalog", () => {
       expect(ticketEntity).toMatchObject({ title: "Migrate storage", status: "open" });
       expect(initiativeEntity).toBeDefined();
       expect(specEntity).toBeDefined();
-      expect(workerEntity?.kind).toBe("worker");
-      expect(workerEntity?.attributes).toMatchObject({
-        importedFrom: "filesystem",
-        filesByPath: expect.objectContaining({
-          ".loom/workers/runtime-worker/worker.md": expect.stringContaining("Durable worker summary"),
-        }),
+      expect(workerEntity).toMatchObject({
+        kind: "worker",
+        summary: "Durable worker summary.",
+        attributes: { runtime: "managed" },
       });
-      expect(
-        (workerEntity?.attributes.filesByPath as Record<string, string>)[".loom/workers/runtime-worker/launch.json"],
-      ).toBeUndefined();
       const ticketLinks = await catalog.listLinks(ticketEntity?.id ?? "missing");
       expect(ticketLinks).toEqual(
         expect.arrayContaining([
@@ -161,7 +320,7 @@ describe("pi-storage sqlite catalog", () => {
         ]),
       );
 
-      const projectionPaths = await materializeRepositoryProjections(cwd, catalog, imported.importedEntityIds);
+      const projectionPaths = await materializeRepositoryProjections(cwd, catalog, seeded.entityIds);
       expect(projectionPaths).toEqual(
         expect.arrayContaining([
           ".loom/constitution/brief.md",
@@ -174,7 +333,7 @@ describe("pi-storage sqlite catalog", () => {
       unlinkSync(path.join(cwd, ".loom", "constitution", "brief.md"));
       unlinkSync(path.join(cwd, ".loom", "docs", "overviews", "architecture", "doc.md"));
       unlinkSync(path.join(cwd, ".loom", "specs", "changes", "db-migration", "proposal.md"));
-      await materializeRepositoryProjections(cwd, catalog, imported.importedEntityIds);
+      await materializeRepositoryProjections(cwd, catalog, seeded.entityIds);
 
       expect(readFileSync(path.join(cwd, ".loom", "constitution", "brief.md"), "utf-8")).toContain(
         "Constitution brief",

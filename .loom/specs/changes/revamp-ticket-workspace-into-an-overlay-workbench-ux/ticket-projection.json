@@ -1,0 +1,79 @@
+{
+  "changeId": "revamp-ticket-workspace-into-an-overlay-workbench-ux",
+  "projectedAt": "2026-03-17T19:32:54.108Z",
+  "mode": "initial",
+  "capabilityIds": [
+    "capability-contextual-ticket-operations",
+    "capability-overlay-ticket-workbench",
+    "capability-tabbed-ticket-navigation"
+  ],
+  "tickets": [
+    {
+      "taskId": "task-001",
+      "ticketId": "t-0059",
+      "signature": "cd6b1bf0a3a6bec2",
+      "capabilityIds": [
+        "capability-overlay-ticket-workbench"
+      ],
+      "requirementIds": [
+        "req-001",
+        "req-002",
+        "req-003"
+      ],
+      "dependencyTaskIds": []
+    },
+    {
+      "taskId": "task-002",
+      "ticketId": "t-0060",
+      "signature": "db92e8c70a8872c0",
+      "capabilityIds": [
+        "capability-overlay-ticket-workbench",
+        "capability-tabbed-ticket-navigation"
+      ],
+      "requirementIds": [
+        "req-004",
+        "req-005",
+        "req-006"
+      ],
+      "dependencyTaskIds": [
+        "task-001"
+      ]
+    },
+    {
+      "taskId": "task-003",
+      "ticketId": "t-0061",
+      "signature": "7347027f79f8ab55",
+      "capabilityIds": [
+        "capability-contextual-ticket-operations"
+      ],
+      "requirementIds": [
+        "req-007",
+        "req-008",
+        "req-009"
+      ],
+      "dependencyTaskIds": [
+        "task-002"
+      ]
+    },
+    {
+      "taskId": "task-004",
+      "ticketId": "t-0062",
+      "signature": "c6f42aceca8b6e9d",
+      "capabilityIds": [
+        "capability-contextual-ticket-operations",
+        "capability-overlay-ticket-workbench",
+        "capability-tabbed-ticket-navigation"
+      ],
+      "requirementIds": [
+        "req-001",
+        "req-004",
+        "req-008"
+      ],
+      "dependencyTaskIds": [
+        "task-001",
+        "task-002",
+        "task-003"
+      ]
+    }
+  ]
+}

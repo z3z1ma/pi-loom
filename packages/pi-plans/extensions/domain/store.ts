@@ -17,7 +17,7 @@ import {
   upsertEntityByDisplayId,
   upsertProjectionForEntity,
 } from "@pi-loom/pi-storage/storage/entities.js";
-import { findOrBootstrapEntityByDisplayId, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildPlanDashboard, summarizePlan } from "./dashboard.js";
@@ -58,17 +58,8 @@ interface PlanEntityAttributes {
   state: PlanState;
 }
 
-interface FilesystemImportedPlanAttributes {
-  importedFrom?: string;
-  filesByPath?: Record<string, string>;
-}
-
 function hasStructuredPlanAttributes(attributes: unknown): attributes is PlanEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
-}
-
-function hasFilesystemImportedPlanAttributes(attributes: unknown): attributes is FilesystemImportedPlanAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "filesByPath" in attributes);
 }
 
 function ensureDir(path: string): void {
@@ -88,10 +79,6 @@ function writeJson(path: string, value: unknown): void {
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
-}
-
-function parseJsonText<T>(content: string): T {
-  return JSON.parse(content) as T;
 }
 
 function relativePathFromRoot(cwd: string, filePath: string): string {
@@ -1187,80 +1174,14 @@ export class PlanStore {
   private async loadCanonical(ref: string): Promise<PlanReadResult> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const planId = normalizePlanRef(ref);
-    const entity = await findOrBootstrapEntityByDisplayId(this.cwd, storage, identity.space.id, ENTITY_KIND, planId);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, planId);
     if (!entity) {
       throw new Error(`Unknown plan: ${ref}`);
     }
     if (!hasStructuredPlanAttributes(entity.attributes)) {
-      const importedStatePath = `.loom/plans/${planId}/state.json`;
-      if (hasFilesystemImportedPlanAttributes(entity.attributes) && entity.attributes.filesByPath?.[importedStatePath]) {
-        return this.persistCanonical(parseJsonText<PlanState>(entity.attributes.filesByPath[importedStatePath]));
-      }
-      const projection = await this.readImportedPlan(planId, entity.attributes);
-      if (projection) {
-        return projection;
-      }
-      return this.persistCanonical(this.readPlanProjection(planId).state);
+      throw new Error(`Plan entity ${planId} is missing structured attributes`);
     }
     return this.materializeCanonical(entity.attributes.state);
-  }
-
-  private async readImportedPlan(planId: string, attributes: unknown): Promise<PlanReadResult | null> {
-    if (!hasFilesystemImportedPlanAttributes(attributes) || !attributes.filesByPath) {
-      return null;
-    }
-    const statePath = `.loom/plans/${planId}/state.json`;
-    if (attributes.filesByPath[statePath]) {
-      return this.materializeCanonical(parseJsonText<PlanState>(attributes.filesByPath[statePath]));
-    }
-    const planPath = `.loom/plans/${planId}/plan.md`;
-    const plan = attributes.filesByPath[planPath];
-    if (!plan) {
-      return null;
-    }
-    const packet = attributes.filesByPath[`.loom/plans/${planId}/packet.md`] ?? "";
-    const now = currentTimestamp();
-    const state: PlanState = {
-      planId,
-      title: planId,
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-      summary: "Imported plan projection awaiting canonical rehydration.",
-      purpose: "",
-      contextAndOrientation: "",
-      milestones: "",
-      planOfWork: "",
-      concreteSteps: "",
-      validation: "",
-      idempotenceAndRecovery: "",
-      artifactsAndNotes: "",
-      interfacesAndDependencies: "",
-      risksAndQuestions: "",
-      outcomesAndRetrospective: "",
-      scopePaths: [],
-      sourceTarget: { kind: normalizePlanSourceTargetKind("workspace"), ref: planId },
-      contextRefs: normalizeContextRefs({}),
-      linkedTickets: [],
-      progress: [],
-      discoveries: [],
-      decisions: [],
-      revisionNotes: [],
-      packetSummary: excerpt(packet),
-    };
-    return {
-      state,
-      summary: summarizePlan(state, `.loom/plans/${planId}`),
-      packet,
-      plan,
-      dashboard: buildPlanDashboard(
-        state,
-        `.loom/plans/${planId}`,
-        `.loom/plans/${planId}/packet.md`,
-        `.loom/plans/${planId}/plan.md`,
-        [],
-      ),
-    };
   }
 
   listPlansProjection(filter: PlanListFilter = {}): ReturnType<PlanStore["listPlansProjectionRaw"]> {
@@ -1309,37 +1230,24 @@ export class PlanStore {
         summaries.push(summarizePlan(entity.attributes.state, `.loom/plans/${entity.attributes.state.planId}`));
         continue;
       }
-      const importedStatePath = `.loom/plans/${entity.displayId}/state.json`;
-      if (hasFilesystemImportedPlanAttributes(entity.attributes) && entity.attributes.filesByPath?.[importedStatePath]) {
-        const repaired = await this.persistCanonical(parseJsonText<PlanState>(entity.attributes.filesByPath[importedStatePath]));
-        summaries.push(repaired.summary);
-        continue;
-      }
-      const imported = await this.readImportedPlan(entity.displayId, entity.attributes);
-      if (imported) {
-        summaries.push(imported.summary);
-        continue;
-      }
-      const repaired = await this.persistCanonical(this.readPlanProjection(entity.displayId).state);
-      summaries.push(repaired.summary);
+      throw new Error(`Plan entity ${entity.displayId} is missing structured attributes`);
     }
-    return summaries
-      .filter((summary) => {
-        if (filter.status && summary.status !== filter.status) {
-          return false;
-        }
-        if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
-          return false;
-        }
-        if (!filter.text) {
-          return true;
-        }
-        const text = filter.text.toLowerCase();
-        return [summary.id, summary.title, summary.summary, summary.sourceRef, summary.sourceKind]
-          .join(" ")
-          .toLowerCase()
-          .includes(text);
-      });
+    return summaries.filter((summary) => {
+      if (filter.status && summary.status !== filter.status) {
+        return false;
+      }
+      if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
+        return false;
+      }
+      if (!filter.text) {
+        return true;
+      }
+      const text = filter.text.toLowerCase();
+      return [summary.id, summary.title, summary.summary, summary.sourceRef, summary.sourceKind]
+        .join(" ")
+        .toLowerCase()
+        .includes(text);
+    });
   }
 
   readPlanProjection(ref: string): PlanReadResult {

@@ -31,7 +31,7 @@ describe("/initiative command handler", () => {
       const specStore = createSpecStore(cwd);
       const ticketStore = createTicketStore(cwd);
       await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-      const ticket = ticketStore.createTicket({ title: "Build theme toggle" });
+      const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" })
 
       const initialized = await handleInitiativeCommand("init", ctx);
       expect(initialized).toContain(`Initialized initiative memory at ${join(cwd, ".loom", "initiatives")}`);

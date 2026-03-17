@@ -7,38 +7,6 @@ import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { createResearchStore } from "../extensions/domain/store.js";
 
-async function replaceResearchEntityWithFilesystemImport(
-  workspace: string,
-  researchId: string,
-  filesByPath: Record<string, string>,
-): Promise<void> {
-  const [{ findEntityByDisplayId, upsertEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
-    import("../../pi-storage/storage/entities.js"),
-    import("../../pi-storage/storage/workspace.js"),
-  ]);
-  const { storage, identity } = await openWorkspaceStorage(workspace);
-  const entity = await findEntityByDisplayId(storage, identity.space.id, "research", researchId);
-  expect(entity).toBeTruthy();
-  if (!entity) {
-    throw new Error(`Expected research entity ${researchId} to exist`);
-  }
-  await upsertEntityByDisplayId(storage, {
-    kind: entity.kind,
-    spaceId: entity.spaceId,
-    owningRepositoryId: entity.owningRepositoryId,
-    displayId: entity.displayId,
-    title: entity.title,
-    summary: entity.summary,
-    status: entity.status,
-    version: entity.version + 1,
-    tags: entity.tags,
-    pathScopes: entity.pathScopes,
-    attributes: { importedFrom: "filesystem", filesByPath },
-    createdAt: entity.createdAt,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
 describe("research store", () => {
   let workspace: string;
 
@@ -62,7 +30,7 @@ describe("research store", () => {
 
     await initiativeStore.createInitiative({ title: "Theme modernization" });
     await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    const ticket = ticketStore.createTicket({ title: "Build theme toggle" });
+    const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" })
 
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
     const created = await store.createResearch({
@@ -217,54 +185,4 @@ describe("research store", () => {
     ]);
   });
 
-  it("repairs filesystem-imported entities into canonical storage during list reads", async () => {
-    const store = createResearchStore(workspace);
-
-    vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
-    await store.createResearch({
-      title: "Filesystem imported research",
-      question: "Can canonical list reads repair imported snapshots?",
-      keywords: ["repair"],
-    });
-    await store.recordHypothesis("filesystem-imported-research", {
-      statement: "Canonical list reads should recover imported records.",
-      status: "supported",
-      confidence: "high",
-    });
-
-    const researchDir = join(workspace, ".loom", "research", "filesystem-imported-research");
-    await replaceResearchEntityWithFilesystemImport(workspace, "filesystem-imported-research", {
-      ".loom/research/filesystem-imported-research/state.json": readFileSync(join(researchDir, "state.json"), "utf-8"),
-      ".loom/research/filesystem-imported-research/research.md": readFileSync(join(researchDir, "research.md"), "utf-8"),
-      ".loom/research/filesystem-imported-research/hypotheses.jsonl": readFileSync(
-        join(researchDir, "hypotheses.jsonl"),
-        "utf-8",
-      ),
-      ".loom/research/filesystem-imported-research/artifacts.json": readFileSync(
-        join(researchDir, "artifacts.json"),
-        "utf-8",
-      ),
-    });
-    rmSync(researchDir, { recursive: true, force: true });
-
-    await expect(store.listResearch({ includeArchived: true })).resolves.toEqual([
-      expect.objectContaining({
-        id: "filesystem-imported-research",
-        hypothesisCount: 1,
-        path: ".loom/research/filesystem-imported-research",
-      }),
-    ]);
-    expect(existsSync(join(researchDir, "state.json"))).toBe(true);
-
-    const [{ findEntityByDisplayId }, { openWorkspaceStorage }] = await Promise.all([
-      import("../../pi-storage/storage/entities.js"),
-      import("../../pi-storage/storage/workspace.js"),
-    ]);
-    const { storage, identity } = await openWorkspaceStorage(workspace);
-    const entity = await findEntityByDisplayId(storage, identity.space.id, "research", "filesystem-imported-research");
-    expect(entity?.attributes).toMatchObject({
-      state: expect.objectContaining({ researchId: "filesystem-imported-research" }),
-      hypotheses: [expect.objectContaining({ id: "hyp-001" })],
-    });
-  });
 });
