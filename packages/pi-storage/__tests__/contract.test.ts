@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertRepoRelativePath,
-  isRepoRelativePath,
   LOOM_ENTITY_KINDS,
   LOOM_RUNTIME_ATTACHMENT_KINDS,
   LOOM_STORAGE_CONTRACT_VERSION,
@@ -36,14 +34,6 @@ describe("pi-storage contract", () => {
     );
   });
 
-  it("accepts repo-relative path scopes and rejects absolute or parent-escaping paths", () => {
-    expect(isRepoRelativePath(".loom/specs/changes/change-1/state.json")).toBe(true);
-    expect(isRepoRelativePath(".")).toBe(true);
-    expect(isRepoRelativePath("../outside.md")).toBe(false);
-    expect(isRepoRelativePath("/tmp/absolute.md")).toBe(false);
-    expect(() => assertRepoRelativePath("../outside.md")).toThrow("Expected repo-relative path");
-  });
-
   it("keeps canonical entities and runtime attachments in the same storage contract", async () => {
     const space: LoomSpaceRecord = {
       id: "space-001",
@@ -66,13 +56,6 @@ describe("pi-storage contract", () => {
       status: "open",
       version: 1,
       tags: ["storage"],
-      pathScopes: [
-        {
-          repositoryId: "repo-001",
-          relativePath: assertRepoRelativePath(".loom/tickets/t-0044/state.json"),
-          role: "canonical",
-        },
-      ],
       attributes: { source: "test" },
       createdAt: "2026-03-16T00:00:00.000Z",
       updatedAt: "2026-03-16T00:00:00.000Z",
@@ -82,7 +65,7 @@ describe("pi-storage contract", () => {
       id: "runtime-001",
       worktreeId: "worktree-001",
       kind: "worker_runtime",
-      localPath: "/Users/example/.loom/runtime/workers/worktree-001",
+      locator: "worker-runtime:worktree-001",
       processId: 1234,
       leaseExpiresAt: "2026-03-16T01:00:00.000Z",
       metadata: { host: "dev-machine" },
@@ -143,6 +126,6 @@ describe("pi-storage contract", () => {
       id: runtimeAttachment.id,
       updatedAt: "2026-03-16T00:30:00.000Z",
     });
-    expect(runtimeAttachment.localPath).toContain(".loom/runtime/workers");
+    expect(runtimeAttachment.locator).toBe("worker-runtime:worktree-001");
   });
 });

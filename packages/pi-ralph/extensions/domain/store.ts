@@ -1,4 +1,4 @@
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
 import { createDocumentationStore } from "@pi-loom/pi-docs/extensions/domain/store.js";
@@ -13,6 +13,7 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildRalphDashboard, summarizeRalphRun } from "./dashboard.js";
@@ -104,9 +105,16 @@ function parseStoredJson<T>(value: string, fallback: T): T {
   return JSON.parse(value) as T;
 }
 
-function toRepoRelativeWorkspacePath(cwd: string, filePath: string): string {
-  const relativePath = relative(cwd, filePath);
-  return relativePath || ".";
+function toRalphRunRef(runId: string): string {
+  return `ralph-run:${runId}`;
+}
+
+function toRalphPacketRef(runId: string): string {
+  return `ralph-run:${runId}:packet`;
+}
+
+function toRalphLaunchRef(runId: string): string {
+  return `ralph-run:${runId}:launch`;
 }
 
 function findStoredRalphRow(cwd: string, runId: string): StoredRalphEntityRow | null {
@@ -477,7 +485,7 @@ export class RalphStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    return { initialized: true, root: getRalphPaths(this.cwd).ralphDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   private runDirectories(): string[] {
@@ -486,7 +494,7 @@ export class RalphStore {
 
   private nextRunId(seed: string): string {
     const baseId = slugifyRalphValue(seed);
-    const existing = new Set(this.runDirectories().map((directory) => directory.split("/").at(-1) ?? directory));
+    const existing = new Set(this.runDirectories().map((directory) => normalizeRalphRunRef(directory)));
     if (!existing.has(baseId)) {
       return baseId;
     }
@@ -749,7 +757,7 @@ export class RalphStore {
   }
 
   private readState(runDir: string): RalphRunState {
-    const runId = normalizeRalphRunId(runDir.split("/").at(-1) ?? runDir);
+    const runId = normalizeRalphRunRef(runDir);
     const row = findStoredRalphRow(this.cwd, runId);
     if (!row) {
       throw new Error(`Unknown Ralph run: ${runId}`);
@@ -789,34 +797,34 @@ export class RalphStore {
       return null;
     }
     const launch = attributes.record.launch;
+    const normalizedRunId = normalizeRalphRunId(launch.runId);
     return {
-      runId: normalizeRalphRunId(launch.runId),
+      runId: normalizedRunId,
       iterationId: launch.iterationId.trim(),
       iteration: Math.max(1, Math.floor(launch.iteration)),
       createdAt: launch.createdAt,
       runtime: launch.runtime,
-      packetPath: toRepoRelativeWorkspacePath(this.cwd, resolve(this.cwd, launch.packetPath)),
-      launchPath: toRepoRelativeWorkspacePath(this.cwd, resolve(this.cwd, launch.launchPath)),
+      packetRef: toRalphPacketRef(normalizedRunId),
+      launchRef: toRalphLaunchRef(normalizedRunId),
       resume: launch.resume === true,
       instructions: normalizeStringList(launch.instructions),
     };
   }
 
   private defaultLaunchDescriptor(state: RalphRunState, iteration: RalphIterationRecord | null): RalphLaunchDescriptor {
-    const artifacts = getRalphArtifactPaths(this.cwd, state.runId);
     return {
       runId: state.runId,
       iterationId: iteration?.id ?? "iter-001",
       iteration: iteration?.iteration ?? Math.max(1, state.lastIterationNumber || 1),
       createdAt: currentTimestamp(),
       runtime: "descriptor_only",
-      packetPath: toRepoRelativeWorkspacePath(this.cwd, artifacts.packet),
-      launchPath: toRepoRelativeWorkspacePath(this.cwd, artifacts.launch),
+      packetRef: toRalphPacketRef(state.runId),
+      launchRef: toRalphLaunchRef(state.runId),
       resume: false,
       instructions: [
         "Runtime launch adapters are not implemented yet.",
-        `Use ${toRepoRelativeWorkspacePath(this.cwd, artifacts.packet)} as the canonical packet for the next iteration.`,
-        `Persist iteration updates to ${toRepoRelativeWorkspacePath(this.cwd, artifacts.iterations)} through Ralph tools.`,
+        `Use ${toRalphPacketRef(state.runId)} as the canonical packet for the next iteration.`,
+        `Persist iteration updates for ${iteration?.id ?? "iter-001"} through Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
       ],
     };
   }
@@ -872,7 +880,6 @@ export class RalphStore {
       status: record.summary.status,
       version: (existing?.version ?? 0) + 1,
       tags: [record.summary.phase, ...(record.state.linkedRefs.planIds ?? [])],
-      pathScopes: [],
       attributes: { record },
       createdAt: existing?.created_at ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
@@ -1131,22 +1138,21 @@ export class RalphStore {
     iteration: RalphIterationRecord,
     input: PrepareRalphLaunchInput,
   ): RalphLaunchDescriptor {
-    const artifacts = getRalphArtifactPaths(this.cwd, state.runId);
     return {
       runId: state.runId,
       iterationId: iteration.id,
       iteration: iteration.iteration,
       createdAt: currentTimestamp(),
       runtime: "subprocess",
-      packetPath: toRepoRelativeWorkspacePath(this.cwd, artifacts.packet),
-      launchPath: toRepoRelativeWorkspacePath(this.cwd, artifacts.launch),
+      packetRef: toRalphPacketRef(state.runId),
+      launchRef: toRalphLaunchRef(state.runId),
       resume: input.resume === true,
       instructions:
         normalizeStringList(input.instructions).length > 0
           ? normalizeStringList(input.instructions)
           : [
-              `Read ${toRepoRelativeWorkspacePath(this.cwd, artifacts.packet)} before acting.`,
-              `Persist iteration updates for ${iteration.id} through the Ralph tools.`,
+              `Read ${toRalphPacketRef(state.runId)} before acting.`,
+              `Persist iteration updates for ${iteration.id} through the Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
               "Execute exactly one bounded iteration and record an explicit policy decision before exiting.",
             ],
     };
@@ -1454,7 +1460,6 @@ export class RalphStore {
       status: materialized.summary.status,
       version,
       tags: [materialized.summary.phase, ...(materialized.state.linkedRefs.planIds ?? [])],
-      pathScopes: [],
       attributes: { record: materialized },
       createdAt: existing?.createdAt ?? materialized.state.createdAt,
       updatedAt: materialized.state.updatedAt,

@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: [
+      "packages/*/__tests__/index.test.ts",
       "packages/*/__tests__/commands.test.ts",
       "packages/*/__tests__/store.test.ts",
       "packages/*/__tests__/tools.test.ts",

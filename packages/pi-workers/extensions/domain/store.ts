@@ -1,6 +1,7 @@
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
 import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildWorkerDashboard, filterWorkersByTelemetry, filterWorkersByText } from "./dashboard.js";
@@ -39,7 +40,7 @@ import type {
 import { DEFAULT_WORKER_RUNTIME_KIND } from "./models.js";
 import {
   currentTimestamp,
-  ensureRelativeOrLogicalPath,
+  ensureRelativeOrLogicalRef,
   normalizeApprovalStatus,
   normalizeConsolidationOutcome,
   normalizeManagerRef,
@@ -120,11 +121,6 @@ function listStoredWorkerRecords(cwd: string): WorkerReadResult[] {
     }
     return attributes.worker;
   });
-}
-
-function relativePath(cwd: string, filePath: string): string {
-  const result = relative(cwd, filePath);
-  return result || ".";
 }
 
 function nextSequenceId(existingCount: number, prefix: string): string {
@@ -257,7 +253,7 @@ function defaultConsolidation(): WorkerConsolidationOutcome {
 
 function defaultWorkspaceDescriptor(workerId: string): WorkerWorkspaceDescriptor {
   return normalizeWorkspaceDescriptor({
-    logicalPath: `.loom/runtime/workers/${workerId}`,
+    workspaceKey: `worker-runtime:${workerId}`,
     branch: workerId,
     baseRef: "HEAD",
   });
@@ -274,7 +270,7 @@ function initialLaunchDescriptor(workerId: string, branch: string, baseRef: stri
     updatedAt: currentTimestamp(),
     runtime: DEFAULT_WORKER_RUNTIME_KIND,
     resume: false,
-    workspacePath: "",
+    workspaceDir: "",
     branch,
     baseRef,
     launchPrompt: "",
@@ -429,12 +425,12 @@ function normalizeWorkerState(state: WorkerState): WorkerState {
     consolidation: state.consolidation ?? defaultConsolidation(),
     packetSummary: state.packetSummary ?? "",
   };
-  normalized.workspace.repositoryRoot = ensureRelativeOrLogicalPath(normalized.workspace.repositoryRoot, "repository root");
-  normalized.workspace.logicalPath = ensureRelativeOrLogicalPath(normalized.workspace.logicalPath, "logical workspace path");
+  normalized.workspace.repositoryRoot = ensureRelativeOrLogicalRef(normalized.workspace.repositoryRoot, "repository root");
+  normalized.workspace.workspaceKey = ensureRelativeOrLogicalRef(normalized.workspace.workspaceKey, "workspace key");
   return normalized;
 }
 
-function buildSummary(_cwd: string, state: WorkerState, artifactPath: string): WorkerSummary {
+function buildSummary(_cwd: string, state: WorkerState, workerRef: string): WorkerSummary {
   return {
     id: state.workerId,
     title: state.title,
@@ -451,7 +447,7 @@ function buildSummary(_cwd: string, state: WorkerState, artifactPath: string): W
     unresolvedInboxCount: state.latestTelemetry.pendingMessages,
     pendingManagerActionCount: 0,
     pendingApproval: state.approval.status === "pending",
-    path: state.workspace.logicalPath || artifactPath,
+    workerRef,
   };
 }
 
@@ -463,7 +459,7 @@ function syncDerivedViews(cwd: string, worker: WorkerReadResult): void {
   worker.packet = renderWorkerPacket(worker);
   worker.state.packetSummary = summarizeText(worker.packet, 200);
   worker.summary = {
-    ...buildSummary(cwd, worker.state, worker.artifacts.worker),
+    ...buildSummary(cwd, worker.state, worker.artifacts.dir),
     acknowledgedInboxCount: acknowledgedInbox(worker.messages).length,
     unresolvedInboxCount: unresolvedInbox(worker.messages).length,
     pendingManagerActionCount: pendingManagerActions(worker.messages).length,
@@ -530,7 +526,7 @@ export class WorkerStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    return { initialized: true, root: getWorkerPaths(this.cwd).runtimeDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   private workerIds(): string[] {
@@ -569,7 +565,6 @@ export class WorkerStore {
       status: materialized.summary.status,
       version: (existing?.version ?? 0) + 1,
       tags: [materialized.summary.telemetryState, ...(materialized.state.linkedRefs.ticketIds ?? [])],
-      pathScopes: [],
       attributes: { worker: materialized },
       createdAt: existing?.created_at ?? materialized.state.createdAt,
       updatedAt: materialized.state.updatedAt,
@@ -591,7 +586,6 @@ export class WorkerStore {
       status: materialized.summary.status,
       version,
       tags: [materialized.summary.telemetryState, ...(materialized.state.linkedRefs.ticketIds ?? [])],
-      pathScopes: [],
       attributes: { worker: materialized },
       createdAt: existing?.createdAt ?? materialized.state.createdAt,
       updatedAt: materialized.state.updatedAt,
@@ -845,7 +839,7 @@ export class WorkerStore {
     const artifacts = getWorkerArtifactPaths(this.cwd, workerId);
     const worker: WorkerReadResult = {
       state,
-      summary: buildSummary(this.cwd, state, artifacts.worker),
+      summary: buildSummary(this.cwd, state, artifacts.dir),
       worker: "",
       messages: [],
       checkpoints: [],
@@ -1423,8 +1417,8 @@ export class WorkerStore {
 
   retireWorker(ref: string, note?: string): WorkerReadResult {
     const worker = this.readWorker(ref);
-    if (worker.launch?.workspacePath) {
-      retireWorkerWorkspace(this.cwd, worker.state.workerId, worker.launch.workspacePath);
+    if (worker.launch?.workspaceDir) {
+      retireWorkerWorkspace(this.cwd, worker.state.workerId, worker.launch.workspaceDir);
     }
     worker.state.status = "retired";
     worker.state.latestTelemetry = normalizeTelemetry({

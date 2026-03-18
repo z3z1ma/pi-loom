@@ -35,7 +35,7 @@ describe("/workplan command handler", () => {
       const planStore = createPlanStore(cwd);
 
       const initialized = await handleWorkplanCommand("init", ctx);
-      expect(initialized).toContain(`Initialized plan memory at ${join(cwd, ".loom", "plans")}`);
+      expect(initialized).toContain("catalog.sqlite");
       await expect(planStore.listPlans()).resolves.toEqual([]);
 
       const created = await handleWorkplanCommand(

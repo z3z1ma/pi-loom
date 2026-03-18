@@ -10,6 +10,6 @@ export function getBaseDocsGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildDocsSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace docs memory root: ${join(cwd, ".loom", "docs")}\nPrefer docs packets and durable high-level documentation over chat-only explanations.`;
+export function buildDocsSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nDocumentation state is persisted in SQLite via pi-storage. Prefer docs packets and durable high-level documentation over chat-only explanations.`;
 }

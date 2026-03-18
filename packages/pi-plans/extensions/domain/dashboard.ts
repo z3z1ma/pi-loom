@@ -1,6 +1,22 @@
 import type { PlanDashboard, PlanDashboardTicket, PlanState, PlanSummary } from "./models.js";
 
-export function summarizePlan(state: PlanState, path: string): PlanSummary {
+export function getPlanRef(state: PlanState): string {
+  return `plan:${state.planId}`;
+}
+
+export function getPlanPacketRef(state: PlanState): string {
+  return `${getPlanRef(state)}:packet`;
+}
+
+export function getPlanDocumentRef(state: PlanState): string {
+  return `${getPlanRef(state)}:document`;
+}
+
+export function getPlanTicketRef(ticketId: string): string {
+  return `ticket:${ticketId}`;
+}
+
+export function summarizePlan(state: PlanState): PlanSummary {
   return {
     id: state.planId,
     title: state.title,
@@ -10,15 +26,12 @@ export function summarizePlan(state: PlanState, path: string): PlanSummary {
     sourceRef: state.sourceTarget.ref,
     linkedTicketCount: state.linkedTickets.length,
     summary: state.summary,
-    path,
+    ref: getPlanRef(state),
   };
 }
 
 export function buildPlanDashboard(
   state: PlanState,
-  path: string,
-  packetPath: string,
-  planPath: string,
   linkedTickets: PlanDashboardTicket[],
 ): PlanDashboard {
   const linkedTicketSnapshot = linkedTickets.map((ticket) => ({ ...ticket }));
@@ -28,11 +41,11 @@ export function buildPlanDashboard(
   }, {});
   return {
     plan: {
-      ...summarizePlan(state, path),
+      ...summarizePlan(state),
       linkedTicketCount: linkedTicketSnapshot.length,
     },
-    packetPath,
-    planPath,
+    packetRef: getPlanPacketRef(state),
+    planRef: getPlanDocumentRef(state),
     sourceTarget: { ...state.sourceTarget },
     contextRefs: {
       roadmapItemIds: [...state.contextRefs.roadmapItemIds],

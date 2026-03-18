@@ -29,7 +29,7 @@ describe("/constitution command handler", () => {
       const ctx = createContext(cwd);
 
       const initialized = await handleConstitutionCommand("init", ctx);
-      expect(initialized).toContain(`Initialized constitutional memory at ${path.join(cwd, ".loom", "constitution")}`);
+      expect(initialized).toContain("catalog.sqlite");
       const { storage, identity } = await openWorkspaceStorage(cwd);
       const constitutionEntity = await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution");
       expect(constitutionEntity).toBeTruthy();

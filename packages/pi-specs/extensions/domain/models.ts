@@ -51,8 +51,8 @@ export interface SpecChangeState {
   updatedAt: string;
   finalizedAt: string | null;
   archivedAt: string | null;
-  /** Repo-relative path from the workspace root. */
-  archivedPath: string | null;
+  /** Stable non-filesystem archive identifier. */
+  archivedRef: string | null;
   initiativeIds: string[];
   researchIds: string[];
   supersedes: string[];
@@ -76,8 +76,8 @@ export interface SpecDecisionRecord {
 export interface SpecArtifactStatus {
   name: SpecArtifactName;
   exists: boolean;
-  /** Repo-relative path from the workspace root. */
-  path: string;
+  /** Stable non-filesystem artifact identifier. */
+  ref: string;
   updatedAt: string | null;
 }
 
@@ -91,7 +91,8 @@ export interface SpecLinkedTicketEntry {
 }
 
 export interface SpecLinkedTicketsState {
-  changeId: string;
+  /** Stable non-filesystem spec identifier for the linked ticket snapshot. */
+  changeRef: string;
   ensuredAt: string;
   mode: "initial" | "updated";
   capabilityIds: string[];
@@ -109,8 +110,8 @@ export interface SpecChangeSummary {
   researchIds: string[];
   updatedAt: string;
   archived: boolean;
-  /** Repo-relative path from the workspace root. */
-  path: string;
+  /** Stable non-filesystem spec identifier. */
+  ref: string;
 }
 
 export interface CanonicalCapabilityRecord {
@@ -121,8 +122,8 @@ export interface CanonicalCapabilityRecord {
   scenarios: string[];
   sourceChanges: string[];
   updatedAt: string;
-  /** Repo-relative path from the workspace root. */
-  path: string;
+  /** Stable non-filesystem capability identifier. */
+  ref: string;
 }
 
 export interface SpecChangeRecord {

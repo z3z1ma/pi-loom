@@ -282,8 +282,8 @@ describe("ticket tools", () => {
           attachments: [
             expect.objectContaining({
               label: "evidence",
-              sourcePath: "evidence.txt",
-              artifactPath: null,
+              sourceRef: "attachment-source:t-0001:attachment-0001:evidence.txt",
+              artifactRef: null,
               metadata: expect.objectContaining({
                 inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
                 inlineEncoding: "base64",
@@ -305,8 +305,8 @@ describe("ticket tools", () => {
           attachments: [
             {
               label: "evidence",
-              sourcePath: "evidence.txt",
-              artifactPath: null,
+              sourceRef: "attachment-source:t-0001:attachment-0001:evidence.txt",
+              artifactRef: null,
               metadata: {
                 inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
                 inlineEncoding: "base64",
@@ -385,7 +385,7 @@ describe("ticket tools", () => {
       }
       expect(reopenedEntity.attributes).toMatchObject({
         record: {
-          attachments: [expect.objectContaining({ label: "evidence", artifactPath: null })],
+          attachments: [expect.objectContaining({ label: "evidence", artifactRef: null })],
           ticket: { frontmatter: { status: "open" }, closed: false },
         },
       });

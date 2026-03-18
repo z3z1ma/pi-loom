@@ -89,7 +89,7 @@ export interface PlanSummary {
   sourceRef: string;
   linkedTicketCount: number;
   summary: string;
-  path: string;
+  ref: string;
 }
 
 export interface PlanDashboardTicket {
@@ -98,13 +98,13 @@ export interface PlanDashboardTicket {
   order: number;
   status: string;
   title: string;
-  path: string | null;
+  ref: string;
 }
 
 export interface PlanDashboard {
   plan: PlanSummary;
-  packetPath: string;
-  planPath: string;
+  packetRef: string;
+  planRef: string;
   sourceTarget: PlanSourceTarget;
   contextRefs: PlanContextRefs;
   scopePaths: string[];

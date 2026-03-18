@@ -89,7 +89,7 @@ async function resolveInitiativeSummary(cwd: string, initiativeId: string): Prom
       ticketCount: state.ticketIds.length,
       updatedAt: state.updatedAt,
       tags: [...state.tags],
-      path: `.loom/initiatives/${state.initiativeId}`,
+      ref: `initiative:${state.initiativeId}`,
     };
   }
 
@@ -103,7 +103,7 @@ async function resolveInitiativeSummary(cwd: string, initiativeId: string): Prom
       ticketCount: 0,
       updatedAt: entity.updatedAt,
       tags: entity.tags,
-      path: `.loom/initiatives/${initiativeId}`,
+      ref: `initiative:${initiativeId}`,
     };
   }
   throw new Error(`Unknown initiative: ${initiativeId}`);
@@ -126,7 +126,7 @@ function buildResearchMapFromSummaries(
       kind: "research",
       title: state.title,
       status: state.status,
-      path: `.loom/research/${state.researchId}/research.md`,
+      ref: `research:${state.researchId}`,
       missing: false,
     },
   };
@@ -139,7 +139,7 @@ function buildResearchMapFromSummaries(
       kind: "initiative",
       title: initiative?.title ?? `Missing initiative: ${initiativeId}`,
       status: initiative?.status ?? null,
-      path: `.loom/initiatives/${initiativeId}/initiative.md`,
+      ref: `initiative:${initiativeId}`,
       missing: missingInitiatives.has(initiativeId) || initiative === undefined,
     };
     edges.push({ from: state.researchId, to: `initiative:${initiativeId}`, relation: "links_initiative" });
@@ -152,7 +152,7 @@ function buildResearchMapFromSummaries(
       kind: "spec",
       title: change?.title ?? `Missing spec: ${changeId}`,
       status: change?.status ?? null,
-      path: `.loom/specs/changes/${changeId}/proposal.md`,
+      ref: `spec:${changeId}`,
       missing: missingSpecs.has(changeId) || change === undefined,
     };
     edges.push({ from: state.researchId, to: `spec:${changeId}`, relation: "links_spec" });
@@ -165,7 +165,7 @@ function buildResearchMapFromSummaries(
       kind: "ticket",
       title: ticket?.title ?? `Missing ticket: ${ticketId}`,
       status: ticket?.status ?? null,
-      path: ticket?.path ?? `.loom/tickets/${ticketId}.md`,
+      ref: `ticket:${ticketId}`,
       missing: missingTickets.has(ticketId) || ticket === undefined,
     };
     edges.push({ from: state.researchId, to: `ticket:${ticketId}`, relation: "links_ticket" });
@@ -177,7 +177,7 @@ function buildResearchMapFromSummaries(
       kind: "hypothesis",
       title: hypothesis.statement,
       status: hypothesis.status,
-      path: `.loom/research/${state.researchId}/hypotheses.jsonl`,
+      ref: `research:${state.researchId}:hypothesis:${hypothesis.id}`,
       missing: false,
     };
     edges.push({ from: state.researchId, to: hypothesis.id, relation: "tracks_hypothesis" });
@@ -189,7 +189,7 @@ function buildResearchMapFromSummaries(
       kind: "artifact",
       title: artifact.title,
       status: artifact.kind,
-      path: artifact.path,
+      ref: artifact.artifactRef,
       missing: false,
     };
     edges.push({ from: state.researchId, to: artifact.id, relation: "contains_artifact" });

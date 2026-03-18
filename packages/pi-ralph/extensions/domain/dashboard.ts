@@ -1,4 +1,3 @@
-import { dirname, isAbsolute, relative } from "node:path";
 import type {
   RalphDashboard,
   RalphIterationRecord,
@@ -7,22 +6,28 @@ import type {
   RalphRunSummary,
   RalphVerifierVerdict,
 } from "./models.js";
-import type { RalphArtifactPaths } from "./paths.js";
 
-function toRepoRelativeArtifactPath(artifactsDir: string, filePath: string): string {
-  if (!isAbsolute(filePath)) {
-    return filePath;
-  }
-  const repoRoot = dirname(dirname(dirname(artifactsDir)));
-  const relativePath = relative(repoRoot, filePath);
-  return relativePath || filePath;
+function toRalphRunRef(runId: string): string {
+  return `ralph-run:${runId}`;
+}
+
+function toRalphPacketRef(runId: string): string {
+  return `ralph-run:${runId}:packet`;
+}
+
+export function toRalphDocumentRef(runId: string): string {
+  return `ralph-run:${runId}:run`;
+}
+
+function toRalphLaunchRef(runId: string): string {
+  return `ralph-run:${runId}:launch`;
 }
 
 function createCounts<T extends string>(keys: readonly T[]): Record<T, number> {
   return Object.fromEntries(keys.map((key) => [key, 0])) as Record<T, number>;
 }
 
-export function summarizeRalphRun(state: RalphRunState, runDir: string): RalphRunSummary {
+export function summarizeRalphRun(state: RalphRunState, _runDir: string): RalphRunSummary {
   return {
     id: state.runId,
     title: state.title,
@@ -34,7 +39,7 @@ export function summarizeRalphRun(state: RalphRunState, runDir: string): RalphRu
     decision: state.latestDecision?.kind ?? null,
     waitingFor: state.waitingFor,
     objectiveSummary: state.summary || state.objective || `Ralph run ${state.runId}`,
-    path: toRepoRelativeArtifactPath(runDir, runDir),
+    runRef: toRalphRunRef(state.runId),
   };
 }
 
@@ -42,7 +47,7 @@ export function buildRalphDashboard(
   state: RalphRunState,
   summary: RalphRunSummary,
   iterations: RalphIterationRecord[],
-  artifacts: RalphArtifactPaths,
+  _artifacts: unknown,
   iterationStatuses: readonly RalphIterationStatus[],
   verifierVerdicts: readonly RalphVerifierVerdict[],
 ): RalphDashboard {
@@ -56,9 +61,9 @@ export function buildRalphDashboard(
 
   return {
     run: summary,
-    packetPath: toRepoRelativeArtifactPath(artifacts.dir, artifacts.packet),
-    runPath: toRepoRelativeArtifactPath(artifacts.dir, artifacts.run),
-    launchPath: toRepoRelativeArtifactPath(artifacts.dir, artifacts.launch),
+    packetRef: toRalphPacketRef(state.runId),
+    runRef: toRalphDocumentRef(state.runId),
+    launchRef: toRalphLaunchRef(state.runId),
     latestIteration: latestIteration
       ? {
           id: latestIteration.id,

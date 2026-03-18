@@ -4,6 +4,7 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { buildConstitutionalDashboard } from "./dashboard.js";
 import type {
@@ -36,16 +37,6 @@ import {
   slugifyTitle,
 } from "./normalize.js";
 import {
-  getConstitutionalBriefPath,
-  getConstitutionalConstraintsPath,
-  getConstitutionalDecisionsPath,
-  getConstitutionalPaths,
-  getConstitutionalPrinciplesPath,
-  getConstitutionalRoadmapPath,
-  getConstitutionalStatePath,
-  getConstitutionalVisionPath,
-} from "./paths.js";
-import {
   renderConstitutionalBrief,
   renderConstraintsMarkdown,
   renderPrinciplesMarkdown,
@@ -63,7 +54,7 @@ const MISSING_QUESTIONS = {
 } as const;
 
 interface ConstitutionalEntityAttributes {
-  state: Omit<ConstitutionalState, "artifactPaths">;
+  state: ConstitutionalState;
 }
 
 function hasStructuredConstitutionAttributes(attributes: unknown): attributes is ConstitutionalEntityAttributes {
@@ -140,31 +131,11 @@ function normalizeRoadmapRef(ref: string): string {
   return normalizeRoadmapItemId(itemId);
 }
 
-function stripArtifactPaths(state: ConstitutionalState): Omit<ConstitutionalState, "artifactPaths"> {
-  const { artifactPaths: _artifactPaths, ...rest } = state;
-  return rest;
-}
-
 export class ConstitutionalStore {
   readonly cwd: string;
 
   constructor(cwd: string) {
     this.cwd = path.resolve(cwd);
-  }
-
-  private artifactPaths(): ConstitutionalState["artifactPaths"] {
-    const paths = getConstitutionalPaths(this.cwd);
-    return {
-      root: paths.constitutionDir,
-      state: getConstitutionalStatePath(this.cwd),
-      brief: getConstitutionalBriefPath(this.cwd),
-      vision: getConstitutionalVisionPath(this.cwd),
-      principles: getConstitutionalPrinciplesPath(this.cwd),
-      constraints: getConstitutionalConstraintsPath(this.cwd),
-      roadmap: getConstitutionalRoadmapPath(this.cwd),
-      decisions: getConstitutionalDecisionsPath(this.cwd),
-      roadmapDir: paths.roadmapDir,
-    };
   }
 
   private defaultState(input: InitConstitutionInput, timestamp: string): ConstitutionalState {
@@ -187,7 +158,6 @@ export class ConstitutionalStore {
       initiativeIds: [],
       researchIds: [],
       specChangeIds: [],
-      artifactPaths: this.artifactPaths(),
       completeness: {
         vision: false,
         principles: false,
@@ -210,7 +180,6 @@ export class ConstitutionalStore {
       initiativeIds: aggregateRoadmapIds(state.roadmapItems, "initiativeIds"),
       researchIds: aggregateRoadmapIds(state.roadmapItems, "researchIds"),
       specChangeIds: aggregateRoadmapIds(state.roadmapItems, "specChangeIds"),
-      artifactPaths: this.artifactPaths(),
       completeness: { ...state.completeness },
       currentFocus: normalizeStringList(state.currentFocus),
       openConstitutionQuestions: normalizeStringList(state.openConstitutionQuestions),
@@ -268,8 +237,7 @@ export class ConstitutionalStore {
         status: "active",
         version: 1,
         tags: ["constitution"],
-        pathScopes: [],
-        attributes: { state: stripArtifactPaths(bootstrapState) },
+        attributes: { state: bootstrapState },
         createdAt: bootstrapState.createdAt,
         updatedAt: bootstrapState.updatedAt,
       });
@@ -282,10 +250,7 @@ export class ConstitutionalStore {
     }
 
     const attributes = entity.attributes;
-    const state = this.normalizeState({
-      ...(attributes.state ?? this.defaultState({}, currentTimestamp())),
-      artifactPaths: this.artifactPaths(),
-    });
+    const state = this.normalizeState(attributes.state ?? this.defaultState({}, currentTimestamp()));
     const decisions = (await storage.listEvents(entity.id))
       .filter((event) => event.kind === "decision_recorded")
       .map((event) => event.payload.decision as ConstitutionDecisionRecord)
@@ -322,8 +287,7 @@ export class ConstitutionalStore {
       status: "active",
       version,
       tags: ["constitution"],
-      pathScopes: [],
-      attributes: { state: stripArtifactPaths(normalized) },
+      attributes: { state: normalized },
       createdAt: existing?.createdAt ?? normalized.createdAt,
       updatedAt: normalized.updatedAt,
     });
@@ -343,7 +307,7 @@ export class ConstitutionalStore {
       nextState.updatedAt = currentTimestamp();
       await this.persistCanonical(nextState, record.decisions);
     }
-    return { initialized: true, root: getConstitutionalPaths(this.cwd).constitutionDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   async readConstitution(): Promise<ConstitutionalRecord> {

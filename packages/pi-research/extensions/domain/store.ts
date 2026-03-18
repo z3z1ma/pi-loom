@@ -1,4 +1,4 @@
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import {
@@ -6,6 +6,7 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildResearchDashboard } from "./dashboard.js";
@@ -36,7 +37,7 @@ import {
   normalizeStringList,
   slugifyTitle,
 } from "./normalize.js";
-import { getResearchArtifactPath, getResearchDir, getResearchPaths } from "./paths.js";
+import { getResearchPaths } from "./paths.js";
 import { renderResearchMarkdown } from "./render.js";
 
 const ENTITY_KIND = "research" as const;
@@ -53,11 +54,6 @@ interface ResearchSummaryWithSynthesis extends ResearchSummary {
 
 function hasStructuredResearchAttributes(attributes: unknown): attributes is ResearchEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
-}
-
-function relativeOrAbsolute(cwd: string, path: string): string {
-  const relativePath = relative(cwd, path);
-  return relativePath || path;
 }
 
 function latestHypotheses(history: ResearchHypothesisRecord[]): ResearchHypothesisRecord[] {
@@ -78,10 +74,8 @@ function renderSynthesis(
 
 function summarizeResearch(
   state: ResearchState,
-  path: string,
   hypotheses: ResearchHypothesisRecord[],
   artifacts: ResearchArtifactRecord[],
-  cwd: string,
 ): ResearchSummary {
   return {
     id: state.researchId,
@@ -94,7 +88,7 @@ function summarizeResearch(
     linkedTicketCount: state.ticketIds.length,
     updatedAt: state.updatedAt,
     tags: [...state.tags],
-    path: relativeOrAbsolute(cwd, path),
+    ref: `research:${state.researchId}`,
   };
 }
 
@@ -117,7 +111,7 @@ export class ResearchStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    return { initialized: true, root: getResearchPaths(this.cwd).researchDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   private defaultState(input: CreateResearchInput, timestamp: string): ResearchState {
@@ -151,11 +145,6 @@ export class ResearchStore {
     };
   }
 
-  private resolveResearchDirectory(ref: string): string {
-    const directId = normalizeResearchId(ref.split(/[\\/]/).pop() ?? ref);
-    return getResearchDir(this.cwd, directId);
-  }
-
   private async materializeCanonicalArtifacts(
     state: ResearchState,
     hypothesisHistory: ResearchHypothesisRecord[],
@@ -166,13 +155,7 @@ export class ResearchStore {
       ...state,
       artifactIds: normalizeStringList(artifacts.map((artifact) => artifact.id)),
     });
-    const summary = summarizeResearch(
-      normalizedState,
-      this.resolveResearchDirectory(normalizedState.researchId),
-      hypotheses,
-      artifacts,
-      this.cwd,
-    );
+    const summary = summarizeResearch(normalizedState, hypotheses, artifacts);
     const synthesis = renderSynthesis(normalizedState, hypotheses, artifacts);
     return {
       state: normalizedState,
@@ -189,7 +172,7 @@ export class ResearchStore {
   private async loadRecord(ref: string): Promise<ResearchRecord> {
     this.initLedger();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const researchId = normalizeResearchId(ref.split(/[\\/]/).pop() ?? ref);
+    const researchId = normalizeResearchId(ref);
     let entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, researchId);
     if (!entity) {
       const timestamp = currentTimestamp();
@@ -204,7 +187,6 @@ export class ResearchStore {
         status: state.status,
         version: 1,
         tags: state.tags,
-        pathScopes: [],
         attributes: { state, hypotheses: [], artifacts: [] },
         createdAt: state.createdAt,
         updatedAt: state.updatedAt,
@@ -230,7 +212,7 @@ export class ResearchStore {
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.researchId);
     const version = (existing?.version ?? 0) + 1;
     const record = await this.materializeCanonicalArtifacts(stripDynamicState(state), hypothesisHistory, artifacts);
-    const entity = await upsertEntityByDisplayId(storage, {
+    await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -240,7 +222,6 @@ export class ResearchStore {
       status: record.state.status,
       version,
       tags: record.state.tags,
-      pathScopes: [],
       attributes: {
         state: record.state,
         hypotheses: record.hypothesisHistory,
@@ -278,7 +259,7 @@ export class ResearchStore {
         const hypotheses = latestHypotheses(entity.attributes.hypotheses ?? []);
         const artifacts = entity.attributes.artifacts ?? [];
         summaries.set(researchId, {
-          ...summarizeResearch(state, this.resolveResearchDirectory(researchId), hypotheses, artifacts, this.cwd),
+          ...summarizeResearch(state, hypotheses, artifacts),
           synthesis: renderSynthesis(state, hypotheses, artifacts),
         });
         continue;
@@ -461,26 +442,18 @@ export class ResearchStore {
           "artifact",
         );
     const kind = normalizeArtifactKind(input.kind);
-    const recordPath = relative(
-      this.cwd,
-      getResearchArtifactPath(this.cwd, record.state.researchId, kind, normalizedId),
-    );
     const existing = artifacts.find((artifact) => artifact.id === normalizedId) ?? null;
     const artifact: ResearchArtifactRecord = {
       id: normalizedId,
       researchId: record.state.researchId,
       kind,
       title: input.title.trim(),
-      path: recordPath,
-      createdAt: artifacts.find((artifact) => artifact.id === normalizedId)?.createdAt ?? timestamp,
-      summary: input.summary?.trim() ?? artifacts.find((artifact) => artifact.id === normalizedId)?.summary ?? "",
-      sourceUri: normalizeOptionalString(
-        input.sourceUri ?? artifacts.find((artifact) => artifact.id === normalizedId)?.sourceUri ?? null,
-      ),
-      tags: normalizeStringList(input.tags ?? artifacts.find((artifact) => artifact.id === normalizedId)?.tags),
-      linkedHypothesisIds: normalizeStringList(
-        input.linkedHypothesisIds ?? artifacts.find((artifact) => artifact.id === normalizedId)?.linkedHypothesisIds,
-      ),
+      artifactRef: `research:${record.state.researchId}:artifact:${kind}:${normalizedId}`,
+      createdAt: existing?.createdAt ?? timestamp,
+      summary: input.summary?.trim() ?? existing?.summary ?? "",
+      sourceUri: normalizeOptionalString(input.sourceUri ?? existing?.sourceUri ?? null),
+      tags: normalizeStringList(input.tags ?? existing?.tags),
+      linkedHypothesisIds: normalizeStringList(input.linkedHypothesisIds ?? existing?.linkedHypothesisIds),
     };
     const nextArtifacts = [...artifacts.filter((entry) => entry.id !== artifact.id), artifact].sort((left, right) =>
       left.id.localeCompare(right.id),

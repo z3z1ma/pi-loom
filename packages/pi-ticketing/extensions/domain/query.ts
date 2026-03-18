@@ -21,7 +21,7 @@ export function summarizeTickets(records: TicketRecord[]): TicketSummary[] {
     tags: [...record.frontmatter.tags],
     parent: record.frontmatter.parent,
     closed: record.closed,
-    path: record.path,
+    ref: record.ref,
   }));
   const ticketsById = new Map(provisional.map((ticket) => [ticket.id, ticket]));
   return records

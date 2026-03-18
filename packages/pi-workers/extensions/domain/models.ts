@@ -102,7 +102,7 @@ export interface WorkerWorkspaceDescriptor {
   baseRef: string;
   branch: string;
   labels: string[];
-  logicalPath: string;
+  workspaceKey: string;
 }
 
 export interface WorkerTelemetry {
@@ -185,7 +185,7 @@ export interface WorkerSummary {
   unresolvedInboxCount: number;
   pendingManagerActionCount: number;
   pendingApproval: boolean;
-  path: string;
+  workerRef: string;
 }
 
 export interface WorkerMessageRecord {
@@ -228,7 +228,7 @@ export interface WorkerRuntimeDescriptor {
   updatedAt: string;
   runtime: WorkerRuntimeKind;
   resume: boolean;
-  workspacePath: string;
+  workspaceDir: string;
   branch: string;
   baseRef: string;
   launchPrompt: string;
@@ -248,8 +248,8 @@ export interface WorkerSupervisionDecision {
 
 export interface WorkerDashboard {
   worker: WorkerSummary;
-  workerPath: string;
-  launchPath: string;
+  workerRef: string;
+  launchRef: string;
   latestTelemetry: WorkerTelemetry;
   latestCheckpoint: WorkerCheckpointRecord | null;
   latestMessage: WorkerMessageRecord | null;

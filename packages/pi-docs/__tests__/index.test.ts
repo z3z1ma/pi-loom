@@ -167,7 +167,7 @@ describe("pi-docs extension", () => {
 
       expect(result.systemPrompt).toContain("Base system prompt");
       expect(result.systemPrompt).toContain("Documentation is a first-class Loom memory layer.");
-      expect(result.systemPrompt).toContain(join(cwd, ".loom", "docs"));
+      expect(result.systemPrompt).toContain("Documentation state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
         "Prefer docs packets and durable high-level documentation over chat-only explanations.",
       );

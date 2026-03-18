@@ -73,8 +73,7 @@ export interface TicketRecord {
   frontmatter: TicketFrontmatter;
   body: TicketBody;
   closed: boolean;
-  // Store read/list APIs expose repo-relative paths for durable portability.
-  path: string;
+  ref: string;
 }
 
 export interface TicketSummary {
@@ -96,8 +95,7 @@ export interface TicketSummary {
   tags: string[];
   parent: string | null;
   closed: boolean;
-  // Repo-relative from the workspace root when returned from store APIs.
-  path: string;
+  ref: string;
 }
 
 export interface JournalEntry {
@@ -115,8 +113,8 @@ export interface AttachmentRecord {
   createdAt: string;
   label: string;
   mediaType: string;
-  artifactPath: string | null;
-  sourcePath: string | null;
+  artifactRef: string | null;
+  sourceRef: string | null;
   description: string;
   metadata: Record<string, unknown>;
 }
@@ -135,8 +133,7 @@ export interface CheckpointRecord {
   title: string;
   createdAt: string;
   body: string;
-  // Repo-relative from the workspace root when returned from store APIs.
-  path: string;
+  checkpointRef: string;
   supersedes: string | null;
 }
 

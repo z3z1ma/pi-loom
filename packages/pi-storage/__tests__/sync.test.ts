@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { assertRepoRelativePath, type LoomRuntimeAttachment } from "../storage/contract.js";
+import type { LoomRuntimeAttachment } from "../storage/contract.js";
 import { createSeededGitWorkspace } from "./helpers/git-fixture.js";
 import { createEntityId } from "../storage/ids.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
@@ -47,13 +47,6 @@ async function seedCanonicalCatalog(
     status: "active",
     version: 1,
     tags: ["constitution"],
-    pathScopes: [
-      {
-        repositoryId: identity.repository.id,
-        relativePath: assertRepoRelativePath(".loom/constitution/state.json"),
-        role: "canonical",
-      },
-    ],
     attributes: {},
     ...timestamps,
   });
@@ -68,13 +61,6 @@ async function seedCanonicalCatalog(
     status: "planned",
     version: 1,
     tags: ["spec_change"],
-    pathScopes: [
-      {
-        repositoryId: identity.repository.id,
-        relativePath: assertRepoRelativePath(".loom/specs/changes/db-migration/state.json"),
-        role: "canonical",
-      },
-    ],
     attributes: { stage: "planned" },
     ...timestamps,
   });
@@ -93,7 +79,7 @@ async function seedCanonicalCatalog(
     id: "runtime-spec-worker",
     worktreeId: identity.worktree.id,
     kind: "worker_runtime",
-    localPath: path.join(cwd, ".loom", "runtime", "workers", "db-migration"),
+    locator: "worker-runtime:db-migration",
     processId: 2002,
     leaseExpiresAt: "2026-03-16T00:10:00.000Z",
     metadata: { specId },

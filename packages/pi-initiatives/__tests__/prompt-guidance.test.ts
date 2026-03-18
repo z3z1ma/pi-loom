@@ -28,7 +28,7 @@ describe("initiative prompt guidance", () => {
     const prompt = buildInitiativeSystemPrompt(cwd);
 
     expect(prompt.startsWith(getBaseInitiativeGuidance())).toBe(true);
-    expect(prompt).toContain(`Workspace initiative memory root: ${join(cwd, ".loom", "initiatives")}`);
+    expect(prompt).toContain("Initiative state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain("Prefer initiative tools before ad-hoc strategic tracking for program-level work.");
   });
 });

@@ -15,6 +15,7 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
@@ -44,9 +45,6 @@ import {
   summarizeDocument,
 } from "./normalize.js";
 import {
-  getDocumentationDir,
-  getDocumentationMarkdownPath,
-  getDocumentationPacketPath,
   getDocumentationPaths,
 } from "./paths.js";
 import { renderDocumentationMarkdown } from "./render.js";
@@ -150,15 +148,14 @@ export class DocumentationStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    const paths = getDocumentationPaths(this.cwd);
-    return { initialized: true, root: paths.docsDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   private async upsertCanonicalRecord(record: DocumentationReadResult): Promise<DocumentationReadResult> {
     const canonicalRecord = await this.buildCanonicalRecord({
       state: record.state,
       revisions: record.revisions,
-      documentBody: this.extractDocumentBody(record.document, record.dashboard.documentPath),
+      documentBody: this.extractDocumentBody(record.document, record.dashboard.documentRef),
     });
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
@@ -173,7 +170,6 @@ export class DocumentationStore {
       status: canonicalRecord.summary.status,
       version,
       tags: [canonicalRecord.summary.docType, ...canonicalRecord.state.guideTopics],
-      pathScopes: [{ repositoryId: identity.repository.id, relativePath: canonicalRecord.summary.path, role: "canonical" }],
       attributes: { record: canonicalRecord },
       createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
       updatedAt: canonicalRecord.state.updatedAt,
@@ -191,7 +187,7 @@ export class DocumentationStore {
       revisions: entity.attributes.record.revisions,
       documentBody: this.extractDocumentBody(
         entity.attributes.record.document,
-        entity.attributes.record.dashboard.documentPath,
+        entity.attributes.record.dashboard.documentRef,
       ),
     });
   }
@@ -521,20 +517,13 @@ export class DocumentationStore {
   private async buildCanonicalRecord(snapshot: DocumentationSnapshot): Promise<DocumentationReadResult> {
     const packet = await this.buildPacketCanonical(snapshot.state, snapshot.revisions, snapshot.documentBody);
     const document = renderDocumentationMarkdown(snapshot.state, snapshot.documentBody);
-    const docDir = getDocumentationDir(this.cwd, snapshot.state.sectionGroup, snapshot.state.docId);
     return {
       state: snapshot.state,
-      summary: summarizeDocumentation(snapshot.state, docDir, snapshot.revisions.length),
+      summary: summarizeDocumentation(snapshot.state, snapshot.revisions.length),
       packet,
       document,
       revisions: snapshot.revisions,
-      dashboard: buildDocumentationDashboard(
-        snapshot.state,
-        snapshot.revisions,
-        getDocumentationPacketPath(this.cwd, snapshot.state.sectionGroup, snapshot.state.docId),
-        getDocumentationMarkdownPath(this.cwd, snapshot.state.sectionGroup, snapshot.state.docId),
-        docDir,
-      ),
+      dashboard: buildDocumentationDashboard(snapshot.state, snapshot.revisions),
     };
   }
 
@@ -678,7 +667,7 @@ export class DocumentationStore {
 
   async updateDoc(ref: string, input: UpdateDocumentationInput): Promise<DocumentationReadResult> {
     const current = await this.readDoc(ref);
-    const documentBody = input.document?.trim() || this.extractDocumentBody(current.document, current.dashboard.documentPath) || this.defaultDocumentBody(current.state);
+    const documentBody = input.document?.trim() || this.extractDocumentBody(current.document, current.dashboard.documentRef) || this.defaultDocumentBody(current.state);
     const nextState: DocumentationState = {
       ...current.state,
       title: input.title?.trim() ?? current.state.title,
@@ -724,7 +713,7 @@ export class DocumentationStore {
       await this.buildCanonicalRecord({
         state: { ...current.state, status: "archived", updatedAt: currentTimestamp() },
         revisions: current.revisions,
-        documentBody: this.extractDocumentBody(current.document, current.dashboard.documentPath) || this.defaultDocumentBody(current.state),
+        documentBody: this.extractDocumentBody(current.document, current.dashboard.documentRef) || this.defaultDocumentBody(current.state),
       }),
     );
   }

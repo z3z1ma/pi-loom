@@ -18,7 +18,7 @@ describe("worker prompt guidance", () => {
 
   it("renders cwd-specific worker memory guidance", () => {
     const prompt = buildWorkerSystemPrompt("/tmp/example-workspace");
-    expect(prompt).toContain(join("/tmp/example-workspace", ".loom", "workers"));
+    expect(prompt).toContain("Worker state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain("compact supervision inputs");
   });
 });

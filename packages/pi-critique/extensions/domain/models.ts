@@ -62,7 +62,7 @@ export type CritiqueFindingStatus = (typeof CRITIQUE_FINDING_STATUSES)[number];
 export interface CritiqueTargetRef {
   kind: CritiqueTargetKind;
   ref: string;
-  path: string | null;
+  locator: string | null;
 }
 
 export interface CritiqueContextRefs {
@@ -82,7 +82,7 @@ export interface CritiqueState {
   target: CritiqueTargetRef;
   focusAreas: CritiqueFocusArea[];
   reviewQuestion: string;
-  scopePaths: string[];
+  scopeRefs: string[];
   nonGoals: string[];
   contextRefs: CritiqueContextRefs;
   packetSummary: string;
@@ -106,7 +106,7 @@ export interface CritiqueSummary {
   updatedAt: string;
   openFindingCount: number;
   followupTicketCount: number;
-  path: string;
+  critiqueRef: string;
 }
 
 export interface CritiqueRunRecord {
@@ -134,7 +134,7 @@ export interface CritiqueFindingRecord {
   title: string;
   summary: string;
   evidence: string[];
-  scopePaths: string[];
+  scopeRefs: string[];
   recommendedAction: string;
   status: CritiqueFindingStatus;
   linkedTicketId: string | null;
@@ -144,7 +144,7 @@ export interface CritiqueFindingRecord {
 export interface CritiqueLaunchDescriptor {
   critiqueId: string;
   createdAt: string;
-  packetPath: string;
+  packetRef: string;
   target: CritiqueTargetRef;
   focusAreas: CritiqueFocusArea[];
   reviewQuestion: string;
@@ -155,8 +155,8 @@ export interface CritiqueLaunchDescriptor {
 
 export interface CritiqueDashboard {
   critique: CritiqueSummary;
-  packetPath: string;
-  launchPath: string;
+  packetRef: string;
+  launchRef: string;
   lastLaunchAt: string | null;
   counts: {
     runs: number;
@@ -202,7 +202,7 @@ export interface CreateCritiqueInput {
   target: CritiqueTargetRef;
   focusAreas?: CritiqueFocusArea[];
   reviewQuestion?: string;
-  scopePaths?: string[];
+  scopeRefs?: string[];
   nonGoals?: string[];
   contextRefs?: Partial<CritiqueContextRefs>;
   freshContextRequired?: boolean;
@@ -214,7 +214,7 @@ export interface UpdateCritiqueInput {
   target?: CritiqueTargetRef;
   focusAreas?: CritiqueFocusArea[];
   reviewQuestion?: string;
-  scopePaths?: string[];
+  scopeRefs?: string[];
   nonGoals?: string[];
   contextRefs?: Partial<CritiqueContextRefs>;
   freshContextRequired?: boolean;
@@ -239,7 +239,7 @@ export interface CreateCritiqueFindingInput {
   title: string;
   summary: string;
   evidence?: string[];
-  scopePaths?: string[];
+  scopeRefs?: string[];
   recommendedAction: string;
   status?: CritiqueFindingStatus;
 }

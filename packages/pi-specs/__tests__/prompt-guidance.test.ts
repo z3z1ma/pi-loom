@@ -38,7 +38,7 @@ describe("spec prompt guidance", () => {
     const prompt = buildSpecSystemPrompt(cwd);
 
     expect(prompt.startsWith(getBaseSpecGuidance())).toBe(true);
-    expect(prompt).toContain(`Workspace spec memory root: ${join(cwd, ".loom", "specs")}`);
+    expect(prompt).toContain("Specification state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain("Prefer spec tools before direct ticket generation for non-trivial feature work.");
     expect(prompt).toContain("Specs must be detail-first artifacts, not skeletal placeholders.");
   });

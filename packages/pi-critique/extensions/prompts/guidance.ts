@@ -10,6 +10,6 @@ export function getBaseCritiqueGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildCritiqueSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace critique root: ${join(cwd, ".loom", "critiques")}\nPrefer critique packets and durable findings over inline self-review.`;
+export function buildCritiqueSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nCritique state is persisted in SQLite via pi-storage. Prefer critique packets and durable findings over inline self-review.`;
 }

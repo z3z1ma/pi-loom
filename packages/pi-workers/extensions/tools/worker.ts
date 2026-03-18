@@ -77,7 +77,7 @@ const WorkspaceSchema = Type.Object({
   baseRef: Type.Optional(Type.String()),
   branch: Type.Optional(Type.String()),
   labels: Type.Optional(Type.Array(Type.String())),
-  logicalPath: Type.Optional(Type.String()),
+  workspaceKey: Type.Optional(Type.String()),
 });
 
 const ManagerRefSchema = Type.Object({

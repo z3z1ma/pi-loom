@@ -25,10 +25,9 @@ describe("ConstitutionalStore durable memory", () => {
 
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
     const initialized = await store.initLedger({ title: "Pi Loom" });
-    expect(initialized.root).toBe(path.join(workspace, ".loom", "constitution"));
+    expect(initialized.root).toContain("catalog.sqlite");
     const initialRecord = await store.readConstitution();
     expect(initialRecord.state.title).toBe("Pi Loom");
-    expect(initialRecord.state.artifactPaths.root).toBe(initialized.root);
     expect(initialRecord.brief).toContain("# Pi Loom Constitutional Brief");
 
     const { storage, identity } = await openWorkspaceStorage(workspace);
@@ -122,9 +121,7 @@ describe("ConstitutionalStore durable memory", () => {
       expect.objectContaining({ kind: "decision_recorded" }),
     ]);
 
-    expect(
-      await store.readRoadmapItem(path.join(workspace, ".loom", "constitution", "roadmap", "item-001.md")),
-    ).toMatchObject({
+    expect(await store.readRoadmapItem("item-001")).toMatchObject({
       id: "item-001",
       title: "Ship constitutional memory",
     });

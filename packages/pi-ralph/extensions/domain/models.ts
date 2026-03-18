@@ -132,8 +132,8 @@ export interface RalphLaunchDescriptor {
   iteration: number;
   createdAt: string;
   runtime: "subprocess" | "descriptor_only";
-  packetPath: string;
-  launchPath: string;
+  packetRef: string;
+  launchRef: string;
   resume: boolean;
   instructions: string[];
 }
@@ -172,7 +172,7 @@ export interface RalphRunSummary {
   decision: RalphDecisionKind | null;
   waitingFor: RalphWaitingFor;
   objectiveSummary: string;
-  path: string;
+  runRef: string;
 }
 
 export interface RalphDashboardLatestIteration {
@@ -185,9 +185,9 @@ export interface RalphDashboardLatestIteration {
 
 export interface RalphDashboard {
   run: RalphRunSummary;
-  packetPath: string;
-  runPath: string;
-  launchPath: string;
+  packetRef: string;
+  runRef: string;
+  launchRef: string;
   latestIteration: RalphDashboardLatestIteration | null;
   counts: {
     iterations: number;

@@ -167,7 +167,7 @@ describe("pi-plans extension", () => {
 
       expect(result.systemPrompt).toContain("Base system prompt");
       expect(result.systemPrompt).toContain("Plans are a first-class Loom memory layer.");
-      expect(result.systemPrompt).toContain(join(cwd, ".loom", "plans"));
+      expect(result.systemPrompt).toContain("Plan state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
         "Prefer plan packets for durable execution strategy and ticket tools for the live execution state.",
       );

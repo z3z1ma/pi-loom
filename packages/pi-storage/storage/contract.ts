@@ -1,5 +1,3 @@
-import path from "node:path";
-
 export const LOOM_STORAGE_CONTRACT_VERSION = 2 as const;
 
 export const LOOM_ENTITY_KINDS = [
@@ -84,14 +82,8 @@ export interface LoomWorktreeRecord extends LoomAuditFields {
   repositoryId: LoomId;
   branch: string;
   baseRef: string;
-  logicalPath: string;
+  logicalKey: string;
   status: LoomWorktreeStatus;
-}
-
-export interface LoomPathScope {
-  repositoryId: LoomId;
-  relativePath: string;
-  role: "canonical" | "artifact";
 }
 
 export interface LoomEntityRecord extends LoomAuditFields {
@@ -105,7 +97,6 @@ export interface LoomEntityRecord extends LoomAuditFields {
   status: string;
   version: number;
   tags: string[];
-  pathScopes: LoomPathScope[];
   attributes: Record<string, unknown>;
 }
 
@@ -131,7 +122,7 @@ export interface LoomRuntimeAttachment extends LoomAuditFields {
   id: LoomId;
   worktreeId: LoomId;
   kind: LoomRuntimeAttachmentKind;
-  localPath: string;
+  locator: string;
   processId: number | null;
   leaseExpiresAt: string | null;
   metadata: Record<string, unknown>;
@@ -169,28 +160,4 @@ export interface LoomRuntimeStateStore {
   listRuntimeAttachments(worktreeId?: LoomId): Promise<LoomRuntimeAttachment[]>;
   upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void>;
   removeRuntimeAttachment(id: LoomId): Promise<void>;
-}
-
-export function isRepoRelativePath(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (path.isAbsolute(trimmed)) {
-    return false;
-  }
-
-  const normalized = trimmed.replace(/\\/g, "/");
-  if (normalized === ".") {
-    return true;
-  }
-
-  return normalized !== ".." && !normalized.startsWith("../");
-}
-
-export function assertRepoRelativePath(value: string): string {
-  if (!isRepoRelativePath(value)) {
-    throw new Error(`Expected repo-relative path, received: ${value}`);
-  }
-  return value;
 }

@@ -169,7 +169,7 @@ describe("pi-critique extension", () => {
 
       expect(result.systemPrompt).toContain("Base system prompt");
       expect(result.systemPrompt).toContain("Critique is a first-class Loom memory layer.");
-      expect(result.systemPrompt).toContain(join(cwd, ".loom", "critiques"));
+      expect(result.systemPrompt).toContain("Critique state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain("Prefer critique packets and durable findings over inline self-review.");
     } finally {
       cleanup();

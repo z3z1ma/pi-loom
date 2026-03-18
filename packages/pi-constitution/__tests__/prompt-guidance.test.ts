@@ -20,13 +20,12 @@ describe("constitutional prompt guidance", () => {
     expect(guidance).toContain("update documentation memory so high-level project explanations stay truthful");
   });
 
-  it("builds a system prompt that preserves doctrine plus workspace constitutional paths", () => {
+  it("builds a system prompt that preserves doctrine plus SQLite-backed constitutional guidance", () => {
     const cwd = "/tmp/pi-constitution-guidance";
     const prompt = buildConstitutionalSystemPrompt(cwd);
 
     expect(prompt.startsWith(getBaseConstitutionalGuidance())).toBe(true);
-    expect(prompt).toContain(`Workspace constitutional memory root: ${path.join(cwd, ".loom", "constitution")}`);
-    expect(prompt).toContain(`Workspace constitutional brief: ${path.join(cwd, ".loom", "constitution", "brief.md")}`);
+    expect(prompt).toContain("Constitutional state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain(
       "Consult constitutional memory before making strategic, roadmap, or constraint-sensitive decisions.",
     );

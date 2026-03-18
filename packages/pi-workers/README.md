@@ -29,7 +29,7 @@ This package adds a first-class worker layer so Pi Loom can model workers as dur
 
 - worker state is persisted durably in SQLite via pi-storage; this is the canonical truth for all worker data including state, metadata, message history, checkpoint history, and inbox state
 - dashboards and other rendered views are computed on demand from SQLite data; they are read models, not canonical durable files
-- worker runtime workspaces (`.loom/runtime/`) are ephemeral execution environments for the local clone; they are runtime-local, not durable, and should not be committed
+- worker runtime workspaces are ephemeral execution environments for the local clone; they are runtime-local, not durable, and should not be committed
 - workspace attachment and runtime descriptors are workspace-root-relative or logical descriptors, never clone-local absolute paths
 - a clone can resume supervision and worker context from SQLite without requiring any file-backed worker records
 
@@ -50,17 +50,9 @@ For the basic case, keep the flow simple and explicit:
 
 Only force `subprocess` or `rpc` when you intentionally need those runtimes. Do not create orphan workers that are not linked to a ticket, and do not skip directly to manager scheduling when the straightforward ticket -> worker -> launch path is sufficient.
 
-## Layout
+## Runtime environment
 
-Worker state is persisted durably in SQLite via pi-storage. Local runtime workspaces are ephemeral execution environments scoped to the current clone:
-
-```text
-.loom/
-  runtime/
-    <worker-id>/      # ephemeral working directory for worker execution; not durable
-```
-
-All durable worker records (state, metadata, message history, checkpoints, inbox items) are stored in SQLite. The filesystem worktree under `.loom/runtime/` is only a local execution environment.
+Worker state is persisted durably in SQLite via pi-storage. Local runtime workspaces are ephemeral execution environments scoped to the current clone. All durable worker records (state, metadata, message history, checkpoints, inbox items) are stored in SQLite; the runtime workspace directory is only a local execution environment.
 
 ## Local use
 

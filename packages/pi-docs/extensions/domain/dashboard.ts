@@ -1,4 +1,3 @@
-import { posix } from "node:path";
 import type {
   DocumentationDashboard,
   DocumentationRevisionRecord,
@@ -6,24 +5,20 @@ import type {
   DocumentationSummary,
 } from "./models.js";
 
-const DOCS_ROOT_SEGMENT = "/.loom/docs/";
-
-export function toRepoRelativeDocumentationPath(filePath: string): string {
-  const normalizedPath = filePath.replace(/\\/g, "/");
-  const docsRootIndex = normalizedPath.lastIndexOf(DOCS_ROOT_SEGMENT);
-  if (docsRootIndex >= 0) {
-    return normalizedPath.slice(docsRootIndex + 1);
-  }
-  return normalizedPath.replace(/^\.\//, "");
+export function getDocumentationRef(state: DocumentationState): string {
+  return `documentation:${state.docId}`;
 }
 
-export function getDocumentationPacketRepoPath(state: DocumentationState): string {
-  return posix.join(".loom", "docs", state.sectionGroup, state.docId, "packet.md");
+export function getDocumentationPacketRef(state: DocumentationState): string {
+  return `${getDocumentationRef(state)}:packet`;
+}
+
+export function getDocumentationDocumentRef(state: DocumentationState): string {
+  return `${getDocumentationRef(state)}:document`;
 }
 
 export function summarizeDocumentation(
   state: DocumentationState,
-  path: string,
   revisionCount: number,
 ): DocumentationSummary {
   return {
@@ -37,21 +32,18 @@ export function summarizeDocumentation(
     sourceRef: state.sourceTarget.ref,
     summary: state.summary,
     revisionCount,
-    path: toRepoRelativeDocumentationPath(path),
+    ref: getDocumentationRef(state),
   };
 }
 
 export function buildDocumentationDashboard(
   state: DocumentationState,
   revisions: DocumentationRevisionRecord[],
-  packetPath: string,
-  documentPath: string,
-  path: string,
 ): DocumentationDashboard {
   return {
-    doc: summarizeDocumentation(state, path, revisions.length),
-    packetPath: toRepoRelativeDocumentationPath(packetPath),
-    documentPath: toRepoRelativeDocumentationPath(documentPath),
+    doc: summarizeDocumentation(state, revisions.length),
+    packetRef: getDocumentationPacketRef(state),
+    documentRef: getDocumentationDocumentRef(state),
     revisionCount: revisions.length,
     lastRevision: revisions.at(-1) ?? null,
     audience: [...state.audience],

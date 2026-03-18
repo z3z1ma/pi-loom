@@ -27,7 +27,7 @@ describe("ralph prompt guidance", () => {
     const prompt = buildRalphSystemPrompt(cwd);
 
     expect(prompt.startsWith(getBaseRalphGuidance())).toBe(true);
-    expect(prompt).toContain(`Workspace Ralph memory root: ${join(cwd, ".loom", "ralph")}`);
+    expect(prompt).toContain("Ralph state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain(
       "Prefer durable Ralph packets and explicit policy decisions over ad hoc long-running transcripts.",
     );

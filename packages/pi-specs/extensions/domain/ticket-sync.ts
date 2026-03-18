@@ -13,6 +13,10 @@ import type {
 import { normalizeStringList } from "./normalize.js";
 import { createSpecStore } from "./store.js";
 
+function specProposalRef(changeRef: string): string {
+  return `${changeRef}:artifact:proposal`;
+}
+
 function taskSignature(change: SpecChangeRecord, task: SpecTaskRecord): string {
   const requirements = task.requirements
     .map((requirementId) => change.state.requirements.find((requirement) => requirement.id === requirementId))
@@ -115,7 +119,7 @@ function buildCreateInput(
   dependencyTicketIds: string[],
   capabilityIds: string[],
 ): CreateTicketInput {
-  const relativeSpecPath = `.loom/specs/changes/${change.state.changeId}/proposal.md`;
+  const changeRef = change.summary.ref;
   return {
     title: task.title,
     summary: task.summary,
@@ -123,7 +127,7 @@ function buildCreateInput(
     plan: ticketPlan(change, task),
     acceptance: ticketAcceptance(change, task),
     deps: dependencyTicketIds,
-    links: [relativeSpecPath],
+    links: [specProposalRef(changeRef)],
     type: "task",
     priority: "medium",
     initiativeIds: change.state.initiativeIds,
@@ -140,6 +144,7 @@ function buildUpdateInput(
   dependencyTicketIds: string[],
   capabilityIds: string[],
 ): UpdateTicketInput {
+  const changeRef = change.summary.ref;
   return {
     title: task.title,
     summary: task.summary,
@@ -147,7 +152,7 @@ function buildUpdateInput(
     plan: ticketPlan(change, task),
     acceptance: ticketAcceptance(change, task),
     deps: dependencyTicketIds,
-    links: [`.loom/specs/changes/${change.state.changeId}/proposal.md`],
+    links: [specProposalRef(changeRef)],
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChange: change.state.changeId,
@@ -174,6 +179,7 @@ async function linkedTicketMatches(
   capabilityIds: string[],
   initiativeIds: string[],
   researchIds: string[],
+  changeRef: string,
   changeId: string,
 ): Promise<boolean> {
   const result = await createTicketStore(cwd).readTicketAsync(ticketId);
@@ -183,7 +189,7 @@ async function linkedTicketMatches(
     result.ticket.body.context === ticketContext(change, task, capabilityIds) &&
     result.ticket.body.plan === ticketPlan(change, task) &&
     JSON.stringify(result.ticket.frontmatter.deps) === JSON.stringify(expectedDeps) &&
-    JSON.stringify(result.ticket.frontmatter.links) === JSON.stringify([`.loom/specs/changes/${changeId}/proposal.md`]) &&
+    JSON.stringify(result.ticket.frontmatter.links) === JSON.stringify([specProposalRef(changeRef)]) &&
     JSON.stringify(result.ticket.frontmatter.labels) === JSON.stringify([]) &&
     JSON.stringify(result.ticket.frontmatter.acceptance) === JSON.stringify(ticketAcceptance(change, task)) &&
     result.ticket.frontmatter.type === "task" &&
@@ -227,7 +233,6 @@ async function persistLinkedTicketsState(
     status: entity.status,
     version: entity.version + 1,
     tags: entity.tags,
-    pathScopes: entity.pathScopes,
     attributes: {
       ...attributes,
       linkedTickets,
@@ -295,6 +300,7 @@ export async function ensureSpecTickets(cwd: string, ref: string): Promise<SpecC
         capabilityIds,
         change.state.initiativeIds,
         change.state.researchIds,
+        change.summary.ref,
         change.state.changeId,
       ))
     ) {
@@ -324,7 +330,7 @@ export async function ensureSpecTickets(cwd: string, ref: string): Promise<SpecC
   }
 
   return persistLinkedTicketsState(cwd, change, {
-    changeId: change.state.changeId,
+    changeRef: change.summary.ref,
     ensuredAt: new Date().toISOString(),
     mode,
     capabilityIds: normalizeStringList(change.state.capabilities.map((capability) => capability.id)),

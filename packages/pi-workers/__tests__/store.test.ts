@@ -6,6 +6,7 @@ import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store
 import { describe, expect, it, vi } from "vitest";
 import { createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
 import { createWorkerStore } from "../extensions/domain/store.js";
+import { getWorkerRuntimeDir } from "../extensions/domain/paths.js";
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-workers-store-"));
@@ -57,7 +58,7 @@ describe("WorkerStore", () => {
 
       expect(created.state.workerId).toBe("worker-foundation");
       expect(created.state.workspace.repositoryRoot).toBe(".");
-      expect(created.state.workspace.logicalPath).toBe(".loom/runtime/workers/worker-foundation");
+      expect(created.state.workspace.workspaceKey).toBe("worker-runtime:worker-foundation");
       expect(created.launch?.runtime).toBe("sdk");
       expect(JSON.stringify(created.state)).not.toContain(cwd);
       expect(created.summary.ticketCount).toBe(1);
@@ -160,7 +161,7 @@ describe("WorkerStore", () => {
       });
       store.appendCheckpoint("lifecycle-worker", {
         summary: "Blocked on workspace contract",
-        understanding: "Need a durable logical path and branch naming rule",
+        understanding: "Need a durable workspace key and branch naming rule",
         blockers: ["Workspace branch naming not finalized"],
         nextAction: "Wait for manager input",
         managerInputRequired: true,
@@ -254,13 +255,13 @@ describe("WorkerStore", () => {
       expect(prepared.state.status).toBe("requested");
       expect(prepared.state.latestTelemetry.state).toBe("unknown");
       expect(prepared.launch?.runtime).toBe("sdk");
-      expect(prepared.launch?.workspacePath).toContain(".loom/runtime/workers/runtime-worker");
-      expect(existsSync(prepared.launch?.workspacePath ?? "")).toBe(true);
+      expect(prepared.launch?.workspaceDir).toBe(getWorkerRuntimeDir(cwd, "runtime-worker"));
+      expect(existsSync(prepared.launch?.workspaceDir ?? "")).toBe(true);
       expect(prepared.launch?.status).toBe("prepared");
       const canonicalPrepared = await store.readWorkerAsync("runtime-worker");
-      expect(canonicalPrepared.launch?.workspacePath).toBe(prepared.launch?.workspacePath);
+      expect(canonicalPrepared.launch?.workspaceDir).toBe(prepared.launch?.workspaceDir);
       expect(canonicalPrepared.launch?.status).toBe("prepared");
-      expect(JSON.stringify(canonicalPrepared.state)).not.toContain(prepared.launch?.workspacePath ?? "");
+      expect(JSON.stringify(canonicalPrepared.state)).not.toContain(prepared.launch?.workspaceDir ?? "");
     } finally {
       cleanup();
     }
@@ -284,9 +285,9 @@ describe("WorkerStore", () => {
           ...(prepared.launch ?? (() => {
             throw new Error("Expected launch descriptor");
           })()),
-          workspacePath: outsideDir,
+          workspaceDir: outsideDir,
           status: "prepared",
-          note: "unsafe path injected for test",
+          note: "unsafe workspace dir injected for test",
         },
       });
 
@@ -301,9 +302,9 @@ describe("WorkerStore", () => {
           ...(prepared.launch ?? (() => {
             throw new Error("Expected launch descriptor");
           })()),
-          workspacePath: siblingLaunch.launch?.workspacePath ?? "",
+          workspaceDir: siblingLaunch.launch?.workspaceDir ?? "",
           status: "prepared",
-          note: "sibling path injected for test",
+          note: "sibling workspace dir injected for test",
         },
       });
 

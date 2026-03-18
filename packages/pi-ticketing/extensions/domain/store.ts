@@ -1,14 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
-import { extname, isAbsolute, relative, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { inferMediaType } from "./attachments.js";
-import {
-  withCheckpointPath,
-} from "./checkpoints.js";
 import { createEmptyBody } from "./frontmatter.js";
 import { buildTicketGraph, findDependencyCycle, summarizeTicket } from "./graph.js";
 import { createJournalEntry } from "./journal.js";
@@ -26,8 +24,8 @@ import type {
   TicketSummary,
   UpdateTicketInput,
 } from "./models.js";
-import { currentTimestamp, normalizeOptionalString, normalizeStringList, normalizeTicketRef } from "./normalize.js";
-import { getArtifactPath, getLedgerPaths, getTicketPath, getCheckpointPath } from "./paths.js";
+import { currentTimestamp, normalizeOptionalString, normalizeStringList, normalizeTicketId } from "./normalize.js";
+import { getAttachmentSourceRef, getCheckpointRef, getTicketRef } from "./paths.js";
 import { filterTickets, summarizeTickets } from "./query.js";
 
 const ENTITY_KIND = "ticket" as const;
@@ -48,31 +46,13 @@ function nextNumericId(existingIds: string[], prefix: string): string {
   return `${prefix}-${String(max + 1).padStart(4, "0")}`;
 }
 
-function mediaTypeExtension(mediaType: string): string {
-  switch (mediaType) {
-    case "text/plain":
-      return ".txt";
-    case "text/markdown":
-      return ".md";
-    case "application/json":
-      return ".json";
-    case "image/png":
-      return ".png";
-    case "image/jpeg":
-      return ".jpg";
-    case "application/pdf":
-      return ".pdf";
-    default:
-      return ".bin";
+function parseTicketRef(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Ticket reference is required");
   }
-}
-
-function relativeOrAbsolute(cwd: string, filePath: string): string {
-  if (!isAbsolute(filePath)) {
-    return filePath;
-  }
-  const relativePath = relative(cwd, filePath);
-  return relativePath || filePath;
+  const normalized = trimmed.startsWith("ticket:") ? trimmed.slice("ticket:".length) : trimmed;
+  return normalizeTicketId(normalized);
 }
 
 export class TicketStore {
@@ -83,8 +63,7 @@ export class TicketStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    const paths = getLedgerPaths(this.cwd);
-    return { initialized: true, root: paths.loomDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   private async upsertCanonicalRecord(record: TicketReadResult): Promise<TicketReadResult> {
@@ -101,7 +80,6 @@ export class TicketStore {
       status: record.summary.status,
       version,
       tags: record.ticket.frontmatter.tags,
-      pathScopes: [{ repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" }],
       attributes: { record },
       createdAt: existing?.createdAt ?? record.summary.createdAt,
       updatedAt: record.summary.updatedAt,
@@ -132,9 +110,9 @@ export class TicketStore {
     }
     return {
       ...record,
-      summary: this.toOutputSummary(summary),
-      ticket: this.toOutputTicket(record.ticket),
-      checkpoints: record.checkpoints.map((checkpoint) => this.toOutputCheckpoint(checkpoint)),
+      summary,
+      ticket: record.ticket,
+      checkpoints: record.checkpoints,
       children: graph.nodes[record.summary.id]?.children ?? [],
       blockers: graph.nodes[record.summary.id]?.blockedBy ?? [],
     };
@@ -155,7 +133,7 @@ export class TicketStore {
   }
 
   resolveTicketRef(ref: string): string {
-    return normalizeTicketRef(ref);
+    return parseTicketRef(ref);
   }
 
   private nextTicketId(records: TicketReadResult[]): string {
@@ -167,34 +145,6 @@ export class TicketStore {
       records.flatMap((record) => record.checkpoints.map((checkpoint) => checkpoint.id)),
       "cp",
     );
-  }
-
-  private nextArtifactId(records: TicketReadResult[]): string {
-    return nextNumericId(
-      records
-        .flatMap((record) => record.attachments)
-        .map((attachment) => attachment.artifactPath?.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "")
-        .filter(Boolean),
-      "artifact",
-    );
-  }
-
-  private toOutputTicket(record: TicketRecord): TicketRecord {
-    return {
-      ...record,
-      path: relativeOrAbsolute(this.cwd, record.path),
-    };
-  }
-
-  private toOutputSummary(summary: TicketSummary): TicketSummary {
-    return {
-      ...summary,
-      path: relativeOrAbsolute(this.cwd, summary.path),
-    };
-  }
-
-  private toOutputCheckpoint(checkpoint: CheckpointRecord): CheckpointRecord {
-    return withCheckpointPath(checkpoint, relativeOrAbsolute(this.cwd, checkpoint.path));
   }
 
   private validateRelationships(ticketId: string, deps: string[], parent: string | null, allTickets: TicketSummary[]): void {
@@ -245,7 +195,7 @@ export class TicketStore {
 
   async listTicketsAsync(filter: TicketListFilter = {}): Promise<TicketSummary[]> {
     const summaries = this.canonicalSummaries(await this.canonicalRecords());
-    return filterTickets(summaries, filter).map((summary) => this.toOutputSummary(summary));
+    return filterTickets(summaries, filter);
   }
 
   async graphAsync(): Promise<TicketGraphResult> {
@@ -284,7 +234,7 @@ export class TicketStore {
         "spec-change": normalizeOptionalString(input.specChange),
         "spec-capabilities": normalizeStringList(input.specCapabilities),
         "spec-requirements": normalizeStringList(input.specRequirements),
-        parent: normalizeOptionalString(input.parent),
+        parent: normalizeOptionalString(input.parent) ? this.resolveTicketRef(input.parent as string) : null,
         assignee: normalizeOptionalString(input.assignee),
         acceptance: normalizeStringList(input.acceptance),
         labels: normalizeStringList(input.labels),
@@ -301,7 +251,7 @@ export class TicketStore {
         journalSummary: input.journalSummary,
       }),
       closed: false,
-      path: getTicketPath(this.cwd, ticketId, false),
+      ref: getTicketRef(ticketId),
     };
     const provisionalRecords = [...existing, { ticket: ticketRecord, summary: summarizeTicket(ticketRecord, "ready"), journal: [], attachments: [], checkpoints: [], children: [], blockers: [] }];
     this.validateRelationships(ticketId, ticketRecord.frontmatter.deps, ticketRecord.frontmatter.parent, this.canonicalSummaries(existing));
@@ -329,7 +279,7 @@ export class TicketStore {
     if (updates.specChange !== undefined) record.frontmatter["spec-change"] = normalizeOptionalString(updates.specChange);
     if (updates.specCapabilities !== undefined) record.frontmatter["spec-capabilities"] = normalizeStringList(updates.specCapabilities);
     if (updates.specRequirements !== undefined) record.frontmatter["spec-requirements"] = normalizeStringList(updates.specRequirements);
-    if (updates.parent !== undefined) record.frontmatter.parent = normalizeOptionalString(updates.parent);
+    if (updates.parent !== undefined) record.frontmatter.parent = normalizeOptionalString(updates.parent) ? this.resolveTicketRef(updates.parent as string) : null;
     if (updates.assignee !== undefined) record.frontmatter.assignee = normalizeOptionalString(updates.assignee);
     if (updates.acceptance !== undefined) record.frontmatter.acceptance = normalizeStringList(updates.acceptance);
     if (updates.labels !== undefined) record.frontmatter.labels = normalizeStringList(updates.labels);
@@ -376,7 +326,6 @@ export class TicketStore {
     current.ticket.frontmatter.status = "closed";
     current.ticket.frontmatter["updated-at"] = timestamp;
     current.ticket.closed = true;
-    current.ticket.path = getTicketPath(this.cwd, current.summary.id, true);
     if (verificationNote?.trim()) {
       current.ticket.body.verification = [current.ticket.body.verification, verificationNote.trim()].filter(Boolean).join("\n\n");
     }
@@ -394,7 +343,6 @@ export class TicketStore {
     current.ticket.frontmatter.status = "open";
     current.ticket.frontmatter["updated-at"] = timestamp;
     current.ticket.closed = false;
-    current.ticket.path = getTicketPath(this.cwd, current.summary.id, false);
     current.journal = [...current.journal, createJournalEntry(current.summary.id, "state", "Reopened ticket", timestamp, { action: "reopen", status: "open" }, current.journal.length + 1)];
     await this.upsertCanonicalRecord(current);
     return this.readTicketAsync(current.summary.id);
@@ -455,42 +403,44 @@ export class TicketStore {
     const current = await this.readTicketAsync(ref);
     const timestamp = currentTimestamp();
     const mediaType = inferMediaType(input.path, input.mediaType);
-    let artifactPath: string | null = null;
-    let sourcePath: string | null = null;
     if (!input.path?.trim() && input.content === undefined) {
       throw new Error("Attachment requires either path or content");
     }
     let inlineContentBase64: string | null = null;
+    const attachmentId = `attachment-${String(current.attachments.length + 1).padStart(4, "0")}`;
+    let sourceRef: string | null = null;
     if (input.path?.trim()) {
       const normalizedPath = input.path.trim().startsWith("@") ? input.path.trim().slice(1) : input.path.trim();
       const absoluteSource = resolve(this.cwd, normalizedPath);
       if (!existsSync(absoluteSource)) {
         throw new Error(`Attachment source does not exist: ${input.path}`);
       }
-      sourcePath = relative(this.cwd, absoluteSource);
+      sourceRef = getAttachmentSourceRef(current.summary.id, attachmentId, basename(absoluteSource));
       inlineContentBase64 = readFileSync(absoluteSource).toString("base64");
     } else if (input.content !== undefined) {
+      sourceRef = getAttachmentSourceRef(current.summary.id, attachmentId, "inline");
       inlineContentBase64 = Buffer.from(input.content, "utf-8").toString("base64");
     }
     const attachment: AttachmentRecord = {
-      id: `attachment-${String(current.attachments.length + 1).padStart(4, "0")}`,
+      id: attachmentId,
       ticketId: current.summary.id,
       createdAt: timestamp,
       label: input.label.trim(),
       mediaType,
-      artifactPath,
-      sourcePath,
+      artifactRef: null,
+      sourceRef,
       description: input.description?.trim() ?? "",
       metadata: {
         ...(input.metadata ?? {}),
         inlineContentBase64,
         inlineEncoding: inlineContentBase64 ? "base64" : null,
-        inlineSourceType: input.content !== undefined ? "text" : sourcePath ? "filesystem" : null,
+        inlineSourceType: input.content !== undefined ? "text" : sourceRef ? "filesystem" : null,
+        sourceName: input.path?.trim() ? basename(input.path.trim().startsWith("@") ? input.path.trim().slice(1) : input.path.trim()) : null,
       },
     };
     current.attachments = [...current.attachments, attachment];
     current.ticket.frontmatter["updated-at"] = timestamp;
-    current.journal = [...current.journal, createJournalEntry(current.summary.id, "attachment", `Attached ${attachment.label}`, timestamp, { artifactPath, sourcePath }, current.journal.length + 1)];
+    current.journal = [...current.journal, createJournalEntry(current.summary.id, "attachment", `Attached ${attachment.label}`, timestamp, { artifactRef: attachment.artifactRef, sourceRef: attachment.sourceRef }, current.journal.length + 1)];
     await this.upsertCanonicalRecord(current);
     return this.readTicketAsync(current.summary.id);
   }
@@ -505,7 +455,7 @@ export class TicketStore {
       title: input.title.trim(),
       createdAt: timestamp,
       body: input.body.trim(),
-      path: relativeOrAbsolute(this.cwd, getCheckpointPath(this.cwd, checkpointId)),
+      checkpointRef: getCheckpointRef(checkpointId),
       supersedes: input.supersedes ?? null,
     };
     current.checkpoints = [...current.checkpoints, checkpoint];

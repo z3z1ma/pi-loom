@@ -64,7 +64,7 @@ describe("InitiativeStore durable memory", () => {
     });
 
     expect(created.state.initiativeId).toBe("platform-modernization");
-    expect(created.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
+    expect(created.summary.ref).toBe("initiative:platform-modernization");
     expect(created.dashboard.linkedSpecs.total).toBe(2);
     expect(created.dashboard.linkedTickets.total).toBe(2);
     expect(created.dashboard.linkedTickets.blocked).toBe(1);
@@ -79,11 +79,11 @@ describe("InitiativeStore durable memory", () => {
     expect(linkedResearch.state.initiativeIds).toEqual(["platform-modernization"]);
     const hydrated = await initiativeStore.readInitiative("platform-modernization");
     expect(hydrated.state.researchIds).toEqual(["investigate-theme-migration"]);
-    expect(hydrated.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
+    expect(hydrated.summary.ref).toBe("initiative:platform-modernization");
     expect(hydrated.dashboard.linkedResearch.items).toMatchObject([
       {
         id: "investigate-theme-migration",
-        path: join(".loom", "research", "investigate-theme-migration"),
+        ref: "research:investigate-theme-migration",
       },
     ]);
     expect(hydrated.dashboard).not.toHaveProperty("generatedAt");
@@ -100,17 +100,15 @@ describe("InitiativeStore durable memory", () => {
     const archived = await initiativeStore.archiveInitiative("platform-modernization");
     expect(archived.state.status).toBe("archived");
     expect(archived.state.archivedAt).toBe("2026-03-15T12:15:00.000Z");
-    expect(archived.summary.path).toBe(join(".loom", "initiatives", "platform-modernization"));
-    expect((await initiativeStore.listInitiatives({ includeArchived: true }))[0]?.path).toBe(
-      join(".loom", "initiatives", "platform-modernization"),
+    expect(archived.summary.ref).toBe("initiative:platform-modernization");
+    expect((await initiativeStore.listInitiatives({ includeArchived: true }))[0]?.ref).toBe(
+      "initiative:platform-modernization",
     );
     expect((await specStore.readChange("modernize-theming-tokens")).summary.initiativeIds).toEqual([
       "platform-modernization",
     ]);
 
-    expect(hydrated.dashboard.linkedResearch.items[0]?.path).toBe(
-      join(".loom", "research", "investigate-theme-migration"),
-    );
+    expect(hydrated.dashboard.linkedResearch.items[0]?.ref).toBe("research:investigate-theme-migration");
     expect(hydrated.dashboard).not.toHaveProperty("generatedAt");
 
     expect(archived.brief).toContain("## Objective");

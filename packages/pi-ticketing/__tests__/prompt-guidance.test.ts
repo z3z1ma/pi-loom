@@ -43,7 +43,7 @@ describe("ticketing prompt guidance", () => {
     const prompt = buildTicketingSystemPrompt(cwd);
 
     expect(prompt.startsWith(getBaseTicketingGuidance())).toBe(true);
-    expect(prompt).toContain(`Workspace ledger root: ${join(cwd, ".loom")}`);
+    expect(prompt).toContain("Ticket state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain(
       "Prefer ticket tools for live work state and plan tools for durable multi-ticket execution strategy.",
     );

@@ -30,7 +30,7 @@ describe("/spec command handler", () => {
       const store = createSpecStore(cwd);
 
       const initialized = await handleSpecCommand("init", ctx);
-      expect(initialized).toContain(`Initialized spec memory at ${join(cwd, ".loom", "specs")}`);
+      expect(initialized).toContain("catalog.sqlite");
       expect(await store.listChanges({ includeArchived: true })).toEqual([]);
 
       const created = await handleSpecCommand("propose Add dark mode", ctx);

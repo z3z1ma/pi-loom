@@ -47,12 +47,12 @@ describe("research store", () => {
       id: "evaluate-theme-architecture",
       hypothesisCount: 0,
       artifactCount: 0,
-      path: ".loom/research/evaluate-theme-architecture",
+      ref: "research:evaluate-theme-architecture",
     });
     await expect(store.listResearch()).resolves.toEqual([
       expect.objectContaining({
         id: "evaluate-theme-architecture",
-        path: ".loom/research/evaluate-theme-architecture",
+        ref: "research:evaluate-theme-architecture",
       }),
     ]);
 
@@ -102,7 +102,7 @@ describe("research store", () => {
         id: "artifact-001",
         kind: "experiment",
         linkedHypothesisIds: ["hyp-001"],
-        path: ".loom/research/evaluate-theme-architecture/experiments/artifact-001.md",
+        artifactRef: "research:evaluate-theme-architecture:artifact:experiment:artifact-001",
       }),
     ]);
     expect(withArtifact.dashboard).toMatchObject({
@@ -164,11 +164,11 @@ describe("research store", () => {
     await expect(store.listResearch()).resolves.toEqual([
       expect.objectContaining({
         id: "alpha-research",
-        path: ".loom/research/alpha-research",
+        ref: "research:alpha-research",
       }),
       expect.objectContaining({
         id: "zulu-research",
-        path: ".loom/research/zulu-research",
+        ref: "research:zulu-research",
       }),
     ]);
   });

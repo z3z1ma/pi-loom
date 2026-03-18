@@ -355,7 +355,6 @@ describe("research tools", () => {
         status: entity.status,
         version: entity.version + 1,
         tags: entity.tags,
-        pathScopes: entity.pathScopes,
         attributes: {
           ...(entity.attributes as Record<string, unknown>),
           state: {

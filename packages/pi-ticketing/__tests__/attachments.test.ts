@@ -21,15 +21,15 @@ describe("ticket attachments", () => {
 
   it("persists attachment metadata and inline content in the canonical ticket record", async () => {
     const store = createTicketStore(workspace);
-    const sourcePath = join(workspace, "evidence.txt");
-    writeFileSync(sourcePath, "captured evidence\n", "utf-8");
+    const sourceFile = join(workspace, "evidence.txt");
+    writeFileSync(sourceFile, "captured evidence\n", "utf-8");
 
     vi.setSystemTime(new Date("2024-03-01T10:00:00.000Z"));
     const created = await store.createTicketAsync({ title: "Capture evidence" });
     vi.setSystemTime(new Date("2024-03-01T10:00:01.000Z"));
     const updated = await store.attachArtifactAsync(created.summary.id, {
       label: "incident-log",
-      path: sourcePath,
+      path: sourceFile,
       description: "Original terminal transcript",
       metadata: { sha256: "abc123", retained: true },
     });
@@ -37,18 +37,20 @@ describe("ticket attachments", () => {
     expect(updated.attachments).toEqual([
       expect.objectContaining({
         id: "attachment-0001",
+        ticketId: "t-0001",
         label: "incident-log",
         description: "Original terminal transcript",
         mediaType: "text/plain",
-        artifactPath: null,
-        sourcePath: "evidence.txt",
-        metadata: {
+        artifactRef: null,
+        sourceRef: "attachment-source:t-0001:attachment-0001:evidence.txt",
+        metadata: expect.objectContaining({
           sha256: "abc123",
           retained: true,
           inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
           inlineEncoding: "base64",
           inlineSourceType: "filesystem",
-        },
+          sourceName: "evidence.txt",
+        }),
       }),
     ]);
 
@@ -68,15 +70,16 @@ describe("ticket attachments", () => {
             label: "incident-log",
             description: "Original terminal transcript",
             mediaType: "text/plain",
-            artifactPath: null,
-            sourcePath: "evidence.txt",
-            metadata: {
+            artifactRef: null,
+            sourceRef: "attachment-source:t-0001:attachment-0001:evidence.txt",
+            metadata: expect.objectContaining({
               sha256: "abc123",
               retained: true,
               inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
               inlineEncoding: "base64",
               inlineSourceType: "filesystem",
-            },
+              sourceName: "evidence.txt",
+            }),
           },
         ],
       },

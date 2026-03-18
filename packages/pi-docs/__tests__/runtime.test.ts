@@ -159,30 +159,24 @@ describe("docs runtime spawn resolution", () => {
   });
 });
 
-describe("docs repo-relative path rendering", () => {
-  it("stores dashboard paths relative to the workspace root and drops generated timestamps", () => {
-    const dashboard = buildDocumentationDashboard(
-      createState(),
-      [],
-      "/tmp/workspace/.loom/docs/overviews/documentation-memory-system/packet.md",
-      "/tmp/workspace/.loom/docs/overviews/documentation-memory-system/doc.md",
-      "/tmp/workspace/.loom/docs/overviews/documentation-memory-system",
-    );
+describe("docs reference rendering", () => {
+  it("stores dashboard refs instead of repo-relative paths and drops generated timestamps", () => {
+    const dashboard = buildDocumentationDashboard(createState(), []);
 
-    expect(dashboard.doc.path).toBe(".loom/docs/overviews/documentation-memory-system");
-    expect(dashboard.packetPath).toBe(".loom/docs/overviews/documentation-memory-system/packet.md");
-    expect(dashboard.documentPath).toBe(".loom/docs/overviews/documentation-memory-system/doc.md");
+    expect(dashboard.doc.ref).toBe("documentation:documentation-memory-system");
+    expect(dashboard.packetRef).toBe("documentation:documentation-memory-system:packet");
+    expect(dashboard.documentRef).toBe("documentation:documentation-memory-system:document");
     expect(dashboard).not.toHaveProperty("generatedAt");
   });
 
-  it("keeps update prompts rooted at the repo-relative packet path", () => {
+  it("keeps update prompts rooted at the documentation packet ref", () => {
     const state = createState();
 
     expect(renderUpdateDescriptor("/tmp/workspace/packages/pi-docs", state)).toContain(
-      "Packet: .loom/docs/overviews/documentation-memory-system/packet.md",
+      "Packet ref: documentation:documentation-memory-system:packet",
     );
     expect(renderUpdatePrompt("/tmp/workspace/packages/pi-docs", state)).toContain(
-      "Perform the documentation maintenance described in .loom/docs/overviews/documentation-memory-system/packet.md.",
+      "Perform the documentation maintenance described in documentation:documentation-memory-system:packet.",
     );
     expect(renderUpdatePrompt("/tmp/workspace/packages/pi-docs", state)).not.toContain("../");
   });

@@ -1,4 +1,5 @@
 import type { TicketBody, TicketFrontmatter, TicketRecord } from "./models.js";
+import { getTicketRef } from "./paths.js";
 import {
   normalizeOptionalString,
   normalizePriority,
@@ -111,14 +112,14 @@ export function serializeTicket(record: Pick<TicketRecord, "frontmatter" | "body
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-export function parseTicket(text: string, path: string, closed: boolean): TicketRecord {
+export function parseTicket(text: string, sourceLabel: string, closed: boolean): TicketRecord {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   if (lines[0] !== "---") {
-    throw new Error(`Ticket file ${path} is missing frontmatter`);
+    throw new Error(`Ticket file ${sourceLabel} is missing frontmatter`);
   }
   const endIndex = lines.indexOf("---", 1);
   if (endIndex === -1) {
-    throw new Error(`Ticket file ${path} has unterminated frontmatter`);
+    throw new Error(`Ticket file ${sourceLabel} has unterminated frontmatter`);
   }
 
   const frontmatterRaw: Record<string, unknown> = {};
@@ -129,7 +130,7 @@ export function parseTicket(text: string, path: string, closed: boolean): Ticket
     }
     if (line.startsWith("  - ")) {
       if (!currentArrayKey) {
-        throw new Error(`Invalid array entry in ${path}`);
+        throw new Error(`Invalid array entry in ${sourceLabel}`);
       }
       const current = (frontmatterRaw[currentArrayKey] as string[] | undefined) ?? [];
       current.push(parseScalar(line.slice(4)) ?? "");
@@ -139,7 +140,7 @@ export function parseTicket(text: string, path: string, closed: boolean): Ticket
     currentArrayKey = null;
     const separatorIndex = line.indexOf(":");
     if (separatorIndex === -1) {
-      throw new Error(`Invalid frontmatter line in ${path}: ${line}`);
+      throw new Error(`Invalid frontmatter line in ${sourceLabel}: ${line}`);
     }
     const key = line.slice(0, separatorIndex).trim();
     const rawValue = line.slice(separatorIndex + 1).trim();
@@ -238,6 +239,6 @@ export function parseTicket(text: string, path: string, closed: boolean): Ticket
     frontmatter,
     body,
     closed,
-    path,
+    ref: getTicketRef(frontmatter.id),
   };
 }

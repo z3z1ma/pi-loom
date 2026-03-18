@@ -73,8 +73,8 @@ interface PiWorkspaceManifest {
   };
 }
 
-export function resolveWorkspaceExtensionPaths(workspacePath: string): string[] {
-  const manifestPath = path.join(workspacePath, "package.json");
+export function resolveWorkspaceExtensionPaths(workspaceDir: string): string[] {
+  const manifestPath = path.join(workspaceDir, "package.json");
   if (!existsSync(manifestPath)) {
     return [];
   }
@@ -291,17 +291,17 @@ export function ensureWorkerWorkspace(cwd: string, worker: WorkerReadResult): st
   return runtimeRoot;
 }
 
-function resolveManagedRuntimePath(cwd: string, workerId: string, workspacePath: string): string {
+function resolveManagedRuntimePath(cwd: string, workerId: string, workspaceDir: string): string {
   const expectedWorkspacePath = path.resolve(getWorkerRuntimeDir(cwd, workerId));
-  const resolvedWorkspacePath = path.resolve(workspacePath);
+  const resolvedWorkspacePath = path.resolve(workspaceDir);
   if (resolvedWorkspacePath !== expectedWorkspacePath) {
-    throw new Error(`Refusing to retire workspace not owned by worker ${workerId}: ${workspacePath}`);
+    throw new Error(`Refusing to retire workspace not owned by worker ${workerId}: ${workspaceDir}`);
   }
   return expectedWorkspacePath;
 }
 
-export function retireWorkerWorkspace(cwd: string, workerId: string, workspacePath: string): void {
-  const managedWorkspacePath = resolveManagedRuntimePath(cwd, workerId, workspacePath);
+export function retireWorkerWorkspace(cwd: string, workerId: string, workspaceDir: string): void {
+  const managedWorkspacePath = resolveManagedRuntimePath(cwd, workerId, workspaceDir);
   if (!existsSync(managedWorkspacePath)) {
     return;
   }
@@ -341,7 +341,7 @@ export function prepareWorkerLaunchDescriptor(
   worker: WorkerReadResult,
   input: PrepareWorkerLaunchInput = {},
 ): WorkerRuntimeDescriptor {
-  const workspacePath = ensureWorkerWorkspace(cwd, worker);
+  const workspaceDir = ensureWorkerWorkspace(cwd, worker);
   const prompt = input.prompt?.trim() || renderWorkerLaunchPrompt(worker);
   const runtime = normalizeRuntimeKind(input, worker);
   return {
@@ -350,7 +350,7 @@ export function prepareWorkerLaunchDescriptor(
     updatedAt: new Date().toISOString(),
     runtime,
     resume: input.resume === true,
-    workspacePath,
+    workspaceDir,
     branch: worker.state.workspace.branch,
     baseRef: worker.state.workspace.baseRef,
     launchPrompt: prompt,
@@ -368,7 +368,7 @@ async function runSubprocessWorkerLaunch(
 ): Promise<WorkerExecutionResult> {
   const [command, ...args] = launch.command;
   const proc = spawn(command, args, {
-    cwd: launch.workspacePath,
+    cwd: launch.workspaceDir,
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -450,14 +450,14 @@ async function runSdkWorkerLaunch(
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
 
   try {
-    const ledgerRoot = sdkSessionConfig?.ledgerRoot ?? launch.workspacePath;
-    const extensionRoot = sdkSessionConfig?.extensionRoot ?? launch.workspacePath;
+    const ledgerRoot = sdkSessionConfig?.ledgerRoot ?? launch.workspaceDir;
+    const extensionRoot = sdkSessionConfig?.extensionRoot ?? launch.workspaceDir;
     const additionalExtensionPaths = [
       ...resolveWorkspaceExtensionPaths(extensionRoot),
       ...(sdkSessionConfig?.cliExtensionPaths ?? []),
     ];
     const resourceLoader = new DefaultResourceLoader({
-      cwd: launch.workspacePath,
+      cwd: launch.workspaceDir,
       agentDir: sdkSessionConfig?.agentDir,
       additionalExtensionPaths,
     });
@@ -469,7 +469,7 @@ async function runSdkWorkerLaunch(
       modelRegistry: sdkSessionConfig?.modelRegistry,
       model: sdkSessionConfig?.model,
       thinkingLevel: sdkSessionConfig?.thinkingLevel,
-      tools: createCodingTools(launch.workspacePath),
+      tools: createCodingTools(launch.workspaceDir),
       resourceLoader,
       sessionManager: SessionManager.inMemory(ledgerRoot),
     });

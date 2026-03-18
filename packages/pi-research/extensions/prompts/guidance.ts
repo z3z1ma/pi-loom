@@ -10,6 +10,6 @@ export function getBaseResearchGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildResearchSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace research memory root: ${join(cwd, ".loom", "research")}\nPrefer research tools before ad-hoc exploratory planning when uncertainty or reusable discovery is present.`;
+export function buildResearchSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nResearch state is persisted in SQLite via pi-storage. Prefer research tools before ad-hoc exploratory planning when uncertainty or reusable discovery is present.`;
 }

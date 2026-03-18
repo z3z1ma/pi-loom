@@ -13,7 +13,7 @@ const INITIATIVE_COMMAND = "initiative";
 
 export default function piInitiatives(pi: ExtensionAPI): void {
   pi.registerCommand(INITIATIVE_COMMAND, {
-    description: "Manage durable initiatives in the local .loom strategic memory",
+    description: "Manage durable initiatives in SQLite-backed strategic memory",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const output = await handleInitiativeCommand(args, ctx);
       if (output) {

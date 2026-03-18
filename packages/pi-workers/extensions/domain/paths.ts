@@ -40,25 +40,15 @@ export function normalizeWorkerRef(value: string): string {
     throw new Error("Worker reference is required");
   }
   const withoutAt = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
-  const fileName = withoutAt.split(/[\\/]/).pop() ?? withoutAt;
-  const withoutExtension = fileName.replace(/\.(json|jsonl|md)$/i, "");
-  const withoutArtifact =
-    withoutExtension === "state" ||
-    withoutExtension === "worker" ||
-    withoutExtension === "messages" ||
-    withoutExtension === "checkpoints" ||
-    withoutExtension === "launch"
-      ? (withoutAt.split(/[\\/]/).slice(-2, -1)[0] ?? withoutExtension)
-      : withoutExtension;
-  return normalizeWorkerId(withoutArtifact);
+  const withoutPrefix = withoutAt.startsWith("worker:") ? withoutAt.slice("worker:".length) : withoutAt;
+  return normalizeWorkerId(withoutPrefix);
 }
 
 export function getWorkerPaths(cwd: string): WorkerPaths {
   const rootDir = resolve(cwd);
-  const loomDir = join(rootDir, ".loom");
   return {
     rootDir,
-    runtimeDir: join(loomDir, "runtime", "workers"),
+    runtimeDir: join(rootDir, ".pi-loom-runtime", "workers"),
   };
 }
 

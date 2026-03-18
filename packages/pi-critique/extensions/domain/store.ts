@@ -13,6 +13,7 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { CreateTicketInput, TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
@@ -58,9 +59,7 @@ import {
 import {
   getCritiqueDir,
   getCritiqueFindingsPath,
-  getCritiqueLaunchPath,
   getCritiqueMarkdownPath,
-  getCritiquePacketPath,
   getCritiquePaths,
   getCritiqueRunsPath,
   getCritiqueStatePath,
@@ -158,6 +157,10 @@ function excerpt(value: string, limit = 280): string {
 function relativeToWorkspace(cwd: string, filePath: string): string {
   const relativePath = relative(cwd, filePath);
   return relativePath || ".";
+}
+
+function toCritiquePacketRef(critiqueId: string): string {
+  return `critique:${critiqueId}:packet`;
 }
 
 function latestFindings(history: CritiqueFindingRecord[]): CritiqueFindingRecord[] {
@@ -271,7 +274,7 @@ export class CritiqueStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    return { initialized: true, root: getCritiquePaths(this.cwd).critiquesDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   private critiqueDirectories(): string[] {
@@ -300,7 +303,7 @@ export class CritiqueStore {
   }
 
   private readState(critiqueDir: string): CritiqueState {
-    const critiqueId = normalizeCritiqueId(critiqueDir.split("/").at(-1) ?? critiqueDir);
+    const critiqueId = normalizeCritiqueRef(critiqueDir);
     const row = findStoredCritiqueRow(this.cwd, critiqueId);
     if (!row) {
       throw new Error(`Unknown critique: ${critiqueId}`);
@@ -318,11 +321,11 @@ export class CritiqueStore {
       target: {
         kind: normalizeTargetKind(state.target.kind),
         ref: state.target.ref.trim(),
-        path: normalizeOptionalString(state.target.path),
+        locator: normalizeOptionalString(state.target.locator),
       },
       focusAreas: normalizeFocusAreas(state.focusAreas),
       reviewQuestion: state.reviewQuestion ?? "",
-      scopePaths: normalizeStringList(state.scopePaths),
+      scopeRefs: normalizeStringList(state.scopeRefs),
       nonGoals: normalizeStringList(state.nonGoals),
       contextRefs: normalizeContextRefs(state.contextRefs),
       packetSummary: state.packetSummary ?? "",
@@ -337,7 +340,7 @@ export class CritiqueStore {
   }
 
   private readRuns(critiqueDir: string): CritiqueRunRecord[] {
-    const critiqueId = normalizeCritiqueId(critiqueDir.split("/").at(-1) ?? critiqueDir);
+    const critiqueId = normalizeCritiqueRef(critiqueDir);
     const row = findStoredCritiqueRow(this.cwd, critiqueId);
     if (!row) {
       throw new Error(`Unknown critique: ${critiqueId}`);
@@ -361,7 +364,7 @@ export class CritiqueStore {
   }
 
   private readFindingsHistory(critiqueDir: string): CritiqueFindingRecord[] {
-    const critiqueId = normalizeCritiqueId(critiqueDir.split("/").at(-1) ?? critiqueDir);
+    const critiqueId = normalizeCritiqueRef(critiqueDir);
     const row = findStoredCritiqueRow(this.cwd, critiqueId);
     if (!row) {
       throw new Error(`Unknown critique: ${critiqueId}`);
@@ -381,7 +384,7 @@ export class CritiqueStore {
       title: finding.title.trim(),
       summary: finding.summary.trim(),
       evidence: normalizeStringList(finding.evidence),
-      scopePaths: normalizeStringList(finding.scopePaths),
+      scopeRefs: normalizeStringList(finding.scopeRefs),
       recommendedAction: finding.recommendedAction.trim(),
       status: normalizeFindingStatus(finding.status),
       linkedTicketId: normalizeOptionalString(finding.linkedTicketId),
@@ -390,7 +393,7 @@ export class CritiqueStore {
   }
 
   private readLaunch(critiqueDir: string): CritiqueLaunchDescriptor | null {
-    const critiqueId = normalizeCritiqueId(critiqueDir.split("/").at(-1) ?? critiqueDir);
+    const critiqueId = normalizeCritiqueRef(critiqueDir);
     const row = findStoredCritiqueRow(this.cwd, critiqueId);
     if (!row) {
       return null;
@@ -444,7 +447,7 @@ export class CritiqueStore {
             ticketCount: attributes.state.ticketIds.length,
             updatedAt: attributes.state.updatedAt,
             tags: attributes.state.tags,
-            path: `.loom/initiatives/${attributes.state.initiativeId}`,
+            path: `initiative:${attributes.state.initiativeId}`,
           },
           brief: "",
           decisions: [],
@@ -481,7 +484,7 @@ export class CritiqueStore {
             linkedTicketCount: attributes.state.ticketIds.length,
             updatedAt: attributes.state.updatedAt,
             tags: attributes.state.tags,
-            path: `.loom/research/${attributes.state.researchId}`,
+            path: `research:${attributes.state.researchId}`,
           },
           synthesis: "",
           hypotheses: attributes.hypotheses ?? [],
@@ -532,7 +535,7 @@ export class CritiqueStore {
           status: entity.status as SpecChangeRecord["summary"]["status"],
           proposal: attributes.state.proposalSummary,
           updatedAt: entity.updatedAt,
-          path: `.loom/specs/changes/${entity.displayId}`,
+          path: `spec-change:${entity.displayId}`,
           initiativeIds: attributes.state.initiativeIds,
           researchIds: attributes.state.researchIds,
         },
@@ -653,12 +656,12 @@ export class CritiqueStore {
       }
       case "artifact":
         return {
-          summary: `Artifact review target: ${target.ref}${target.path ? ` at ${target.path}` : ""}`,
+          summary: `Artifact review target: ${target.ref}${target.locator ? ` at ${target.locator}` : ""}`,
           contextRefs: normalizeContextRefs({}),
         };
       case "workspace":
         return {
-          summary: `Workspace review target: ${target.ref}${target.path ? ` at ${target.path}` : ""}`,
+          summary: `Workspace review target: ${target.ref}${target.locator ? ` at ${target.locator}` : ""}`,
           contextRefs: normalizeContextRefs({}),
         };
     }
@@ -924,19 +927,19 @@ export class CritiqueStore {
         "created-at": state.createdAt,
         "updated-at": state.updatedAt,
         "fresh-context-required": state.freshContextRequired ? "true" : "false",
-        scope: state.scopePaths,
+        scope: state.scopeRefs,
       },
       [
         renderSection("Review Target", context.targetSummary),
         renderSection("Review Question", state.reviewQuestion || "(empty)"),
         renderSection("Focus Areas", state.focusAreas.join(", ") || "none"),
-        renderSection("Scope Paths", renderBulletList(state.scopePaths)),
+        renderSection("Scope Refs", renderBulletList(state.scopeRefs)),
         renderSection("Non-Goals", renderBulletList(state.nonGoals)),
         renderSection(
           "Fresh Context Protocol",
           renderBulletList([
             "Start from a fresh reviewer context instead of inheriting the executor session.",
-            `Load ${relativeToWorkspace(this.cwd, getCritiquePacketPath(this.cwd, state.critiqueId))} before reasoning about the target.`,
+            `Load ${toCritiquePacketRef(state.critiqueId)} before reasoning about the target.`,
             "Judge the work against its contract, linked context, and likely failure modes; do not trust plausible output.",
             "Persist the result with critique_run and critique_finding so findings survive the session.",
           ]),
@@ -988,19 +991,19 @@ export class CritiqueStore {
         "created-at": state.createdAt,
         "updated-at": state.updatedAt,
         "fresh-context-required": state.freshContextRequired ? "true" : "false",
-        scope: state.scopePaths,
+        scope: state.scopeRefs,
       },
       [
         renderSection("Review Target", context.targetSummary),
         renderSection("Review Question", state.reviewQuestion || "(empty)"),
         renderSection("Focus Areas", state.focusAreas.join(", ") || "none"),
-        renderSection("Scope Paths", renderBulletList(state.scopePaths)),
+        renderSection("Scope Refs", renderBulletList(state.scopeRefs)),
         renderSection("Non-Goals", renderBulletList(state.nonGoals)),
         renderSection(
           "Fresh Context Protocol",
           renderBulletList([
             "Start from a fresh reviewer context instead of inheriting the executor session.",
-            `Load ${relativeToWorkspace(this.cwd, getCritiquePacketPath(this.cwd, state.critiqueId))} before reasoning about the target.`,
+            `Load ${toCritiquePacketRef(state.critiqueId)} before reasoning about the target.`,
             "Judge the work against its contract, linked context, and likely failure modes; do not trust plausible output.",
             "Persist the result with critique_run and critique_finding so findings survive the session.",
           ]),
@@ -1091,23 +1094,13 @@ export class CritiqueStore {
 
   private async buildCanonicalRecord(snapshot: CritiqueSnapshot): Promise<CritiqueReadResult> {
     const nextState = await this.deriveStateCanonical(snapshot.state, snapshot.runs, snapshot.findings);
-    const critiqueId = nextState.critiqueId;
-    const critiqueDir = getCritiqueDir(this.cwd, critiqueId);
     const packet = await this.buildPacketCanonical(nextState, snapshot.runs, snapshot.findings);
     const critique = renderCritiqueMarkdown(nextState, snapshot.runs, snapshot.findings);
-    const dashboard = buildCritiqueDashboard(
-      nextState,
-      snapshot.runs,
-      snapshot.findings,
-      critiqueDir,
-      getCritiquePacketPath(this.cwd, critiqueId),
-      getCritiqueLaunchPath(this.cwd, critiqueId),
-      snapshot.launch,
-    );
+    const dashboard = buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, snapshot.launch);
 
     return {
       state: nextState,
-      summary: summarizeCritique(nextState, critiqueDir),
+      summary: summarizeCritique(nextState),
       packet,
       critique,
       runs: snapshot.runs,
@@ -1124,24 +1117,15 @@ export class CritiqueStore {
     launchOverride?: CritiqueLaunchDescriptor | null,
   ): CritiqueReadResult {
     const critiqueId = state.critiqueId;
-    const critiqueDir = getCritiqueDir(this.cwd, critiqueId);
-    const launch = launchOverride ?? this.readLaunch(critiqueDir);
+    const launch = launchOverride ?? this.readLaunch(getCritiqueDir(this.cwd, critiqueId));
     const nextState = this.deriveState(state, runs, findings);
     const packet = this.buildPacket(nextState, runs, findings);
     const critique = renderCritiqueMarkdown(nextState, runs, findings);
-    const dashboard = buildCritiqueDashboard(
-      nextState,
-      runs,
-      findings,
-      critiqueDir,
-      getCritiquePacketPath(this.cwd, critiqueId),
-      getCritiqueLaunchPath(this.cwd, critiqueId),
-      launch,
-    );
+    const dashboard = buildCritiqueDashboard(nextState, runs, findings, launch);
 
     const record: CritiqueReadResult = {
       state: nextState,
-      summary: summarizeCritique(nextState, critiqueDir),
+      summary: summarizeCritique(nextState),
       packet,
       critique,
       runs,
@@ -1162,7 +1146,6 @@ export class CritiqueStore {
       status: record.summary.status,
       version: (existing?.version ?? 0) + 1,
       tags: record.summary.focusAreas,
-      pathScopes: [],
       attributes: { record },
       createdAt: existing?.created_at ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
@@ -1179,13 +1162,13 @@ export class CritiqueStore {
       target: {
         kind: normalizeTargetKind(input.target.kind),
         ref: input.target.ref.trim(),
-        path: normalizeOptionalString(input.target.path),
+        locator: normalizeOptionalString(input.target.locator),
       },
       focusAreas: normalizeFocusAreas(input.focusAreas ?? ["correctness", "edge_cases"]),
       reviewQuestion:
         input.reviewQuestion?.trim() ||
         `What is wrong, incomplete, unsafe, or misaligned about ${input.target.kind}:${input.target.ref}?`,
-      scopePaths: normalizeStringList(input.scopePaths),
+      scopeRefs: normalizeStringList(input.scopeRefs),
       nonGoals: normalizeStringList(input.nonGoals),
       contextRefs: normalizeContextRefs(input.contextRefs),
       packetSummary: "",
@@ -1202,7 +1185,7 @@ export class CritiqueStore {
   listCritiques(filter: CritiqueListFilter = {}): CritiqueSummary[] {
     this.initLedger();
     return listStoredCritiqueRecords(this.cwd)
-      .map((record) => summarizeCritique(record.state, getCritiqueDir(this.cwd, record.state.critiqueId)))
+      .map((record) => summarizeCritique(record.state))
       .filter((summary) => {
         if (filter.status && summary.status !== filter.status) {
           return false;
@@ -1260,12 +1243,12 @@ export class CritiqueStore {
         ? {
             kind: normalizeTargetKind(input.target.kind),
             ref: input.target.ref.trim(),
-            path: normalizeOptionalString(input.target.path),
+            locator: normalizeOptionalString(input.target.locator),
           }
         : state.target,
       focusAreas: input.focusAreas ? normalizeFocusAreas(input.focusAreas) : state.focusAreas,
       reviewQuestion: input.reviewQuestion?.trim() ?? state.reviewQuestion,
-      scopePaths: input.scopePaths ? normalizeStringList(input.scopePaths) : state.scopePaths,
+      scopeRefs: input.scopeRefs ? normalizeStringList(input.scopeRefs) : state.scopeRefs,
       nonGoals: input.nonGoals ? normalizeStringList(input.nonGoals) : state.nonGoals,
       contextRefs: input.contextRefs ? mergeContextRefs(state.contextRefs, input.contextRefs) : state.contextRefs,
       freshContextRequired:
@@ -1289,7 +1272,7 @@ export class CritiqueStore {
     const launch: CritiqueLaunchDescriptor = {
       critiqueId: critique.state.critiqueId,
       createdAt: timestamp,
-      packetPath: relativeToWorkspace(this.cwd, getCritiquePacketPath(this.cwd, critique.state.critiqueId)),
+      packetRef: critique.dashboard.packetRef,
       target: critique.state.target,
       focusAreas: critique.state.focusAreas,
       reviewQuestion: critique.state.reviewQuestion,
@@ -1297,7 +1280,7 @@ export class CritiqueStore {
       runtime: "descriptor_only",
       instructions: [
         "Open a fresh reviewer session; do not continue in the saturated executor context.",
-        `Read ${relativeToWorkspace(this.cwd, getCritiquePacketPath(this.cwd, critique.state.critiqueId))} before analyzing the target.`,
+        `Read ${critique.dashboard.packetRef} before analyzing the target.`,
         "Record the run verdict with critique_run once review is complete.",
         "Record each concrete issue with critique_finding and create follow-up tickets only for accepted findings.",
       ],
@@ -1376,7 +1359,7 @@ export class CritiqueStore {
       title: input.title.trim(),
       summary: input.summary.trim(),
       evidence: normalizeStringList(input.evidence),
-      scopePaths: normalizeStringList(input.scopePaths ?? state.scopePaths),
+      scopeRefs: normalizeStringList(input.scopeRefs ?? state.scopeRefs),
       recommendedAction: input.recommendedAction.trim(),
       status: normalizeFindingStatus(input.status),
       linkedTicketId: null,
@@ -1469,11 +1452,10 @@ export class CritiqueStore {
       owningRepositoryId: identity.repository.id,
       displayId: canonicalRecord.summary.id,
       title: canonicalRecord.summary.title,
-      summary: canonicalRecord.state.reviewQuestion,
+      summary: canonicalRecord.state.reviewQuestion || canonicalRecord.state.packetSummary || canonicalRecord.summary.title,
       status: canonicalRecord.summary.status,
       version,
       tags: canonicalRecord.summary.focusAreas,
-      pathScopes: [],
       attributes: { record: canonicalRecord },
       createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
       updatedAt: canonicalRecord.state.updatedAt,

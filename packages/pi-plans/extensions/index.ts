@@ -13,7 +13,7 @@ const WORKPLAN_COMMAND = "workplan";
 
 export default function piPlans(pi: ExtensionAPI): void {
   pi.registerCommand(WORKPLAN_COMMAND, {
-    description: "Manage durable execution plans in the local .loom plan memory",
+    description: "Manage durable execution plans in SQLite-backed plan memory",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const output = await handleWorkplanCommand(args, ctx);
       if (output) {

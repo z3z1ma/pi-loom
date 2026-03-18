@@ -45,9 +45,9 @@ describe("RalphStore durable memory", () => {
       },
     });
 
-    expect(ledger).toEqual({
+    expect(ledger).toMatchObject({
       initialized: true,
-      root: join(workspace, ".loom", "ralph"),
+      root: expect.stringMatching(/catalog\.sqlite$/),
     });
     expect(created.state.runId).toBe("ralph-rollout");
     expect(created.state.linkedRefs.planIds).toEqual(["plan-123"]);
@@ -68,23 +68,21 @@ describe("RalphStore durable memory", () => {
       resume: false,
     });
 
-    expect(created.artifacts).toMatchObject({
-      dir: join(workspace, ".loom", "ralph", created.state.runId),
-      state: join(workspace, ".loom", "ralph", created.state.runId, "state.json"),
-      packet: join(workspace, ".loom", "ralph", created.state.runId, "packet.md"),
-      run: join(workspace, ".loom", "ralph", created.state.runId, "run.md"),
-      launch: join(workspace, ".loom", "ralph", created.state.runId, "launch.json"),
-    });
+    expect(created.artifacts.dir).toBe(`ralph-run:${created.state.runId}`);
+    expect(created.artifacts.state).toBe(`ralph-run:${created.state.runId}:state`);
+    expect(created.artifacts.packet).toBe(`ralph-run:${created.state.runId}:packet`);
+    expect(created.artifacts.run).toBe(`ralph-run:${created.state.runId}:run`);
+    expect(created.artifacts.launch).toBe(`ralph-run:${created.state.runId}:launch`);
     expect(created.packet).toContain("# Ralph Packet: Ralph Rollout");
     expect(created.packet).toContain("plan-123 (unresolved)");
     expect(created.run).toContain("## Linked Refs");
     expect(created.dashboard.counts.iterations).toBe(0);
-    expect(created.summary.path).toBe(`.loom/ralph/${created.state.runId}`);
-    expect(created.dashboard.packetPath).toBe(`.loom/ralph/${created.state.runId}/packet.md`);
-    expect(created.dashboard.runPath).toBe(`.loom/ralph/${created.state.runId}/run.md`);
-    expect(created.dashboard.launchPath).toBe(`.loom/ralph/${created.state.runId}/launch.json`);
-    expect(created.launch.packetPath).toBe(`.loom/ralph/${created.state.runId}/packet.md`);
-    expect(created.launch.launchPath).toBe(`.loom/ralph/${created.state.runId}/launch.json`);
+    expect(created.summary.runRef).toBe(`ralph-run:${created.state.runId}`);
+    expect(created.dashboard.packetRef).toBe(`ralph-run:${created.state.runId}:packet`);
+    expect(created.dashboard.runRef).toBe(`ralph-run:${created.state.runId}:run`);
+    expect(created.dashboard.launchRef).toBe(`ralph-run:${created.state.runId}:launch`);
+    expect(created.launch.packetRef).toBe(`ralph-run:${created.state.runId}:packet`);
+    expect(created.launch.launchRef).toBe(`ralph-run:${created.state.runId}:launch`);
 
     const readback = store.readRun(created.state.runId);
     expect(readback.state).toMatchObject({
@@ -105,7 +103,10 @@ describe("RalphStore durable memory", () => {
     });
     expect(readback.dashboard.counts.iterations).toBe(0);
     expect(readback.launch.instructions).toEqual(
-      expect.arrayContaining([expect.stringContaining("packet.md"), expect.stringContaining("iterations.jsonl")]),
+      expect.arrayContaining([
+        expect.stringContaining(`ralph-run:${created.state.runId}:packet`),
+        expect.stringContaining(`ref=ralph-run:${created.state.runId}`),
+      ]),
     );
   }, 10000);
 
@@ -175,7 +176,7 @@ describe("RalphStore durable memory", () => {
     });
     expect(reviewed.dashboard.counts.iterations).toBe(1);
     expect(reviewed.dashboard.counts.byStatus.reviewing).toBe(1);
-    expect(reviewed.launch.packetPath).toBe(`.loom/ralph/${created.state.runId}/packet.md`);
+    expect(reviewed.launch.packetRef).toBe(`ralph-run:${created.state.runId}:packet`);
 
     vi.setSystemTime(new Date("2026-03-15T14:13:00.000Z"));
     const linked = store.linkCritique(created.state.runId, {
@@ -304,8 +305,8 @@ describe("RalphStore durable memory", () => {
     expect(resumedReadback.launch).toMatchObject({
       iterationId: "iter-002",
       resume: true,
-      packetPath: `.loom/ralph/${resumed.state.runId}/packet.md`,
-      launchPath: `.loom/ralph/${resumed.state.runId}/launch.json`,
+      packetRef: `ralph-run:${resumed.state.runId}:packet`,
+      launchRef: `ralph-run:${resumed.state.runId}:launch`,
       createdAt: "2026-03-15T14:33:00.000Z",
     });
   }, 180000);

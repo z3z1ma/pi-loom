@@ -1,4 +1,4 @@
-import { getDocumentationPacketRepoPath } from "./dashboard.js";
+import { getDocumentationPacketRef } from "./dashboard.js";
 import { serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
   DocumentationDashboard,
@@ -62,12 +62,12 @@ export function renderDashboard(dashboard: DocumentationDashboard): string {
 }
 
 export function renderUpdateDescriptor(_cwd: string, state: DocumentationState): string {
-  const packetPath = getDocumentationPacketRepoPath(state);
+  const packetRef = getDocumentationPacketRef(state);
   return [
     `Documentation update handoff for ${state.docId}`,
     `Type: ${state.docType}`,
     `Section group: ${state.sectionGroup}`,
-    `Packet: ${packetPath}`,
+    `Packet ref: ${packetRef}`,
     `Update reason: ${state.updateReason || "(empty)"}`,
     "",
     "The fresh maintainer should persist the revision through docs_write.",
@@ -75,9 +75,9 @@ export function renderUpdateDescriptor(_cwd: string, state: DocumentationState):
 }
 
 export function renderUpdatePrompt(_cwd: string, state: DocumentationState): string {
-  const packetPath = getDocumentationPacketRepoPath(state);
+  const packetRef = getDocumentationPacketRef(state);
   return [
-    `Perform the documentation maintenance described in ${packetPath}.`,
+    `Perform the documentation maintenance described in ${packetRef}.`,
     "",
     "This is a fresh documentation-maintainer session. Do not continue the executor's prior reasoning.",
     `Target document: ${state.docId} (${state.docType})`,
@@ -85,7 +85,7 @@ export function renderUpdatePrompt(_cwd: string, state: DocumentationState): str
     `Update reason: ${state.updateReason || "(empty)"}`,
     "",
     "Before writing:",
-    `- Read ${packetPath}.`,
+    `- Read ${packetRef}.`,
     "- Keep the document high-level and explanatory for humans and AI memory.",
     "- Do not generate API reference documentation.",
     "- Describe completed reality, not plans that have not landed.",

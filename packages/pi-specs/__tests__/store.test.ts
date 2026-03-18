@@ -1,6 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSpecStore } from "../extensions/domain/store.js";
 
@@ -8,7 +7,7 @@ describe("SpecStore durable memory", () => {
   let workspace: string;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), "pi-specs-store-"));
+    workspace = mkdtempSync(`${tmpdir()}/pi-specs-store-`);
     vi.useFakeTimers();
   });
 
@@ -23,14 +22,15 @@ describe("SpecStore durable memory", () => {
     vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
     const created = await store.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
     expect(created.state.changeId).toBe("add-dark-mode");
+    const changeRef = created.summary.ref;
 
     vi.setSystemTime(new Date("2026-03-15T10:05:00.000Z"));
-    const clarified = await store.recordClarification("add-dark-mode", "Should the choice persist?", "Yes.");
+    const clarified = await store.recordClarification(changeRef, "Should the choice persist?", "Yes.");
     expect(clarified.state.status).toBe("clarifying");
     expect(clarified.decisions.at(-1)?.question).toBe("Should the choice persist?");
 
     vi.setSystemTime(new Date("2026-03-15T10:10:00.000Z"));
-    const planned = await store.updatePlan("add-dark-mode", {
+    const planned = await store.updatePlan(changeRef, {
       designNotes: "Use CSS variables and persist user choice.",
       capabilities: [
         {
@@ -45,11 +45,11 @@ describe("SpecStore durable memory", () => {
     expect(planned.state.capabilities[0]?.id).toBe("theme-toggling");
 
     vi.setSystemTime(new Date("2026-03-15T10:15:00.000Z"));
-    const linked = await store.setInitiativeIds("add-dark-mode", ["platform-modernization", "ui-foundation"]);
+    const linked = await store.setInitiativeIds(changeRef, ["platform-modernization", "ui-foundation"]);
     expect(linked.state.initiativeIds).toEqual(["platform-modernization", "ui-foundation"]);
 
     vi.setSystemTime(new Date("2026-03-15T10:20:00.000Z"));
-    const tasked = await store.updateTasks("add-dark-mode", {
+    const tasked = await store.updateTasks(changeRef, {
       tasks: [
         {
           title: "Add theme toggle",
@@ -60,50 +60,50 @@ describe("SpecStore durable memory", () => {
     });
     expect(tasked.state.status).toBe("tasked");
 
-    const plannedSnapshot = await store.readChange("add-dark-mode");
-    expect(plannedSnapshot.summary.path).toBe(".loom/specs/changes/add-dark-mode");
-    expect(plannedSnapshot.artifacts.map((artifact) => artifact.path)).toEqual([
-      ".loom/specs/changes/add-dark-mode/proposal.md",
-      ".loom/specs/changes/add-dark-mode/design.md",
-      ".loom/specs/changes/add-dark-mode/tasks.md",
-      ".loom/specs/changes/add-dark-mode/analysis.md",
-      ".loom/specs/changes/add-dark-mode/checklist.md",
+    const plannedSnapshot = await store.readChange(changeRef);
+    expect(plannedSnapshot.summary.ref).toBe("spec:add-dark-mode");
+    expect(plannedSnapshot.artifacts.map((artifact) => artifact.ref)).toEqual([
+      "spec:add-dark-mode:artifact:proposal",
+      "spec:add-dark-mode:artifact:design",
+      "spec:add-dark-mode:artifact:tasks",
+      "spec:add-dark-mode:artifact:analysis",
+      "spec:add-dark-mode:artifact:checklist",
     ]);
-    expect(plannedSnapshot.capabilitySpecs[0]?.path).toBe(".loom/specs/changes/add-dark-mode/specs/theme-toggling.md");
+    expect(plannedSnapshot.capabilitySpecs[0]?.ref).toBe("capability:theme-toggling");
 
-    const analyzed = await store.analyzeChange("add-dark-mode");
+    const analyzed = await store.analyzeChange(changeRef);
     expect(analyzed.analysis).toContain("Specification quality gates passed");
 
-    const finalized = await store.finalizeChange("add-dark-mode");
+    const finalized = await store.finalizeChange(changeRef);
     expect(finalized.state.status).toBe("finalized");
 
-    const archived = await store.archiveChange("add-dark-mode");
+    const archived = await store.archiveChange(changeRef);
     expect(archived.state.status).toBe("archived");
-    expect(archived.state.archivedPath).toBe(".loom/specs/archive/2026-03-15-add-dark-mode");
+    expect(archived.state.archivedRef).toBe("archive:spec:2026-03-15:add-dark-mode");
     expect(archived.summary.initiativeIds).toEqual(["platform-modernization", "ui-foundation"]);
-    expect(archived.summary.path).toBe(".loom/specs/archive/2026-03-15-add-dark-mode");
-    expect(archived.artifacts.map((artifact) => artifact.path)).toEqual([
-      ".loom/specs/archive/2026-03-15-add-dark-mode/proposal.md",
-      ".loom/specs/archive/2026-03-15-add-dark-mode/design.md",
-      ".loom/specs/archive/2026-03-15-add-dark-mode/tasks.md",
-      ".loom/specs/archive/2026-03-15-add-dark-mode/analysis.md",
-      ".loom/specs/archive/2026-03-15-add-dark-mode/checklist.md",
+    expect(archived.summary.ref).toBe("archive:spec:2026-03-15:add-dark-mode");
+    expect(archived.artifacts.map((artifact) => artifact.ref)).toEqual([
+      "archive:spec:2026-03-15:add-dark-mode:artifact:proposal",
+      "archive:spec:2026-03-15:add-dark-mode:artifact:design",
+      "archive:spec:2026-03-15:add-dark-mode:artifact:tasks",
+      "archive:spec:2026-03-15:add-dark-mode:artifact:analysis",
+      "archive:spec:2026-03-15:add-dark-mode:artifact:checklist",
     ]);
-    const canonicalCapability = await store.readCapability("theme-toggling");
-    expect(canonicalCapability.path).toBe(".loom/specs/capabilities/theme-toggling.md");
+    const canonicalCapability = await store.readCapability(plannedSnapshot.capabilitySpecs[0]?.ref ?? "capability:theme-toggling");
+    expect(canonicalCapability.ref).toBe("capability:theme-toggling");
     expect(canonicalCapability.requirements).toContain("Users can toggle dark mode.");
 
     expect(await store.listChanges({ includeArchived: true })).toEqual([
       expect.objectContaining({
         id: "add-dark-mode",
         archived: true,
-        path: ".loom/specs/archive/2026-03-15-add-dark-mode",
+        ref: "archive:spec:2026-03-15:add-dark-mode",
       }),
     ]);
     expect(await store.listCapabilities()).toEqual([
       expect.objectContaining({
         id: "theme-toggling",
-        path: ".loom/specs/capabilities/theme-toggling.md",
+        ref: "capability:theme-toggling",
       }),
     ]);
   }, 15000);

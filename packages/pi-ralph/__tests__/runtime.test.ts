@@ -15,26 +15,26 @@ describe("ralph runtime spawn resolution", () => {
     expect(extensionRoot.replace(/\\/g, "/")).toMatch(/\/packages\/pi-ralph$/);
   });
 
-  it("renders stored repo-relative launch packet paths without re-relativizing them", () => {
+  it("renders launch packet refs without attempting repo-path translation", () => {
     const launch: RalphLaunchDescriptor = {
       runId: "run-123",
       iterationId: "iter-001",
       iteration: 1,
       createdAt: "2026-03-15T14:33:00.000Z",
       runtime: "subprocess",
-      packetPath: ".loom/ralph/run-123/packet.md",
-      launchPath: ".loom/ralph/run-123/launch.json",
+      packetRef: "ralph-run:run-123:packet",
+      launchRef: "ralph-run:run-123:launch",
       resume: true,
       instructions: [],
     };
 
-    expect(renderLaunchDescriptor("/tmp/different-root", launch)).toContain("Packet: .loom/ralph/run-123/packet.md");
+    expect(renderLaunchDescriptor("/tmp/different-root", launch)).toContain("Packet ref: ralph-run:run-123:packet");
     expect(renderLaunchPrompt("/tmp/different-root", launch)).toContain(
-      "Execute one bounded Ralph iteration for run run-123 using .loom/ralph/run-123/packet.md.",
+      "Execute one bounded Ralph iteration for run run-123 using ralph-run:run-123:packet.",
     );
   });
 
-  it("normalizes dashboard artifact paths to repo-relative values", () => {
+  it("projects dashboard artifact refs from the run id", () => {
     const dashboard = buildRalphDashboard(
       {
         critiqueLinks: [],
@@ -51,25 +51,25 @@ describe("ralph runtime spawn resolution", () => {
         policyMode: "balanced",
         decision: null,
         waitingFor: "operator",
-        objectiveSummary: "Normalize stored paths",
-        path: "/workspace/.loom/ralph/run-123",
+        objectiveSummary: "Normalize stored refs",
+        runRef: "ralph-run:run-123",
       },
       [],
       {
-        dir: "/workspace/.loom/ralph/run-123",
-        state: "/workspace/.loom/ralph/run-123/state.json",
-        packet: "/workspace/.loom/ralph/run-123/packet.md",
-        run: "/workspace/.loom/ralph/run-123/run.md",
-        iterations: "/workspace/.loom/ralph/run-123/iterations.jsonl",
-        launch: "/workspace/.loom/ralph/run-123/launch.json",
+        dir: "/workspace/ralph-storage/run-123",
+        state: "/workspace/ralph-storage/run-123/state.json",
+        packet: "/workspace/ralph-storage/run-123/packet.md",
+        run: "/workspace/ralph-storage/run-123/run.md",
+        iterations: "/workspace/ralph-storage/run-123/iterations.jsonl",
+        launch: "/workspace/ralph-storage/run-123/launch.json",
       },
       ["pending", "running", "reviewing", "accepted", "rejected", "failed", "cancelled"],
       ["not_run", "pass", "concerns", "fail"],
     );
 
-    expect(dashboard.packetPath).toBe(".loom/ralph/run-123/packet.md");
-    expect(dashboard.runPath).toBe(".loom/ralph/run-123/run.md");
-    expect(dashboard.launchPath).toBe(".loom/ralph/run-123/launch.json");
+    expect(dashboard.packetRef).toBe("ralph-run:run-123:packet");
+    expect(dashboard.runRef).toBe("ralph-run:run-123:run");
+    expect(dashboard.launchRef).toBe("ralph-run:run-123:launch");
   });
 
   it("reuses the current script entrypoint when running under a JS runtime", () => {
@@ -181,7 +181,7 @@ describe("ralph review-state gating", () => {
     expect(reviewed.state.status).toBe("waiting_for_review");
     expect(reviewed.state.phase).toBe("reviewing");
     expect(reviewed.state.waitingFor).toBe("operator");
-    expect(reviewed.launch.packetPath).toBe(`.loom/ralph/${created.state.runId}/packet.md`);
+    expect(reviewed.launch.packetRef).toBe(`ralph-run:${created.state.runId}:packet`);
     expect(() => store.prepareLaunch(created.state.runId)).toThrow(
       "Ralph run verifier-blocked-review is waiting for operator and cannot launch until that gate is cleared.",
     );

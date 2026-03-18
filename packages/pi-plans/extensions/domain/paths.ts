@@ -1,35 +1,30 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { normalizePlanId } from "./normalize.js";
 
 export interface PlansPaths {
   rootDir: string;
-  loomDir: string;
   plansDir: string;
 }
 
 export function getPlansPaths(cwd: string): PlansPaths {
-  const rootDir = resolve(cwd);
-  const loomDir = join(rootDir, ".loom");
-  const plansDir = join(loomDir, "plans");
   return {
-    rootDir,
-    loomDir,
-    plansDir,
+    rootDir: resolve(cwd),
+    plansDir: "plan",
   };
 }
 
-export function getPlanDir(cwd: string, planId: string): string {
-  return join(getPlansPaths(cwd).plansDir, normalizePlanId(planId));
+export function getPlanDir(_cwd: string, planId: string): string {
+  return `plan:${normalizePlanId(planId)}`;
 }
 
 export function getPlanStatePath(cwd: string, planId: string): string {
-  return join(getPlanDir(cwd, planId), "state.json");
+  return `${getPlanDir(cwd, planId)}:state`;
 }
 
 export function getPlanPacketPath(cwd: string, planId: string): string {
-  return join(getPlanDir(cwd, planId), "packet.md");
+  return `${getPlanDir(cwd, planId)}:packet`;
 }
 
 export function getPlanMarkdownPath(cwd: string, planId: string): string {
-  return join(getPlanDir(cwd, planId), "plan.md");
+  return `${getPlanDir(cwd, planId)}:document`;
 }

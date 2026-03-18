@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getCheckpointPath } from "../extensions/domain/paths.js";
+import { getCheckpointRef } from "../extensions/domain/paths.js";
 import { createTicketStore } from "../extensions/domain/store.js";
 
 describe("ticket checkpoints", () => {
@@ -38,7 +38,7 @@ describe("ticket checkpoints", () => {
         title: "After rollout revert",
         createdAt: "2024-04-01T12:05:00.000Z",
         body: "Traffic normalized after reverting release.",
-        path: relative(workspace, getCheckpointPath(workspace, "cp-0001")),
+        checkpointRef: getCheckpointRef("cp-0001"),
       }),
     ]);
 
@@ -61,7 +61,7 @@ describe("ticket checkpoints", () => {
             title: "After rollout revert",
             createdAt: "2024-04-01T12:05:00.000Z",
             body: "Traffic normalized after reverting release.",
-            path: relative(workspace, getCheckpointPath(workspace, "cp-0001")),
+            checkpointRef: getCheckpointRef("cp-0001"),
           },
         ],
       },

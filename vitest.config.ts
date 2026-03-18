@@ -4,7 +4,6 @@ export default defineConfig({
   test: {
     environment: "node",
     include: [
-      "packages/*/__tests__/index.test.ts",
       "packages/*/__tests__/prompt-guidance.test.ts",
       "packages/*/__tests__/attachments.test.ts",
       "packages/*/__tests__/checkpoints.test.ts",

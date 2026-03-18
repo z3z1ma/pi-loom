@@ -160,8 +160,7 @@ describe("pi-ralph extension", () => {
       )) as { systemPrompt: string };
 
       expect(result.systemPrompt).toContain("Base system prompt");
-      expect(result.systemPrompt).toContain("Workspace Ralph memory root:");
-      expect(result.systemPrompt).toContain(join(cwd, ".loom", "ralph"));
+      expect(result.systemPrompt).toContain("Ralph state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
         "Prefer durable Ralph packets and explicit policy decisions over ad hoc long-running transcripts.",
       );

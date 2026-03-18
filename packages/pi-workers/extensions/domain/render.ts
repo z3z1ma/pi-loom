@@ -53,7 +53,7 @@ export function renderWorkerList(workers: WorkerSummary[]): string {
 export function renderWorkerDashboard(dashboard: WorkerDashboard): string {
   return [
     `${dashboard.worker.id} [${dashboard.worker.status}/${dashboard.worker.telemetryState}] ${dashboard.worker.title}`,
-    `Path: ${dashboard.workerPath}`,
+    `Worker ref: ${dashboard.workerRef}`,
     `Runtime kind: ${dashboard.worker.runtimeKind ?? "(none)"}`,
     `Latest telemetry: ${dashboard.latestTelemetry.state}${dashboard.latestTelemetry.summary ? ` — ${dashboard.latestTelemetry.summary}` : ""}`,
     `Last scheduler: ${dashboard.worker.lastSchedulerSummary || "(none)"}`,

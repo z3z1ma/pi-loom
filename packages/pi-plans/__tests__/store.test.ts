@@ -252,9 +252,6 @@ describe("PlanStore durable memory", () => {
     if (!entity) {
       throw new Error("Expected plan entity to exist");
     }
-    expect(entity.pathScopes).toEqual([
-      expect.objectContaining({ relativePath: `.loom/plans/${linkedClosed.state.planId}`, role: "canonical" }),
-    ]);
     expect(entity.attributes).toMatchObject({
       state: {
         planId: linkedClosed.state.planId,
@@ -286,18 +283,18 @@ describe("PlanStore durable memory", () => {
     expect(linkedClosed.plan).toContain("## Linked Tickets");
     expect(linkedClosed.plan).toContain("## Revision Notes");
     expect(linkedClosed.plan).toContain("Seeded the first detailed plan draft.");
-    expect(linkedClosed.summary.path).toBe(`.loom/plans/${linkedClosed.state.planId}`);
-    expect(linkedClosed.dashboard.plan.path).toBe(`.loom/plans/${linkedClosed.state.planId}`);
-    expect(linkedClosed.dashboard.packetPath).toBe(`.loom/plans/${linkedClosed.state.planId}/packet.md`);
-    expect(linkedClosed.dashboard.planPath).toBe(`.loom/plans/${linkedClosed.state.planId}/plan.md`);
+    expect(linkedClosed.summary.ref).toBe(`plan:${linkedClosed.state.planId}`);
+    expect(linkedClosed.dashboard.plan.ref).toBe(`plan:${linkedClosed.state.planId}`);
+    expect(linkedClosed.dashboard.packetRef).toBe(`plan:${linkedClosed.state.planId}:packet`);
+    expect(linkedClosed.dashboard.planRef).toBe(`plan:${linkedClosed.state.planId}:document`);
     expect(linkedClosed.dashboard.linkedTickets).toEqual([
       expect.objectContaining({
         ticketId: implementationTicket.summary.id,
-        path: `.loom/tickets/${implementationTicket.summary.id}.md`,
+        ref: `ticket:${implementationTicket.summary.id}`,
       }),
       expect.objectContaining({
         ticketId: reviewTicket.summary.id,
-        path: `.loom/tickets/closed/${reviewTicket.summary.id}.md`,
+        ref: `ticket:${reviewTicket.summary.id}`,
       }),
     ]);
     expect(linkedClosed.dashboard.counts.tickets).toBe(2);
@@ -346,15 +343,15 @@ describe("PlanStore durable memory", () => {
 
     const linked = await planStore.readPlan(linkedExisting.state.planId);
 
-    expect(linked.dashboard.plan.path).toBe(`.loom/plans/${created.state.planId}`);
-    expect(linked.dashboard.packetPath).toBe(`.loom/plans/${created.state.planId}/packet.md`);
-    expect(linked.dashboard.planPath).toBe(`.loom/plans/${created.state.planId}/plan.md`);
+    expect(linked.dashboard.plan.ref).toBe(`plan:${created.state.planId}`);
+    expect(linked.dashboard.packetRef).toBe(`plan:${created.state.planId}:packet`);
+    expect(linked.dashboard.planRef).toBe(`plan:${created.state.planId}:document`);
     expect(linked.dashboard.linkedTickets).toEqual([
       expect.objectContaining({
         ticketId: orphanedTicket.summary.id,
         status: "ready",
         title: "Canonical follow-up",
-        path: `.loom/tickets/${orphanedTicket.summary.id}.md`,
+        ref: `ticket:${orphanedTicket.summary.id}`,
       }),
     ]);
     expect(linked.dashboard.counts.byStatus).toMatchObject({ ready: 1 });

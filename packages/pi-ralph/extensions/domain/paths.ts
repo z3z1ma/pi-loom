@@ -1,8 +1,7 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 export interface RalphPaths {
   rootDir: string;
-  loomDir: string;
   ralphDir: string;
 }
 
@@ -41,51 +40,40 @@ export function normalizeRalphRunRef(value: string): string {
     throw new Error("Ralph run reference is required");
   }
   const withoutAt = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
-  const fileName = withoutAt.split(/[\\/]/).pop() ?? withoutAt;
-  const withoutExtension = fileName.replace(/\.(json|jsonl|md)$/i, "");
-  const withoutArtifact =
-    withoutExtension === "state" ||
-    withoutExtension === "packet" ||
-    withoutExtension === "run" ||
-    withoutExtension === "iterations" ||
-    withoutExtension === "launch"
-      ? (withoutAt.split(/[\\/]/).slice(-2, -1)[0] ?? withoutExtension)
-      : withoutExtension;
-  return normalizeRalphRunId(withoutArtifact);
+  const withoutPrefix = withoutAt.startsWith("ralph-run:") ? withoutAt.slice("ralph-run:".length) : withoutAt;
+  const runToken = withoutPrefix.split(":")[0] ?? withoutPrefix;
+  return normalizeRalphRunId(runToken);
 }
 
 export function getRalphPaths(cwd: string): RalphPaths {
-  const rootDir = resolve(cwd);
-  const loomDir = join(rootDir, ".loom");
   return {
-    rootDir,
-    loomDir,
-    ralphDir: join(loomDir, "ralph"),
+    rootDir: resolve(cwd),
+    ralphDir: "ralph-run",
   };
 }
 
-export function getRalphRunDir(cwd: string, runId: string): string {
-  return join(getRalphPaths(cwd).ralphDir, normalizeRalphRunId(runId));
+export function getRalphRunDir(_cwd: string, runId: string): string {
+  return `ralph-run:${normalizeRalphRunId(runId)}`;
 }
 
 export function getRalphStatePath(cwd: string, runId: string): string {
-  return join(getRalphRunDir(cwd, runId), "state.json");
+  return `${getRalphRunDir(cwd, runId)}:state`;
 }
 
 export function getRalphPacketPath(cwd: string, runId: string): string {
-  return join(getRalphRunDir(cwd, runId), "packet.md");
+  return `${getRalphRunDir(cwd, runId)}:packet`;
 }
 
 export function getRalphRunMarkdownPath(cwd: string, runId: string): string {
-  return join(getRalphRunDir(cwd, runId), "run.md");
+  return `${getRalphRunDir(cwd, runId)}:run`;
 }
 
 export function getRalphIterationsPath(cwd: string, runId: string): string {
-  return join(getRalphRunDir(cwd, runId), "iterations.jsonl");
+  return `${getRalphRunDir(cwd, runId)}:iterations`;
 }
 
 export function getRalphLaunchPath(cwd: string, runId: string): string {
-  return join(getRalphRunDir(cwd, runId), "launch.json");
+  return `${getRalphRunDir(cwd, runId)}:launch`;
 }
 
 export function getRalphArtifactPaths(cwd: string, runId: string): RalphArtifactPaths {

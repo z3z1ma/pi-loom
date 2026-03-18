@@ -10,6 +10,6 @@ export function getBasePlanGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildPlanSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace plan memory root: ${join(cwd, ".loom", "plans")}\nPrefer plan packets for durable execution strategy and ticket tools for the live execution state.`;
+export function buildPlanSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nPlan state is persisted in SQLite via pi-storage. Prefer plan packets for durable execution strategy and ticket tools for the live execution state.`;
 }

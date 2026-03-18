@@ -1,10 +1,9 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { SpecArtifactName } from "./models.js";
 import { normalizeCapabilityId, normalizeChangeId } from "./normalize.js";
 
 export interface SpecsPaths {
   rootDir: string;
-  loomDir: string;
   specsDir: string;
   changesDir: string;
   capabilitiesDir: string;
@@ -12,47 +11,43 @@ export interface SpecsPaths {
 }
 
 export function getSpecsPaths(cwd: string): SpecsPaths {
-  const rootDir = resolve(cwd);
-  const loomDir = join(rootDir, ".loom");
-  const specsDir = join(loomDir, "specs");
   return {
-    rootDir,
-    loomDir,
-    specsDir,
-    changesDir: join(specsDir, "changes"),
-    capabilitiesDir: join(specsDir, "capabilities"),
-    archiveDir: join(specsDir, "archive"),
+    rootDir: resolve(cwd),
+    specsDir: "spec-change",
+    changesDir: "spec-change",
+    capabilitiesDir: "spec-capability",
+    archiveDir: "spec-archive",
   };
 }
 
-export function getChangeDir(cwd: string, changeId: string): string {
-  return join(getSpecsPaths(cwd).changesDir, normalizeChangeId(changeId));
+export function getChangeDir(_cwd: string, changeId: string): string {
+  return `spec-change:${normalizeChangeId(changeId)}`;
 }
 
 export function getChangeArtifactPath(cwd: string, changeId: string, artifact: SpecArtifactName): string {
-  return join(getChangeDir(cwd, changeId), `${artifact}.md`);
+  return `${getChangeDir(cwd, changeId)}:${artifact}`;
 }
 
 export function getChangeStatePath(cwd: string, changeId: string): string {
-  return join(getChangeDir(cwd, changeId), "state.json");
+  return `${getChangeDir(cwd, changeId)}:state`;
 }
 
 export function getDecisionLogPath(cwd: string, changeId: string): string {
-  return join(getChangeDir(cwd, changeId), "decisions.jsonl");
+  return `${getChangeDir(cwd, changeId)}:decisions`;
 }
 
 export function getChangeSpecsDir(cwd: string, changeId: string): string {
-  return join(getChangeDir(cwd, changeId), "specs");
+  return `${getChangeDir(cwd, changeId)}:capabilities`;
 }
 
 export function getCapabilityDeltaPath(cwd: string, changeId: string, capabilityId: string): string {
-  return join(getChangeSpecsDir(cwd, changeId), `${normalizeCapabilityId(capabilityId)}.md`);
+  return `${getChangeSpecsDir(cwd, changeId)}:${normalizeCapabilityId(capabilityId)}`;
 }
 
-export function getCanonicalCapabilityPath(cwd: string, capabilityId: string): string {
-  return join(getSpecsPaths(cwd).capabilitiesDir, `${normalizeCapabilityId(capabilityId)}.md`);
+export function getCanonicalCapabilityPath(_cwd: string, capabilityId: string): string {
+  return `spec-capability:${normalizeCapabilityId(capabilityId)}`;
 }
 
-export function getArchivedChangeDir(cwd: string, date: string, changeId: string): string {
-  return join(getSpecsPaths(cwd).archiveDir, `${date}-${normalizeChangeId(changeId)}`);
+export function getArchivedChangeDir(_cwd: string, date: string, changeId: string): string {
+  return `spec-archive:${date}-${normalizeChangeId(changeId)}`;
 }

@@ -168,7 +168,7 @@ describe("pi-specs extension", () => {
 
       expect(result.systemPrompt).toContain("Base system prompt");
       expect(result.systemPrompt).toContain("Specifications bridge research and execution.");
-      expect(result.systemPrompt).toContain(join(cwd, ".loom", "specs"));
+      expect(result.systemPrompt).toContain("Specification state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
         "Prefer spec tools before direct ticket generation for non-trivial feature work.",
       );

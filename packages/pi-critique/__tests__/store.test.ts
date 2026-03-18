@@ -158,13 +158,13 @@ describe("CritiqueStore durable memory", () => {
     const launched = await critiqueStore.launchCritiqueAsync(critique.state.critiqueId);
     expect(launched.launch.runtime).toBe("descriptor_only");
     expect(launched.launch.freshContextRequired).toBe(true);
-    expect(launched.launch.packetPath).toBe(`.loom/critiques/${critique.state.critiqueId}/packet.md`);
+    expect(launched.launch.packetRef).toBe(`critique:${critique.state.critiqueId}:packet`);
     expect(launched.text).toContain("fresh reviewer session");
-    expect(launched.text).toContain(`Packet: .loom/critiques/${critique.state.critiqueId}/packet.md`);
-    expect(launched.critique.summary.path).toBe(`.loom/critiques/${critique.state.critiqueId}`);
-    expect(launched.critique.dashboard.critique.path).toBe(`.loom/critiques/${critique.state.critiqueId}`);
-    expect(launched.critique.dashboard.packetPath).toBe(`.loom/critiques/${critique.state.critiqueId}/packet.md`);
-    expect(launched.critique.dashboard.launchPath).toBe(`.loom/critiques/${critique.state.critiqueId}/launch.json`);
+    expect(launched.text).toContain(`Packet ref: critique:${critique.state.critiqueId}:packet`);
+    expect(launched.critique.summary.critiqueRef).toBe(`critique:${critique.state.critiqueId}`);
+    expect(launched.critique.dashboard.critique.critiqueRef).toBe(`critique:${critique.state.critiqueId}`);
+    expect(launched.critique.dashboard.packetRef).toBe(`critique:${critique.state.critiqueId}:packet`);
+    expect(launched.critique.dashboard.launchRef).toBe(`critique:${critique.state.critiqueId}:launch`);
     const launchedEntity = await findEntityByDisplayId(storage, identity.space.id, "critique", critique.state.critiqueId);
     expect(launchedEntity?.attributes).toMatchObject({
       record: {
@@ -172,7 +172,7 @@ describe("CritiqueStore durable memory", () => {
         launch: {
           critiqueId: critique.state.critiqueId,
           runtime: "descriptor_only",
-          packetPath: `.loom/critiques/${critique.state.critiqueId}/packet.md`,
+          packetRef: `critique:${critique.state.critiqueId}:packet`,
         },
       },
     });

@@ -13,7 +13,7 @@ const CONSTITUTION_COMMAND = "constitution";
 
 export default function piConstitution(pi: ExtensionAPI): void {
   pi.registerCommand(CONSTITUTION_COMMAND, {
-    description: "Manage durable constitutional memory in the local .loom project context",
+    description: "Manage durable constitutional memory in SQLite-backed project context",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const output = await handleConstitutionCommand(args, ctx);
       if (output) {

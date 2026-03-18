@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { ConstitutionalRecord } from "@pi-loom/pi-constitution/extensions/domain/models.js";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import type { CritiqueReadResult } from "@pi-loom/pi-critique/extensions/domain/models.js";
@@ -14,10 +14,11 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { buildPlanDashboard, summarizePlan } from "./dashboard.js";
+import { buildPlanDashboard, getPlanTicketRef, summarizePlan } from "./dashboard.js";
 import type {
   CreatePlanInput,
   LinkPlanTicketInput,
@@ -44,7 +45,7 @@ import {
   slugifyTitle,
   summarizeText,
 } from "./normalize.js";
-import { getPlanDir, getPlanMarkdownPath, getPlanPacketPath, getPlansPaths } from "./paths.js";
+import { getPlansPaths } from "./paths.js";
 import { renderPlanMarkdown } from "./render.js";
 
 const ENTITY_KIND = "plan" as const;
@@ -55,13 +56,6 @@ interface PlanEntityAttributes {
 
 function hasStructuredPlanAttributes(attributes: unknown): attributes is PlanEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
-}
-
-function relativePathFromRoot(cwd: string, filePath: string): string {
-  if (!isAbsolute(filePath)) {
-    return filePath;
-  }
-  return relative(cwd, filePath) || ".";
 }
 
 function mergeContextRefs(...refs: Array<Partial<PlanContextRefs> | undefined>): PlanContextRefs {
@@ -176,8 +170,7 @@ export class PlanStore {
   }
 
   async initLedger(): Promise<{ initialized: true; root: string }> {
-    const paths = getPlansPaths(this.cwd);
-    return { initialized: true, root: paths.plansDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   private async nextPlanId(baseTitle: string): Promise<string> {
@@ -229,7 +222,7 @@ export class PlanStore {
           status: entity.status as InitiativeRecord["summary"]["status"],
           objective: attributes.state.objective,
           updatedAt: entity.updatedAt,
-          path: `.loom/initiatives/${entity.displayId}`,
+          path: `initiative:${entity.displayId}`,
           roadmapRefs: attributes.state.roadmapRefs,
           specChangeIds: attributes.state.specChangeIds,
           ticketIds: attributes.state.ticketIds,
@@ -263,7 +256,7 @@ export class PlanStore {
           status: entity.status as ResearchRecord["summary"]["status"],
           question: attributes.state.question,
           updatedAt: entity.updatedAt,
-          path: `.loom/research/${entity.displayId}`,
+          path: `research:${entity.displayId}`,
           initiativeIds: attributes.state.initiativeIds,
           specChangeIds: attributes.state.specChangeIds,
           ticketIds: attributes.state.ticketIds,
@@ -302,7 +295,7 @@ export class PlanStore {
           status: entity.status as SpecChangeRecord["summary"]["status"],
           proposal: attributes.state.proposalSummary,
           updatedAt: entity.updatedAt,
-          path: `.loom/specs/changes/${entity.displayId}`,
+          path: `spec:${entity.displayId}`,
           initiativeIds: attributes.state.initiativeIds,
           researchIds: attributes.state.researchIds,
         },
@@ -445,7 +438,7 @@ export class PlanStore {
             order: link.order,
             status: "missing",
             title: "Missing ticket",
-            path: null,
+            ref: getPlanTicketRef(link.ticketId),
           };
         }
         return {
@@ -454,7 +447,7 @@ export class PlanStore {
           order: link.order,
           status: ticket.summary.status,
           title: ticket.summary.title,
-          path: relativePathFromRoot(this.cwd, ticket.summary.path),
+          ref: getPlanTicketRef(ticket.summary.id),
         };
       }),
     );
@@ -562,8 +555,6 @@ export class PlanStore {
   }
 
   private async materializeCanonical(state: PlanState): Promise<PlanReadResult> {
-    const planDir = getPlanDir(this.cwd, state.planId);
-    const relativePlanDir = relativePathFromRoot(this.cwd, planDir);
     const nextState = await this.deriveStateAsync(state);
     const linkedTickets = await this.resolveLinkedTicketsAsync(nextState);
     const context = await this.resolvePacketContextAsync(nextState);
@@ -595,7 +586,7 @@ export class PlanStore {
       section(
         "Workplan Authoring Requirements",
         list([
-          "Write `plan.md` as a fully self-contained novice-facing guide. Assume the reader only has the current working tree plus this packet and the rendered workplan.",
+          "Write the plan markdown as a fully self-contained novice-facing guide. Assume the reader only has the current working tree plus this packet and the rendered workplan.",
           "Keep the sections `Progress`, `Surprises & Discoveries`, `Decision Log`, `Outcomes & Retrospective`, and `Revision Notes` truthful and current as the work evolves.",
           "Use plain language, define repository-specific terms when they first appear, and describe observable validation instead of merely naming code changes.",
           "Keep Loom integration explicit through source refs, scope paths, linked tickets, and neighboring context, while leaving live ticket status and acceptance detail in the linked tickets themselves.",
@@ -604,7 +595,7 @@ export class PlanStore {
       section(
         "Planning Boundaries",
         list([
-          "Keep `plan.md` deeply detailed at the execution-strategy layer; it should explain sequencing, rationale, risks, and validation without duplicating ticket-by-ticket live state.",
+          "Keep the plan markdown deeply detailed at the execution-strategy layer; it should explain sequencing, rationale, risks, and validation without duplicating ticket-by-ticket live state.",
           "Use `pi-ticketing` to create, refine, or link tickets explicitly. Plans provide coordination context around those tickets, and linked tickets stay fully detailed and executable in their own right.",
           "Treat linked tickets as the live execution system of record for status, dependencies, verification, and checkpoints, and as self-contained units of work with their own acceptance criteria and execution context.",
           "Preserve truthful source refs, ticket roles, assumptions, risks, and validation intent so a fresh planner can resume from durable context.",
@@ -624,17 +615,11 @@ export class PlanStore {
       .join("\n\n")
       .trimEnd()}\n`;
     const plan = renderPlanMarkdown(nextState, linkedTickets);
-    const dashboard = buildPlanDashboard(
-      nextState,
-      relativePlanDir,
-      relativePathFromRoot(this.cwd, getPlanPacketPath(this.cwd, nextState.planId)),
-      relativePathFromRoot(this.cwd, getPlanMarkdownPath(this.cwd, nextState.planId)),
-      linkedTickets,
-    );
+    const dashboard = buildPlanDashboard(nextState, linkedTickets);
 
     return {
       state: nextState,
-      summary: summarizePlan(nextState, relativePlanDir),
+      summary: summarizePlan(nextState),
       packet,
       plan,
       dashboard,
@@ -712,7 +697,6 @@ export class PlanStore {
       status: record.state.status,
       version,
       tags: ["plan"],
-      pathScopes: [{ repositoryId: identity.repository.id, relativePath: record.summary.path, role: "canonical" }],
       attributes: { state: record.state },
       createdAt: existing?.createdAt ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
@@ -739,7 +723,7 @@ export class PlanStore {
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
       if (hasStructuredPlanAttributes(entity.attributes)) {
         summaries.push({
-          summary: summarizePlan(entity.attributes.state, `.loom/plans/${entity.attributes.state.planId}`),
+          summary: summarizePlan(entity.attributes.state),
           state: entity.attributes.state,
         });
         continue;

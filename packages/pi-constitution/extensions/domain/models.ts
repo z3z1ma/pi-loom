@@ -32,18 +32,6 @@ export interface RoadmapItem {
   updatedAt: string;
 }
 
-export interface ConstitutionalArtifactPaths {
-  root: string;
-  state: string;
-  brief: string;
-  vision: string;
-  principles: string;
-  constraints: string;
-  roadmap: string;
-  decisions: string;
-  roadmapDir: string;
-}
-
 export interface ConstitutionalCompleteness {
   vision: boolean;
   principles: boolean;
@@ -69,7 +57,6 @@ export interface ConstitutionalState {
   initiativeIds: string[];
   researchIds: string[];
   specChangeIds: string[];
-  artifactPaths: ConstitutionalArtifactPaths;
   completeness: ConstitutionalCompleteness;
 }
 
@@ -106,7 +93,6 @@ export interface ConstitutionalDashboard {
     researchIds: string[];
     specChangeIds: string[];
   };
-  artifactPaths: ConstitutionalArtifactPaths;
 }
 
 export interface ConstitutionalRecord {

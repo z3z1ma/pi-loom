@@ -178,6 +178,9 @@ export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanDashboar
 export function renderPlanDetail(result: PlanReadResult): string {
   return [
     renderPlanSummary(result.summary),
+    `Plan ref: ${result.summary.ref}`,
+    `Packet ref: ${result.dashboard.packetRef}`,
+    `Plan document ref: ${result.dashboard.planRef}`,
     `Source target: ${result.state.sourceTarget.kind}:${result.state.sourceTarget.ref}`,
     `Linked tickets: ${result.state.linkedTickets.length}`,
     `Scope paths: ${renderList(result.state.scopePaths)}`,
@@ -191,6 +194,9 @@ export function renderPlanDetail(result: PlanReadResult): string {
 export function renderDashboard(dashboard: PlanDashboard): string {
   return [
     renderPlanSummary(dashboard.plan),
+    `Plan ref: ${dashboard.plan.ref}`,
+    `Packet ref: ${dashboard.packetRef}`,
+    `Plan document ref: ${dashboard.planRef}`,
     `Source target: ${dashboard.sourceTarget.kind}:${dashboard.sourceTarget.ref}`,
     `Tickets: ${dashboard.counts.tickets}`,
     `Ticket statuses: ${

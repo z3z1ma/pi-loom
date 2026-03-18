@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { assertRepoRelativePath, type LoomRuntimeAttachment } from "../storage/contract.js";
+import type { LoomRuntimeAttachment } from "../storage/contract.js";
 import { createSeededGitWorkspace } from "./helpers/git-fixture.js";
 import { createEntityId, createLinkId, createRepositoryId } from "../storage/ids.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
@@ -48,13 +48,6 @@ async function seedCanonicalCatalog(
     status: "active",
     version: 1,
     tags: ["constitution"],
-    pathScopes: [
-      {
-        repositoryId: identity.repository.id,
-        relativePath: assertRepoRelativePath(".loom/constitution/state.json"),
-        role: "canonical",
-      },
-    ],
     attributes: {},
     ...timestamps,
   });
@@ -69,13 +62,6 @@ async function seedCanonicalCatalog(
     status: "active",
     version: 1,
     tags: ["initiative"],
-    pathScopes: [
-      {
-        repositoryId: identity.repository.id,
-        relativePath: assertRepoRelativePath(".loom/initiatives/storage-migration/state.json"),
-        role: "canonical",
-      },
-    ],
     attributes: {},
     ...timestamps,
   });
@@ -90,13 +76,6 @@ async function seedCanonicalCatalog(
     status: "open",
     version: 1,
     tags: ["ticket"],
-    pathScopes: [
-      {
-        repositoryId: identity.repository.id,
-        relativePath: assertRepoRelativePath(".loom/tickets/t-9001/state.json"),
-        role: "canonical",
-      },
-    ],
     attributes: {},
     ...timestamps,
   });
@@ -123,7 +102,7 @@ async function seedCanonicalCatalog(
     id: "runtime-worker-1",
     worktreeId: identity.worktree.id,
     kind: "worker_runtime",
-    localPath: path.join(cwd, ".loom", "runtime", "workers", "runtime-worker"),
+    locator: "worker-runtime:runtime-worker",
     processId: 1001,
     leaseExpiresAt: "2026-03-16T00:05:00.000Z",
     metadata: { workerId: "runtime-worker" },
@@ -163,8 +142,8 @@ describe("pi-storage sqlite catalog backup flow", () => {
       expect(identity.repository.id).toContain("repo_");
       expect(identity.worktree.repositoryId).toBe(identity.repository.id);
       expect(identity.space.repositoryIds).toEqual([identity.repository.id]);
-      expect(identity.worktree.logicalPath.startsWith("worktree:")).toBe(true);
-      expect(identity.worktree.logicalPath.startsWith("/")).toBe(false);
+      expect(identity.worktree.logicalKey.startsWith("worktree:")).toBe(true);
+      expect(identity.worktree.logicalKey.startsWith("/")).toBe(false);
     } finally {
       cleanup();
     }
@@ -197,7 +176,6 @@ describe("pi-storage sqlite catalog backup flow", () => {
           "runtime-attachments.json",
         ]),
       );
-      expect(existsSync(path.join(cwd, ".loom"))).toBe(false);
       expect(JSON.parse(readFileSync(path.join(bundleDir, "bundle.json"), "utf-8"))).toMatchObject({
         repositoryId: exported.bundle.repositoryId,
         spaceId: exported.bundle.spaceId,

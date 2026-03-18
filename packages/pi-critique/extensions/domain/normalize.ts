@@ -73,11 +73,9 @@ export function normalizeCritiqueRef(value: string): string {
     throw new Error("Critique reference is required");
   }
   const withoutAt = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
-  const fileName = withoutAt.split(/[\\/]/).pop() ?? withoutAt;
-  const withoutExtension = fileName.replace(/\.(json|jsonl|md)$/i, "");
-  const withoutState =
-    withoutExtension === "state" ? (withoutAt.split(/[\\/]/).slice(-2, -1)[0] ?? withoutExtension) : withoutExtension;
-  return normalizeCritiqueId(withoutState);
+  const withoutPrefix = withoutAt.startsWith("critique:") ? withoutAt.slice("critique:".length) : withoutAt;
+  const critiqueToken = withoutPrefix.split(":", 1)[0] ?? withoutPrefix;
+  return normalizeCritiqueId(critiqueToken);
 }
 
 export function normalizeStatus(value: string | undefined): CritiqueStatus {

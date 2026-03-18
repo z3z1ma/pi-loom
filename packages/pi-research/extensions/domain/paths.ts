@@ -1,41 +1,37 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { ResearchArtifactKind } from "./models.js";
 import { normalizeArtifactId, normalizeResearchId } from "./normalize.js";
 
 export interface ResearchPaths {
   rootDir: string;
-  loomDir: string;
   researchDir: string;
 }
 
 export function getResearchPaths(cwd: string): ResearchPaths {
-  const rootDir = resolve(cwd);
-  const loomDir = join(rootDir, ".loom");
   return {
-    rootDir,
-    loomDir,
-    researchDir: join(loomDir, "research"),
+    rootDir: resolve(cwd),
+    researchDir: "research",
   };
 }
 
-export function getResearchDir(cwd: string, researchId: string): string {
-  return join(getResearchPaths(cwd).researchDir, normalizeResearchId(researchId));
+export function getResearchDir(_cwd: string, researchId: string): string {
+  return `research:${normalizeResearchId(researchId)}`;
 }
 
 export function getResearchMarkdownPath(cwd: string, researchId: string): string {
-  return join(getResearchDir(cwd, researchId), "research.md");
+  return `${getResearchDir(cwd, researchId)}:document`;
 }
 
 export function getResearchStatePath(cwd: string, researchId: string): string {
-  return join(getResearchDir(cwd, researchId), "state.json");
+  return `${getResearchDir(cwd, researchId)}:state`;
 }
 
 export function getResearchHypothesesPath(cwd: string, researchId: string): string {
-  return join(getResearchDir(cwd, researchId), "hypotheses.jsonl");
+  return `${getResearchDir(cwd, researchId)}:hypotheses`;
 }
 
 export function getResearchArtifactsPath(cwd: string, researchId: string): string {
-  return join(getResearchDir(cwd, researchId), "artifacts.json");
+  return `${getResearchDir(cwd, researchId)}:artifacts`;
 }
 
 export function artifactDirectoryName(kind: ResearchArtifactKind): string {
@@ -56,7 +52,7 @@ export function artifactDirectoryName(kind: ResearchArtifactKind): string {
 }
 
 export function getResearchArtifactDir(cwd: string, researchId: string, kind: ResearchArtifactKind): string {
-  return join(getResearchDir(cwd, researchId), artifactDirectoryName(kind));
+  return `${getResearchDir(cwd, researchId)}:${artifactDirectoryName(kind)}`;
 }
 
 export function getResearchArtifactPath(
@@ -65,5 +61,5 @@ export function getResearchArtifactPath(
   kind: ResearchArtifactKind,
   artifactId: string,
 ): string {
-  return join(getResearchArtifactDir(cwd, researchId, kind), `${normalizeArtifactId(artifactId)}.md`);
+  return `${getResearchArtifactDir(cwd, researchId, kind)}:${normalizeArtifactId(artifactId)}`;
 }

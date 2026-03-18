@@ -34,7 +34,7 @@ describe("/initiative command handler", () => {
       const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" });
 
       const initialized = await handleInitiativeCommand("init", ctx);
-      expect(initialized).toContain(`Initialized initiative memory at ${join(cwd, ".loom", "initiatives")}`);
+      expect(initialized).toContain("catalog.sqlite");
 
       const created = await handleInitiativeCommand("create Platform modernization", ctx);
       expect(created).toContain("platform-modernization [proposed]");

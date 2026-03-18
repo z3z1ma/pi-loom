@@ -110,12 +110,13 @@ export function resolveWorkspaceIdentity(cwd: string): LoomResolvedWorkspaceIden
     updatedAt: timestamp,
   };
   const branch = resolveBranch(cwd);
+  const logicalKey = resolveLogicalWorktreeLabel(workspaceRoot, branch);
   const worktree = {
-    id: createWorktreeId(repository.id, resolveLogicalWorktreeLabel(workspaceRoot, branch), branch),
+    id: createWorktreeId(repository.id, logicalKey, branch),
     repositoryId: repository.id,
     branch,
     baseRef: repository.defaultBranch ?? "HEAD",
-    logicalPath: resolveLogicalWorktreeLabel(workspaceRoot, branch),
+    logicalKey,
     status: "attached" as const,
     createdAt: timestamp,
     updatedAt: timestamp,

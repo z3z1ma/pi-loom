@@ -10,6 +10,6 @@ export function getBaseTicketingGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildTicketingSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace ledger root: ${join(cwd, ".loom")}\nPrefer ticket tools for live work state and plan tools for durable multi-ticket execution strategy.`;
+export function buildTicketingSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nTicket state is persisted in SQLite via pi-storage. Prefer ticket tools for live work state and plan tools for durable multi-ticket execution strategy.`;
 }

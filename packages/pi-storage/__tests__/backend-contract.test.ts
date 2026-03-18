@@ -12,7 +12,6 @@ import type {
   LoomSpaceRecord,
   LoomWorktreeRecord,
 } from "../storage/contract.js";
-import { assertRepoRelativePath } from "../storage/contract.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
 import { InMemoryLoomCatalog } from "../storage/memory.js";
 import { SqliteLoomCatalog, toSqliteNamedParams } from "../storage/sqlite.js";
@@ -44,7 +43,7 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
     repositoryId: repository.id,
     branch: "main",
     baseRef: "main",
-    logicalPath: "/tmp/repo-core",
+    logicalKey: "worktree:repo-core:main",
     status: "attached",
     createdAt: space.createdAt,
     updatedAt: space.updatedAt,
@@ -60,13 +59,6 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
     status: "open",
     version: 1,
     tags: ["storage"],
-    pathScopes: [
-      {
-        repositoryId: repository.id,
-        relativePath: assertRepoRelativePath(".loom/tickets/t-1000/state.json"),
-        role: "canonical",
-      },
-    ],
     attributes: { source: "test" },
     createdAt: space.createdAt,
     updatedAt: space.updatedAt,
@@ -93,7 +85,7 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
     id: "runtime-1",
     worktreeId: worktree.id,
     kind: "worker_runtime",
-    localPath: "/tmp/repo-core/.loom/runtime/workers/t-1000",
+    locator: "worker-runtime:t-1000",
     processId: 4321,
     leaseExpiresAt: "2026-03-16T00:05:00.000Z",
     metadata: { workerId: "worker-1" },

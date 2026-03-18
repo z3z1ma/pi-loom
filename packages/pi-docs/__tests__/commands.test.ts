@@ -47,7 +47,7 @@ describe("/docs command handler", () => {
       const docsStore = createDocumentationStore(cwd);
 
       const initialized = await handleDocsCommand("init", ctx);
-      expect(initialized).toContain(`Initialized docs memory at ${join(cwd, ".loom", "docs")}`);
+      expect(initialized).toContain("catalog.sqlite");
       await expect(docsStore.listDocs()).resolves.toEqual([]);
 
       const created = await handleDocsCommand(

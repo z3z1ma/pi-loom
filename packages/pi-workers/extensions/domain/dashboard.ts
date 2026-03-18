@@ -1,4 +1,3 @@
-import { relative } from "node:path";
 import type {
   WorkerCheckpointRecord,
   WorkerDashboard,
@@ -32,7 +31,7 @@ export function summarizeWorker(worker: WorkerReadResult): WorkerSummary {
   return worker.summary;
 }
 
-export function buildWorkerDashboard(cwd: string, worker: WorkerReadResult): WorkerDashboard {
+export function buildWorkerDashboard(_cwd: string, worker: WorkerReadResult): WorkerDashboard {
   const latestMessage = summarizeLatestMessage(worker.messages.at(-1) ?? null);
   const latestCheckpoint = summarizeLatestCheckpoint(worker.checkpoints.at(-1) ?? null);
   const acknowledgedBacklog = acknowledgedInbox(worker.messages);
@@ -49,10 +48,10 @@ export function buildWorkerDashboard(cwd: string, worker: WorkerReadResult): Wor
       acknowledgedInboxCount: acknowledgedBacklog.length,
       unresolvedInboxCount: inboxBacklog.length,
       pendingManagerActionCount: managerBacklog.length,
-      path: relative(cwd, worker.artifacts.worker) || worker.artifacts.worker,
+      workerRef: worker.artifacts.dir,
     },
-    workerPath: relative(cwd, worker.artifacts.worker) || worker.artifacts.worker,
-    launchPath: relative(cwd, worker.artifacts.launch) || worker.artifacts.launch,
+    workerRef: worker.artifacts.dir,
+    launchRef: worker.artifacts.launch,
     latestTelemetry: worker.state.latestTelemetry,
     latestCheckpoint,
     latestMessage,

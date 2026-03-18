@@ -16,23 +16,7 @@ When active, the extension teaches the model to use specifications as the bridge
 - finalized-spec ticket creation and refresh with provenance
 - linked tickets inherit initiative membership from their originating spec change
 
-## Local layout
-
-Historical `.loom` examples may still appear in local workflows, but they are not the canonical store:
-
-```text
-.loom/
-  specs/
-    changes/
-      <change-id>/
-        proposal.md
-        design.md
-        tasks.md
-    capabilities/
-      <capability>.md
-    archive/
-      YYYY-MM-DD-<change-id>/...
-```
+## Storage model
 
 Spec state, metadata, and linked-ticket records are persisted in SQLite via pi-storage. `/spec tickets` remains the surface that ensures the ticket layer matches the finalized spec, not a filesystem projection step.
 

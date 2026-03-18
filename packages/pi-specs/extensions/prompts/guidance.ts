@@ -10,6 +10,6 @@ export function getBaseSpecGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildSpecSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace spec memory root: ${join(cwd, ".loom", "specs")}\nPrefer spec tools before direct ticket generation for non-trivial feature work.`;
+export function buildSpecSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nSpecification state is persisted in SQLite via pi-storage. Prefer spec tools before direct ticket generation for non-trivial feature work.`;
 }

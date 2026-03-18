@@ -167,7 +167,7 @@ describe("pi-research extension", () => {
 
       expect(result.systemPrompt).toContain("Base system prompt");
       expect(result.systemPrompt).toContain("Research is the default upstream memory layer");
-      expect(result.systemPrompt).toContain(join(cwd, ".loom", "research"));
+      expect(result.systemPrompt).toContain("Research state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
         "Prefer research tools before ad-hoc exploratory planning when uncertainty or reusable discovery is present.",
       );

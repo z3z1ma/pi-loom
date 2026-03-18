@@ -49,7 +49,7 @@ describe("/ralph command handler", () => {
       const { ctx, ui, newSession } = createContext(cwd);
 
       const initialized = await handleRalphCommand("init", ctx);
-      expect(initialized).toContain(`Initialized Ralph memory at ${join(cwd, ".loom", "ralph")}`);
+      expect(initialized).toContain("catalog.sqlite");
 
       const created = await handleRalphCommand(
         "create Ralph surface tests :: Keep launch and resume state durable across fresh sessions",

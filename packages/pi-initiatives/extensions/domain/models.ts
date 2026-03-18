@@ -75,7 +75,7 @@ export interface InitiativeSummary {
   ticketCount: number;
   updatedAt: string;
   tags: string[];
-  path: string;
+  ref: string;
 }
 
 export interface InitiativeDashboardMilestone {
@@ -115,7 +115,7 @@ export interface InitiativeDashboard {
       title: string;
       status: string;
       updatedAt: string;
-      path: string;
+      ref: string;
     }>;
   };
   linkedSpecs: {

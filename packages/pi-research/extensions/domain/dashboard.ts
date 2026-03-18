@@ -64,7 +64,7 @@ async function resolveInitiativeSummary(cwd: string, initiativeId: string): Prom
       ticketCount: state.ticketIds.length,
       updatedAt: state.updatedAt,
       tags: [...state.tags],
-      path: `.loom/initiatives/${state.initiativeId}`,
+      ref: `initiative:${state.initiativeId}`,
     };
   }
 
@@ -78,7 +78,7 @@ async function resolveInitiativeSummary(cwd: string, initiativeId: string): Prom
       ticketCount: 0,
       updatedAt: entity.updatedAt,
       tags: entity.tags,
-      path: `.loom/initiatives/${initiativeId}`,
+      ref: `initiative:${initiativeId}`,
     };
   }
   throw new Error(`Unknown initiative: ${initiativeId}`);

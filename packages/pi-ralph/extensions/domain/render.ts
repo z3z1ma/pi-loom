@@ -161,7 +161,7 @@ export function renderLaunchDescriptor(_cwd: string, launch: RalphLaunchDescript
     `Iteration: ${launch.iteration} (${launch.iterationId})`,
     `Runtime: ${launch.runtime}`,
     `Resume: ${launch.resume ? "yes" : "no"}`,
-    `Packet: ${launch.packetPath}`,
+    `Packet ref: ${launch.packetRef}`,
     "",
     "Instructions:",
     ...launch.instructions.map((instruction) => `- ${instruction}`),
@@ -170,14 +170,14 @@ export function renderLaunchDescriptor(_cwd: string, launch: RalphLaunchDescript
 
 export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor): string {
   return [
-    `Execute one bounded Ralph iteration for run ${launch.runId} using ${launch.packetPath}.`,
+    `Execute one bounded Ralph iteration for run ${launch.runId} using ${launch.packetRef}.`,
     "",
     "This is a fresh Ralph worker session. Do not continue the prior worker transcript.",
     `Iteration: ${launch.iteration} (${launch.iterationId})`,
     `Resume: ${launch.resume ? "yes" : "no"}`,
     "",
     "Before acting:",
-    `- Read ${launch.packetPath}.`,
+    `- Read ${launch.packetRef}.`,
     "- Treat plans, tickets, critique, and other Loom records as canonical source material.",
     "- Work only one bounded iteration; do not silently self-loop.",
     "- Persist status, verifier evidence, critique references, and the continuation decision through `ralph_write`.",

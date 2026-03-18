@@ -16,19 +16,7 @@ When active, the extension teaches the model to preserve project-defining intent
 - system-prompt augmentation via `before_agent_start`
 - machine-usable dashboard summaries over completeness and roadmap linkage
 
-## Local layout
-
-Historical `.loom` examples may still appear in local workflows, but they are not the canonical store:
-
-```text
-.loom/
-  constitution/
-    brief.md
-    vision.md
-    principles.md
-    constraints.md
-    roadmap.md
-```
+## Storage model
 
 Constitutional state, metadata, decisions, and roadmap items are persisted in SQLite via pi-storage. Any markdown brief or review document is generated from those records rather than acting as durable source data.
 

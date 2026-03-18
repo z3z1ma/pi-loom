@@ -1,9 +1,9 @@
-import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   appendEntityEvent,
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { analyzeSpecChange } from "./analysis.js";
 import { buildSpecChecklist } from "./checklist.js";
@@ -32,7 +32,7 @@ import {
   normalizeTaskId,
   slugifyTitle,
 } from "./normalize.js";
-import { getArchivedChangeDir, getCanonicalCapabilityPath, getChangeDir, getSpecsPaths } from "./paths.js";
+import { getSpecsPaths } from "./paths.js";
 import {
   renderAnalysisMarkdown,
   renderChecklistMarkdown,
@@ -60,17 +60,37 @@ function hasStructuredSpecChangeAttributes(attributes: unknown): attributes is S
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
 }
 
-function toRepoRelativePath(rootDir: string, path: string): string {
-  const normalizedRoot = resolve(rootDir);
-  const normalizedPath = isAbsolute(path) ? resolve(path) : resolve(normalizedRoot, path);
-  if (normalizedPath === normalizedRoot) {
-    return ".";
-  }
-  return relative(normalizedRoot, normalizedPath).split("\\").join("/");
+function specRef(changeId: string): string {
+  return `spec:${changeId}`;
 }
 
-function fromRepoRelativePath(rootDir: string, path: string): string {
-  return resolve(rootDir, path);
+function archivedSpecRef(changeId: string, archivedAt: string): string {
+  return `archive:spec:${archivedAt}:${changeId}`;
+}
+
+function capabilityRef(capabilityId: string): string {
+  return `capability:${capabilityId}`;
+}
+
+function canonicalChangeRef(state: SpecChangeState): string {
+  return state.archivedRef ?? specRef(state.changeId);
+}
+
+function canonicalWorkspaceRoot(cwd: string): string {
+  const base = new URL(process.cwd().endsWith("/") ? process.cwd() : `${process.cwd()}/`, "file:");
+  const href = new URL(cwd, base).href.replace(/\/$/, "");
+  return decodeURIComponent(href.replace("file://", ""));
+}
+
+function parseSpecChangeId(ref: string): string {
+  if (ref.startsWith("archive:spec:")) {
+    return normalizeChangeId(ref.split(":").at(-1) ?? ref);
+  }
+  return normalizeChangeId(ref.startsWith("spec:") ? ref.slice("spec:".length) : ref);
+}
+
+function parseCapabilityId(ref: string): string {
+  return normalizeCapabilityId(ref.startsWith("capability:") ? ref.slice("capability:".length) : ref);
 }
 
 function artifactVersions(): Record<SpecArtifactName, string | null> {
@@ -98,7 +118,7 @@ function resolveRequirementCapabilities(state: SpecChangeState, requirementIds: 
   return [...ids].sort((left, right) => left.localeCompare(right));
 }
 
-function summarizeChange(rootDir: string, state: SpecChangeState, path: string, archived: boolean): SpecChangeSummary {
+function summarizeChange(state: SpecChangeState, archived: boolean): SpecChangeSummary {
   return {
     id: state.changeId,
     title: state.title,
@@ -112,16 +132,11 @@ function summarizeChange(rootDir: string, state: SpecChangeState, path: string, 
     researchIds: normalizeStringList(state.researchIds),
     updatedAt: state.updatedAt,
     archived,
-    path: toRepoRelativePath(rootDir, path),
+    ref: canonicalChangeRef(state),
   };
 }
 
-function capabilityFromState(
-  rootDir: string,
-  state: SpecChangeState,
-  capabilityId: string,
-  path: string,
-): CanonicalCapabilityRecord {
+function capabilityFromState(state: SpecChangeState, capabilityId: string): CanonicalCapabilityRecord {
   const capability = state.capabilities.find((candidate) => candidate.id === capabilityId);
   if (!capability) {
     throw new Error(`Unknown capability ${capabilityId} for change ${state.changeId}`);
@@ -140,7 +155,7 @@ function capabilityFromState(
     scenarios: [...capability.scenarios],
     sourceChanges: [state.changeId],
     updatedAt: state.updatedAt,
-    path: toRepoRelativePath(rootDir, path),
+    ref: capabilityRef(capability.id),
   };
 }
 
@@ -148,11 +163,11 @@ export class SpecStore {
   readonly cwd: string;
 
   constructor(cwd: string) {
-    this.cwd = resolve(cwd);
+    this.cwd = canonicalWorkspaceRoot(cwd);
   }
 
   async initLedger(): Promise<{ initialized: true; root: string }> {
-    return { initialized: true, root: getSpecsPaths(this.cwd).specsDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   private defaultState(input: CreateSpecChangeInput, timestamp: string): SpecChangeState {
@@ -165,7 +180,7 @@ export class SpecStore {
       updatedAt: timestamp,
       finalizedAt: null,
       archivedAt: null,
-      archivedPath: null,
+      archivedRef: null,
       initiativeIds: normalizeStringList(input.initiativeIds),
       researchIds: normalizeStringList(input.researchIds),
       supersedes: [],
@@ -187,7 +202,7 @@ export class SpecStore {
       initiativeIds: normalizeStringList(state.initiativeIds),
       researchIds: normalizeStringList(state.researchIds),
       supersedes: normalizeStringList(state.supersedes),
-      archivedPath: state.archivedPath ? toRepoRelativePath(this.cwd, state.archivedPath) : null,
+      archivedRef: state.archivedRef?.trim() || null,
       requirements: state.requirements.map((requirement) => ({
         ...requirement,
         acceptance: normalizeStringList(requirement.acceptance),
@@ -210,13 +225,9 @@ export class SpecStore {
     };
   }
 
-  private artifactStatuses(
-    changeDir: string,
-    state: SpecChangeState,
-    analysis: string,
-    checklist: string,
-  ): SpecArtifactStatus[] {
+  private artifactStatuses(state: SpecChangeState, analysis: string, checklist: string): SpecArtifactStatus[] {
     const statuses: SpecArtifactStatus[] = [];
+    const changeRef = canonicalChangeRef(state);
     const renderedArtifacts: Record<SpecArtifactName, string> = {
       proposal: renderProposalMarkdown(state, []),
       design:
@@ -228,22 +239,15 @@ export class SpecStore {
       checklist,
     };
     for (const artifact of ["proposal", "design", "tasks", "analysis", "checklist"] as const) {
-      const path = join(changeDir, `${artifact}.md`);
       statuses.push({
         name: artifact,
         exists: renderedArtifacts[artifact].length > 0,
-        path: toRepoRelativePath(this.cwd, path),
+        ref: `${changeRef}:artifact:${artifact}`,
         updatedAt:
           renderedArtifacts[artifact].length > 0 ? (state.artifactVersions[artifact] ?? state.updatedAt) : null,
       });
     }
     return statuses;
-  }
-
-  private changeDirForState(state: SpecChangeState): string {
-    return state.archivedPath
-      ? fromRepoRelativePath(this.cwd, state.archivedPath)
-      : getChangeDir(this.cwd, state.changeId);
   }
 
   private materializeChangeRecord(
@@ -254,8 +258,7 @@ export class SpecStore {
     linkedTickets: SpecChangeRecord["linkedTickets"] = null,
   ): SpecChangeRecord {
     const normalized = this.normalizeState(state);
-    const changeDir = this.changeDirForState(normalized);
-    const archived = Boolean(normalized.archivedPath);
+    const archived = Boolean(normalized.archivedRef);
     const proposal = renderProposalMarkdown(normalized, decisions);
     const design =
       normalized.designNotes.trim() || normalized.capabilities.length > 0 || normalized.requirements.length > 0
@@ -264,24 +267,22 @@ export class SpecStore {
     const tasksMarkdown = normalized.tasks.length > 0 ? renderTasksMarkdown(normalized) : "";
     return {
       state: normalized,
-      summary: summarizeChange(this.cwd, normalized, changeDir, archived),
-      artifacts: this.artifactStatuses(changeDir, normalized, analysis, checklist),
+      summary: summarizeChange(normalized, archived),
+      artifacts: this.artifactStatuses(normalized, analysis, checklist),
       proposal,
       design,
       tasksMarkdown,
       analysis,
       checklist,
       decisions,
-      capabilitySpecs: normalized.capabilities.map((capability) =>
-        capabilityFromState(this.cwd, normalized, capability.id, join(changeDir, "specs", `${capability.id}.md`)),
-      ),
+      capabilitySpecs: normalized.capabilities.map((capability) => capabilityFromState(normalized, capability.id)),
       linkedTickets,
     };
   }
 
   private async loadCanonicalChange(ref: string): Promise<SpecChangeRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const changeId = normalizeChangeId(ref.split(/[\\/]/).pop() ?? ref);
+    const changeId = parseSpecChangeId(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, changeId);
     if (!entity) {
       throw new Error(`Unknown spec change: ${ref}`);
@@ -320,7 +321,6 @@ export class SpecStore {
       status: record.state.status,
       version,
       tags: ["spec-change"],
-      pathScopes: [],
       attributes: {
         state: record.state,
         decisions: record.decisions,
@@ -335,12 +335,11 @@ export class SpecStore {
   }
 
   private async mergeCanonicalCapability(state: SpecChangeState, capabilityId: string): Promise<void> {
-    const path = getCanonicalCapabilityPath(this.cwd, capabilityId);
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, SPEC_CAPABILITY_ENTITY_KIND, capabilityId);
     const version = (existing?.version ?? 0) + 1;
     const current = (existing?.attributes as unknown as SpecCapabilityEntityAttributes | undefined)?.record ?? null;
-    const next = capabilityFromState(this.cwd, state, capabilityId, path);
+    const next = capabilityFromState(state, capabilityId);
     const merged: CanonicalCapabilityRecord = {
       id: next.id,
       title: next.title,
@@ -349,7 +348,7 @@ export class SpecStore {
       scenarios: union(current?.scenarios ?? [], next.scenarios),
       sourceChanges: union(current?.sourceChanges ?? [], [state.changeId]),
       updatedAt: currentTimestamp(),
-      path: toRepoRelativePath(this.cwd, path),
+      ref: capabilityRef(capabilityId),
     };
     await upsertEntityByDisplayId(storage, {
       kind: SPEC_CAPABILITY_ENTITY_KIND,
@@ -361,7 +360,6 @@ export class SpecStore {
       status: "active",
       version,
       tags: ["spec-capability"],
-      pathScopes: [],
       attributes: { record: merged },
       createdAt: existing?.createdAt ?? merged.updatedAt,
       updatedAt: merged.updatedAt,
@@ -374,10 +372,7 @@ export class SpecStore {
     for (const entity of await storage.listEntities(identity.space.id, SPEC_CHANGE_ENTITY_KIND)) {
       if (hasStructuredSpecChangeAttributes(entity.attributes)) {
         const state = this.normalizeState(entity.attributes.state);
-        const path = state.archivedPath
-          ? fromRepoRelativePath(this.cwd, state.archivedPath)
-          : getChangeDir(this.cwd, state.changeId);
-        summaries.push(summarizeChange(this.cwd, state, path, Boolean(state.archivedPath)));
+        summaries.push(summarizeChange(state, Boolean(state.archivedRef)));
         continue;
       }
       throw new Error(`Spec change entity ${entity.displayId} is missing structured attributes`);
@@ -410,7 +405,7 @@ export class SpecStore {
 
   async readCapability(ref: string): Promise<CanonicalCapabilityRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const capabilityId = normalizeCapabilityId(ref.split(/[\\/]/).pop()?.replace(/\.md$/, "") ?? ref);
+    const capabilityId = parseCapabilityId(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, SPEC_CAPABILITY_ENTITY_KIND, capabilityId);
     if (!entity) {
       throw new Error(`Unknown capability: ${ref}`);
@@ -646,10 +641,7 @@ export class SpecStore {
       ...record.state,
       status: "archived",
       archivedAt,
-      archivedPath: toRepoRelativePath(
-        this.cwd,
-        getArchivedChangeDir(this.cwd, archivedAt.slice(0, 10), record.state.changeId),
-      ),
+      archivedRef: archivedSpecRef(record.state.changeId, archivedAt.slice(0, 10)),
       updatedAt: archivedAt,
     });
     return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);

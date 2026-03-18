@@ -138,7 +138,7 @@ export function normalizeWorkspaceDescriptor(
     baseRef: normalizeOptionalString(input?.baseRef) ?? "HEAD",
     branch: normalizeOptionalString(input?.branch) ?? "worker",
     labels: normalizeStringList(input?.labels),
-    logicalPath: normalizeOptionalString(input?.logicalPath) ?? ".loom/runtime/workers",
+    workspaceKey: normalizeOptionalString(input?.workspaceKey) ?? "worker-runtime",
   };
 }
 
@@ -172,7 +172,7 @@ export function normalizeConsolidationOutcome(
   };
 }
 
-export function ensureRelativeOrLogicalPath(value: string | null | undefined, label: string): string {
+export function ensureRelativeOrLogicalRef(value: string | null | undefined, label: string): string {
   const normalized = normalizeOptionalString(value);
   if (!normalized) {
     throw new Error(`${label} is required`);

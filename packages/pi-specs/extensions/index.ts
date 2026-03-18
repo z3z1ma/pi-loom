@@ -13,7 +13,7 @@ const SPEC_COMMAND = "spec";
 
 export default function piSpecs(pi: ExtensionAPI): void {
   pi.registerCommand(SPEC_COMMAND, {
-    description: "Manage durable specifications in the local .loom spec memory",
+    description: "Manage durable specifications in SQLite-backed spec memory",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const output = await handleSpecCommand(args, ctx);
       if (output) {

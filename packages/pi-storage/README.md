@@ -11,7 +11,6 @@ The contract covers the core shared-storage concepts for Pi Loom state:
 - spaces / projects
 - repositories
 - worktrees
-- repo-relative path scopes
 - durable entities
 - cross-entity links
 - append-only events
@@ -20,7 +19,7 @@ The contract covers the core shared-storage concepts for Pi Loom state:
 
 ## Intended use
 
-All Pi Loom packages depend on these abstractions. Packages read canonical state from pi-storage and SQLite, not from `.loom/...` files directly. Generated markdown packets, plans, and docs are derived from canonical records instead of serving as durable storage.
+All Pi Loom packages depend on these abstractions. Packages read canonical state from pi-storage and SQLite directly. Generated markdown packets, plans, and docs are derived from canonical records instead of serving as durable storage.
 
 ## Backend policy
 

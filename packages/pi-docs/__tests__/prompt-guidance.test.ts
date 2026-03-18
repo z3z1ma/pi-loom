@@ -27,7 +27,7 @@ describe("docs prompt guidance", () => {
     const prompt = buildDocsSystemPrompt(cwd);
 
     expect(prompt.startsWith(getBaseDocsGuidance())).toBe(true);
-    expect(prompt).toContain(`Workspace docs memory root: ${join(cwd, ".loom", "docs")}`);
+    expect(prompt).toContain("Documentation state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain("Prefer docs packets and durable high-level documentation over chat-only explanations.");
     expect(prompt).toContain("detail-first, self-contained explanations");
   });

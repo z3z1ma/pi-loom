@@ -207,7 +207,7 @@ describe("pi-ticketing extension", () => {
       expect(result.systemPrompt).toContain("Base system prompt");
       expect(result.systemPrompt).toContain("Ticketing is the default execution ledger for non-trivial work.");
       expect(result.systemPrompt).toContain("use specs before creating tickets for new capabilities");
-      expect(result.systemPrompt).toContain(join(cwd, ".loom"));
+      expect(result.systemPrompt).toContain("Ticket state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
         "Prefer ticket tools for live work state and plan tools for durable multi-ticket execution strategy.",
       );

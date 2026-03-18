@@ -10,6 +10,6 @@ export function getBaseWorkerGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildWorkerSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace worker memory root: ${join(cwd, ".loom", "workers")}\nPrefer durable worker records, compact supervision inputs, and explicit manager approval over transcript-heavy coordination.`;
+export function buildWorkerSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nWorker state is persisted in SQLite via pi-storage. Prefer durable worker records, compact supervision inputs, and explicit manager approval over transcript-heavy coordination.`;
 }

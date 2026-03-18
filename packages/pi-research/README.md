@@ -13,24 +13,9 @@ When active, the extension teaches the model to preserve exploratory work as fir
 - AI-facing `research_*` tools with built-in prompt guidance
 - `/research` slash command namespace for human entrypoints
 - system-prompt augmentation via `before_agent_start`
-- computed dashboard and map views over linked work (generated from SQLite, not repo-materialized)
+- computed dashboard and map views over linked work (generated from SQLite, not filesystem-backed)
 
-## Local layout
-
-Historical `.loom` examples may still appear in local workflows, but they are not the canonical store:
-
-```text
-.loom/
-  research/
-    <research-id>/
-      research.md
-      notes/
-        artifact-001.md
-      experiments/
-        artifact-002.md
-      sources/
-        artifact-003.md
-```
+## Storage model
 
 Research state, metadata, hypotheses, artifacts, and inventory are persisted in SQLite via pi-storage. Any rendered markdown synthesis is an export from canonical records rather than durable source state.
 

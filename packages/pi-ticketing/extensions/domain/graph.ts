@@ -125,6 +125,6 @@ export function summarizeTicket(record: TicketRecord, effectiveStatus: TicketSta
     tags: [...record.frontmatter.tags],
     parent: record.frontmatter.parent,
     closed: record.closed,
-    path: record.path,
+    ref: record.ref,
   };
 }

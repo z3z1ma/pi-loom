@@ -25,8 +25,8 @@ export function createRepositoryId(remoteUrls: readonly string[], fallbackKey: s
   return createStableLoomId("repo", sortedUrls.length > 0 ? sortedUrls : [fallbackKey]);
 }
 
-export function createWorktreeId(repositoryId: LoomId, logicalPath: string, branch: string): LoomId {
-  return createStableLoomId("worktree", [repositoryId, logicalPath, branch]);
+export function createWorktreeId(repositoryId: LoomId, logicalKey: string, branch: string): LoomId {
+  return createStableLoomId("worktree", [repositoryId, logicalKey, branch]);
 }
 
 export function createEntityId(

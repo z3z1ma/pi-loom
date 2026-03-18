@@ -17,7 +17,7 @@ describe("research prompt guidance", () => {
     expect(guidance).toContain("update documentation memory so the durable explanation stays truthful");
 
     const prompt = buildResearchSystemPrompt("/tmp/demo");
-    expect(prompt).toContain("/tmp/demo/.loom/research");
+    expect(prompt).toContain("Research state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain("Prefer research tools before ad-hoc exploratory planning");
     expect(prompt).toContain("substantial, self-contained records");
   });

@@ -1,46 +1,42 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { normalizeCritiqueId } from "./normalize.js";
 
 export interface CritiquePaths {
   rootDir: string;
-  loomDir: string;
   critiquesDir: string;
 }
 
 export function getCritiquePaths(cwd: string): CritiquePaths {
-  const rootDir = resolve(cwd);
-  const loomDir = join(rootDir, ".loom");
   return {
-    rootDir,
-    loomDir,
-    critiquesDir: join(loomDir, "critiques"),
+    rootDir: resolve(cwd),
+    critiquesDir: "critique",
   };
 }
 
-export function getCritiqueDir(cwd: string, critiqueId: string): string {
-  return join(getCritiquePaths(cwd).critiquesDir, normalizeCritiqueId(critiqueId));
+export function getCritiqueDir(_cwd: string, critiqueId: string): string {
+  return `critique:${normalizeCritiqueId(critiqueId)}`;
 }
 
 export function getCritiqueStatePath(cwd: string, critiqueId: string): string {
-  return join(getCritiqueDir(cwd, critiqueId), "state.json");
+  return `${getCritiqueDir(cwd, critiqueId)}:state`;
 }
 
 export function getCritiquePacketPath(cwd: string, critiqueId: string): string {
-  return join(getCritiqueDir(cwd, critiqueId), "packet.md");
+  return `${getCritiqueDir(cwd, critiqueId)}:packet`;
 }
 
 export function getCritiqueMarkdownPath(cwd: string, critiqueId: string): string {
-  return join(getCritiqueDir(cwd, critiqueId), "critique.md");
+  return `${getCritiqueDir(cwd, critiqueId)}:document`;
 }
 
 export function getCritiqueRunsPath(cwd: string, critiqueId: string): string {
-  return join(getCritiqueDir(cwd, critiqueId), "runs.jsonl");
+  return `${getCritiqueDir(cwd, critiqueId)}:runs`;
 }
 
 export function getCritiqueFindingsPath(cwd: string, critiqueId: string): string {
-  return join(getCritiqueDir(cwd, critiqueId), "findings.jsonl");
+  return `${getCritiqueDir(cwd, critiqueId)}:findings`;
 }
 
 export function getCritiqueLaunchPath(cwd: string, critiqueId: string): string {
-  return join(getCritiqueDir(cwd, critiqueId), "launch.json");
+  return `${getCritiqueDir(cwd, critiqueId)}:launch`;
 }

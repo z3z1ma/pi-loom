@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, relative } from "node:path";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTicketStore } from "../extensions/domain/store.js";
 
@@ -71,24 +71,19 @@ describe("ticket dependency graph", () => {
     );
   }, 30000);
 
-  it("normalizes ticket references from ids, hashes, filenames, and paths", async () => {
+  it("normalizes ticket references from ids, hashes, and canonical refs", async () => {
     const store = createTicketStore(workspace);
 
     vi.setSystemTime(new Date("2024-05-02T00:00:00.000Z"));
     const created = await store.createTicketAsync({ title: "Normalize references" });
     const id = created.summary.id;
-    const fileName = basename(created.ticket.path);
-    const openPath = join(workspace, created.ticket.path);
 
     expect(store.resolveTicketRef(id)).toBe(id);
-    expect(store.resolveTicketRef(`#${id}`)).toBe(id);
-    expect(store.resolveTicketRef(fileName)).toBe(id);
-    expect(store.resolveTicketRef(created.ticket.path)).toBe(id);
-    expect(store.resolveTicketRef(relative(workspace, openPath))).toBe(id);
+    expect(store.resolveTicketRef(created.ticket.ref)).toBe(id);
 
     vi.setSystemTime(new Date("2024-05-02T00:00:01.000Z"));
-    const closed = await store.closeTicketAsync(id, "Reference path updated after closure");
-    expect(closed.ticket.path).toBe(`.loom/tickets/closed/${id}.md`);
-    expect(store.resolveTicketRef(closed.ticket.path)).toBe(id);
+    const closed = await store.closeTicketAsync(id, "Reference ref stays stable after closure");
+    expect(closed.ticket.ref).toBe(`ticket:${id}`);
+    expect(store.resolveTicketRef(closed.ticket.ref)).toBe(id);
   }, 30000);
 });

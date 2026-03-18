@@ -11,7 +11,7 @@ function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
     updatedAt: "2026-03-15T00:00:00.000Z",
     finalizedAt: null,
     archivedAt: null,
-    archivedPath: null,
+    archivedRef: null,
     initiativeIds: [],
     researchIds: [],
     supersedes: [],

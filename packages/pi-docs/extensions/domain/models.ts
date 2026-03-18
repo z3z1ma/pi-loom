@@ -54,7 +54,7 @@ export interface DocumentationSummary {
   sourceRef: string;
   summary: string;
   revisionCount: number;
-  path: string;
+  ref: string;
 }
 
 export interface DocumentationRevisionRecord {
@@ -71,8 +71,8 @@ export interface DocumentationRevisionRecord {
 
 export interface DocumentationDashboard {
   doc: DocumentationSummary;
-  packetPath: string;
-  documentPath: string;
+  packetRef: string;
+  documentRef: string;
   revisionCount: number;
   lastRevision: DocumentationRevisionRecord | null;
   audience: DocAudience[];

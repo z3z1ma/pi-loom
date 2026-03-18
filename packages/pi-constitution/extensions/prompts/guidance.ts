@@ -10,6 +10,6 @@ export function getBaseConstitutionalGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildConstitutionalSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace constitutional memory root: ${path.join(cwd, ".loom", "constitution")}\nWorkspace constitutional brief: ${path.join(cwd, ".loom", "constitution", "brief.md")}\nConsult constitutional memory before making strategic, roadmap, or constraint-sensitive decisions.`;
+export function buildConstitutionalSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nConstitutional state is persisted in SQLite via pi-storage. Consult constitutional memory before making strategic, roadmap, or constraint-sensitive decisions.`;
 }

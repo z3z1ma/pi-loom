@@ -1,13 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getLedgerPaths, getTicketPath } from "../extensions/domain/paths.js";
+import { getCheckpointRef, getTicketRef } from "../extensions/domain/paths.js";
 import { createTicketStore } from "../extensions/domain/store.js";
 
-describe("TicketStore durable ledger", () => {
+describe("TicketStore canonical storage", () => {
   let workspace: string;
 
   beforeEach(() => {
@@ -22,7 +22,7 @@ describe("TicketStore durable ledger", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("writes canonical ticket records and preserves path semantics across close and reopen", async () => {
+  it("writes canonical ticket records and preserves stable refs across close and reopen", async () => {
     const store = createTicketStore(workspace);
     vi.setSystemTime(new Date("2024-01-02T03:04:05.000Z"));
     const created = await store.createTicketAsync({
@@ -46,10 +46,10 @@ describe("TicketStore durable ledger", () => {
       journalSummary: "Initial intake recorded.",
     });
 
-    const openPath = getTicketPath(workspace, created.summary.id, false);
+    const ticketRef = getTicketRef(created.summary.id);
     expect(created.ticket.closed).toBe(false);
-    expect(created.ticket.path).toBe(relative(workspace, openPath));
-    expect(created.summary.path).toBe(relative(workspace, openPath));
+    expect(created.ticket.ref).toBe(ticketRef);
+    expect(created.summary.ref).toBe(ticketRef);
     expect(created.ticket.frontmatter).toMatchObject({
       id: "t-0001",
       title: "Launch control refuses login",
@@ -90,22 +90,20 @@ describe("TicketStore durable ledger", () => {
     expect(checkpointed.checkpoints).toEqual([
       expect.objectContaining({
         id: "cp-0001",
-        path: relative(workspace, join(workspace, ".loom", "checkpoints", "cp-0001.md")),
+        checkpointRef: getCheckpointRef("cp-0001"),
       }),
     ]);
 
     vi.setSystemTime(new Date("2024-01-02T05:06:07.000Z"));
     const closed = await store.closeTicketAsync(created.summary.id, "Smoke test passed.");
-    const closedPath = getTicketPath(workspace, created.summary.id, true);
     expect(closed.ticket.closed).toBe(true);
-    expect(closed.ticket.path).toBe(relative(workspace, closedPath));
-    expect(closed.summary.path).toBe(relative(workspace, closedPath));
+    expect(closed.ticket.ref).toBe(ticketRef);
+    expect(closed.summary.ref).toBe(ticketRef);
     expect(closed.ticket.frontmatter.status).toBe("closed");
     expect(closed.ticket.frontmatter["updated-at"]).toBe("2024-01-02T05:06:07.000Z");
     expect(closed.ticket.body.verification).toBe("Smoke test pending.\n\nSmoke test passed.");
-    expect(getLedgerPaths(workspace).closedTicketsDir).toContain(".loom/tickets/closed");
     expect(await store.listTicketsAsync({ includeClosed: true })).toEqual([
-      expect.objectContaining({ id: created.summary.id, path: relative(workspace, closedPath) }),
+      expect.objectContaining({ id: created.summary.id, ref: ticketRef }),
     ]);
 
     vi.setSystemTime(new Date("2024-01-02T06:00:00.000Z"));
@@ -113,8 +111,8 @@ describe("TicketStore durable ledger", () => {
     expect(reopened.ticket.closed).toBe(false);
     expect(reopened.ticket.frontmatter.status).toBe("open");
     expect(reopened.ticket.frontmatter["updated-at"]).toBe("2024-01-02T06:00:00.000Z");
-    expect(reopened.ticket.path).toBe(relative(workspace, openPath));
-    expect(reopened.summary.path).toBe(relative(workspace, openPath));
+    expect(reopened.ticket.ref).toBe(ticketRef);
+    expect(reopened.summary.ref).toBe(ticketRef);
 
     const { storage, identity } = await openWorkspaceStorage(workspace);
     const entity = await findEntityByDisplayId(storage, identity.space.id, "ticket", created.summary.id);
@@ -128,7 +126,7 @@ describe("TicketStore durable ledger", () => {
       record: {
         ticket: {
           closed: false,
-          path: openPath,
+          ref: ticketRef,
           frontmatter: {
             status: "open",
             "updated-at": "2024-01-02T06:00:00.000Z",
@@ -142,6 +140,7 @@ describe("TicketStore durable ledger", () => {
             id: "cp-0001",
             title: "Captured login traces",
             body: "Saved packet captures for later comparison.",
+            checkpointRef: getCheckpointRef("cp-0001"),
           },
         ],
       },
@@ -172,6 +171,7 @@ describe("TicketStore durable ledger", () => {
       record: {
         ticket: {
           closed: false,
+          ref: getTicketRef(created.summary.id),
           frontmatter: {
             status: "open",
             "updated-at": "2024-01-03T00:00:04.000Z",

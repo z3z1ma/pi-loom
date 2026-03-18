@@ -46,7 +46,7 @@ describe("/critique command handler", () => {
       const store = createCritiqueStore(cwd);
 
       const initialized = await handleCritiqueCommand("init", ctx);
-      expect(initialized).toContain(`Initialized critique memory at ${join(cwd, ".loom", "critiques")}`);
+      expect(initialized).toContain("Initialized critique memory at ");
       await expect(store.listCritiquesAsync()).resolves.toEqual([]);
 
       const created = await handleCritiqueCommand(
@@ -67,13 +67,15 @@ describe("/critique command handler", () => {
           critiqueId: "critique-package-launch-boundary",
           runtime: "descriptor_only",
           freshContextRequired: true,
-          packetPath: ".loom/critiques/critique-package-launch-boundary/packet.md",
+          packetRef: "critique:critique-package-launch-boundary:packet",
         },
       });
       expect(newSession).toHaveBeenCalledWith({
         parentSession: join(cwd, ".pi", "sessions", "current.jsonl"),
       });
-      expect(ui.setEditorText).toHaveBeenCalledWith(expect.stringContaining("Perform the critique described in"));
+      expect(ui.setEditorText).toHaveBeenCalledWith(
+        expect.stringContaining("Perform the critique described by critique:critique-package-launch-boundary:packet"),
+      );
       expect(ui.notify).toHaveBeenCalledWith("Fresh critique session ready. Submit when ready.", "info");
 
       const run = await handleCritiqueCommand(

@@ -30,7 +30,7 @@ describe("plan prompt guidance", () => {
     const prompt = buildPlanSystemPrompt(cwd);
 
     expect(prompt.startsWith(getBasePlanGuidance())).toBe(true);
-    expect(prompt).toContain(`Workspace plan memory root: ${join(cwd, ".loom", "plans")}`);
+    expect(prompt).toContain("Plan state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain(
       "Prefer plan packets for durable execution strategy and ticket tools for the live execution state.",
     );

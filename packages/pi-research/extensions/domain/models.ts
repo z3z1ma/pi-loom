@@ -57,7 +57,7 @@ export interface ResearchArtifactRecord {
   researchId: string;
   kind: ResearchArtifactKind;
   title: string;
-  path: string;
+  artifactRef: string;
   createdAt: string;
   summary: string;
   sourceUri: string | null;
@@ -76,7 +76,7 @@ export interface ResearchSummary {
   linkedTicketCount: number;
   updatedAt: string;
   tags: string[];
-  path: string;
+  ref: string;
 }
 
 export interface ResearchUnresolvedReferences {
@@ -138,7 +138,7 @@ export interface ResearchMapNode {
   kind: "research" | "initiative" | "spec" | "ticket" | "artifact" | "hypothesis";
   title: string;
   status: string | null;
-  path: string | null;
+  ref: string | null;
   missing: boolean;
 }
 

@@ -111,7 +111,7 @@ function migrate(db: SqliteDatabaseLike): void {
       repository_id TEXT NOT NULL,
       branch TEXT NOT NULL,
       base_ref TEXT NOT NULL,
-      logical_path TEXT NOT NULL,
+      logical_key TEXT NOT NULL,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -129,7 +129,6 @@ function migrate(db: SqliteDatabaseLike): void {
       status TEXT NOT NULL,
       version INTEGER NOT NULL,
       tags_json TEXT NOT NULL,
-      path_scopes_json TEXT NOT NULL,
       attributes_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -164,7 +163,7 @@ function migrate(db: SqliteDatabaseLike): void {
       id TEXT PRIMARY KEY,
       worktree_id TEXT NOT NULL,
       kind TEXT NOT NULL,
-      local_path TEXT NOT NULL,
+      locator TEXT NOT NULL,
       process_id INTEGER,
       lease_expires_at TEXT,
       metadata_json TEXT NOT NULL,
@@ -216,7 +215,7 @@ function rowToWorktree(row: Record<string, unknown>): LoomWorktreeRecord {
     repositoryId: String(row.repository_id),
     branch: String(row.branch),
     baseRef: String(row.base_ref),
-    logicalPath: String(row.logical_path),
+    logicalKey: String(row.logical_key),
     status: row.status as LoomWorktreeRecord["status"],
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
@@ -235,7 +234,6 @@ function rowToEntity(row: Record<string, unknown>): LoomEntityRecord {
     status: String(row.status),
     version: Number(row.version),
     tags: decode(row.tags_json, [] as string[]),
-    pathScopes: decode(row.path_scopes_json, [] as LoomEntityRecord["pathScopes"]),
     attributes: decode(row.attributes_json, {} as Record<string, unknown>),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
@@ -271,7 +269,7 @@ function rowToRuntimeAttachment(row: Record<string, unknown>): LoomRuntimeAttach
     id: String(row.id),
     worktreeId: String(row.worktree_id),
     kind: row.kind as LoomRuntimeAttachment["kind"],
-    localPath: String(row.local_path),
+    locator: String(row.locator),
     processId: typeof row.process_id === "number" ? Number(row.process_id) : null,
     leaseExpiresAt: row.lease_expires_at ? String(row.lease_expires_at) : null,
     metadata: decode(row.metadata_json, {} as Record<string, unknown>),
@@ -317,7 +315,7 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
 
   async listWorktrees(repositoryId: string): Promise<LoomWorktreeRecord[]> {
     return this.db
-      .prepare("SELECT * FROM worktrees WHERE repository_id = ? ORDER BY logical_path")
+      .prepare("SELECT * FROM worktrees WHERE repository_id = ? ORDER BY logical_key")
       .all(repositoryId)
       .map((row: unknown) => rowToWorktree(row as Record<string, unknown>));
   }
@@ -439,13 +437,13 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
   async upsertWorktree(record: LoomWorktreeRecord): Promise<void> {
     runNamed(
       this.db.prepare(`
-        INSERT INTO worktrees (id, repository_id, branch, base_ref, logical_path, status, created_at, updated_at)
-        VALUES (@id, @repository_id, @branch, @base_ref, @logical_path, @status, @created_at, @updated_at)
+        INSERT INTO worktrees (id, repository_id, branch, base_ref, logical_key, status, created_at, updated_at)
+        VALUES (@id, @repository_id, @branch, @base_ref, @logical_key, @status, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
           repository_id = excluded.repository_id,
           branch = excluded.branch,
           base_ref = excluded.base_ref,
-          logical_path = excluded.logical_path,
+          logical_key = excluded.logical_key,
           status = excluded.status,
           updated_at = excluded.updated_at
       `),
@@ -454,7 +452,7 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         repository_id: record.repositoryId,
         branch: record.branch,
         base_ref: record.baseRef,
-        logical_path: record.logicalPath,
+        logical_key: record.logicalKey,
         status: record.status,
         created_at: record.createdAt,
         updated_at: record.updatedAt,
@@ -465,8 +463,8 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
   async upsertEntity(record: LoomEntityRecord): Promise<void> {
     runNamed(
       this.db.prepare(`
-        INSERT INTO entities (id, kind, space_id, owning_repository_id, display_id, title, summary, status, version, tags_json, path_scopes_json, attributes_json, created_at, updated_at)
-        VALUES (@id, @kind, @space_id, @owning_repository_id, @display_id, @title, @summary, @status, @version, @tags_json, @path_scopes_json, @attributes_json, @created_at, @updated_at)
+        INSERT INTO entities (id, kind, space_id, owning_repository_id, display_id, title, summary, status, version, tags_json, attributes_json, created_at, updated_at)
+        VALUES (@id, @kind, @space_id, @owning_repository_id, @display_id, @title, @summary, @status, @version, @tags_json, @attributes_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
           kind = excluded.kind,
           space_id = excluded.space_id,
@@ -477,7 +475,6 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           status = excluded.status,
           version = excluded.version,
           tags_json = excluded.tags_json,
-          path_scopes_json = excluded.path_scopes_json,
           attributes_json = excluded.attributes_json,
           updated_at = excluded.updated_at
       `),
@@ -492,7 +489,6 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         status: record.status,
         version: record.version,
         tags_json: encode(record.tags),
-        path_scopes_json: encode(record.pathScopes),
         attributes_json: encode(record.attributes),
         created_at: record.createdAt,
         updated_at: record.updatedAt,
@@ -550,12 +546,12 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
   async upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void> {
     runNamed(
       this.db.prepare(`
-        INSERT INTO runtime_attachments (id, worktree_id, kind, local_path, process_id, lease_expires_at, metadata_json, created_at, updated_at)
-        VALUES (@id, @worktree_id, @kind, @local_path, @process_id, @lease_expires_at, @metadata_json, @created_at, @updated_at)
+        INSERT INTO runtime_attachments (id, worktree_id, kind, locator, process_id, lease_expires_at, metadata_json, created_at, updated_at)
+        VALUES (@id, @worktree_id, @kind, @locator, @process_id, @lease_expires_at, @metadata_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
           worktree_id = excluded.worktree_id,
           kind = excluded.kind,
-          local_path = excluded.local_path,
+          locator = excluded.locator,
           process_id = excluded.process_id,
           lease_expires_at = excluded.lease_expires_at,
           metadata_json = excluded.metadata_json,
@@ -565,7 +561,7 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         id: record.id,
         worktree_id: record.worktreeId,
         kind: record.kind,
-        local_path: record.localPath,
+        locator: record.locator,
         process_id: record.processId,
         lease_expires_at: record.leaseExpiresAt,
         metadata_json: encode(record.metadata),

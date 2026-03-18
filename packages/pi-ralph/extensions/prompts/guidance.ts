@@ -10,6 +10,6 @@ export function getBaseRalphGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildRalphSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace Ralph memory root: ${join(cwd, ".loom", "ralph")}\nPrefer durable Ralph packets and explicit policy decisions over ad hoc long-running transcripts.`;
+export function buildRalphSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nRalph state is persisted in SQLite via pi-storage. Prefer durable Ralph packets and explicit policy decisions over ad hoc long-running transcripts.`;
 }

@@ -1,4 +1,4 @@
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import {
@@ -6,6 +6,7 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildInitiativeDashboard } from "./dashboard.js";
@@ -47,12 +48,7 @@ function hasStructuredInitiativeAttributes(attributes: unknown): attributes is I
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
 }
 
-function relativeOrAbsolute(cwd: string, filePath: string): string {
-  const relativePath = relative(cwd, filePath);
-  return relativePath || filePath;
-}
-
-function summarizeInitiative(cwd: string, state: InitiativeState, path: string): InitiativeSummary {
+function summarizeInitiative(_cwd: string, state: InitiativeState, ref: string): InitiativeSummary {
   return {
     id: state.initiativeId,
     title: state.title,
@@ -62,7 +58,7 @@ function summarizeInitiative(cwd: string, state: InitiativeState, path: string):
     ticketCount: state.ticketIds.length,
     updatedAt: state.updatedAt,
     tags: [...state.tags],
-    path: relativeOrAbsolute(cwd, path),
+    ref,
   };
 }
 
@@ -91,8 +87,7 @@ export class InitiativeStore {
   }
 
   initLedger(): { initialized: true; root: string } {
-    const paths = getInitiativesPaths(this.cwd);
-    return { initialized: true, root: paths.initiativesDir };
+    return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
   private defaultState(input: CreateInitiativeInput, timestamp: string): InitiativeState {
@@ -159,7 +154,6 @@ export class InitiativeStore {
         status: state.status,
         version: 1,
         tags: state.tags,
-        pathScopes: [{ repositoryId: identity.repository.id, relativePath: `.loom/initiatives/${state.initiativeId}`, role: "canonical" }],
         attributes: { state, decisions: [] },
         createdAt: state.createdAt,
         updatedAt: state.updatedAt,
@@ -193,9 +187,6 @@ export class InitiativeStore {
       status: record.state.status,
       version,
       tags: record.state.tags,
-      pathScopes: [
-        { repositoryId: identity.repository.id, relativePath: `.loom/initiatives/${record.state.initiativeId}`, role: "canonical" },
-      ],
       attributes: { state: record.state, decisions: record.decisions },
       createdAt: existing?.createdAt ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,

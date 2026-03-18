@@ -3,7 +3,7 @@ import { buildPlanDashboard } from "../extensions/domain/dashboard.js";
 import type { PlanState } from "../extensions/domain/models.js";
 
 describe("plan dashboard", () => {
-  it("keeps repo-relative artifact paths and omits volatile timestamps", () => {
+  it("keeps canonical refs and omits volatile timestamps", () => {
     const state: PlanState = {
       planId: "planning-layer-rollout",
       title: "Planning layer rollout",
@@ -47,19 +47,14 @@ describe("plan dashboard", () => {
       packetSummary: "spec:spec-change-001; 1 linked ticket(s)",
     };
 
-    const dashboard = buildPlanDashboard(
-      state,
-      ".loom/plans/planning-layer-rollout",
-      ".loom/plans/planning-layer-rollout/packet.md",
-      ".loom/plans/planning-layer-rollout/plan.md",
-      [
+    const dashboard = buildPlanDashboard(state, [
         {
           ticketId: "ticket-001",
           role: "implementation",
           order: 1,
           status: "ready",
           title: "Implement plan store",
-          path: ".loom/tickets/ticket-001.md",
+          ref: "ticket:ticket-001",
         },
         {
           ticketId: "ticket-999",
@@ -67,10 +62,9 @@ describe("plan dashboard", () => {
           order: 2,
           status: "missing",
           title: "Missing ticket",
-          path: null,
+          ref: "ticket:ticket-999",
         },
-      ],
-    );
+      ]);
 
     expect(dashboard).toEqual({
       plan: {
@@ -82,10 +76,10 @@ describe("plan dashboard", () => {
         sourceRef: "spec-change-001",
         linkedTicketCount: 2,
         summary: "Coordinate the planning layer rollout.",
-        path: ".loom/plans/planning-layer-rollout",
+        ref: "plan:planning-layer-rollout",
       },
-      packetPath: ".loom/plans/planning-layer-rollout/packet.md",
-      planPath: ".loom/plans/planning-layer-rollout/plan.md",
+      packetRef: "plan:planning-layer-rollout:packet",
+      planRef: "plan:planning-layer-rollout:document",
       sourceTarget: { kind: "spec", ref: "spec-change-001" },
       contextRefs: {
         roadmapItemIds: ["item-001"],
@@ -104,7 +98,7 @@ describe("plan dashboard", () => {
           order: 1,
           status: "ready",
           title: "Implement plan store",
-          path: ".loom/tickets/ticket-001.md",
+          ref: "ticket:ticket-001",
         },
         {
           ticketId: "ticket-999",
@@ -112,7 +106,7 @@ describe("plan dashboard", () => {
           order: 2,
           status: "missing",
           title: "Missing ticket",
-          path: null,
+          ref: "ticket:ticket-999",
         },
       ],
       counts: {
@@ -176,7 +170,7 @@ describe("plan dashboard", () => {
         order: 1,
         status: "ready",
         title: "Implement plan store",
-        path: ".loom/tickets/ticket-001.md",
+        ref: "ticket:ticket-001",
       },
       {
         ticketId: "ticket-002",
@@ -184,17 +178,11 @@ describe("plan dashboard", () => {
         order: 2,
         status: "closed",
         title: "Review plan package",
-        path: ".loom/tickets/closed/ticket-002.md",
+        ref: "ticket:ticket-002",
       },
     ];
 
-    const dashboard = buildPlanDashboard(
-      state,
-      ".loom/plans/planning-layer-rollout",
-      ".loom/plans/planning-layer-rollout/packet.md",
-      ".loom/plans/planning-layer-rollout/plan.md",
-      linkedTickets,
-    );
+    const dashboard = buildPlanDashboard(state, linkedTickets);
 
     const firstLinkedTicket = linkedTickets[0];
     expect(firstLinkedTicket).toBeDefined();

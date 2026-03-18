@@ -10,6 +10,6 @@ export function getBaseInitiativeGuidance(): string {
   return BASE_GUIDANCE;
 }
 
-export function buildInitiativeSystemPrompt(cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorkspace initiative memory root: ${join(cwd, ".loom", "initiatives")}\nPrefer initiative tools before ad-hoc strategic tracking for program-level work.`;
+export function buildInitiativeSystemPrompt(_cwd: string): string {
+  return `${BASE_GUIDANCE}\n\nInitiative state is persisted in SQLite via pi-storage. Prefer initiative tools before ad-hoc strategic tracking for program-level work.`;
 }

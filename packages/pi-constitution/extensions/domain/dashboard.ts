@@ -38,6 +38,5 @@ export function buildConstitutionalDashboard(state: ConstitutionalState): Consti
       researchIds: [...state.researchIds],
       specChangeIds: [...state.specChangeIds],
     },
-    artifactPaths: { ...state.artifactPaths },
   };
 }

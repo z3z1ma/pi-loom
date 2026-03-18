@@ -166,8 +166,7 @@ describe("pi-constitution extension", () => {
 
       expect(result.systemPrompt).toContain("Base system prompt");
       expect(result.systemPrompt).toContain("Constitutional memory is the highest-order project context");
-      expect(result.systemPrompt).toContain(path.join(cwd, ".loom", "constitution"));
-      expect(result.systemPrompt).toContain(path.join(cwd, ".loom", "constitution", "brief.md"));
+      expect(result.systemPrompt).toContain("Constitutional state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
         "Consult constitutional memory before making strategic, roadmap, or constraint-sensitive decisions.",
       );

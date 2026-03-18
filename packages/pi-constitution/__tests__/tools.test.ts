@@ -220,13 +220,7 @@ describe("constitution tools", () => {
         text: expect.stringContaining("Preserve project-defining intent as durable AI-native memory."),
       });
 
-      const readRoadmapItem = await constitutionRead.execute(
-        "call-8b",
-        { itemId: path.join(cwd, ".loom", "constitution", "roadmap", "item-001.md") },
-        undefined,
-        undefined,
-        ctx,
-      );
+      const roadmapItem = await roadmapRead.execute("call-10", { itemId: "item-001" }, undefined, undefined, ctx);
       expect(readRoadmapItem.details).toMatchObject({
         item: { id: "item-001", title: "Launch constitutional memory" },
       });

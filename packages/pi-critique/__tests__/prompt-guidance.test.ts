@@ -45,7 +45,7 @@ describe("critique prompt guidance", () => {
     const prompt = buildCritiqueSystemPrompt(cwd);
 
     expect(prompt.startsWith(getBaseCritiqueGuidance())).toBe(true);
-    expect(prompt).toContain(`Workspace critique root: ${join(cwd, ".loom", "critiques")}`);
+    expect(prompt).toContain("Critique state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain("Prefer critique packets and durable findings over inline self-review.");
     expect(prompt).toContain("self-contained and detail-first at the critique layer");
   });

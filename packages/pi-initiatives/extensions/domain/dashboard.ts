@@ -70,7 +70,7 @@ async function readLinkedResearch(cwd: string, researchIds: string[]) {
           title: state.title,
           status: state.status,
           updatedAt: state.updatedAt,
-          path: `.loom/research/${state.researchId}`,
+          ref: `research:${state.researchId}`,
         };
       }
       try {
@@ -80,7 +80,7 @@ async function readLinkedResearch(cwd: string, researchIds: string[]) {
           title: record.state.title,
           status: record.state.status,
           updatedAt: record.state.updatedAt,
-          path: record.summary.path,
+          ref: record.summary.ref,
         };
       } catch (error) {
         if (isUnknownReference(error, "Unknown research:")) {

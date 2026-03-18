@@ -164,7 +164,7 @@ describe("pi-initiatives extension", () => {
 
       expect(result.systemPrompt).toContain("Base system prompt");
       expect(result.systemPrompt).toContain("Initiatives are the default strategic container for long-horizon work.");
-      expect(result.systemPrompt).toContain(join(cwd, ".loom", "initiatives"));
+      expect(result.systemPrompt).toContain("Initiative state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
         "Prefer initiative tools before ad-hoc strategic tracking for program-level work.",
       );

@@ -167,8 +167,7 @@ describe("pi-workers extension", () => {
       )) as { systemPrompt: string };
 
       expect(result.systemPrompt).toContain("Base system prompt");
-      expect(result.systemPrompt).toContain("Workspace worker memory root:");
-      expect(result.systemPrompt).toContain(join(cwd, ".loom", "workers"));
+      expect(result.systemPrompt).toContain("Worker state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain("Prefer durable worker records");
     } finally {
       cleanup();

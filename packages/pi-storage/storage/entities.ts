@@ -16,7 +16,6 @@ export interface UpsertEntityInput {
   status: string;
   version: number;
   tags?: string[];
-  pathScopes?: LoomEntityRecord["pathScopes"];
   attributes: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -47,7 +46,6 @@ export async function upsertEntityByDisplayId(
     status: input.status,
     version: input.version,
     tags: input.tags ?? [],
-    pathScopes: input.pathScopes ?? [],
     attributes: input.attributes,
     createdAt: existing?.createdAt ?? input.createdAt,
     updatedAt: input.updatedAt,

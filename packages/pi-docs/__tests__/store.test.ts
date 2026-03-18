@@ -148,9 +148,9 @@ describe("DocumentationStore durable memory", () => {
     });
 
     expect(doc.state.docId).toBe("documentation-memory-system");
-    expect(doc.summary.path).toBe(`.loom/docs/overviews/${doc.state.docId}`);
-    expect(doc.dashboard.packetPath).toBe(`.loom/docs/overviews/${doc.state.docId}/packet.md`);
-    expect(doc.dashboard.documentPath).toBe(`.loom/docs/overviews/${doc.state.docId}/doc.md`);
+    expect(doc.summary.ref).toBe(`documentation:${doc.state.docId}`);
+    expect(doc.dashboard.packetRef).toBe(`documentation:${doc.state.docId}:packet`);
+    expect(doc.dashboard.documentRef).toBe(`documentation:${doc.state.docId}:document`);
     expect(doc.document).toContain("id: documentation-memory-system");
     expect(doc.document).toContain("type: overview");
     expect(doc.packet).toContain("Keep Loom memory layers truthful as the codebase evolves.");
@@ -169,7 +169,7 @@ describe("DocumentationStore durable memory", () => {
       changedSections: ["Summary", "Update Flow", "Boundaries"],
       document: [
         "## Summary",
-        "The documentation layer stores focused high-level docs under .loom/docs and updates them after completed changes.",
+        "The documentation layer stores focused high-level docs in durable SQLite-backed memory and updates them after completed changes.",
         "",
         "## Update Flow",
         "A bounded packet is compiled from constitution, initiative, research, spec, ticket, and critique context before a fresh maintainer session updates the document.",

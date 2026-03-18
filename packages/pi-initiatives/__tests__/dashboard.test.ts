@@ -161,7 +161,6 @@ describe("initiative dashboard", () => {
       status: initiativeEntity.status,
       version: initiativeEntity.version + 1,
       tags: initiativeEntity.tags,
-      pathScopes: initiativeEntity.pathScopes,
       attributes: {
         ...(initiativeEntity.attributes as Record<string, unknown>),
         state: {
@@ -184,7 +183,6 @@ describe("initiative dashboard", () => {
       status: constitutionEntity.status,
       version: constitutionEntity.version + 1,
       tags: constitutionEntity.tags,
-      pathScopes: constitutionEntity.pathScopes,
       attributes: {
         ...(constitutionEntity.attributes as Record<string, unknown>),
         state: {

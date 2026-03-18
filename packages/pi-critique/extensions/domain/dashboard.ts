@@ -8,18 +8,19 @@ import type {
 } from "./models.js";
 import { isActiveFindingStatus } from "./normalize.js";
 
-const CRITIQUES_ROOT_SEGMENT = "/.loom/critiques/";
-
-function toRepoRelativeCritiquePath(filePath: string): string {
-  const normalizedPath = filePath.replace(/\\/g, "/");
-  const critiquesRootIndex = normalizedPath.lastIndexOf(CRITIQUES_ROOT_SEGMENT);
-  if (critiquesRootIndex >= 0) {
-    return normalizedPath.slice(critiquesRootIndex + 1);
-  }
-  return normalizedPath.replace(/^\.\//, "");
+function toCritiqueRef(critiqueId: string): string {
+  return `critique:${critiqueId}`;
 }
 
-export function summarizeCritique(state: CritiqueState, path: string): CritiqueSummary {
+function toCritiquePacketRef(critiqueId: string): string {
+  return `critique:${critiqueId}:packet`;
+}
+
+function toCritiqueLaunchRef(critiqueId: string): string {
+  return `critique:${critiqueId}:launch`;
+}
+
+export function summarizeCritique(state: CritiqueState): CritiqueSummary {
   return {
     id: state.critiqueId,
     title: state.title,
@@ -31,7 +32,7 @@ export function summarizeCritique(state: CritiqueState, path: string): CritiqueS
     updatedAt: state.updatedAt,
     openFindingCount: state.openFindingIds.length,
     followupTicketCount: state.followupTicketIds.length,
-    path: toRepoRelativeCritiquePath(path),
+    critiqueRef: toCritiqueRef(state.critiqueId),
   };
 }
 
@@ -39,9 +40,6 @@ export function buildCritiqueDashboard(
   state: CritiqueState,
   runs: CritiqueRunRecord[],
   findings: CritiqueFindingRecord[],
-  critiquePath: string,
-  packetPath: string,
-  launchPath: string,
   launch: CritiqueLaunchDescriptor | null,
 ): CritiqueDashboard {
   const bySeverity: CritiqueDashboard["counts"]["bySeverity"] = {
@@ -72,7 +70,7 @@ export function buildCritiqueDashboard(
     byStatus[finding.status] += 1;
   }
 
-  const summary = summarizeCritique(state, critiquePath);
+  const summary = summarizeCritique(state);
   const openFindings = findings
     .filter((finding) => isActiveFindingStatus(finding.status))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -89,8 +87,8 @@ export function buildCritiqueDashboard(
 
   return {
     critique: summary,
-    packetPath: toRepoRelativeCritiquePath(packetPath),
-    launchPath: toRepoRelativeCritiquePath(launchPath),
+    packetRef: toCritiquePacketRef(state.critiqueId),
+    launchRef: toCritiqueLaunchRef(state.critiqueId),
     lastLaunchAt: launch?.createdAt ?? state.lastLaunchAt,
     counts: {
       runs: runs.length,
