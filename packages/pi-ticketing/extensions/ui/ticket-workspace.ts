@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type {
   TicketGraphResult,
   TicketReadResult,
@@ -117,15 +117,6 @@ const TAB_ICONS: Record<TicketWorkbenchTabId, string> = {
   detail: "🧾",
 };
 
-const STATUS_ICONS: Record<TicketStatus, string> = {
-  open: "⚪",
-  ready: "🟢",
-  in_progress: "🛠",
-  blocked: "⛔",
-  review: "👀",
-  closed: "✅",
-};
-
 const OVERLAY_WIDTH = 96;
 const OVERLAY_MAX_HEIGHT = 40;
 const MAIN_BOX_LINES = 28;
@@ -174,8 +165,35 @@ function viewportLines(lines: string[], maxVisible: number, offset = 0): string[
   return visible;
 }
 
+function wrapDisplayLines(lines: string[], width: number): string[] {
+  return lines.flatMap((line) => {
+    if (!line) {
+      return [""];
+    }
+    const wrapped = wrapTextWithAnsi(line, Math.max(1, width));
+    return wrapped.length > 0 ? wrapped : [""];
+  });
+}
+
 function statusLabel(status: TicketStatus): string {
-  return `${STATUS_ICONS[status]} ${status.replaceAll("_", " ")}`;
+  return status.replaceAll("_", " ");
+}
+
+function statusColor(status: TicketStatus): "success" | "warning" | "muted" | "dim" | "accent" {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "blocked":
+      return "warning";
+    case "in_progress":
+      return "accent";
+    case "review":
+      return "muted";
+    case "closed":
+      return "dim";
+    case "open":
+      return "muted";
+  }
 }
 
 function statChip(
@@ -195,7 +213,10 @@ function box(title: string, lines: string[], width: number, theme: Theme, maxBod
   const rightRule = "─".repeat(Math.max(0, ruleWidth - leftRule.length));
   const top = `${theme.fg("borderAccent", "╭")}${theme.fg("borderMuted", leftRule)}${theme.fg("accent", theme.bold(titleText))}${theme.fg("borderMuted", rightRule)}${theme.fg("borderAccent", "╮")}`;
   const bottom = `${theme.fg("borderAccent", "╰")}${theme.fg("borderMuted", "─".repeat(innerWidth))}${theme.fg("borderAccent", "╯")}`;
-  const normalizedLines = lines.flatMap((line) => line.split("\n"));
+  const normalizedLines = wrapDisplayLines(
+    lines.flatMap((line) => line.split("\n")),
+    innerWidth,
+  );
   const rawBodyLines = maxBodyLines ? viewportLines(normalizedLines, maxBodyLines) : normalizedLines;
   const bodyLines =
     maxBodyLines && rawBodyLines.length < maxBodyLines
@@ -222,7 +243,7 @@ function combineColumns(left: string[], right: string[], leftWidth: number, righ
 }
 
 function formatStatus(ticket: TicketSummary): string {
-  return `${statusLabel(ticket.status)} • ${ticket.type}/${ticket.priority}`;
+  return `${ticket.type}/${ticket.priority}`;
 }
 
 function ticketRows(
@@ -245,12 +266,20 @@ function ticketRows(
   const lines: string[] = [];
   for (const ticket of tickets.slice(start, end)) {
     const selected = ticket.id === selectedRef;
-    const prefix = selected ? theme.fg("accent", "❯") : theme.fg("dim", "•");
-    const titleText = `${STATUS_ICONS[ticket.status]} ${ticket.id} ${ticket.title}`;
-    const title = selected ? theme.bg("selectedBg", theme.fg("text", titleText)) : titleText;
-    lines.push(`${prefix} ${truncateToWidth(title, Math.max(12, width - 2), "…", true)}`);
-    const extra = extras?.get(ticket.id) ?? `${formatStatus(ticket)} • ${ticket.updatedAt}`;
-    lines.push(`  ${theme.fg("dim", truncateToWidth(extra, Math.max(10, width - 2), "…", true))}`);
+    const prefix = selected ? theme.fg("accent", "›") : theme.fg("dim", "·");
+    const titleText = `${ticket.id} ${ticket.title}`;
+    const wrappedTitle = wrapTextWithAnsi(titleText, Math.max(12, width - 4));
+    wrappedTitle.forEach((segment, index) => {
+      const decorated = selected ? theme.bg("selectedBg", theme.fg("text", segment)) : segment;
+      lines.push(`${index === 0 ? prefix : " ".repeat(visibleWidth(prefix))} ${decorated}`);
+    });
+    const extra =
+      extras?.get(ticket.id) ??
+      `${statusLabel(ticket.status)} • ${formatStatus(ticket)} • ${compactIso(ticket.updatedAt)}`;
+    const wrappedExtra = wrapTextWithAnsi(theme.fg(statusColor(ticket.status), extra), Math.max(10, width - 3));
+    for (const segment of wrappedExtra) {
+      lines.push(`  ${segment}`);
+    }
   }
   if (start > 0 || end < tickets.length) {
     lines.push(theme.fg("dim", `… ${selectedIndex + 1}/${tickets.length}`));
@@ -264,16 +293,16 @@ function renderTabBar(activeTab: TicketWorkbenchTabId, theme: Theme, width: numb
     return tab === activeTab ? theme.bg("selectedBg", theme.fg("text", theme.bold(label))) : theme.fg("muted", label);
   });
   const suffix = theme.fg("dim", "(Tab / ← →)");
-  return truncateToWidth(`🎫 Tickets  ${pieces.join(" ")}  ${suffix}`, width, "…", true);
+  return truncateToWidth(`Tickets  ${pieces.join(" ")}  ${suffix}`, width, "…", true);
 }
 
 function renderWidgetCounts(model: TicketWorkbenchModel, theme: Theme): string {
   return [
-    statChip("🧮", model.counts.total, "dim", theme),
-    statChip("🟢", model.counts.ready, "success", theme),
-    statChip("⛔", model.counts.blocked, "warning", theme),
-    statChip("🛠", model.counts.inProgress, "muted", theme),
-    statChip("👀", model.counts.review, "muted", theme),
+    statChip("total", model.counts.total, "dim", theme),
+    statChip("ready", model.counts.ready, "success", theme),
+    statChip("blocked", model.counts.blocked, "warning", theme),
+    statChip("active", model.counts.inProgress, "muted", theme),
+    statChip("review", model.counts.review, "muted", theme),
   ].join(" ");
 }
 
@@ -504,12 +533,12 @@ function renderOverview(
       renderWidgetCounts(model, theme),
       theme.fg("dim", `Next: ${nextActionLines(model.tickets).join(" • ")}`),
       "",
-      theme.fg("dim", "🟢 Ready now"),
+      theme.fg("dim", "Ready now"),
       ...ticketRows(model.ready, selectedRef, theme, width, 1),
       "",
       ...(model.blocked.length > 0
         ? [
-            theme.fg("dim", "⛔ Blocked attention"),
+            theme.fg("dim", "Blocked attention"),
             ...ticketRows(
               model.blocked.map((entry) => entry.ticket),
               selectedRef,
@@ -520,7 +549,7 @@ function renderOverview(
             ),
           ]
         : [
-            theme.fg("dim", "✅ Recently closed"),
+            theme.fg("dim", "Recently closed"),
             ...ticketRows(model.recentClosed, selectedRef, theme, width, 1, recentClosedExtras),
           ]),
     ];
@@ -531,10 +560,10 @@ function renderOverview(
     renderWidgetCounts(model, theme),
     theme.fg("dim", `Next: ${nextActionLines(model.tickets).join(" • ")}`),
     "",
-    theme.fg("dim", "🟢 Ready now"),
+    theme.fg("dim", "Ready now"),
     ...ticketRows(model.ready, selectedRef, theme, width, compactTickets),
     "",
-    theme.fg("dim", model.blocked.length > 0 ? "⛔ Blocked attention" : "🛠 Active now"),
+    theme.fg("dim", model.blocked.length > 0 ? "Blocked attention" : "Active now"),
     ...(model.blocked.length > 0
       ? ticketRows(
           model.blocked.map((entry) => entry.ticket),
@@ -546,7 +575,7 @@ function renderOverview(
         )
       : ticketRows(model.active, selectedRef, theme, width, compactTickets)),
     "",
-    theme.fg("dim", model.recentClosed.length > 0 ? "✅ Recently closed" : "🕒 Recent movement"),
+    theme.fg("dim", model.recentClosed.length > 0 ? "Recently closed" : "Recent movement"),
     ...(model.recentClosed.length > 0
       ? ticketRows(model.recentClosed, selectedRef, theme, width, compactTickets, recentClosedExtras)
       : ticketRows(model.recent, selectedRef, theme, width, compactTickets)),
@@ -570,21 +599,21 @@ function renderInbox(
   const filteredVisible = Math.max(1, Math.floor((maxLines - 4) / 2));
   const combinedVisible = Math.max(1, Math.floor((maxLines - 7) / 4));
   return [
-    theme.fg("accent", `📥 ${filterLabel}`),
+    theme.fg("accent", filterLabel),
     theme.fg("dim", "Keys: b blocked • r ready • i all"),
     "",
     ...(state.inboxFilter === "ready"
-      ? [theme.fg("dim", "🟢 Ready review"), ...ticketRows(readyTickets, selectedRef, theme, width, filteredVisible)]
+      ? [theme.fg("dim", "Ready review"), ...ticketRows(readyTickets, selectedRef, theme, width, filteredVisible)]
       : state.inboxFilter === "blocked"
         ? [
-            theme.fg("dim", "⛔ Blocked review"),
+            theme.fg("dim", "Blocked review"),
             ...ticketRows(blockedTickets, selectedRef, theme, width, filteredVisible, blockedMap),
           ]
         : [
-            theme.fg("dim", "⛔ Blocked review"),
+            theme.fg("dim", "Blocked review"),
             ...ticketRows(blockedTickets, selectedRef, theme, width, combinedVisible, blockedMap),
             "",
-            theme.fg("dim", "🟢 Ready review"),
+            theme.fg("dim", "Ready review"),
             ...ticketRows(readyTickets, selectedRef, theme, width, combinedVisible),
           ]),
   ];
@@ -600,7 +629,7 @@ function renderList(
   const selectedRef = selectedTicketRef(state, model);
   const visibleTickets = Math.max(1, Math.floor((maxLines - 3) / 2));
   return [
-    theme.fg("accent", `📚 Full backlog • ${model.tickets.length} ticket(s)`),
+    theme.fg("accent", `Full backlog • ${model.tickets.length} ticket(s)`),
     "",
     ...ticketRows(model.tickets, selectedRef, theme, width, visibleTickets),
   ];
@@ -621,14 +650,14 @@ function renderBoard(
   const activeSections = activeStatuses.filter((status) => model.byStatus[status].length > 0);
   const visiblePerLane = activeSections.length <= 2 ? 2 : 1;
   const lines = [
-    theme.fg("accent", "🗂 Action board"),
+    theme.fg("accent", "Action board"),
     theme.fg(
       "dim",
       `${statusLabel("ready")} ${model.byStatus.ready.length} • ${statusLabel("in_progress")} ${model.byStatus.in_progress.length} • ${statusLabel("review")} ${model.byStatus.review.length}`,
     ),
     theme.fg(
       "dim",
-      `${statusLabel("blocked")} ${model.byStatus.blocked.length} • ${statusLabel("open")} ${model.byStatus.open.length} • ✅ closed hidden ${model.byStatus.closed.length}`,
+      `${statusLabel("blocked")} ${model.byStatus.blocked.length} • ${statusLabel("open")} ${model.byStatus.open.length} • closed hidden ${model.byStatus.closed.length}`,
     ),
     theme.fg("dim", "Press Enter for detail • use List for the full backlog including closed work"),
     "",
@@ -637,7 +666,7 @@ function renderBoard(
   for (const status of activeSections) {
     const tickets = model.byStatus[status];
     const extras = status === "blocked" ? blockedMap : undefined;
-    lines.push(theme.fg("dim", `── ${statusLabel(status)} lane ──`));
+    lines.push(theme.fg(statusColor(status), `${statusLabel(status)} lane`));
     lines.push(...ticketRows(tickets, selectedRef, theme, width, visiblePerLane, extras));
     lines.push("");
   }
@@ -668,39 +697,50 @@ function renderTimeline(
   maxLines: number,
 ): string[] {
   const selectedRef = selectedTicketRef(state, model);
-  const visibleTickets = Math.max(1, maxLines - 3);
-  const selectedIndex = Math.max(
-    0,
-    model.timeline.findIndex((ticket) => ticket.id === selectedRef),
-  );
-  const { start, end } = viewportRange(model.timeline.length, selectedIndex, visibleTickets);
-  const lines = [
-    theme.fg("accent", "🕒 Recent timeline"),
+  const introLines = [
+    theme.fg("accent", "Recent timeline"),
     theme.fg("dim", "Grouped by update day so status movement reads like a feed."),
     "",
   ];
+  const bodyLines: string[] = [];
+  let selectedBodyIndex = 0;
 
   let currentBucket: string | null = null;
-  for (const ticket of model.timeline.slice(start, end)) {
+  for (const ticket of model.timeline) {
     const bucket = formatTimelineBucket(ticket.updatedAt);
     if (bucket !== currentBucket) {
-      lines.push(theme.fg("dim", bucket));
+      bodyLines.push(theme.fg("dim", bucket));
       currentBucket = bucket;
     }
     const selected = ticket.id === selectedRef;
-    const prefix = selected ? theme.fg("accent", "❯") : theme.fg("dim", "•");
-    const row = `${STATUS_ICONS[ticket.status]} ${ticket.id} ${ticket.title}`;
-    lines.push(
-      `${prefix} ${selected ? theme.bg("selectedBg", theme.fg("text", truncateToWidth(row, Math.max(12, width - 4), "…", true))) : truncateToWidth(row, Math.max(12, width - 2), "…", true)}`,
+    const prefix = selected ? theme.fg("accent", "›") : theme.fg("dim", "·");
+    const row = `${ticket.id} ${ticket.title}`;
+    if (selected) {
+      selectedBodyIndex = bodyLines.length;
+    }
+    const wrappedRow = wrapTextWithAnsi(row, Math.max(12, width - 4));
+    wrappedRow.forEach((segment, index) => {
+      const decorated = selected ? theme.bg("selectedBg", theme.fg("text", segment)) : segment;
+      bodyLines.push(`${index === 0 ? prefix : " ".repeat(visibleWidth(prefix))} ${decorated}`);
+    });
+    const wrappedMeta = wrapTextWithAnsi(
+      theme.fg("dim", `${compactIso(ticket.updatedAt)} • ${ticket.type}/${ticket.priority}`),
+      Math.max(10, width - 3),
     );
-    lines.push(`  ${theme.fg("dim", `${compactIso(ticket.updatedAt)} • ${ticket.type}/${ticket.priority}`)}`);
+    for (const segment of wrappedMeta) {
+      bodyLines.push(`  ${segment}`);
+    }
   }
 
-  if (start > 0 || end < model.timeline.length) {
-    lines.push(theme.fg("dim", `… ${selectedIndex + 1}/${model.timeline.length}`));
+  const bodyVisible = Math.max(1, maxLines - introLines.length);
+  const { start, end } = viewportRange(bodyLines.length, selectedBodyIndex, bodyVisible);
+  const visibleBody = bodyLines.slice(start, end);
+
+  if (start > 0 || end < bodyLines.length) {
+    visibleBody.push(theme.fg("dim", `… ${selectedBodyIndex + 1}/${bodyLines.length}`));
   }
 
-  return lines;
+  return [...introLines, ...visibleBody];
 }
 
 function renderDetail(
@@ -911,7 +951,7 @@ function renderMenu(menu: Exclude<WorkbenchMenu, null>, options: MenuOption[], t
     lines.push(theme.fg("dim", `… ${menu.selectedIndex + 1}/${options.length}`));
   }
   return box(
-    menu.kind === "actions" ? `⚙️ Actions • ${menu.ref}` : `🧭 ${TAB_LABELS.detail} menu • ${menu.ref}`,
+    menu.kind === "actions" ? `Actions • ${menu.ref}` : `${TAB_LABELS.detail} menu • ${menu.ref}`,
     lines,
     width,
     theme,
@@ -1164,7 +1204,7 @@ export async function openInteractiveTicketWorkspace(
           const detail = ref ? (detailCache.get(ref) ?? null) : null;
           const keyboardHint = theme.fg("dim", "Tab / ← →");
           const header = [
-            theme.fg("accent", theme.bold("✨ Ticket Workbench")),
+            theme.fg("accent", theme.bold("Ticket Workbench")),
             renderWidgetCounts(model, theme),
             renderTabBar(state.activeTab, theme, Math.max(20, width - visibleWidth(keyboardHint) - 3)),
             "",
@@ -1187,7 +1227,7 @@ export async function openInteractiveTicketWorkspace(
             mainBoxLines,
           );
           const sidebar = box(
-            summary ? `🎯 Selected • ${summary.id}` : "🎯 Selected",
+            summary ? `Selected • ${summary.id}` : "Selected",
             previewLines(summary, detail, snapshot.graph),
             sideWidth,
             theme,
@@ -1206,7 +1246,7 @@ export async function openInteractiveTicketWorkspace(
               ? combineColumns(main, menuPanel ?? [], mainWidth, sideWidth)
               : [
                   ...box(
-                    summary ? `🎯 Focus • ${summary.id}` : "🎯 Focus",
+                    summary ? `Focus • ${summary.id}` : "Focus",
                     previewLines(summary, detail, snapshot.graph),
                     width,
                     theme,
@@ -1232,7 +1272,7 @@ export async function openInteractiveTicketWorkspace(
                   )
                 : theme.fg("dim", "↑ ↓ move • Enter detail • a actions • n new • Esc close • Tab / ← → tabs");
 
-          return [...header, ...body, "", `${footer}  ${keyboardHint}`];
+          return [...header, ...body, "", footer];
         },
         handleInput(data: string): void {
           const isUp = matchesKey(data, Key.up) || data === "k";

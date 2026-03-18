@@ -610,4 +610,35 @@ describe("ticket overlay workbench", () => {
       cleanup();
     }
   });
+
+  it("keeps the selected timeline row visible when moving down through the feed", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      let targetId = "";
+      for (let index = 0; index < 8; index += 1) {
+        const created = await store.createTicketAsync({ title: `Timeline visible ${index + 1}` });
+        if (index === 6) {
+          targetId = created.summary.id;
+        }
+      }
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "timeline" });
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        for (let index = 0; index < 6; index += 1) {
+          component.handleInput("\u001b[B");
+        }
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(rendered).toContain(targetId);
+      expect(rendered).toContain("Timeline visible 7");
+    } finally {
+      cleanup();
+    }
+  });
 });
