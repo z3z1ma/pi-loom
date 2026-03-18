@@ -92,6 +92,12 @@ function notifyTicketResult(ctx: ExtensionCommandContext, result: TicketReadResu
   }
 }
 
+function notifyMessage(ctx: ExtensionCommandContext, message: string): void {
+  if (typeof ctx.ui?.notify === "function") {
+    ctx.ui.notify(message, "info");
+  }
+}
+
 function buildFieldUpdate(field: TicketWorkspaceField, value: string | undefined): UpdateTicketInput | null {
   if (field === "title") {
     const trimmed = value?.trim();
@@ -188,6 +194,23 @@ async function performWorkspaceAction(
       await safeSyncTicketHomeWidget(ctx);
       notifyTicketResult(ctx, created);
       return { kind: "detail", ref: created.summary.id };
+    }
+    case "archive": {
+      const updated = await store.archiveTicketAsync(action.ref);
+      await safeSyncTicketHomeWidget(ctx);
+      notifyTicketResult(ctx, updated);
+      return action.nextView;
+    }
+    case "delete": {
+      const deleted = await store.deleteTicketAsync(action.ref);
+      await safeSyncTicketHomeWidget(ctx);
+      notifyMessage(
+        ctx,
+        deleted.affectedTicketIds.length > 0
+          ? `Deleted ${deleted.deletedTicketId}; updated ${deleted.affectedTicketIds.join(", ")}`
+          : `Deleted ${deleted.deletedTicketId}`,
+      );
+      return action.nextView;
     }
     case "edit": {
       const current = await store.readTicketAsync(action.ref);

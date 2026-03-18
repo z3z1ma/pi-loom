@@ -38,7 +38,7 @@ That workbench is intentionally selector-shaped rather than command-shaped:
 - tabbed top-level navigation (`Overview`, `Inbox`, `List`, `Board`, `Timeline`, `Detail`)
 - contextual detail preview while browsing
 - bounded action menus for status, editing, and dependency updates
-- real keyboard travel for `↑↓`, `Tab`, `←→`, `Enter`, and `Esc`
+- real keyboard travel for `↑↓`, `Tab`, `←→`, `Enter`, and `Esc`, plus `/` search inside the List tab
 - Esc-to-back behavior inside the shell before Esc closes it entirely
 - light expressive styling and iconography so state changes and navigation read at a glance
 
@@ -48,7 +48,7 @@ Current interactive workbench surfaces:
 
 - overview — hero counts, next actions, ready-now work, blocked or active attention, and recently closed context
 - inbox — review-focused blocked and ready queues
-- list — full backlog browsing
+- list — default backlog browsing for non-archived tickets, with slash-triggered filtering inside the tab
 - board — action board focused on non-closed work, with closed volume summarized instead of dominating the lane view
 - timeline — grouped recent-activity feed organized by update day
 - detail — full ticket drill-in with journal, checkpoint, and attachment context
@@ -58,6 +58,7 @@ Current direct workspace operations:
 - create ticket
 - edit ticket title, assignee, priority, risk, type, review status, and body sections
 - change status to open or reopen, in-progress, review, and close
+- archive a ticket from the action menu so it disappears from default workbench views after refresh
 - add or remove dependencies
 - inspect ticket detail together with journal, checkpoint, and attachment context
 

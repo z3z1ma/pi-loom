@@ -125,6 +125,8 @@ export function summarizeTicket(record: TicketRecord, effectiveStatus: TicketSta
     tags: [...record.frontmatter.tags],
     parent: record.frontmatter.parent,
     closed: record.closed,
+    archived: record.archived ?? false,
+    archivedAt: record.archivedAt ?? null,
     ref: record.ref,
   };
 }

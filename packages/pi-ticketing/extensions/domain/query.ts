@@ -21,6 +21,8 @@ export function summarizeTickets(records: TicketRecord[]): TicketSummary[] {
     tags: [...record.frontmatter.tags],
     parent: record.frontmatter.parent,
     closed: record.closed,
+    archived: record.archived ?? false,
+    archivedAt: record.archivedAt ?? null,
     ref: record.ref,
   }));
   const ticketsById = new Map(provisional.map((ticket) => [ticket.id, ticket]));
@@ -37,7 +39,10 @@ export function summarizeTickets(records: TicketRecord[]): TicketSummary[] {
 
 export function filterTickets(summaries: TicketSummary[], filter: TicketListFilter = {}): TicketSummary[] {
   return summaries.filter((summary) => {
-    if (!filter.includeClosed && summary.status === "closed") {
+    if (!filter.includeArchived && summary.archived) {
+      return false;
+    }
+    if (!filter.includeClosed && summary.status === "closed" && !summary.archived) {
       return false;
     }
     if (filter.status && summary.status !== filter.status) {

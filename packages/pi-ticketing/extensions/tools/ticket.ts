@@ -1,7 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
-import { TICKET_WRITE_ACTIONS } from "../domain/models.js";
 import type {
   AttachArtifactInput,
   CreateCheckpointInput,
@@ -9,6 +8,7 @@ import type {
   TicketStatus,
   UpdateTicketInput,
 } from "../domain/models.js";
+import { TICKET_WRITE_ACTIONS } from "../domain/models.js";
 import { renderGraph, renderTicketDetail, renderTicketSummary } from "../domain/render.js";
 import { createTicketStore } from "../domain/store.js";
 import { syncTicketHomeWidget } from "../ui/ticket-workspace.js";
@@ -34,6 +34,7 @@ const TicketListParams = Type.Object({
   status: Type.Optional(TicketStatusEnum),
   type: Type.Optional(TicketTypeEnum),
   includeClosed: Type.Optional(Type.Boolean()),
+  includeArchived: Type.Optional(Type.Boolean()),
   text: Type.Optional(Type.String()),
 });
 
@@ -202,6 +203,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
         status: params.status as TicketStatus | undefined,
         type: params.type,
         includeClosed: params.includeClosed,
+        includeArchived: params.includeArchived,
         text: params.text,
       });
       return machineResult(
@@ -248,7 +250,9 @@ export function registerTicketTools(pi: ExtensionAPI): void {
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "update": {
-          const result = await runMutation(ctx, () => store.updateTicketAsync(requireRef(params.ref), toUpdateInput(params)));
+          const result = await runMutation(ctx, () =>
+            store.updateTicketAsync(requireRef(params.ref), toUpdateInput(params)),
+          );
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "start": {
@@ -260,8 +264,23 @@ export function registerTicketTools(pi: ExtensionAPI): void {
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "close": {
-          const result = await runMutation(ctx, () => store.closeTicketAsync(requireRef(params.ref), params.verification));
+          const result = await runMutation(ctx, () =>
+            store.closeTicketAsync(requireRef(params.ref), params.verification),
+          );
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "archive": {
+          const result = await runMutation(ctx, () => store.archiveTicketAsync(requireRef(params.ref)));
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
+        case "delete": {
+          const result = await runMutation(ctx, () => store.deleteTicketAsync(requireRef(params.ref)));
+          return machineResult(
+            result,
+            result.affectedTicketIds.length > 0
+              ? `Deleted ticket ${result.deletedTicketId}. Updated tickets: ${result.affectedTicketIds.join(", ")}`
+              : `Deleted ticket ${result.deletedTicketId}.`,
+          );
         }
         case "add_note": {
           if (!params.text?.trim()) throw new Error("text is required for add_note");

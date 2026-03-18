@@ -171,6 +171,8 @@ describe("TicketStore canonical storage", () => {
       record: {
         ticket: {
           closed: false,
+          archived: false,
+          archivedAt: null,
           ref: getTicketRef(created.summary.id),
           frontmatter: {
             status: "open",
@@ -189,5 +191,83 @@ describe("TicketStore canonical storage", () => {
         ],
       },
     });
+  }, 30000);
+
+  it("archives only closed tickets and excludes them from default lists", async () => {
+    const store = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2024-01-04T00:00:00.000Z"));
+    const archivedCandidate = await store.createTicketAsync({ title: "Archive me" });
+    vi.setSystemTime(new Date("2024-01-04T00:00:01.000Z"));
+    const closedArchivedCandidate = await store.createTicketAsync({ title: "Archive me while closed" });
+    vi.setSystemTime(new Date("2024-01-04T00:00:02.000Z"));
+    await store.closeTicketAsync(closedArchivedCandidate.summary.id, "done");
+
+    vi.setSystemTime(new Date("2024-01-04T00:00:03.000Z"));
+    await expect(store.archiveTicketAsync(archivedCandidate.summary.id)).rejects.toThrow(
+      `Ticket ${archivedCandidate.summary.id} must be closed before it can be archived.`,
+    );
+
+    vi.setSystemTime(new Date("2024-01-04T00:00:04.000Z"));
+    const archived = await store.archiveTicketAsync(closedArchivedCandidate.summary.id);
+    expect(archived.summary).toMatchObject({
+      id: closedArchivedCandidate.summary.id,
+      archived: true,
+      archivedAt: "2024-01-04T00:00:04.000Z",
+      status: "closed",
+      closed: true,
+    });
+    expect(archived.ticket).toMatchObject({ archived: true, archivedAt: "2024-01-04T00:00:04.000Z", closed: true });
+
+    await expect(store.listTicketsAsync({ includeClosed: true })).resolves.toEqual([
+      expect.objectContaining({ id: archivedCandidate.summary.id, archived: false, closed: false, status: "ready" }),
+    ]);
+    await expect(store.listTicketsAsync({ includeClosed: true, includeArchived: true })).resolves.toEqual([
+      expect.objectContaining({ id: archivedCandidate.summary.id, archived: false, status: "ready", closed: false }),
+      expect.objectContaining({ id: closedArchivedCandidate.summary.id, archived: true, archivedAt: "2024-01-04T00:00:04.000Z", status: "closed", closed: true }),
+    ]);
+
+    await expect(store.readTicketAsync(closedArchivedCandidate.summary.id)).resolves.toMatchObject({
+      summary: { id: closedArchivedCandidate.summary.id, archived: true, status: "closed", closed: true },
+      ticket: { archived: true, archivedAt: "2024-01-04T00:00:04.000Z", closed: true },
+    });
+  }, 30000);
+
+  it("deletes tickets directly and scrubs remaining dependency and parent references", async () => {
+    const store = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2024-01-05T00:00:00.000Z"));
+    const parent = await store.createTicketAsync({ title: "Parent ticket" });
+    vi.setSystemTime(new Date("2024-01-05T00:00:01.000Z"));
+    const archivedCandidate = await store.createTicketAsync({ title: "Delete me later" });
+    vi.setSystemTime(new Date("2024-01-05T00:00:02.000Z"));
+    const dependent = await store.createTicketAsync({ title: "Depends on deleted", deps: [archivedCandidate.summary.id] });
+    vi.setSystemTime(new Date("2024-01-05T00:00:03.000Z"));
+    const child = await store.createTicketAsync({ title: "Child of deleted", parent: archivedCandidate.summary.id });
+
+    vi.setSystemTime(new Date("2024-01-05T00:00:04.000Z"));
+    await store.closeTicketAsync(archivedCandidate.summary.id, "done");
+    vi.setSystemTime(new Date("2024-01-05T00:00:05.000Z"));
+    const deleted = await store.deleteTicketAsync(archivedCandidate.summary.id);
+
+    expect(deleted).toEqual({
+      action: "delete",
+      deletedTicketId: archivedCandidate.summary.id,
+      affectedTicketIds: [dependent.summary.id, child.summary.id],
+    });
+
+    await expect(store.readTicketAsync(archivedCandidate.summary.id)).rejects.toThrow(
+      `Unknown ticket: ${archivedCandidate.summary.id}`,
+    );
+
+    const rereadDependent = await store.readTicketAsync(dependent.summary.id);
+    expect(rereadDependent.ticket.frontmatter.deps).toEqual([]);
+    expect(rereadDependent.blockers).toEqual([]);
+
+    const rereadChild = await store.readTicketAsync(child.summary.id);
+    expect(rereadChild.ticket.frontmatter.parent).toBeNull();
+
+    const remaining = await store.listTicketsAsync({ includeClosed: true, includeArchived: true });
+    expect(remaining.map((ticket) => ticket.id)).toEqual([parent.summary.id, dependent.summary.id, child.summary.id]);
   }, 30000);
 });

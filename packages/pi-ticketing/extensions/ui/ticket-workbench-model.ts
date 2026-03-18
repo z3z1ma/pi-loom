@@ -154,3 +154,18 @@ export function getTicketById(model: TicketWorkbenchModel, ticketId: string | nu
   }
   return model.tickets.find((ticket) => ticket.id === ticketId) ?? null;
 }
+
+function searchTerms(ticket: TicketSummary): string[] {
+  return [ticket.id, ticket.title, ticket.status, ticket.type, ticket.priority, ...ticket.tags];
+}
+
+export function filterTicketsByQuery(tickets: TicketSummary[], query: string): TicketSummary[] {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return tickets;
+  }
+  return tickets.filter((ticket) => {
+    const haystack = searchTerms(ticket).join(" ").toLocaleLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}

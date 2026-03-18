@@ -6,6 +6,8 @@ export const TICKET_WRITE_ACTIONS = [
   "start",
   "reopen",
   "close",
+  "archive",
+  "delete",
   "add_note",
   "add_journal_entry",
   "attach_artifact",
@@ -73,6 +75,8 @@ export interface TicketRecord {
   frontmatter: TicketFrontmatter;
   body: TicketBody;
   closed: boolean;
+  archived: boolean;
+  archivedAt: string | null;
   ref: string;
 }
 
@@ -95,6 +99,8 @@ export interface TicketSummary {
   tags: string[];
   parent: string | null;
   closed: boolean;
+  archived: boolean;
+  archivedAt: string | null;
   ref: string;
 }
 
@@ -177,6 +183,7 @@ export interface TicketListFilter {
   status?: TicketStatus;
   type?: TicketType;
   includeClosed?: boolean;
+  includeArchived?: boolean;
   tag?: string;
   text?: string;
 }
@@ -254,4 +261,10 @@ export interface CreateCheckpointInput {
 export interface TicketWriteResult {
   action: TicketWriteAction;
   ticket: TicketReadResult;
+}
+
+export interface DeleteTicketResult {
+  action: "delete";
+  deletedTicketId: string;
+  affectedTicketIds: string[];
 }

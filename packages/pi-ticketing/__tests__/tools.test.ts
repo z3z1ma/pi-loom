@@ -97,6 +97,16 @@ describe("ticket tools", () => {
     expect(
       (writeTool.parameters as unknown as { properties: { action: { enum: string[] } } }).properties.action.enum,
     ).toContain("reopen");
+    expect(
+      (writeTool.parameters as unknown as { properties: { action: { enum: string[] } } }).properties.action.enum,
+    ).toEqual(expect.arrayContaining(["archive", "delete"]));
+    expect(
+      (
+        getTool(mockPi, "ticket_list").parameters as unknown as {
+          properties: { includeArchived: { type: string; optional: boolean } };
+        }
+      ).properties.includeArchived,
+    ).toMatchObject({ type: "boolean", optional: true });
     expect(getTool(mockPi, "ticket_checkpoint").promptGuidelines).toContain(
       "Use checkpoints for reusable durable handoff records, not ephemeral chat summaries.",
     );
@@ -394,4 +404,116 @@ describe("ticket tools", () => {
     }
   }, 15000);
 
+  it("archives closed tickets and deletes tickets through explicit ticket_write actions", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const mockPi = createMockPi();
+      const { registerTicketTools } = await import("../extensions/tools/ticket.js");
+      registerTicketTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+      const ticketWrite = getTool(mockPi, "ticket_write");
+      const ticketList = getTool(mockPi, "ticket_list");
+      const ticketRead = getTool(mockPi, "ticket_read");
+
+      const created = await ticketWrite.execute(
+        "call-1",
+        { action: "create", title: "Archive-aware tool behavior" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const ticketId = resultDetails<{ ticket: { summary: { id: string } } }>(created.details).ticket.summary.id;
+
+      await expect(
+        ticketWrite.execute("call-open-archive", { action: "archive", ref: ticketId }, undefined, undefined, ctx),
+      ).rejects.toThrow(`Ticket ${ticketId} must be closed before it can be archived.`);
+
+      await ticketWrite.execute(
+        "call-close",
+        { action: "close", ref: ticketId, verification: "done" },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const archived = await ticketWrite.execute(
+        "call-2",
+        { action: "archive", ref: ticketId },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(archived.details).toMatchObject({
+        action: "archive",
+        ticket: {
+          summary: { id: ticketId, archived: true, archivedAt: expect.any(String), status: "closed", closed: true },
+          ticket: { archived: true, archivedAt: expect.any(String), closed: true },
+        },
+      });
+
+      const defaultList = await ticketList.execute("call-3", { includeClosed: true }, undefined, undefined, ctx);
+      expect(defaultList.details).toMatchObject({ tickets: [] });
+      expect(firstText(defaultList.content)).toBe("No tickets.");
+
+      const includeArchivedList = await ticketList.execute(
+        "call-4",
+        { includeClosed: true, includeArchived: true },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(includeArchivedList.details).toMatchObject({
+        tickets: [expect.objectContaining({ id: ticketId, archived: true, status: "closed", closed: true })],
+      });
+
+      const archivedRead = await ticketRead.execute("call-5", { ref: ticketId }, undefined, undefined, ctx);
+      expect(archivedRead.details).toMatchObject({
+        ticket: {
+          summary: { id: ticketId, archived: true, status: "closed", closed: true },
+          ticket: { archived: true, archivedAt: expect.any(String), closed: true },
+        },
+      });
+
+      const deleteCandidate = await ticketWrite.execute(
+        "call-delete-create",
+        { action: "create", title: "Delete directly" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const deleteCandidateId = resultDetails<{ ticket: { summary: { id: string } } }>(deleteCandidate.details).ticket.summary.id;
+
+      const deleted = await ticketWrite.execute(
+        "call-6",
+        { action: "delete", ref: deleteCandidateId },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(deleted.details).toMatchObject({
+        action: "delete",
+        deletedTicketId: deleteCandidateId,
+        affectedTicketIds: [],
+      });
+      expect(firstText(deleted.content)).toContain(`Deleted ticket ${deleteCandidateId}.`);
+
+      const restoredList = await ticketList.execute("call-7", { includeClosed: true }, undefined, undefined, ctx);
+      expect(restoredList.details).toMatchObject({ tickets: [] });
+      const archivedOnlyList = await ticketList.execute(
+        "call-7b",
+        { includeClosed: true, includeArchived: true },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(archivedOnlyList.details).toMatchObject({
+        tickets: [expect.objectContaining({ id: ticketId, archived: true, status: "closed", closed: true })],
+      });
+      await expect(ticketRead.execute("call-8", { ref: deleteCandidateId }, undefined, undefined, ctx)).rejects.toThrow(
+        `Unknown ticket: ${deleteCandidateId}`,
+      );
+    } finally {
+      cleanup();
+    }
+  }, 15000);
 });

@@ -11,6 +11,7 @@ import { renderTicketDetail } from "../domain/render.js";
 import { createTicketStore, type TicketStore } from "../domain/store.js";
 import {
   createTicketWorkbenchModel,
+  filterTicketsByQuery,
   getBoardTickets,
   getInboxTickets,
   getOverviewTickets,
@@ -52,6 +53,8 @@ export type TicketWorkspaceAction =
   | { kind: "close" }
   | { kind: "navigate"; view: TicketWorkspaceView }
   | { kind: "create" }
+  | { kind: "archive"; ref: string; nextView: TicketWorkspaceView }
+  | { kind: "delete"; ref: string; nextView: TicketWorkspaceView }
   | { kind: "edit"; ref: string; field: TicketWorkspaceField; value?: string }
   | {
       kind: "status";
@@ -80,6 +83,8 @@ interface WorkbenchState {
   previousTab: TicketWorkbenchTabId | null;
   inboxFilter?: TicketWorkspaceFilter;
   boardFilter?: TicketWorkspaceFilter;
+  listSearchQuery: string;
+  listSearchMode: boolean;
   selectedByTab: Partial<Record<TicketWorkbenchTabId, string | null>>;
   detailRef: string | null;
   detailScrollOffset: number;
@@ -334,17 +339,42 @@ function compactIso(timestamp: string): string {
   return timestamp.replace("T", " ").replace(/\.\d+Z$/, "Z");
 }
 
+function tabView(tab: TicketWorkbenchTabId, state: WorkbenchState): TicketWorkspaceView {
+  switch (tab) {
+    case "overview":
+      return { kind: "home" };
+    case "inbox":
+      return { kind: "board", filter: state.inboxFilter };
+    case "list":
+      return { kind: "list" };
+    case "board":
+      return { kind: "board" };
+    case "timeline":
+      return { kind: "timeline" };
+    case "detail":
+      return { kind: "detail", ref: state.detailRef ?? state.selectedByTab.detail ?? "" };
+  }
+}
+
+function listTickets(state: WorkbenchState, model: TicketWorkbenchModel): TicketSummary[] {
+  return filterTicketsByQuery(model.tickets, state.listSearchQuery);
+}
+
+function syncTabSelection(state: WorkbenchState, tab: TicketWorkbenchTabId, tickets: TicketSummary[]): string | null {
+  const current = state.selectedByTab[tab];
+  if (current && tickets.some((ticket) => ticket.id === current)) {
+    return current;
+  }
+  const fallback = tickets[0]?.id ?? null;
+  state.selectedByTab[tab] = fallback;
+  return fallback;
+}
+
 function selectedTicketRef(state: WorkbenchState, model: TicketWorkbenchModel): string | null {
   if (state.activeTab === "detail") {
     return state.detailRef ?? state.selectedByTab.detail ?? model.tickets[0]?.id ?? null;
   }
-  const current = state.selectedByTab[state.activeTab];
-  if (current) {
-    return current;
-  }
-  const fallback = currentTabTickets(state, model)[0]?.id ?? null;
-  state.selectedByTab[state.activeTab] = fallback;
-  return fallback;
+  return syncTabSelection(state, state.activeTab, currentTabTickets(state, model));
 }
 
 function deriveInitialTab(view: TicketWorkspaceView): TicketWorkbenchTabId {
@@ -369,7 +399,7 @@ function currentTabTickets(state: WorkbenchState, model: TicketWorkbenchModel): 
     case "inbox":
       return getInboxTickets(model, state.inboxFilter);
     case "list":
-      return model.tickets;
+      return listTickets(state, model);
     case "board":
       return getBoardTickets(model, state.boardFilter);
     case "timeline":
@@ -626,12 +656,28 @@ function renderList(
   width: number,
   maxLines: number,
 ): string[] {
+  const tickets = listTickets(state, model);
   const selectedRef = selectedTicketRef(state, model);
-  const visibleTickets = Math.max(1, Math.floor((maxLines - 3) / 2));
+  const query = state.listSearchQuery.trim();
+  const visibleTickets = Math.max(1, Math.floor((maxLines - 5) / 2));
   return [
-    theme.fg("accent", `Full backlog • ${model.tickets.length} ticket(s)`),
+    theme.fg(
+      "accent",
+      query
+        ? `Full backlog • ${tickets.length}/${model.tickets.length} match(es)`
+        : `Full backlog • ${model.tickets.length} ticket(s)`,
+    ),
+    theme.fg(
+      state.listSearchMode ? "success" : "dim",
+      query ? `Search: /${query}` : state.listSearchMode ? "Search: /" : "Search: press / to filter the list",
+    ),
     "",
-    ...ticketRows(model.tickets, selectedRef, theme, width, visibleTickets),
+    ...(tickets.length > 0
+      ? ticketRows(tickets, selectedRef, theme, width, visibleTickets)
+      : [
+          theme.fg("warning", query ? `No tickets match /${query}` : "No tickets in this view."),
+          theme.fg("dim", query ? "Press Esc to clear search." : "Press n to create a ticket."),
+        ]),
   ];
 }
 
@@ -858,11 +904,33 @@ function buildMenuOptions(
       },
       { label: "Close workbench", description: "Return to the normal shell flow", perform: close },
     );
+    if (summary?.closed && !summary.archived) {
+      options.splice(2, 0, {
+        label: "Archive ticket",
+        description: "Hide this closed ticket from the default human backlog",
+        perform: () => ({
+          kind: "archive",
+          ref: menu.ref,
+          nextView:
+            state.activeTab === "detail" && state.previousTab ? tabView(state.previousTab, state) : { kind: "list" },
+        }),
+      });
+    }
+    options.splice(2, 0, {
+      label: "Delete ticket",
+      description: summary?.archived ? "Permanently remove this archived ticket" : "Permanently remove this ticket",
+      perform: () => ({
+        kind: "delete",
+        ref: menu.ref,
+        nextView:
+          state.activeTab === "detail" && state.previousTab ? tabView(state.previousTab, state) : { kind: "list" },
+      }),
+    });
     if (summary?.closed) {
       return options;
     }
     options.splice(
-      2,
+      summary?.archived ? 2 : 3,
       0,
       {
         label: "Edit fields",
@@ -909,7 +977,7 @@ function buildMenuOptions(
           },
           {
             label: "Close ticket",
-            description: "Archive with a verification note",
+            description: "Mark complete with a verification note",
             perform: () => ({ kind: "status", ref: menu.ref, status: "close" }),
           },
         ];
@@ -1134,6 +1202,8 @@ export async function openInteractiveTicketWorkspace(
         previousTab: null,
         inboxFilter: snapshot.view.kind === "board" ? snapshot.view.filter : undefined,
         boardFilter: snapshot.view.kind === "board" && !snapshot.view.filter ? undefined : undefined,
+        listSearchQuery: "",
+        listSearchMode: false,
         selectedByTab: {
           overview: getOverviewTickets(model)[0]?.id ?? null,
           inbox:
@@ -1173,6 +1243,12 @@ export async function openInteractiveTicketWorkspace(
       const close = (): TicketWorkspaceAction => ({ kind: "close" });
 
       const currentRef = (): string | null => selectedTicketRef(state, model);
+
+      const resetListSearch = (): void => {
+        state.listSearchMode = false;
+        state.listSearchQuery = "";
+        syncTabSelection(state, "list", listTickets(state, model));
+      };
 
       const moveTab = (delta: number): void => {
         const currentTab = state.activeTab;
@@ -1270,7 +1346,14 @@ export async function openInteractiveTicketWorkspace(
                     "dim",
                     "↑ ↓ move • Enter detail • a actions • n new • b/r/i inbox filters • Esc close • Tab / ← → tabs",
                   )
-                : theme.fg("dim", "↑ ↓ move • Enter detail • a actions • n new • Esc close • Tab / ← → tabs");
+                : state.activeTab === "list"
+                  ? theme.fg(
+                      "dim",
+                      state.listSearchMode
+                        ? "Type to filter • ↑ ↓ move • Enter detail • Backspace delete • Esc clear"
+                        : "↑ ↓ move • Enter detail • / search • a actions • n new • Esc close • Tab / ← → tabs",
+                    )
+                  : theme.fg("dim", "↑ ↓ move • Enter detail • a actions • n new • Esc close • Tab / ← → tabs");
 
           return [...header, ...body, "", footer];
         },
@@ -1283,6 +1366,8 @@ export async function openInteractiveTicketWorkspace(
           const isEscape = matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"));
           const isPageUp = matchesKey(data, Key.pageUp);
           const isPageDown = matchesKey(data, Key.pageDown);
+          const isBackspace = data === "\u007f" || data === "\b";
+          const isPrintable = data.length === 1 && data >= " ";
 
           if (state.menu) {
             const options = buildMenuOptions(state.menu, state, model, close);
@@ -1342,11 +1427,44 @@ export async function openInteractiveTicketWorkspace(
               return;
             }
           }
+          if (state.activeTab === "list") {
+            if (data === "/") {
+              state.listSearchMode = true;
+              syncTabSelection(state, "list", listTickets(state, model));
+              ensureDetail(currentRef());
+              return;
+            }
+            if (state.listSearchMode) {
+              if (isEscape) {
+                resetListSearch();
+                ensureDetail(currentRef());
+                return;
+              }
+              if (isBackspace) {
+                state.listSearchQuery = state.listSearchQuery.slice(0, -1);
+                syncTabSelection(state, "list", listTickets(state, model));
+                ensureDetail(currentRef());
+                return;
+              }
+              if (isPrintable) {
+                state.listSearchQuery += data;
+                syncTabSelection(state, "list", listTickets(state, model));
+                ensureDetail(currentRef());
+                return;
+              }
+            }
+          }
           if (isLeft) {
+            if (state.activeTab === "list" && state.listSearchMode) {
+              return;
+            }
             moveTab(-1);
             return;
           }
           if (isRight) {
+            if (state.activeTab === "list" && state.listSearchMode) {
+              return;
+            }
             moveTab(1);
             return;
           }
@@ -1377,6 +1495,11 @@ export async function openInteractiveTicketWorkspace(
             return;
           }
           if (isEscape) {
+            if (state.activeTab === "list" && state.listSearchMode) {
+              resetListSearch();
+              ensureDetail(currentRef());
+              return;
+            }
             if (state.activeTab === "detail" && state.previousTab) {
               setActiveTab(state, state.previousTab, model);
               state.previousTab = null;
@@ -1389,6 +1512,9 @@ export async function openInteractiveTicketWorkspace(
             const ref = currentRef();
             const summary = ref ? getTicketById(model, ref) : null;
             if (!ref) {
+              if (state.activeTab === "list" && state.listSearchMode) {
+                return;
+              }
               done({ kind: "create" });
               return;
             }

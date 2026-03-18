@@ -331,7 +331,7 @@ describe("ticket overlay workbench", () => {
       });
 
       await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
-      expect(rendered).toContain("🕒 Recent timeline");
+      expect(rendered).toContain("Recent timeline");
       expect(rendered).toContain("Esc close");
     } finally {
       cleanup();
@@ -515,6 +515,7 @@ describe("ticket overlay workbench", () => {
         component.handleInput("a");
         component.handleInput("\u001b[B");
         component.handleInput("\u001b[B");
+        component.handleInput("\u001b[B");
         component.handleInput("\r");
         for (let index = 0; index < 10; index += 1) {
           component.handleInput("\u001b[B");
@@ -637,6 +638,126 @@ describe("ticket overlay workbench", () => {
       await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
       expect(rendered).toContain(targetId);
       expect(rendered).toContain("Timeline visible 7");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("filters the list tab from slash search and clears back to normal navigation on Escape", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      await store.createTicketAsync({ title: "Alpha task" });
+      await store.createTicketAsync({ title: "Beta bug" });
+      await store.createTicketAsync({ title: "Gamma chore" });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "list" });
+      let searchRender = "";
+      let clearedRender = "";
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        component.handleInput("/");
+        component.handleInput("b");
+        component.handleInput("e");
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        component.handleInput("\u001b");
+        clearedRender = component.render(OVERLAY_WIDTH).join("\n");
+        searchRender = rendered;
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(searchRender).toContain("Search: /be");
+      expect(searchRender).toContain("Beta bug");
+      expect(searchRender).not.toContain("Alpha task");
+      expect(clearedRender).toContain("Search: press / to filter the list");
+      expect(clearedRender).toContain("Alpha task");
+      expect(clearedRender).toContain("Gamma chore");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("renders a stable empty state when list search finds no matches", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      await store.createTicketAsync({ title: "Alpha task" });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "list" });
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        component.handleInput("/");
+        component.handleInput("z");
+        component.handleInput("z");
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        component.handleInput("\r");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(rendered).toContain("No tickets match /zz");
+      expect(rendered).toContain("Press Esc to clear search.");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("offers an archive action and excludes archived tickets from refreshed default snapshots", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      const archived = await store.createTicketAsync({ title: "Archive me" });
+      await store.closeTicketAsync(archived.summary.id, "done");
+      await store.createTicketAsync({ title: "Keep me" });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "list" });
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        return await new Promise<TicketWorkspaceAction | null>((resolve) => {
+          const component = factory({ requestRender: () => {} }, createTheme(), {}, resolve);
+          component.handleInput("a");
+          component.handleInput("\u001b[B");
+          component.handleInput("\u001b[B");
+          component.handleInput("\u001b[B");
+          component.handleInput("\r");
+        });
+      });
+
+      const action = await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(action).toEqual({ kind: "archive", ref: archived.summary.id, nextView: { kind: "list" } });
+
+      await store.archiveTicketAsync(archived.summary.id);
+      const refreshed = await loadTicketWorkspaceSnapshot(store, { kind: "list" });
+      expect(refreshed.tickets.map((ticket) => ticket.id)).toEqual(["t-0002"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("offers a delete action for archived tickets", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      const archived = await store.createTicketAsync({ title: "Delete me" });
+      await store.closeTicketAsync(archived.summary.id, "done");
+      await store.archiveTicketAsync(archived.summary.id);
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "detail", ref: archived.summary.id });
+      snapshot.tickets = [archived.summary];
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        return await new Promise<TicketWorkspaceAction | null>((resolve) => {
+          const component = factory({ requestRender: () => {} }, createTheme(), {}, resolve);
+          component.handleInput("a");
+          component.handleInput("\u001b[B");
+          component.handleInput("\u001b[B");
+          component.handleInput("\r");
+        });
+      });
+
+      const action = await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(action).toEqual({ kind: "delete", ref: archived.summary.id, nextView: { kind: "list" } });
     } finally {
       cleanup();
     }

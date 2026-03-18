@@ -116,4 +116,74 @@ describe("/ticket command handler", () => {
       cleanup();
     }
   }, 30000);
+
+  it("archives a selected ticket from the workspace and hides it from the refreshed default workbench", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      await store.initLedgerAsync();
+      await store.createTicketAsync({ title: "Archive from workspace" });
+      await store.closeTicketAsync("t-0001", "done");
+      await store.createTicketAsync({ title: "Still visible" });
+      const ui = {
+        custom: vi
+          .fn()
+          .mockResolvedValueOnce({ kind: "archive", ref: "t-0001", nextView: { kind: "list" } })
+          .mockResolvedValueOnce({ kind: "close" }),
+        notify: vi.fn(),
+        setWidget: vi.fn(),
+      };
+      const ctx = createContext(cwd, ui);
+
+      const result = await handleTicketCommand("", ctx);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(result).toBe("");
+      expect(ui.custom).toHaveBeenCalledTimes(2);
+      const archived = await store.readTicketAsync("t-0001");
+      expect(archived.summary.archived).toBe(true);
+
+      const home = await handleTicketCommand("", createContext(cwd));
+      expect(home).not.toContain("Archive from workspace");
+      expect(home).toContain("Still visible");
+    } finally {
+      cleanup();
+    }
+  }, 30000);
+
+  it("deletes an archived ticket from the workspace and refreshes the visible backlog", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      await store.initLedgerAsync();
+      await store.createTicketAsync({ title: "Delete from workspace" });
+      await store.closeTicketAsync("t-0001", "done");
+      await store.archiveTicketAsync("t-0001");
+      await store.createTicketAsync({ title: "Still visible" });
+      const ui = {
+        custom: vi
+          .fn()
+          .mockResolvedValueOnce({ kind: "delete", ref: "t-0001", nextView: { kind: "list" } })
+          .mockResolvedValueOnce({ kind: "close" }),
+        notify: vi.fn(),
+        setWidget: vi.fn(),
+      };
+      const ctx = createContext(cwd, ui);
+
+      const result = await handleTicketCommand("", ctx);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(result).toBe("");
+      expect(ui.custom).toHaveBeenCalledTimes(2);
+      await expect(store.readTicketAsync("t-0001")).rejects.toThrow("Unknown ticket: t-0001");
+
+      const home = await handleTicketCommand("", createContext(cwd));
+      expect(home).not.toContain("Delete from workspace");
+      expect(home).toContain("Still visible");
+    } finally {
+      cleanup();
+    }
+  }, 30000);
 });

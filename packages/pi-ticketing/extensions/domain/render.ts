@@ -5,13 +5,15 @@ function renderList(values: string[]): string {
 }
 
 export function renderTicketSummary(summary: TicketSummary): string {
-  return `${summary.id} [${summary.status}] (${summary.type}/${summary.priority}) ${summary.title}`;
+  const lifecycle = summary.archived ? " archived" : "";
+  return `${summary.id} [${summary.status}${lifecycle}] (${summary.type}/${summary.priority}) ${summary.title}`;
 }
 
 export function renderTicketDetail(result: TicketReadResult): string {
   const { ticket, summary, journal, attachments, checkpoints, children, blockers } = result;
   return [
     renderTicketSummary(summary),
+    `Archived: ${ticket.archived ? `yes (${ticket.archivedAt ?? "timestamp unavailable"})` : "no"}`,
     `Stored status: ${ticket.frontmatter.status}`,
     `Risk: ${ticket.frontmatter.risk}`,
     `Review status: ${ticket.frontmatter["review-status"]}`,
