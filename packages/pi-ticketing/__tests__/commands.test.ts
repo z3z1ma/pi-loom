@@ -32,84 +32,35 @@ function createContext(
 }
 
 describe("/ticket command handler", () => {
-  it("advertises only the human widget verbs and rejects removed tool-mirroring subcommands", async () => {
+  it("always opens the ticket workspace and ignores human slash subcommands", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      const store = createTicketStore(cwd);
+      await store.initLedgerAsync();
+      await store.createTicketAsync({ title: "Seed ticket" });
       const ctx = createContext(cwd);
 
-      const usage = await handleTicketCommand("", ctx);
-      expect(usage).toContain("open");
-      expect(usage).toContain("create");
-      expect(usage).toContain("review");
-      expect(usage).not.toContain("start");
-      expect(usage).not.toContain("show");
-      expect(usage).not.toContain("journal");
+      const home = await handleTicketCommand("", ctx);
+      const ignoredArgs = await handleTicketCommand("open detail #t-0001 status close nope", ctx);
 
-      await expect(handleTicketCommand("start t-0001", ctx)).rejects.toThrow("Unknown /ticket subcommand: start");
-      await expect(handleTicketCommand("close t-0001", ctx)).rejects.toThrow("Unknown /ticket subcommand: close");
-    } finally {
-      cleanup();
-    }
-  });
+      expect(home).toContain("Ticket workbench: overview");
+      expect(home).toContain("Seed ticket");
+      expect(ignoredArgs).toContain("Ticket workbench: overview");
+      expect(ignoredArgs).toContain("Seed ticket");
 
-  it("creates tickets and falls back to textual focused views when custom UI is unavailable", async () => {
-    const { cwd, cleanup } = createTempWorkspace();
-    try {
-      const ctx = createContext(cwd);
-
-      const created = await handleTicketCommand("create Harden extension coverage", ctx);
-      expect(created).toContain("t-0001");
-      expect(created).toContain("Harden extension coverage");
-      expect(created).toContain("Stored status: open");
-
-      const home = await handleTicketCommand("open home", ctx);
-      expect(home.trim().length).toBeGreaterThan(0);
-      expect(home.toLowerCase()).toMatch(/ticket|ready|blocked|review|open/);
-
-      const list = await handleTicketCommand("open list", ctx);
-      expect(list).toContain("t-0001");
-      expect(list).toContain("Harden extension coverage");
-
-      const board = await handleTicketCommand("open board", ctx);
-      expect(board).toContain("t-0001");
-      expect(board).toContain("Harden extension coverage");
-
-      const timeline = await handleTicketCommand("open timeline", ctx);
-      expect(timeline).toContain("t-0001 [ready] Harden extension coverage");
-
-      const detail = await handleTicketCommand("open detail #t-0001", ctx);
-      expect(detail).toContain("Harden extension coverage");
-      expect(detail).toContain("Stored status: open");
+      const ticket = await store.readTicketAsync("t-0001");
+      expect(ticket.ticket.frontmatter.status).toBe("open");
     } finally {
       cleanup();
     }
   }, 15000);
 
-  it("supports direct detail actions in textual fallback mode", async () => {
+  it("opens the overlay workbench in UI mode without blocking command completion", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
-      const ctx = createContext(cwd);
-
-      await handleTicketCommand("create Headless fallback action", ctx);
-
-      const edited = await handleTicketCommand("open detail #t-0001 edit priority high", ctx);
-      expect(edited).toContain("(task/high) Headless fallback action");
-
-      const closed = await handleTicketCommand("open detail #t-0001 status close verified in fallback", ctx);
-      expect(closed).toContain("Stored status: closed");
-      expect(closed).toContain("verified in fallback");
-
-      const reopened = await handleTicketCommand("open detail #t-0001 status reopen", ctx);
-      expect(reopened).toContain("Stored status: open");
-      expect(reopened).toContain("[ready]");
-    } finally {
-      cleanup();
-    }
-  }, 15000);
-
-  it("uses ctx.ui.custom for focused views when interactive UI is available", async () => {
-    const { cwd, cleanup } = createTempWorkspace();
-    try {
+      const store = createTicketStore(cwd);
+      await store.initLedgerAsync();
+      await store.createTicketAsync({ title: "Focus custom workspace" });
       const ui = {
         custom: vi.fn(async () => null),
         notify: vi.fn(),
@@ -117,24 +68,30 @@ describe("/ticket command handler", () => {
       };
       const ctx = createContext(cwd, ui);
 
-      await handleTicketCommand("create Focus custom workspace", ctx);
-      const result = await handleTicketCommand("open detail #t-0001", ctx);
+      const result = await Promise.race([
+        handleTicketCommand("anything here is ignored", ctx),
+        new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 50)),
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(result).toBe("");
       expect(ui.custom).toHaveBeenCalledTimes(1);
       const options = (ui.custom.mock.calls[0] as unknown[] | undefined)?.[1];
       expect(options).toMatchObject({
         overlay: true,
-        overlayOptions: expect.objectContaining({ anchor: "center", width: 96, maxHeight: 28 }),
+        overlayOptions: expect.objectContaining({ anchor: "center", width: 96, maxHeight: 40 }),
       });
     } finally {
       cleanup();
     }
   }, 15000);
 
-  it("applies direct interactive workspace edits without raw slash commands", async () => {
+  it("still supports direct ticket mutations from inside the interactive workspace", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
+      const store = createTicketStore(cwd);
+      await store.initLedgerAsync();
+      await store.createTicketAsync({ title: "Drive interactive edit" });
       const ui = {
         custom: vi
           .fn()
@@ -147,39 +104,16 @@ describe("/ticket command handler", () => {
       };
       const ctx = createContext(cwd, ui);
 
-      await handleTicketCommand("create Drive interactive edit", ctx);
-      const result = await handleTicketCommand("open detail #t-0001", ctx);
+      const result = await handleTicketCommand("", ctx);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(result).toBe("");
-      const updated = await createTicketStore(cwd).readTicketAsync("t-0001");
+      const updated = await store.readTicketAsync("t-0001");
       expect(updated.ticket.frontmatter.priority).toBe("high");
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("(task/high) Drive interactive edit"), "info");
     } finally {
       cleanup();
     }
   }, 30000);
-
-  it("reviews ready and blocked work through human review verbs", async () => {
-    const { cwd, cleanup } = createTempWorkspace();
-    try {
-      const store = createTicketStore(cwd);
-      const blocker = await store.createTicketAsync({ title: "Unblock identity service" });
-      const dependent = await store.createTicketAsync({
-        title: "Resume login rollout",
-        deps: [blocker.summary.id],
-      });
-      const ctx = createContext(cwd);
-
-      const ready = await handleTicketCommand("review ready", ctx);
-      expect(ready).toContain(blocker.summary.id);
-      expect(ready).toContain("Unblock identity service");
-
-      const blocked = await handleTicketCommand("review blocked", ctx);
-      expect(blocked).toContain(dependent.summary.id);
-      expect(blocked).toContain("Resume login rollout");
-      expect(blocked).toContain(blocker.summary.id);
-    } finally {
-      cleanup();
-    }
-  }, 15000);
 });

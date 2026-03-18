@@ -72,15 +72,6 @@ function createMockPi(): MockPi {
   };
 }
 
-function getCommand(mockPi: MockPi, name: string): Omit<RegisteredCommand, "name"> {
-  const command = mockPi.commands.get(name);
-  expect(command).toBeDefined();
-  if (!command) {
-    throw new Error(`Missing command ${name}`);
-  }
-  return command;
-}
-
 function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: ExtensionContext) => unknown {
   const handler = mockPi.handlers.get(eventName);
   expect(handler).toBeDefined();
@@ -88,6 +79,15 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
     throw new Error(`Missing handler ${eventName}`);
   }
   return handler;
+}
+
+function getCommand(mockPi: MockPi, name: string): Omit<RegisteredCommand, "name"> {
+  const command = mockPi.commands.get(name);
+  expect(command).toBeDefined();
+  if (!command) {
+    throw new Error(`Missing command ${name}`);
+  }
+  return command;
 }
 
 function createCommandContext(
@@ -103,7 +103,11 @@ function createCommandContext(
     custom: ReturnType<typeof vi.fn>;
     input: ReturnType<typeof vi.fn>;
     editor: ReturnType<typeof vi.fn>;
+    getEditorText: ReturnType<typeof vi.fn>;
+    onTerminalInput: ReturnType<typeof vi.fn>;
     setWidget: ReturnType<typeof vi.fn>;
+    setEditorText: ReturnType<typeof vi.fn>;
+    setEditorComponent: ReturnType<typeof vi.fn>;
   };
 } {
   const ui = {
@@ -111,7 +115,11 @@ function createCommandContext(
     custom: vi.fn(async () => options?.customResult ?? null),
     input: vi.fn(async () => undefined),
     editor: vi.fn(async () => undefined),
+    getEditorText: vi.fn(() => ""),
+    onTerminalInput: vi.fn(() => () => {}),
     setWidget: vi.fn(),
+    setEditorText: vi.fn(),
+    setEditorComponent: vi.fn(),
   };
   return {
     ctx: {
@@ -140,10 +148,12 @@ describe("pi-ticketing extension", () => {
       "ticket_write",
     ]);
     expect(mockPi.handlers.has("session_start")).toBe(true);
+    expect(mockPi.handlers.has("session_switch")).toBe(true);
+    expect(mockPi.handlers.has("session_fork")).toBe(true);
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
 
-  it("routes textual fallback output through notifications and interactive focused views through custom UI", async () => {
+  it("opens the ticket workspace and installs the ticket editor/interceptor for UI sessions", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
@@ -161,24 +171,21 @@ describe("pi-ticketing extension", () => {
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
       expect(await store.listTicketsAsync({ includeClosed: true })).toEqual([]);
+      expect(fallbackUi.setEditorComponent).not.toHaveBeenCalled();
+      expect(fallbackUi.onTerminalInput).not.toHaveBeenCalled();
 
-      await command.handler("create Establish durable ledger coverage", fallbackCtx);
-      expect(fallbackUi.notify).toHaveBeenCalledWith(
-        expect.stringContaining("Establish durable ledger coverage"),
-        "info",
-      );
+      await sessionStart({ type: "session_start" }, interactiveCtx as unknown as ExtensionContext);
+      expect(interactiveUi.setEditorComponent).toHaveBeenCalledTimes(1);
+      expect(interactiveUi.onTerminalInput).toHaveBeenCalledTimes(1);
 
-      fallbackUi.notify.mockClear();
+      await store.createTicketAsync({ title: "Seed workspace" });
       await command.handler("open home", fallbackCtx);
-      expect(fallbackUi.notify).toHaveBeenCalledWith(
-        expect.stringMatching(/ticket|ready|blocked|review|open/i),
-        "info",
-      );
+      expect(fallbackUi.notify).toHaveBeenCalledWith(expect.stringContaining("Ticket workbench: overview"), "info");
       expect(fallbackUi.setWidget).toHaveBeenCalled();
 
-      await command.handler("open detail #t-0001", interactiveCtx);
-      expect(interactiveUi.custom).toHaveBeenCalledTimes(1);
-      expect(interactiveUi.notify).not.toHaveBeenCalled();
+      fallbackUi.notify.mockClear();
+      await command.handler("review blocked", fallbackCtx);
+      expect(fallbackUi.notify).toHaveBeenCalledWith(expect.stringContaining("Ticket workbench: overview"), "info");
     } finally {
       cleanup();
     }

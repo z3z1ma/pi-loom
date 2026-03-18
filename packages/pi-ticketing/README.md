@@ -19,26 +19,17 @@ Tickets are intended to be detail-first execution records and complete units of 
 
 ## Human UX: widget-first `/ticket`
 
-`/ticket` is now a small, human-centered surface instead of a tool-mirroring command namespace.
+`/ticket` is a single human-facing entrypoint.
 
-Supported verbs:
+Use:
 
-- `/ticket open [home|list|board|timeline|detail <ref>]`
-- `/ticket create [title...]`
-- `/ticket review [ready|blocked]`
+- `/ticket`
 
-What those verbs mean:
-
-- `open home` opens the ticket workspace home surface.
-- `open list`, `open board`, `open timeline`, and `open detail <ref>` open focused ticket views.
-- `create` creates a ticket directly from a human title prompt.
-- `review ready` and `review blocked` open backlog review views over the durable ticket graph.
-
-Old slash subcommands such as `list`, `show`, `start`, `close`, `journal`, `attach`, and dependency-management verbs are intentionally not exposed as human slash commands anymore. Human interaction should start from the workspace surface, then use focused direct operations there.
+That command opens the ticket workbench. Human interaction should start there and stay there. The workbench owns navigation, review flows, direct ticket operations, and detail inspection. We intentionally do not mirror AI tool operations back out as a sprawling human slash subcommand tree.
 
 ## Focused views and fallbacks
 
-In an interactive UI, `/ticket open ...` now enters a centered overlay workbench rendered through `ctx.ui.custom(...)`.
+In an interactive UI, `/ticket` enters a centered overlay workbench rendered through `ctx.ui.custom(...)`.
 
 That workbench is intentionally selector-shaped rather than command-shaped:
 
@@ -51,21 +42,15 @@ That workbench is intentionally selector-shaped rather than command-shaped:
 - Esc-to-back behavior inside the shell before Esc closes it entirely
 - light expressive styling and iconography so state changes and navigation read at a glance
 
-The persistent home widget is still textual. That is deliberate and truthful: current runtimes need a string-safe summary that works in RPC and other non-custom contexts. When custom UI is unavailable, `/ticket open ...` falls back to textual views instead of pretending the overlay workbench exists.
-
-Textual fallback also preserves direct detail actions when custom UI is unavailable. The same human command surface can drive focused ticket changes through detail-scoped actions such as:
-
-- `/ticket open detail <ref> edit <field> <value...>`
-- `/ticket open detail <ref> status <open|reopen|in_progress|review|close> [verification note]`
-- `/ticket open detail <ref> dependency <add|remove> <depRef>`
+The persistent home widget is still textual. That is deliberate and truthful: current runtimes need a string-safe summary that works in RPC and other non-custom contexts. When custom UI is unavailable, `/ticket` falls back to a textual overview instead of pretending the overlay workbench exists.
 
 Current interactive workbench surfaces:
 
-- overview — hero counts, ready-now work, blocked attention, recent movement
+- overview — hero counts, next actions, ready-now work, blocked or active attention, and recently closed context
 - inbox — review-focused blocked and ready queues
 - list — full backlog browsing
-- board — status-lane browsing
-- timeline — recent change chronology
+- board — action board focused on non-closed work, with closed volume summarized instead of dominating the lane view
+- timeline — grouped recent-activity feed organized by update day
 - detail — full ticket drill-in with journal, checkpoint, and attachment context
 
 Current direct workspace operations:
@@ -76,7 +61,7 @@ Current direct workspace operations:
 - add or remove dependencies
 - inspect ticket detail together with journal, checkpoint, and attachment context
 
-In interactive mode those operations are launched from contextual action menus inside the workbench. In textual fallback mode they remain available through detail-scoped command paths.
+In interactive mode those operations are launched from contextual action menus inside the workbench. The human slash layer no longer exposes separate verbs for them.
 
 The durable ticket ledger remains the source of truth. The workspace is a lens over tickets, not a shadow store.
 

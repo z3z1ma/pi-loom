@@ -83,6 +83,7 @@ interface WorkbenchState {
   selectedByTab: Partial<Record<TicketWorkbenchTabId, string | null>>;
   detailRef: string | null;
   detailScrollOffset: number;
+  detailMaxScroll: number;
   menu: WorkbenchMenu;
 }
 
@@ -126,12 +127,12 @@ const STATUS_ICONS: Record<TicketStatus, string> = {
 };
 
 const OVERLAY_WIDTH = 96;
-const OVERLAY_MAX_HEIGHT = 28;
-const MAIN_BOX_LINES = 16;
-const SIDEBAR_LINES = 14;
+const OVERLAY_MAX_HEIGHT = 40;
+const MAIN_BOX_LINES = 28;
+const SIDEBAR_LINES = 24;
 const MENU_LINES = 8;
-const NARROW_MAIN_BOX_LINES = 10;
-const NARROW_SIDEBAR_LINES = 6;
+const NARROW_MAIN_BOX_LINES = 18;
+const NARROW_SIDEBAR_LINES = 9;
 
 const EDITABLE_FIELDS: TicketWorkspaceField[] = [
   "title",
@@ -194,7 +195,12 @@ function box(title: string, lines: string[], width: number, theme: Theme, maxBod
   const rightRule = "─".repeat(Math.max(0, ruleWidth - leftRule.length));
   const top = `${theme.fg("borderAccent", "╭")}${theme.fg("borderMuted", leftRule)}${theme.fg("accent", theme.bold(titleText))}${theme.fg("borderMuted", rightRule)}${theme.fg("borderAccent", "╮")}`;
   const bottom = `${theme.fg("borderAccent", "╰")}${theme.fg("borderMuted", "─".repeat(innerWidth))}${theme.fg("borderAccent", "╯")}`;
-  const bodyLines = maxBodyLines ? viewportLines(lines, maxBodyLines) : lines;
+  const normalizedLines = lines.flatMap((line) => line.split("\n"));
+  const rawBodyLines = maxBodyLines ? viewportLines(normalizedLines, maxBodyLines) : normalizedLines;
+  const bodyLines =
+    maxBodyLines && rawBodyLines.length < maxBodyLines
+      ? [...rawBodyLines, ...Array.from({ length: maxBodyLines - rawBodyLines.length }, () => "")]
+      : rawBodyLines;
   const body = bodyLines.map((line) => {
     const content = truncateToWidth(line, innerWidth, "…", true);
     const padding = Math.max(0, innerWidth - visibleWidth(content));
@@ -263,16 +269,40 @@ function renderTabBar(activeTab: TicketWorkbenchTabId, theme: Theme, width: numb
 
 function renderWidgetCounts(model: TicketWorkbenchModel, theme: Theme): string {
   return [
-    statChip("🧮", model.counts.total, "accent", theme),
+    statChip("🧮", model.counts.total, "dim", theme),
     statChip("🟢", model.counts.ready, "success", theme),
     statChip("⛔", model.counts.blocked, "warning", theme),
-    statChip("🛠", model.counts.inProgress, "accent", theme),
+    statChip("🛠", model.counts.inProgress, "muted", theme),
     statChip("👀", model.counts.review, "muted", theme),
   ].join(" ");
 }
 
 function renderWidgetCountsText(model: TicketWorkbenchModel): string {
   return `Tickets ${model.counts.total} total • Ready ${model.counts.ready} • Blocked ${model.counts.blocked} • Active ${model.counts.inProgress} • Review ${model.counts.review}`;
+}
+
+function formatTimelineBucket(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return timestamp;
+  }
+  const today = new Date();
+  const todayKey = today.toISOString().slice(0, 10);
+  const yesterday = new Date(today);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yesterdayKey = yesterday.toISOString().slice(0, 10);
+  const key = date.toISOString().slice(0, 10);
+  if (key === todayKey) {
+    return "Today";
+  }
+  if (key === yesterdayKey) {
+    return "Yesterday";
+  }
+  return key;
+}
+
+function compactIso(timestamp: string): string {
+  return timestamp.replace("T", " ").replace(/\.\d+Z$/, "Z");
 }
 
 function selectedTicketRef(state: WorkbenchState, model: TicketWorkbenchModel): string | null {
@@ -337,7 +367,7 @@ function moveSelection(state: WorkbenchState, model: TicketWorkbenchModel, delta
 }
 
 function moveDetailScroll(state: WorkbenchState, delta: number): void {
-  state.detailScrollOffset = Math.max(0, state.detailScrollOffset + delta);
+  state.detailScrollOffset = Math.max(0, Math.min(state.detailMaxScroll, state.detailScrollOffset + delta));
 }
 
 function setActiveTab(state: WorkbenchState, tab: TicketWorkbenchTabId, model: TicketWorkbenchModel): void {
@@ -351,9 +381,11 @@ function setActiveTab(state: WorkbenchState, tab: TicketWorkbenchTabId, model: T
     state.detailRef = previouslySelected ?? state.detailRef ?? model.tickets[0]?.id ?? null;
     state.selectedByTab.detail = state.detailRef;
     state.detailScrollOffset = 0;
+    state.detailMaxScroll = 0;
     return;
   }
   state.detailScrollOffset = 0;
+  state.detailMaxScroll = 0;
   if (!state.selectedByTab[tab]) {
     state.selectedByTab[tab] = currentTabTickets(state, model)[0]?.id ?? null;
   }
@@ -365,29 +397,88 @@ function previewLines(
   graph: TicketGraphResult,
 ): string[] {
   if (!summary) {
-    return ["Select a ticket to inspect details."];
+    return ["Pick a ticket to inspect detail."];
   }
   const node = graph.nodes[summary.id];
   const lines = [
     `${summary.id}`,
     summary.title,
-    formatStatus(summary),
-    `Updated ${summary.updatedAt}`,
-    `Deps: ${summary.deps.length > 0 ? summary.deps.join(", ") : "none"}`,
-    `Blocked by: ${node?.blockedBy.length ? node.blockedBy.join(", ") : "none"}`,
+    "",
+    `Status ${statusLabel(summary.status)} • ${summary.type}/${summary.priority}`,
+    `Updated ${compactIso(summary.updatedAt)}`,
+    `Deps ${summary.deps.length > 0 ? summary.deps.join(", ") : "none"}`,
+    `Blocked by ${node?.blockedBy.length ? node.blockedBy.join(", ") : "none"}`,
   ];
   if (detail) {
     const journalEntry = detail.journal.at(-1);
+    const summaryText = detail.ticket.body.summary.trim();
+    const acceptance =
+      detail.ticket.frontmatter.acceptance.length > 0 ? detail.ticket.frontmatter.acceptance.join(" • ") : "(none)";
+    lines.push("");
+    lines.push("Summary");
+    lines.push(summaryText || "(empty)");
+    lines.push("");
+    lines.push("Acceptance");
+    lines.push(acceptance);
     if (detail.ticket.body.summary.trim()) {
       lines.push("");
-      lines.push(detail.ticket.body.summary.trim());
     }
     if (journalEntry) {
-      lines.push("");
-      lines.push(`Latest journal: ${journalEntry.kind} • ${journalEntry.createdAt}`);
+      lines.push("Latest journal");
+      lines.push(`${journalEntry.kind} • ${compactIso(journalEntry.createdAt)}`);
       lines.push(journalEntry.text);
     }
   }
+  return lines;
+}
+
+function detailSection(title: string, value: string, theme: Theme): string[] {
+  const trimmed = value.trim();
+  return [theme.fg("dim", title), trimmed || theme.fg("muted", "(empty)")];
+}
+
+function renderInteractiveDetail(detail: TicketReadResult, theme: Theme): string[] {
+  const { summary, ticket, journal, checkpoints, attachments, blockers, children } = detail;
+  const latestJournal = journal.at(-1);
+  const acceptance = ticket.frontmatter.acceptance.length > 0 ? ticket.frontmatter.acceptance.join(" • ") : "(none)";
+  const links = ticket.frontmatter.links.length > 0 ? ticket.frontmatter.links.join(" • ") : "(none)";
+  const metadata = [
+    `${statusLabel(summary.status)} • ${summary.type}/${summary.priority} • risk ${ticket.frontmatter.risk}`,
+    `Updated ${compactIso(summary.updatedAt)} • review ${ticket.frontmatter["review-status"]}`,
+    `Deps ${summary.deps.length > 0 ? summary.deps.join(", ") : "none"} • blockers ${blockers.length > 0 ? blockers.join(", ") : "none"}`,
+    `Journal ${journal.length} • checkpoints ${checkpoints.length} • attachments ${attachments.length} • children ${children.length}`,
+  ];
+
+  const lines = [summary.id, summary.title, "", ...metadata, ""];
+
+  lines.push(...detailSection("Summary", ticket.body.summary, theme), "");
+  lines.push(theme.fg("dim", "Acceptance"), acceptance, "");
+  lines.push(...detailSection("Plan", ticket.body.plan, theme), "");
+  lines.push(...detailSection("Notes", ticket.body.notes, theme), "");
+  lines.push(theme.fg("dim", "Links"), links, "");
+
+  if (latestJournal) {
+    lines.push(theme.fg("dim", "Latest journal"));
+    lines.push(`${latestJournal.kind} • ${compactIso(latestJournal.createdAt)}`);
+    lines.push(latestJournal.text);
+    lines.push("");
+  }
+
+  if (checkpoints.length > 0) {
+    lines.push(theme.fg("dim", "Recent checkpoints"));
+    for (const checkpoint of checkpoints.slice(-2)) {
+      lines.push(`${checkpoint.id} • ${checkpoint.title}`);
+    }
+    lines.push("");
+  }
+
+  if (attachments.length > 0) {
+    lines.push(theme.fg("dim", "Attachments"));
+    for (const attachment of attachments.slice(-2)) {
+      lines.push(`${attachment.label} • ${attachment.mediaType}`);
+    }
+  }
+
   return lines;
 }
 
@@ -402,46 +493,63 @@ function renderOverview(
   const blockers = new Map(
     model.blocked.map((entry) => [entry.ticket.id, `blocked by ${entry.blockers.join(", ") || "unknown"}`]),
   );
+  const recentClosedExtras = new Map(
+    model.recentClosed.map((ticket) => [
+      ticket.id,
+      `${statusLabel(ticket.status)} • shipped ${compactIso(ticket.updatedAt)}`,
+    ]),
+  );
   if (maxLines <= 10) {
     return [
       renderWidgetCounts(model, theme),
       theme.fg("dim", `Next: ${nextActionLines(model.tickets).join(" • ")}`),
       "",
       theme.fg("dim", "🟢 Ready now"),
-      ...ticketRows(model.ready.slice(0, 1), selectedRef, theme, width, 1),
+      ...ticketRows(model.ready, selectedRef, theme, width, 1),
       "",
-      theme.fg("dim", "⛔ Blocked attention"),
-      ...ticketRows(
-        model.blocked.slice(0, 1).map((entry) => entry.ticket),
-        selectedRef,
-        theme,
-        width,
-        1,
-        blockers,
-      ),
+      ...(model.blocked.length > 0
+        ? [
+            theme.fg("dim", "⛔ Blocked attention"),
+            ...ticketRows(
+              model.blocked.map((entry) => entry.ticket),
+              selectedRef,
+              theme,
+              width,
+              1,
+              blockers,
+            ),
+          ]
+        : [
+            theme.fg("dim", "✅ Recently closed"),
+            ...ticketRows(model.recentClosed, selectedRef, theme, width, 1, recentClosedExtras),
+          ]),
     ];
   }
 
-  const compactTickets = Math.max(1, Math.min(2, Math.floor((maxLines - 7) / 6) || 1));
+  const compactTickets = Math.max(1, Math.min(2, Math.floor((maxLines - 9) / 6) || 1));
   return [
     renderWidgetCounts(model, theme),
     theme.fg("dim", `Next: ${nextActionLines(model.tickets).join(" • ")}`),
     "",
     theme.fg("dim", "🟢 Ready now"),
-    ...ticketRows(model.ready.slice(0, compactTickets), selectedRef, theme, width, compactTickets),
+    ...ticketRows(model.ready, selectedRef, theme, width, compactTickets),
     "",
-    theme.fg("dim", "⛔ Blocked attention"),
-    ...ticketRows(
-      model.blocked.slice(0, compactTickets).map((entry) => entry.ticket),
-      selectedRef,
-      theme,
-      width,
-      compactTickets,
-      blockers,
-    ),
+    theme.fg("dim", model.blocked.length > 0 ? "⛔ Blocked attention" : "🛠 Active now"),
+    ...(model.blocked.length > 0
+      ? ticketRows(
+          model.blocked.map((entry) => entry.ticket),
+          selectedRef,
+          theme,
+          width,
+          compactTickets,
+          blockers,
+        )
+      : ticketRows(model.active, selectedRef, theme, width, compactTickets)),
     "",
-    theme.fg("dim", "🕒 Recent movement"),
-    ...ticketRows(model.recent.slice(0, compactTickets), selectedRef, theme, width, compactTickets),
+    theme.fg("dim", model.recentClosed.length > 0 ? "✅ Recently closed" : "🕒 Recent movement"),
+    ...(model.recentClosed.length > 0
+      ? ticketRows(model.recentClosed, selectedRef, theme, width, compactTickets, recentClosedExtras)
+      : ticketRows(model.recent, selectedRef, theme, width, compactTickets)),
   ];
 }
 
@@ -506,26 +614,50 @@ function renderBoard(
   maxLines: number,
 ): string[] {
   const selectedRef = selectedTicketRef(state, model);
-  const statusOrder: TicketStatus[] = ["ready", "in_progress", "review", "blocked", "open", "closed"];
-  const orderedBoardTickets = statusOrder.flatMap((status) => model.byStatus[status]);
-  const extras = new Map(
-    orderedBoardTickets.map((ticket) => [ticket.id, `${formatStatus(ticket)} • ${ticket.updatedAt}`]),
+  const blockedMap = new Map(
+    model.blocked.map((entry) => [entry.ticket.id, `blocked by ${entry.blockers.join(", ") || "unknown"}`]),
   );
-  const visibleTickets = Math.max(1, Math.floor((maxLines - 5) / 2));
+  const activeStatuses: TicketStatus[] = ["ready", "in_progress", "review", "blocked", "open"];
+  const activeSections = activeStatuses.filter((status) => model.byStatus[status].length > 0);
+  const visiblePerLane = activeSections.length <= 2 ? 2 : 1;
   const lines = [
-    theme.fg("accent", "🗂 Status board"),
+    theme.fg("accent", "🗂 Action board"),
     theme.fg(
       "dim",
       `${statusLabel("ready")} ${model.byStatus.ready.length} • ${statusLabel("in_progress")} ${model.byStatus.in_progress.length} • ${statusLabel("review")} ${model.byStatus.review.length}`,
     ),
     theme.fg(
       "dim",
-      `${statusLabel("blocked")} ${model.byStatus.blocked.length} • ${statusLabel("open")} ${model.byStatus.open.length} • ${statusLabel("closed")} ${model.byStatus.closed.length}`,
+      `${statusLabel("blocked")} ${model.byStatus.blocked.length} • ${statusLabel("open")} ${model.byStatus.open.length} • ✅ closed hidden ${model.byStatus.closed.length}`,
     ),
+    theme.fg("dim", "Press Enter for detail • use List for the full backlog including closed work"),
     "",
-    ...ticketRows(orderedBoardTickets, selectedRef, theme, width, visibleTickets, extras),
   ];
-  return lines;
+
+  for (const status of activeSections) {
+    const tickets = model.byStatus[status];
+    const extras = status === "blocked" ? blockedMap : undefined;
+    lines.push(theme.fg("dim", `── ${statusLabel(status)} lane ──`));
+    lines.push(...ticketRows(tickets, selectedRef, theme, width, visiblePerLane, extras));
+    lines.push("");
+  }
+
+  if (activeSections.length === 0) {
+    lines.push(theme.fg("dim", "No actionable tickets right now."));
+    lines.push(
+      theme.fg(
+        "dim",
+        `Recently closed: ${
+          model.recentClosed
+            .slice(0, 3)
+            .map((ticket) => ticket.id)
+            .join(", ") || "none"
+        }`,
+      ),
+    );
+  }
+
+  return viewportLines(lines, maxLines);
 }
 
 function renderTimeline(
@@ -536,13 +668,39 @@ function renderTimeline(
   maxLines: number,
 ): string[] {
   const selectedRef = selectedTicketRef(state, model);
-  const extras = new Map(model.timeline.map((ticket) => [ticket.id, `${ticket.updatedAt} • ${ticket.status}`]));
-  const visibleTickets = Math.max(1, Math.floor((maxLines - 3) / 2));
-  return [
+  const visibleTickets = Math.max(1, maxLines - 3);
+  const selectedIndex = Math.max(
+    0,
+    model.timeline.findIndex((ticket) => ticket.id === selectedRef),
+  );
+  const { start, end } = viewportRange(model.timeline.length, selectedIndex, visibleTickets);
+  const lines = [
     theme.fg("accent", "🕒 Recent timeline"),
+    theme.fg("dim", "Grouped by update day so status movement reads like a feed."),
     "",
-    ...ticketRows(model.timeline, selectedRef, theme, width, visibleTickets, extras),
   ];
+
+  let currentBucket: string | null = null;
+  for (const ticket of model.timeline.slice(start, end)) {
+    const bucket = formatTimelineBucket(ticket.updatedAt);
+    if (bucket !== currentBucket) {
+      lines.push(theme.fg("dim", bucket));
+      currentBucket = bucket;
+    }
+    const selected = ticket.id === selectedRef;
+    const prefix = selected ? theme.fg("accent", "❯") : theme.fg("dim", "•");
+    const row = `${STATUS_ICONS[ticket.status]} ${ticket.id} ${ticket.title}`;
+    lines.push(
+      `${prefix} ${selected ? theme.bg("selectedBg", theme.fg("text", truncateToWidth(row, Math.max(12, width - 4), "…", true))) : truncateToWidth(row, Math.max(12, width - 2), "…", true)}`,
+    );
+    lines.push(`  ${theme.fg("dim", `${compactIso(ticket.updatedAt)} • ${ticket.type}/${ticket.priority}`)}`);
+  }
+
+  if (start > 0 || end < model.timeline.length) {
+    lines.push(theme.fg("dim", `… ${selectedIndex + 1}/${model.timeline.length}`));
+  }
+
+  return lines;
 }
 
 function renderDetail(
@@ -556,27 +714,34 @@ function renderDetail(
 ): string[] {
   const ref = selectedTicketRef(state, model);
   if (!ref) {
+    state.detailMaxScroll = 0;
     return ["No ticket selected."];
   }
   const summary = getTicketById(model, ref);
   const detail = detailCache.get(ref);
+  const setMaxScroll = (lineCount: number): void => {
+    const visibleBudget = lineCount > maxLines ? Math.max(1, maxLines - 1) : maxLines;
+    state.detailMaxScroll = Math.max(0, lineCount - visibleBudget);
+    state.detailScrollOffset = Math.min(state.detailScrollOffset, state.detailMaxScroll);
+  };
   if (detail) {
-    return viewportLines(renderTicketDetail(detail).split("\n"), maxLines, state.detailScrollOffset);
+    const lines = renderInteractiveDetail(detail, theme).flatMap((line) => line.split("\n"));
+    setMaxScroll(lines.length);
+    return viewportLines(lines, maxLines, state.detailScrollOffset);
   }
   if (detailState.loadingRefs.has(ref)) {
+    state.detailMaxScroll = 0;
     return [theme.fg("dim", `Loading ${ref}…`)];
   }
 
-  return viewportLines(
-    [
-      ...(detailState.failedRefs.has(ref)
-        ? [theme.fg("warning", `Detail unavailable for ${ref}. Showing summary-only fallback.`), ""]
-        : []),
-      ...previewLines(summary, null, graph),
-    ],
-    maxLines,
-    state.detailScrollOffset,
-  );
+  const fallbackLines = [
+    ...(detailState.failedRefs.has(ref)
+      ? [theme.fg("warning", `Detail unavailable for ${ref}. Showing summary-only fallback.`), ""]
+      : []),
+    ...previewLines(summary, null, graph),
+  ].flatMap((line) => line.split("\n"));
+  setMaxScroll(fallbackLines.length);
+  return viewportLines(fallbackLines, maxLines, state.detailScrollOffset);
 }
 
 function renderMainPane(
@@ -940,6 +1105,7 @@ export async function openInteractiveTicketWorkspace(
         },
         detailRef: snapshot.detail?.summary.id ?? (snapshot.view.kind === "detail" ? snapshot.view.ref : null),
         detailScrollOffset: 0,
+        detailMaxScroll: 0,
         menu: null,
       };
 
@@ -996,10 +1162,11 @@ export async function openInteractiveTicketWorkspace(
           const ref = currentRef();
           const summary = getTicketById(model, ref);
           const detail = ref ? (detailCache.get(ref) ?? null) : null;
+          const keyboardHint = theme.fg("dim", "Tab / ← →");
           const header = [
             theme.fg("accent", theme.bold("✨ Ticket Workbench")),
             renderWidgetCounts(model, theme),
-            renderTabBar(state.activeTab, theme, width),
+            renderTabBar(state.activeTab, theme, Math.max(20, width - visibleWidth(keyboardHint) - 3)),
             "",
           ];
 
@@ -1017,6 +1184,7 @@ export async function openInteractiveTicketWorkspace(
             ),
             mainWidth,
             theme,
+            mainBoxLines,
           );
           const sidebar = box(
             summary ? `🎯 Selected • ${summary.id}` : "🎯 Selected",
@@ -1064,13 +1232,13 @@ export async function openInteractiveTicketWorkspace(
                   )
                 : theme.fg("dim", "↑ ↓ move • Enter detail • a actions • n new • Esc close • Tab / ← → tabs");
 
-          return [...header, ...body, "", footer];
+          return [...header, ...body, "", `${footer}  ${keyboardHint}`];
         },
         handleInput(data: string): void {
           const isUp = matchesKey(data, Key.up) || data === "k";
           const isDown = matchesKey(data, Key.down) || data === "j";
-          const isLeft = matchesKey(data, Key.left) || matchesKey(data, Key.shift("tab"));
-          const isRight = matchesKey(data, Key.right) || matchesKey(data, Key.tab);
+          const isLeft = matchesKey(data, Key.left) || matchesKey(data, Key.shift("tab")) || data === "h";
+          const isRight = matchesKey(data, Key.right) || matchesKey(data, Key.tab) || data === "l";
           const isEnter = matchesKey(data, Key.enter) || matchesKey(data, Key.return);
           const isEscape = matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"));
           const isPageUp = matchesKey(data, Key.pageUp);

@@ -24,7 +24,7 @@ type FakeCustomFactory = (
 ) => FakeCustomComponent;
 
 const OVERLAY_WIDTH = 96;
-const OVERLAY_MAX_HEIGHT = 28;
+const OVERLAY_MAX_HEIGHT = 40;
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-ticketing-workbench-"));
@@ -58,6 +58,29 @@ async function settle(): Promise<void> {
 }
 
 describe("ticket overlay workbench", () => {
+  it("supports h and l for tab travel", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      await store.createTicketAsync({ title: "Vim tab travel" });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "home" });
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        component.handleInput("l");
+        component.handleInput("h");
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(rendered).toContain("✨ Overview");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("closes cleanly on Escape and keeps the rendered shell bounded", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
@@ -109,6 +132,107 @@ describe("ticket overlay workbench", () => {
     }
   });
 
+  it("keeps detail render lines newline-free while scrolling multiline sections", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      const created = await store.createTicketAsync({
+        title: "Multiline detail",
+        summary: Array.from({ length: 8 }, (_, index) => `Summary line ${index + 1}`).join("\n"),
+        plan: Array.from({ length: 8 }, (_, index) => `Plan line ${index + 1}`).join("\n"),
+        notes: Array.from({ length: 8 }, (_, index) => `Notes line ${index + 1}`).join("\n"),
+      });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "detail", ref: created.summary.id });
+      let firstRender: string[] = [];
+      let secondRender: string[] = [];
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        await settle();
+        firstRender = component.render(OVERLAY_WIDTH);
+        component.handleInput("\u001b[B");
+        component.handleInput("\u001b[B");
+        component.handleInput("\u001b[B");
+        secondRender = component.render(OVERLAY_WIDTH);
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(firstRender.length).toBeLessThanOrEqual(OVERLAY_MAX_HEIGHT);
+      expect(secondRender.length).toBeLessThanOrEqual(OVERLAY_MAX_HEIGHT);
+      expect(firstRender.every((line) => !line.includes("\n"))).toBe(true);
+      expect(secondRender.every((line) => !line.includes("\n"))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("clamps detail scrolling at the maximum visible range", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      const created = await store.createTicketAsync({
+        title: "Clamp detail",
+        summary: Array.from({ length: 18 }, (_, index) => `Summary line ${index + 1}`).join("\n"),
+        plan: Array.from({ length: 18 }, (_, index) => `Plan line ${index + 1}`).join("\n"),
+      });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "detail", ref: created.summary.id });
+      let renderedAfterManyDown = "";
+      let renderedAfterMoreDown = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        await settle();
+        void component.render(OVERLAY_WIDTH);
+        for (let index = 0; index < 200; index += 1) {
+          component.handleInput("\u001b[B");
+        }
+        renderedAfterManyDown = component.render(OVERLAY_WIDTH).join("\n");
+        for (let index = 0; index < 40; index += 1) {
+          component.handleInput("\u001b[B");
+        }
+        renderedAfterMoreDown = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(renderedAfterManyDown).toContain("… ");
+      expect(renderedAfterMoreDown).toBe(renderedAfterManyDown);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("changes the visible detail content when scrolling within range", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      const created = await store.createTicketAsync({
+        title: "Scrollable detail",
+        summary: Array.from({ length: 24 }, (_, index) => `Summary line ${index + 1}`).join("\n"),
+        plan: Array.from({ length: 24 }, (_, index) => `Plan line ${index + 1}`).join("\n"),
+        notes: Array.from({ length: 24 }, (_, index) => `Notes line ${index + 1}`).join("\n"),
+      });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "detail", ref: created.summary.id });
+      let firstRender = "";
+      let secondRender = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        await settle();
+        firstRender = component.render(OVERLAY_WIDTH).join("\n");
+        component.handleInput("\u001b[B");
+        secondRender = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(firstRender).not.toBe(secondRender);
+    } finally {
+      cleanup();
+    }
+  });
+
   it("keeps narrow list layouts within the overlay height budget", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
@@ -152,6 +276,37 @@ describe("ticket overlay workbench", () => {
 
       await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
       expect(lineCount).toBeLessThanOrEqual(OVERLAY_MAX_HEIGHT);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("lets overview selection scroll deeper ready items into view", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      let targetId = "";
+      for (let index = 0; index < 4; index += 1) {
+        const created = await store.createTicketAsync({ title: `Overview ready ${index + 1}` });
+        if (index === 3) {
+          targetId = created.summary.id;
+        }
+      }
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "home" });
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        component.handleInput("\u001b[B");
+        component.handleInput("\u001b[B");
+        component.handleInput("\u001b[B");
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(rendered).toContain(targetId);
+      expect(rendered).toContain("Overview ready 4");
     } finally {
       cleanup();
     }
@@ -371,6 +526,86 @@ describe("ticket overlay workbench", () => {
       await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
       expect(rendered).toContain("Edit journal summary");
       expect(rendered).toContain("11/12");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("uses the board to focus actionable work instead of listing closed backlog items", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      const ready = await store.createTicketAsync({ title: "Ready board item" });
+      const closed = await store.createTicketAsync({ title: "Closed board item" });
+      await store.closeTicketAsync(closed.summary.id, "done");
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "board" });
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(rendered).toContain("Action board");
+      expect(rendered).toContain(ready.summary.id);
+      expect(rendered).not.toContain(closed.summary.id);
+      expect(rendered).toContain("closed hidden 1");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("renders the timeline as a grouped activity feed", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      await store.createTicketAsync({ title: "Timeline feed item" });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "timeline" });
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(rendered).toContain("Recent timeline");
+      expect(rendered).toContain("Grouped by update day");
+      expect(rendered).toContain("Today");
+      expect(rendered).toContain("Timeline feed item");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("renders interactive detail as curated sections instead of the raw ticket dump", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      const created = await store.createTicketAsync({
+        title: "Curated detail",
+        summary: "Explain the problem clearly.",
+        plan: "Ship the plan.",
+        notes: "Track the important note.",
+      });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "detail", ref: created.summary.id });
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(rendered).toContain("Summary");
+      expect(rendered).toContain("Plan");
+      expect(rendered).toContain("Acceptance");
+      expect(rendered).not.toContain("Stored status:");
+      expect(rendered).not.toContain("Spec capabilities:");
     } finally {
       cleanup();
     }

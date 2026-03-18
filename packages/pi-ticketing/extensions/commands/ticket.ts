@@ -22,29 +22,6 @@ import {
   type TicketWorkspaceView,
 } from "../ui/ticket-workspace.js";
 
-const WORKSPACE_FIELDS = [
-  "title",
-  "assignee",
-  "priority",
-  "risk",
-  "type",
-  "reviewStatus",
-  "summary",
-  "context",
-  "plan",
-  "notes",
-  "verification",
-  "journalSummary",
-] as const satisfies readonly TicketWorkspaceField[];
-
-function splitArgs(args: string): string[] {
-  return args.trim().split(/\s+/).filter(Boolean);
-}
-
-function normalizeWorkspaceRef(ref: string): string {
-  return ref.startsWith("#") ? ref.slice(1) : ref;
-}
-
 function fieldLabel(field: TicketWorkspaceField): string {
   switch (field) {
     case "journalSummary":
@@ -113,13 +90,6 @@ function notifyTicketResult(ctx: ExtensionCommandContext, result: TicketReadResu
   if (typeof ctx.ui?.notify === "function") {
     ctx.ui.notify(renderTicketDetail(result), "info");
   }
-}
-
-function parseWorkspaceField(value: string | undefined): TicketWorkspaceField {
-  if (value && WORKSPACE_FIELDS.includes(value as TicketWorkspaceField)) {
-    return value as TicketWorkspaceField;
-  }
-  throw new Error(`Unsupported ticket field. Expected one of ${WORKSPACE_FIELDS.join(", ")}.`);
 }
 
 function buildFieldUpdate(field: TicketWorkspaceField, value: string | undefined): UpdateTicketInput | null {
@@ -199,66 +169,6 @@ async function promptFieldUpdate(
   }
   const value = await ctx.ui.editor(`Edit ${ref} ${fieldLabel(field)}`, currentValue);
   return buildFieldUpdate(field, value);
-}
-
-function parseOpenCommand(parts: string[]): { view: TicketWorkspaceView; action: TicketWorkspaceAction | null } {
-  const [view, maybeRef, maybeAction, ...rest] = parts;
-  if (!view || view === "home") {
-    return { view: { kind: "home" }, action: null };
-  }
-  if (view === "list") {
-    return { view: { kind: "list" }, action: null };
-  }
-  if (view === "board") {
-    return { view: { kind: "board" }, action: null };
-  }
-  if (view === "timeline") {
-    return { view: { kind: "timeline" }, action: null };
-  }
-  if (view === "detail") {
-    if (!maybeRef) {
-      throw new Error("Usage: /ticket open detail <ref>");
-    }
-    const ref = normalizeWorkspaceRef(maybeRef);
-    if (!maybeAction) {
-      return { view: { kind: "detail", ref }, action: null };
-    }
-    if (maybeAction === "edit") {
-      const field = parseWorkspaceField(rest[0]);
-      return { view: { kind: "detail", ref }, action: { kind: "edit", ref, field, value: rest.slice(1).join(" ") } };
-    }
-    if (maybeAction === "status") {
-      const [status, ...noteParts] = rest;
-      if (!status || !["open", "reopen", "in_progress", "review", "close"].includes(status)) {
-        throw new Error(
-          "Usage: /ticket open detail <ref> status <open|reopen|in_progress|review|close> [verification note]",
-        );
-      }
-      return {
-        view: { kind: "detail", ref },
-        action: {
-          kind: "status",
-          ref,
-          status: status as "open" | "reopen" | "in_progress" | "review" | "close",
-          verificationNote: noteParts.join(" "),
-        },
-      };
-    }
-    if (maybeAction === "dependency") {
-      const [mode, dependencyRef] = rest;
-      if ((mode !== "add" && mode !== "remove") || !dependencyRef) {
-        throw new Error("Usage: /ticket open detail <ref> dependency <add|remove> <depRef>");
-      }
-      return {
-        view: { kind: "detail", ref },
-        action: { kind: "dependency", ref, mode, dependencyRef },
-      };
-    }
-    throw new Error(
-      "Usage: /ticket open detail <ref> [edit <field> <value...>|status <open|reopen|in_progress|review|close> [verification note]|dependency <add|remove> <depRef>]",
-    );
-  }
-  throw new Error("Usage: /ticket open [home|list|board|timeline|detail <ref>]");
 }
 
 async function performWorkspaceAction(
@@ -345,66 +255,36 @@ async function performWorkspaceAction(
 }
 
 async function openTicketWorkspace(initialView: TicketWorkspaceView, ctx: ExtensionCommandContext): Promise<string> {
-  const store = createTicketStore(ctx.cwd);
   if (!ctx.hasUI) {
+    const store = createTicketStore(ctx.cwd);
     return renderTicketWorkspaceText(await loadTicketWorkspaceSnapshot(store, initialView));
   }
 
-  let view = initialView;
-  while (true) {
-    const action = await openInteractiveTicketWorkspace(ctx, store, await loadTicketWorkspaceSnapshot(store, view));
-    if (!action || action.kind === "close") {
-      await safeSyncTicketHomeWidget(ctx);
-      return "";
-    }
-    view = await performWorkspaceAction(action, ctx);
-  }
-}
-
-function parseReviewFilter(value: string | undefined): "ready" | "blocked" {
-  if (!value || value === "ready") {
-    return "ready";
-  }
-  if (value === "blocked") {
-    return "blocked";
-  }
-  throw new Error("Usage: /ticket review [ready|blocked]");
-}
-
-export async function handleTicketCommand(args: string, ctx: ExtensionCommandContext): Promise<string> {
   const store = createTicketStore(ctx.cwd);
-  await store.initLedgerAsync();
-  const [subcommand, ...rest] = splitArgs(args);
-  if (!subcommand) {
-    return "Usage: /ticket <open [home|list|board|timeline|detail <ref>]|create [title...]|review [ready|blocked]>";
-  }
 
-  switch (subcommand) {
-    case "open": {
-      const parsed = parseOpenCommand(rest);
-      if (parsed.action) {
-        const nextView = await performWorkspaceAction(parsed.action, ctx);
-        return ctx.hasUI
-          ? openTicketWorkspace(nextView, ctx)
-          : renderTicketWorkspaceText(await loadTicketWorkspaceSnapshot(store, nextView));
+  const runWorkspaceLoop = async (): Promise<void> => {
+    let view = initialView;
+    while (true) {
+      const action = await openInteractiveTicketWorkspace(ctx, store, await loadTicketWorkspaceSnapshot(store, view));
+      if (!action || action.kind === "close") {
+        await safeSyncTicketHomeWidget(ctx);
+        return;
       }
-      return openTicketWorkspace(parsed.view, ctx);
+      view = await performWorkspaceAction(action, ctx);
     }
-    case "create": {
-      let title = rest.join(" ").trim();
-      if (!title && ctx.hasUI) {
-        title = (await promptTitle(ctx, ""))?.trim() ?? "";
-      }
-      if (!title) {
-        throw new Error("Usage: /ticket create [title...]");
-      }
-      const result = await store.createTicketAsync({ title });
-      await safeSyncTicketHomeWidget(ctx);
-      return renderTicketDetail(result);
+  };
+
+  void runWorkspaceLoop().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (typeof ctx.ui?.notify === "function") {
+      ctx.ui.notify(message, "error");
     }
-    case "review":
-      return openTicketWorkspace({ kind: "board", filter: parseReviewFilter(rest[0]) }, ctx);
-    default:
-      throw new Error(`Unknown /ticket subcommand: ${subcommand}`);
-  }
+  });
+
+  return "";
+}
+
+export async function handleTicketCommand(_args: string, ctx: ExtensionCommandContext): Promise<string> {
+  await createTicketStore(ctx.cwd).initLedgerAsync();
+  return openTicketWorkspace({ kind: "home" }, ctx);
 }

@@ -21,8 +21,10 @@ export interface TicketWorkbenchModel {
   counts: TicketWorkbenchCounts;
   ready: TicketSummary[];
   active: TicketSummary[];
+  actionable: TicketSummary[];
   blocked: TicketBlockedItem[];
   recent: TicketSummary[];
+  recentClosed: TicketSummary[];
   timeline: TicketSummary[];
   byStatus: Record<TicketStatus, TicketSummary[]>;
 }
@@ -57,16 +59,16 @@ export function recentChangeLines(tickets: TicketSummary[], limit = 3): string[]
 export function nextActionLines(tickets: TicketSummary[]): string[] {
   const actions: string[] = [];
   if (tickets.length === 0) {
-    return ["/ticket create", "/ticket open home"];
+    return ["/ticket", "Inside workbench: n create"];
   }
   if (tickets.some((ticket) => ticket.status === "blocked")) {
-    actions.push("/ticket review blocked");
+    actions.push("/ticket • Inbox tab for blockers");
   }
   if (tickets.some((ticket) => ticket.status === "ready")) {
-    actions.push("/ticket review ready");
+    actions.push("/ticket • Inbox tab for ready work");
   }
-  actions.push("/ticket open list");
-  actions.push("/ticket create");
+  actions.push("/ticket");
+  actions.push("Inside workbench: n create");
   return [...new Set(actions)].slice(0, 4);
 }
 
@@ -94,11 +96,13 @@ export function createTicketWorkbenchModel(tickets: TicketSummary[], graph: Tick
     },
     ready: byStatus.ready,
     active: [...byStatus.in_progress, ...byStatus.review],
+    actionable: [...byStatus.ready, ...byStatus.in_progress, ...byStatus.review, ...byStatus.blocked, ...byStatus.open],
     blocked: byStatus.blocked.map((ticket) => ({
       ticket,
       blockers: graph.nodes[ticket.id]?.blockedBy ?? [],
     })),
     recent: timeline.slice(0, 6),
+    recentClosed: timeline.filter((ticket) => ticket.status === "closed").slice(0, 6),
     timeline,
     byStatus,
   };
@@ -115,7 +119,13 @@ export function uniqueTickets(tickets: TicketSummary[]): TicketSummary[] {
 }
 
 export function getOverviewTickets(model: TicketWorkbenchModel): TicketSummary[] {
-  return uniqueTickets([...model.ready.slice(0, 4), ...model.active.slice(0, 3), ...model.recent.slice(0, 3)]);
+  return uniqueTickets([
+    ...model.ready.slice(0, 4),
+    ...model.blocked.slice(0, 3).map((entry) => entry.ticket),
+    ...model.active.slice(0, 3),
+    ...model.recentClosed.slice(0, 3),
+    ...model.recent.slice(0, 3),
+  ]);
 }
 
 export function getInboxTickets(model: TicketWorkbenchModel, filter?: "ready" | "blocked"): TicketSummary[] {
@@ -135,14 +145,7 @@ export function getBoardTickets(model: TicketWorkbenchModel, filter?: "ready" | 
   if (filter === "blocked") {
     return model.byStatus.blocked;
   }
-  return [
-    ...model.byStatus.ready,
-    ...model.byStatus.in_progress,
-    ...model.byStatus.review,
-    ...model.byStatus.blocked,
-    ...model.byStatus.open,
-    ...model.byStatus.closed,
-  ];
+  return model.actionable;
 }
 
 export function getTicketById(model: TicketWorkbenchModel, ticketId: string | null | undefined): TicketSummary | null {
