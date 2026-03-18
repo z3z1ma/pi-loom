@@ -327,6 +327,13 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
     return row ? rowToEntity(row) : null;
   }
 
+  async getEntityByDisplayId(spaceId: string, kind: LoomEntityRecord["kind"], displayId: string): Promise<LoomEntityRecord | null> {
+    const row = this.db
+      .prepare("SELECT * FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1")
+      .get(spaceId, kind, displayId) as Record<string, unknown> | undefined;
+    return row ? rowToEntity(row) : null;
+  }
+
   async listEntities(spaceId?: string, kind?: LoomEntityRecord["kind"]): Promise<LoomEntityRecord[]> {
     if (spaceId && kind) {
       return this.db

@@ -6,6 +6,7 @@ import type { Model } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
+import { createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
 import { runWorkerLaunch } from "../extensions/domain/runtime.js";
 import { createWorkerStore } from "../extensions/domain/store.js";
 import { registerManagerTools } from "../extensions/tools/manager.js";
@@ -53,21 +54,7 @@ function createWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 function createGitWorkspace(): { cwd: string; cleanup: () => void } {
-  const cwd = mkdtempSync(join(tmpdir(), "pi-workers-tools-git-"));
-  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
-  execFileSync("git", ["init"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd, encoding: "utf-8" });
-  writeFileSync(join(cwd, "README.md"), "seed\n", "utf-8");
-  execFileSync("git", ["add", "README.md"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["commit", "-m", "seed"], { cwd, encoding: "utf-8" });
-  return {
-    cwd,
-    cleanup: () => {
-      delete process.env.PI_LOOM_ROOT;
-      rmSync(cwd, { recursive: true, force: true });
-    },
-  };
+  return createSeededGitWorkspace({ prefix: "pi-workers-tools-git-" });
 }
 
 function createMockPi(): { tools: Map<string, ToolDefinition>; registerTool: ReturnType<typeof vi.fn> } {

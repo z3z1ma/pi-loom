@@ -43,6 +43,15 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
     return clone(this.entities.get(id) ?? null);
   }
 
+  async getEntityByDisplayId(spaceId: string, kind: LoomEntityRecord["kind"], displayId: string): Promise<LoomEntityRecord | null> {
+    for (const entity of this.entities.values()) {
+      if (entity.spaceId === spaceId && entity.kind === kind && entity.displayId === displayId) {
+        return clone(entity);
+      }
+    }
+    return null;
+  }
+
   async listEntities(spaceId?: string, kind?: LoomEntityRecord["kind"]): Promise<LoomEntityRecord[]> {
     return [...this.entities.values()]
       .filter((record) => (spaceId ? record.spaceId === spaceId : true))

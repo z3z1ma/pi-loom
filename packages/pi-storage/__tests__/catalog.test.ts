@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { assertRepoRelativePath, type LoomRuntimeAttachment } from "../storage/contract.js";
+import { createSeededGitWorkspace } from "./helpers/git-fixture.js";
 import { createEntityId, createLinkId, createRepositoryId } from "../storage/ids.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
 import { resolveWorkspaceIdentity } from "../storage/repository.js";
@@ -11,19 +11,12 @@ import { SqliteLoomCatalog } from "../storage/sqlite.js";
 import { exportSyncBundle, hydrateSyncBundle } from "../storage/sync.js";
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
-  const cwd = mkdtempSync(path.join(tmpdir(), "pi-storage-workspace-"));
-  execFileSync("git", ["init"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["remote", "add", "origin", "git@github.com:example/pi-loom.git"], {
-    cwd,
-    encoding: "utf-8",
+  return createSeededGitWorkspace({
+    prefix: "pi-storage-workspace-",
+    packageName: "pi-loom-fixture",
+    remoteUrl: "git@github.com:example/pi-loom.git",
+    piLoomRoot: false,
   });
-  writeFileSync(path.join(cwd, "package.json"), '{"name":"pi-loom-fixture"}\n', "utf-8");
-  writeFileSync(path.join(cwd, "README.md"), "seed\n", "utf-8");
-  execFileSync("git", ["add", "package.json", "README.md"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["commit", "-m", "seed"], { cwd, encoding: "utf-8" });
-  return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
 async function seedCanonicalCatalog(

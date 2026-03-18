@@ -9,12 +9,11 @@ import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/model
 import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
 import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
-import { SqliteLoomCatalog } from "@pi-loom/pi-storage/storage/sqlite.js";
 import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { CreateTicketInput, TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildCritiqueDashboard, summarizeCritique } from "./dashboard.js";
@@ -93,13 +92,8 @@ interface StoredCritiqueEntityRow {
   attributes_json: string;
 }
 
-function openCritiqueCatalogSync(cwd: string): { storage: SqliteLoomCatalog; identity: ReturnType<typeof resolveWorkspaceIdentity> } {
-  const storage = new SqliteLoomCatalog();
-  const identity = resolveWorkspaceIdentity(cwd);
-  void storage.upsertSpace(identity.space);
-  void storage.upsertRepository(identity.repository);
-  void storage.upsertWorktree(identity.worktree);
-  return { storage, identity };
+function openCritiqueCatalogSync(cwd: string) {
+  return openWorkspaceStorageSync(cwd);
 }
 
 function parseStoredJson<T>(value: string, fallback: T): T {

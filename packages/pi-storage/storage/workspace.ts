@@ -8,7 +8,12 @@ export interface LoomWorkspaceStorage {
   storage: SqliteLoomCatalog;
 }
 
-const workspaceStorageCache = new Map<string, Promise<LoomWorkspaceStorage>>();
+interface CachedWorkspaceStorage {
+  opened: LoomWorkspaceStorage;
+  initialized: Promise<LoomWorkspaceStorage>;
+}
+
+const workspaceStorageCache = new Map<string, CachedWorkspaceStorage>();
 
 function workspaceStorageCacheKey(cwd: string): string {
   const ledgerRoot = process.env.PI_LOOM_ROOT?.trim() ?? "";
@@ -17,27 +22,60 @@ function workspaceStorageCacheKey(cwd: string): string {
 
 export async function openWorkspaceStorage(cwd: string): Promise<LoomWorkspaceStorage> {
   const cacheKey = workspaceStorageCacheKey(cwd);
+  const cached = getOrCreateWorkspaceStorage(cwd, cacheKey);
+  try {
+    return await cached.initialized;
+  } catch (error) {
+    workspaceStorageCache.delete(cacheKey);
+    throw error;
+  }
+}
+
+export function openWorkspaceStorageSync(cwd: string): LoomWorkspaceStorage {
+  return getOrCreateWorkspaceStorage(cwd, workspaceStorageCacheKey(cwd)).opened;
+}
+
+export function closeWorkspaceStorage(cwd: string): void {
+  closeWorkspaceStorageByKey(workspaceStorageCacheKey(cwd));
+}
+
+export function closeAllWorkspaceStorage(): void {
+  for (const cacheKey of [...workspaceStorageCache.keys()]) {
+    closeWorkspaceStorageByKey(cacheKey);
+  }
+}
+
+function closeWorkspaceStorageByKey(cacheKey: string): void {
+  const cached = workspaceStorageCache.get(cacheKey);
+  if (!cached) {
+    return;
+  }
+  workspaceStorageCache.delete(cacheKey);
+  cached.opened.storage.close();
+}
+
+function getOrCreateWorkspaceStorage(cwd: string, cacheKey: string): CachedWorkspaceStorage {
   const existing = workspaceStorageCache.get(cacheKey);
   if (existing) {
     return existing;
   }
 
-  const opened = (async () => {
-    const storage = new SqliteLoomCatalog();
-    const identity = resolveWorkspaceIdentity(cwd);
-    await storage.upsertSpace(identity.space);
-    await storage.upsertRepository(identity.repository);
-    await storage.upsertWorktree(identity.worktree);
-    return { identity, storage };
-  })();
-
-  workspaceStorageCache.set(cacheKey, opened);
-  try {
-    return await opened;
-  } catch (error) {
-    workspaceStorageCache.delete(cacheKey);
-    throw error;
-  }
+  const storage = new SqliteLoomCatalog();
+  const identity = resolveWorkspaceIdentity(cwd);
+  const opened = { identity, storage };
+  const initialized = Promise.all([
+    storage.upsertSpace(identity.space),
+    storage.upsertRepository(identity.repository),
+    storage.upsertWorktree(identity.worktree),
+  ])
+    .then(() => opened)
+    .catch((error) => {
+      closeWorkspaceStorageByKey(cacheKey);
+      throw error;
+    });
+  const cached = { opened, initialized };
+  workspaceStorageCache.set(cacheKey, cached);
+  return cached;
 }
 
 export async function findEntityByDisplayId(
@@ -46,6 +84,5 @@ export async function findEntityByDisplayId(
   kind: LoomEntityKind,
   displayId: string,
 ): Promise<LoomEntityRecord | null> {
-  const entities = await storage.listEntities(spaceId, kind);
-  return entities.find((entity) => entity.displayId === displayId) ?? null;
+  return storage.getEntityByDisplayId(spaceId, kind, displayId);
 }

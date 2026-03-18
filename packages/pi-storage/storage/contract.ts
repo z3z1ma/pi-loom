@@ -144,6 +144,7 @@ export interface LoomCanonicalStorage {
   listRepositories(spaceId: LoomId): Promise<LoomRepositoryRecord[]>;
   listWorktrees(repositoryId: LoomId): Promise<LoomWorktreeRecord[]>;
   getEntity(id: LoomId): Promise<LoomEntityRecord | null>;
+  getEntityByDisplayId(spaceId: LoomId, kind: LoomEntityKind, displayId: string): Promise<LoomEntityRecord | null>;
   listEntities(spaceId?: LoomId, kind?: LoomEntityKind): Promise<LoomEntityRecord[]>;
   listLinks(entityId: LoomId): Promise<LoomEntityLinkRecord[]>;
   listEvents(entityId: LoomId): Promise<LoomEntityEventRecord[]>;

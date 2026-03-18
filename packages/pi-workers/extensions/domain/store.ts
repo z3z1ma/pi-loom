@@ -1,9 +1,7 @@
 import { relative, resolve } from "node:path";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
-import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
-import { SqliteLoomCatalog } from "@pi-loom/pi-storage/storage/sqlite.js";
 import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildWorkerDashboard, filterWorkersByTelemetry, filterWorkersByText } from "./dashboard.js";
 import type {
@@ -90,13 +88,8 @@ interface StoredWorkerEntityRow {
   attributes_json: string;
 }
 
-function openWorkerCatalogSync(cwd: string): { storage: SqliteLoomCatalog; identity: ReturnType<typeof resolveWorkspaceIdentity> } {
-  const storage = new SqliteLoomCatalog();
-  const identity = resolveWorkspaceIdentity(cwd);
-  void storage.upsertSpace(identity.space);
-  void storage.upsertRepository(identity.repository);
-  void storage.upsertWorktree(identity.worktree);
-  return { storage, identity };
+function openWorkerCatalogSync(cwd: string) {
+  return openWorkspaceStorageSync(cwd);
 }
 
 function parseStoredJson<T>(value: string, fallback: T): T {

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
+import { commitWorkspaceFiles, createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
 import {
   buildInheritedWorkerSdkSessionConfig,
   resolveCliExtensionPathsFromArgv,
@@ -54,12 +55,6 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-workers-runtime-"));
   process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
-  execFileSync("git", ["init"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd, encoding: "utf-8" });
-  writeFileSync(join(cwd, "README.md"), "seed\n", "utf-8");
-  execFileSync("git", ["add", "README.md"], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["commit", "-m", "seed"], { cwd, encoding: "utf-8" });
   return {
     cwd,
     cleanup: () => {
@@ -69,15 +64,14 @@ function createWorkspace(): { cwd: string; cleanup: () => void } {
   };
 }
 
+function createGitWorkspace(): { cwd: string; cleanup: () => void } {
+  return createSeededGitWorkspace({ prefix: "pi-workers-runtime-" });
+}
+
 function writeWorkspaceFile(cwd: string, relativePath: string, content: string): void {
   const filePath = join(cwd, relativePath);
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, content, "utf-8");
-}
-
-function commitWorkspaceFiles(cwd: string, message: string, ...relativePaths: string[]): void {
-  execFileSync("git", ["add", ...relativePaths], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["commit", "-m", message], { cwd, encoding: "utf-8" });
 }
 
 describe("worker runtime", () => {
@@ -130,7 +124,7 @@ describe("worker runtime", () => {
   });
 
   it("builds an explicit launch prompt instead of reusing the raw packet dump", async () => {
-    const { cwd, cleanup } = createWorkspace();
+    const { cwd, cleanup } = createGitWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
       await ticketStore.initLedgerAsync();
@@ -157,7 +151,7 @@ describe("worker runtime", () => {
   }, 30000);
 
   it("provisions and retires Git worktree-backed worker attachments", async () => {
-    const { cwd, cleanup } = createWorkspace();
+    const { cwd, cleanup } = createGitWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
       await ticketStore.initLedgerAsync();
@@ -179,7 +173,7 @@ describe("worker runtime", () => {
   }, 30000);
 
   it("recreates a prepared workspace when durable branch state changes", async () => {
-    const { cwd, cleanup } = createWorkspace();
+    const { cwd, cleanup } = createGitWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
       await ticketStore.initLedgerAsync();
@@ -214,7 +208,7 @@ describe("worker runtime", () => {
   }, 60000);
 
   it("records runtime kind for SDK launches and can execute through the SDK runtime path", async () => {
-    const { cwd, cleanup } = createWorkspace();
+    const { cwd, cleanup } = createGitWorkspace();
     try {
       writeWorkspaceFile(cwd, "packages/demo-extension/index.ts", "export default {}\n");
       writeFileSync(
@@ -314,7 +308,7 @@ describe("worker runtime", () => {
   }, 90000);
 
   it("fails a completed launch that leaves no durable worker progress behind", async () => {
-    const { cwd, cleanup } = createWorkspace();
+    const { cwd, cleanup } = createGitWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
       await ticketStore.initLedgerAsync();
@@ -518,7 +512,7 @@ describe("worker runtime", () => {
   });
 
   it("reconstructs runtime kind and scheduler visibility from durable state", async () => {
-    const { cwd, cleanup } = createWorkspace();
+    const { cwd, cleanup } = createGitWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
       await ticketStore.initLedgerAsync();

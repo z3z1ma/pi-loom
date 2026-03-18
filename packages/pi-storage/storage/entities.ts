@@ -28,8 +28,7 @@ export async function findEntityByDisplayId(
   kind: LoomEntityKind,
   displayId: string,
 ): Promise<LoomEntityRecord | null> {
-  const entities = await storage.listEntities(spaceId, kind);
-  return entities.find((entity) => entity.displayId === displayId) ?? null;
+  return storage.getEntityByDisplayId(spaceId, kind, displayId);
 }
 
 export async function upsertEntityByDisplayId(

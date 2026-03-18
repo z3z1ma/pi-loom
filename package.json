@@ -5,11 +5,12 @@
   "description": "Pi extension workspace focused on durable AI-native constitutional, research, initiative, specification, planning, ticket, worker, critique, Ralph orchestration, and documentation memory.",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "biome check package.json tsconfig.json vitest.config.ts biome.json README.md packages",
-    "lint:fix": "biome check --write package.json tsconfig.json vitest.config.ts biome.json README.md packages",
+    "lint": "biome check package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md packages",
+    "lint:fix": "biome check --write package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md packages",
     "check": "npm run lint && npm run typecheck",
-    "check:ci": "biome ci package.json tsconfig.json vitest.config.ts biome.json README.md packages && tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "check:ci": "biome ci package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md packages && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "workspaces": [
     "packages/*"

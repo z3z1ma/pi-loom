@@ -105,6 +105,9 @@ describe("pi-storage contract", () => {
       async getEntity() {
         return entity;
       },
+      async getEntityByDisplayId() {
+        return entity;
+      },
       async listEntities() {
         return [entity];
       },

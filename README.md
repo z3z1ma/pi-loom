@@ -28,7 +28,18 @@ npm install
 npm run lint
 npm run typecheck
 npm run test
+npm run test:integration
 npm run check
+```
+
+`npm run test` is the fast default lane. It runs only the unit/helper suite.
+
+Integration-style suites are opt-in only. The default lane intentionally excludes command/store/tool/runtime/dashboard/workspace and cross-package integration coverage so standard testing stays fast.
+
+Run the opt-in integration lane explicitly when you need the cross-package SQLite-backed flows:
+
+```bash
+npm run test:integration
 ```
 
 To try the ticketing package locally once dependencies are installed:
