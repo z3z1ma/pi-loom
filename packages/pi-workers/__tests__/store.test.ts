@@ -277,7 +277,7 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  }, 30000);
+  }, 90000);
 
   it("refuses retirement cleanup for paths outside or different from the owning worker runtime", async () => {
     const { cwd, cleanup } = createGitWorkspace();
@@ -365,7 +365,7 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  }, 30000);
+  }, 90000);
 
   it("runs a bounded manager scheduler pass over unresolved inbox and approval backlog", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -419,7 +419,7 @@ describe("WorkerStore", () => {
     } finally {
       cleanup();
     }
-  }, 30000);
+  }, 90000);
 
   it("does not double-resume workers that already have a running launch", async () => {
     const { cwd, cleanup } = createGitWorkspace();

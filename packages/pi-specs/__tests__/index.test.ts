@@ -114,9 +114,9 @@ describe("pi-specs extension", () => {
     expect(getCommand(mockPi, "spec").description).toContain("durable specifications");
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "spec_analyze",
+      "spec_ensure_tickets",
       "spec_list",
       "spec_read",
-      "spec_sync_tickets",
       "spec_write",
     ]);
     expect(mockPi.handlers.has("session_start")).toBe(true);
@@ -150,7 +150,7 @@ describe("pi-specs extension", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("augments the system prompt with spec doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();

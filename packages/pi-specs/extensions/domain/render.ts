@@ -214,7 +214,7 @@ export function renderSpecSummary(summary: SpecChangeSummary): string {
 }
 
 export function renderSpecDetail(record: SpecChangeRecord): string {
-  const syncedTicketCount = record.ticketSync?.links.length ?? 0;
+  const linkedTicketCount = record.linkedTickets?.links.length ?? 0;
   return [
     renderSpecSummary(record.summary),
     `Artifacts: ${
@@ -229,7 +229,7 @@ export function renderSpecDetail(record: SpecChangeRecord): string {
     `Requirements: ${record.state.requirements.length}`,
     `Tasks: ${record.state.tasks.length}`,
     `Decisions: ${record.decisions.length}`,
-    `Synchronized tickets: ${syncedTicketCount}`,
+    `Linked tickets: ${linkedTicketCount}`,
     "",
     "Proposal:",
     record.state.proposalSummary || "(empty)",

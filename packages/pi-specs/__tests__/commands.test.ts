@@ -49,8 +49,8 @@ describe("/spec command handler", () => {
       expect(finalized).toContain("add-dark-mode [finalized]");
 
       const projected = await handleSpecCommand("tickets add-dark-mode", ctx);
-      expect(projected).toContain("Synchronized tickets: 1");
-      expect((await store.readChange("add-dark-mode")).ticketSync?.links).toHaveLength(1);
+      expect(projected).toContain("Linked tickets: 1");
+      expect((await store.readChange("add-dark-mode")).linkedTickets?.links).toHaveLength(1);
 
       const archived = await handleSpecCommand("archive add-dark-mode", ctx);
       expect(archived).toContain("add-dark-mode [archived]");

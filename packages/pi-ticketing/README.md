@@ -11,7 +11,7 @@ Tickets are intended to be detail-first execution records and complete units of 
 - durable ticket records in SQLite via pi-storage
 - dependency graph queries for ready and blocked work
 - explicit initiative membership fields for strategic traceability
-- explicit spec provenance fields for synchronized work
+- explicit spec provenance fields for spec-derived work
 - prompt guidance that pushes agents toward fully detailed ticket bodies, concrete acceptance criteria, and truthful ongoing updates
 - a widget-first `/ticket` surface for humans
 - AI-facing `ticket_*` tools with built-in prompt guidance

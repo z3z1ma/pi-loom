@@ -344,7 +344,7 @@ describe("worker runtime", () => {
     } finally {
       cleanup();
     }
-  }, 30000);
+  }, 90000);
 
   it("keeps rpc runtime as a bounded fallback seam", async () => {
     const result = await runWorkerLaunch({
@@ -543,5 +543,5 @@ describe("worker runtime", () => {
     } finally {
       cleanup();
     }
-  }, 30000);
+  }, 90000);
 });

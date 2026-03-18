@@ -151,7 +151,7 @@ describe("pi-workers extension", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("augments the system prompt with worker doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();

@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createResearchStore } from "../../pi-research/extensions/domain/store.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
-import { syncSpecTickets } from "../extensions/domain/ticket-sync.js";
+import { ensureSpecTickets } from "../extensions/domain/ticket-sync.js";
 import { createSpecStore } from "../extensions/domain/store.js";
 
-describe("spec to ticket synchronization", () => {
+describe("spec to linked ticket ensure flow", () => {
   let workspace: string;
 
   beforeEach(() => {
@@ -22,7 +22,7 @@ describe("spec to ticket synchronization", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("synchronizes finalized specs into deterministic tickets with explicit provenance", async () => {
+  it("ensures finalized specs have deterministic linked tickets with explicit provenance", async () => {
     const researchStore = createResearchStore(workspace);
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
@@ -64,34 +64,34 @@ describe("spec to ticket synchronization", () => {
     await researchStore.linkSpec("evaluate-theme-architecture", "add-dark-mode");
     await specStore.finalizeChange("add-dark-mode");
 
-    const firstSync = await syncSpecTickets(workspace, "add-dark-mode");
-    expect(firstSync.ticketSync?.mode).toBe("initial");
-    expect(firstSync.ticketSync?.links).toHaveLength(2);
+    const firstEnsure = await ensureSpecTickets(workspace, "add-dark-mode");
+    expect(firstEnsure.linkedTickets?.mode).toBe("initial");
+    expect(firstEnsure.linkedTickets?.links).toHaveLength(2);
 
     const tickets = await ticketStore.listTicketsAsync();
     expect(tickets).toHaveLength(2);
-    const foundationTicket = await ticketStore.readTicketAsync(firstSync.ticketSync?.links[0]?.ticketId ?? "t-0001");
-    const persistTicket = await ticketStore.readTicketAsync(firstSync.ticketSync?.links[1]?.ticketId ?? "t-0002");
+    const foundationTicket = await ticketStore.readTicketAsync(firstEnsure.linkedTickets?.links[0]?.ticketId ?? "t-0001");
+    const persistTicket = await ticketStore.readTicketAsync(firstEnsure.linkedTickets?.links[1]?.ticketId ?? "t-0002");
 
     expect(foundationTicket.ticket.frontmatter["spec-change"]).toBe("add-dark-mode");
     expect(foundationTicket.ticket.frontmatter["initiative-ids"]).toEqual(["platform-modernization"]);
     expect(foundationTicket.ticket.frontmatter["research-ids"]).toEqual(["evaluate-theme-architecture"]);
     expect(foundationTicket.ticket.frontmatter["spec-capabilities"]).toEqual(["theme-toggling"]);
     expect(foundationTicket.ticket.frontmatter["spec-requirements"]).toEqual([reqToggle]);
-    expect(firstSync.state.researchIds).toEqual(["evaluate-theme-architecture"]);
-    expect(firstSync.summary.researchIds).toEqual(["evaluate-theme-architecture"]);
+    expect(firstEnsure.state.researchIds).toEqual(["evaluate-theme-architecture"]);
+    expect(firstEnsure.summary.researchIds).toEqual(["evaluate-theme-architecture"]);
     expect(persistTicket.summary.deps).toEqual([foundationTicket.summary.id]);
 
-    const secondSync = await syncSpecTickets(workspace, "add-dark-mode");
-    expect(secondSync.ticketSync?.mode).toBe("refresh");
-    expect(secondSync.ticketSync?.links.map((entry) => entry.ticketId)).toEqual(
-      firstSync.ticketSync?.links.map((entry) => entry.ticketId),
+    const secondEnsure = await ensureSpecTickets(workspace, "add-dark-mode");
+    expect(secondEnsure.linkedTickets?.mode).toBe("updated");
+    expect(secondEnsure.linkedTickets?.links.map((entry) => entry.ticketId)).toEqual(
+      firstEnsure.linkedTickets?.links.map((entry) => entry.ticketId),
     );
     await expect(ticketStore.listTicketsAsync()).resolves.toHaveLength(2);
 
     await expect(specStore.readChange("add-dark-mode")).resolves.toMatchObject({
-      ticketSync: {
-        mode: "refresh",
+      linkedTickets: {
+        mode: "updated",
         links: [
           expect.objectContaining({ taskId: "task-001", ticketId: foundationTicket.summary.id }),
           expect.objectContaining({ taskId: "task-002", ticketId: persistTicket.summary.id }),
@@ -100,7 +100,7 @@ describe("spec to ticket synchronization", () => {
     });
   }, 15000);
 
-  it("refreshes synchronized tickets when capability details change after re-sync", async () => {
+  it("updates linked tickets when capability details change after re-run", async () => {
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
 
@@ -134,10 +134,10 @@ describe("spec to ticket synchronization", () => {
     });
     await specStore.finalizeChange("add-dark-mode");
 
-    const firstSync = await syncSpecTickets(workspace, "add-dark-mode");
-    const synchronizedTicketId = firstSync.ticketSync?.links[0]?.ticketId;
-    expect(synchronizedTicketId).toBeTruthy();
-    await expect(ticketStore.readTicketAsync(synchronizedTicketId ?? "t-0001")).resolves.toMatchObject({
+    const firstEnsure = await ensureSpecTickets(workspace, "add-dark-mode");
+    const linkedTicketId = firstEnsure.linkedTickets?.links[0]?.ticketId;
+    expect(linkedTicketId).toBeTruthy();
+    await expect(ticketStore.readTicketAsync(linkedTicketId ?? "t-0001")).resolves.toMatchObject({
       ticket: { body: { context: expect.stringContaining("Theme toggling") } },
     });
 
@@ -156,9 +156,9 @@ describe("spec to ticket synchronization", () => {
     });
     await specStore.finalizeChange("add-dark-mode");
 
-    const refreshed = await syncSpecTickets(workspace, "add-dark-mode");
-    expect(refreshed.ticketSync?.mode).toBe("refresh");
-    await expect(ticketStore.readTicketAsync(synchronizedTicketId ?? "t-0001")).resolves.toMatchObject({
+    const refreshed = await ensureSpecTickets(workspace, "add-dark-mode");
+    expect(refreshed.linkedTickets?.mode).toBe("updated");
+    await expect(ticketStore.readTicketAsync(linkedTicketId ?? "t-0001")).resolves.toMatchObject({
       ticket: { body: { context: expect.stringContaining("Theme switching") } },
     });
   }, 30000);

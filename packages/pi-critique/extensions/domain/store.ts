@@ -196,7 +196,7 @@ function deriveContextRefsFromSpec(change: SpecChangeRecord): CritiqueContextRef
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChangeIds: [change.state.changeId],
-    ticketIds: change.ticketSync?.links.map((ticket) => ticket.ticketId) ?? [],
+    ticketIds: change.linkedTickets?.links.map((ticket) => ticket.ticketId) ?? [],
   });
 }
 
@@ -524,14 +524,14 @@ export class CritiqueStore {
         decisions: SpecChangeRecord["decisions"];
         analysis: SpecChangeRecord["analysis"];
         checklist: SpecChangeRecord["checklist"];
-        ticketSync?: SpecChangeRecord["ticketSync"];
+        linkedTickets?: SpecChangeRecord["linkedTickets"];
       };
       return {
         state: attributes.state,
         decisions: attributes.decisions,
         analysis: attributes.analysis,
         checklist: attributes.checklist,
-        ticketSync: attributes.ticketSync ?? null,
+        linkedTickets: attributes.linkedTickets ?? null,
         summary: {
           id: entity.displayId,
           title: entity.title,
@@ -596,7 +596,7 @@ export class CritiqueStore {
             `Proposal: ${excerpt(change.state.proposalSummary)}`,
             `Requirements: ${change.state.requirements.length}`,
             `Tasks: ${change.state.tasks.length}`,
-            `Synchronized tickets: ${change.ticketSync?.links.length ?? 0}`,
+            `Linked tickets: ${change.linkedTickets?.links.length ?? 0}`,
           ].join("\n"),
           contextRefs: deriveContextRefsFromSpec(change),
         };
@@ -710,7 +710,7 @@ export class CritiqueStore {
             `Proposal: ${excerpt(change.state.proposalSummary)}`,
             `Requirements: ${change.state.requirements.length}`,
             `Tasks: ${change.state.tasks.length}`,
-            `Synchronized tickets: ${change.ticketSync?.links.length ?? 0}`,
+            `Linked tickets: ${change.linkedTickets?.links.length ?? 0}`,
           ].join("\n"),
           contextRefs: deriveContextRefsFromSpec(change),
         };

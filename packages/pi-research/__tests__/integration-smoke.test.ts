@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitiativeStore } from "../../pi-initiatives/extensions/domain/store.js";
 import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
-import { syncSpecTickets } from "../../pi-specs/extensions/domain/ticket-sync.js";
+import { ensureSpecTickets } from "../../pi-specs/extensions/domain/ticket-sync.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { createResearchStore } from "../extensions/domain/store.js";
 
@@ -23,7 +23,7 @@ describe("research integration smoke", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("preserves research provenance from discovery through initiative, spec, and projected tickets", async () => {
+  it("preserves research provenance from discovery through initiative, spec, and linked tickets", async () => {
     const researchStore = createResearchStore(workspace);
     const initiativeStore = createInitiativeStore(workspace);
     const specStore = createSpecStore(workspace);
@@ -91,10 +91,10 @@ describe("research integration smoke", () => {
     });
     await specStore.finalizeChange("add-dark-mode");
 
-    const synced = await syncSpecTickets(workspace, "add-dark-mode");
-    const syncedLinks = synced.ticketSync?.links ?? [];
-    const firstTicket = await ticketStore.readTicketAsync(syncedLinks[0]?.ticketId ?? "t-0001");
-    const secondTicket = await ticketStore.readTicketAsync(syncedLinks[1]?.ticketId ?? "t-0002");
+    const ensured = await ensureSpecTickets(workspace, "add-dark-mode");
+    const linkedTickets = ensured.linkedTickets?.links ?? [];
+    const firstTicket = await ticketStore.readTicketAsync(linkedTickets[0]?.ticketId ?? "t-0001");
+    const secondTicket = await ticketStore.readTicketAsync(linkedTickets[1]?.ticketId ?? "t-0002");
     await researchStore.linkTicket(research.state.researchId, firstTicket.summary.id);
 
     const refreshedResearch = await researchStore.readResearch(research.state.researchId);
@@ -124,6 +124,6 @@ describe("research integration smoke", () => {
     expect(refreshedTicket.ticket.frontmatter["research-ids"]).toEqual([research.state.researchId]);
     expect(refreshedTicket.summary.researchIds).toEqual([research.state.researchId]);
     expect(secondTicket.ticket.frontmatter["research-ids"]).toEqual([research.state.researchId]);
-    expect(syncedLinks).toHaveLength(2);
+    expect(linkedTickets).toHaveLength(2);
   }, 60000);
 });

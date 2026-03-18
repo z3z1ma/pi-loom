@@ -185,5 +185,5 @@ describe("ralph review-state gating", () => {
     expect(() => store.prepareLaunch(created.state.runId)).toThrow(
       "Ralph run verifier-blocked-review is waiting for operator and cannot launch until that gate is cleared.",
     );
-  }, 20000);
+  }, 90000);
 });

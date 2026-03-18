@@ -57,7 +57,7 @@ export function buildSpecChecklist(state: SpecChangeState): SpecChecklistResult 
       state.tasks.every((task) => task.requirements.length > 0),
       state.tasks.every((task) => task.requirements.length > 0)
         ? "Each task is linked to at least one requirement."
-        : "Link every task to a requirement before projection.",
+        : "Link every task to a requirement before ensuring tickets from the spec.",
     ),
   );
 

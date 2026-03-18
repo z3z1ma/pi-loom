@@ -117,7 +117,7 @@ function deriveContextRefsFromSpec(change: SpecChangeRecord): PlanContextRefs {
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChangeIds: [change.state.changeId],
-    ticketIds: change.ticketSync?.links.map((ticket) => ticket.ticketId) ?? [],
+    ticketIds: change.linkedTickets?.links.map((ticket) => ticket.ticketId) ?? [],
   });
 }
 
@@ -288,14 +288,14 @@ export class PlanStore {
         decisions: SpecChangeRecord["decisions"];
         analysis: SpecChangeRecord["analysis"];
         checklist: SpecChangeRecord["checklist"];
-        ticketSync?: SpecChangeRecord["ticketSync"];
+        linkedTickets?: SpecChangeRecord["linkedTickets"];
       };
       return {
         state: attributes.state,
         decisions: attributes.decisions,
         analysis: attributes.analysis,
         checklist: attributes.checklist,
-        ticketSync: attributes.ticketSync ?? null,
+        linkedTickets: attributes.linkedTickets ?? null,
         summary: {
           id: entity.displayId,
           title: entity.title,
@@ -812,7 +812,7 @@ export class PlanStore {
       changedFields.length > 0
         ? `Updated ${changedFields.join(", ")}.`
         : "Regenerated the durable workplan without field-level changes.",
-      "Keep the workplan synchronized with the current execution strategy and observable validation story.",
+      "Keep the workplan aligned with the current execution strategy and observable validation story.",
     );
     const nextState: PlanState = {
       ...current.state,

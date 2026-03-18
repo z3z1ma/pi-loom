@@ -7,8 +7,8 @@ import type {
   SpecChangeRecord,
   SpecRequirementRecord,
   SpecTaskRecord,
-  SpecTicketSyncEntry,
-  SpecTicketSyncState,
+  SpecLinkedTicketEntry,
+  SpecLinkedTicketsState,
 } from "./models.js";
 import { normalizeStringList } from "./normalize.js";
 import { createSpecStore } from "./store.js";
@@ -91,7 +91,7 @@ function ticketContext(change: SpecChangeRecord, _task: SpecTaskRecord, capabili
     return capability ? `- ${capability.id}: ${capability.title}` : `- ${capabilityId}`;
   });
   return [
-    `Synchronized from finalized spec ${change.state.changeId}: ${change.state.title}`,
+    `Linked to finalized spec ${change.state.changeId}: ${change.state.title}`,
     capabilityLines.length > 0 ? `Capabilities:\n${capabilityLines.join("\n")}` : "",
   ]
     .filter(Boolean)
@@ -124,7 +124,6 @@ function buildCreateInput(
     acceptance: ticketAcceptance(change, task),
     deps: dependencyTicketIds,
     links: [relativeSpecPath],
-    labels: ["spec-synced"],
     type: "task",
     priority: "medium",
     initiativeIds: change.state.initiativeIds,
@@ -149,7 +148,6 @@ function buildUpdateInput(
     acceptance: ticketAcceptance(change, task),
     deps: dependencyTicketIds,
     links: [`.loom/specs/changes/${change.state.changeId}/proposal.md`],
-    labels: ["spec-synced"],
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChange: change.state.changeId,
@@ -167,7 +165,7 @@ async function ticketExists(cwd: string, ticketId: string): Promise<boolean> {
   }
 }
 
-async function syncedTicketMatches(
+async function linkedTicketMatches(
   cwd: string,
   ticketId: string,
   expectedDeps: string[],
@@ -186,7 +184,7 @@ async function syncedTicketMatches(
     result.ticket.body.plan === ticketPlan(change, task) &&
     JSON.stringify(result.ticket.frontmatter.deps) === JSON.stringify(expectedDeps) &&
     JSON.stringify(result.ticket.frontmatter.links) === JSON.stringify([`.loom/specs/changes/${changeId}/proposal.md`]) &&
-    JSON.stringify(result.ticket.frontmatter.labels) === JSON.stringify(["spec-synced"]) &&
+    JSON.stringify(result.ticket.frontmatter.labels) === JSON.stringify([]) &&
     JSON.stringify(result.ticket.frontmatter.acceptance) === JSON.stringify(ticketAcceptance(change, task)) &&
     result.ticket.frontmatter.type === "task" &&
     result.ticket.frontmatter.priority === "medium" &&
@@ -198,20 +196,20 @@ async function syncedTicketMatches(
   );
 }
 
-async function readTicketSyncState(cwd: string, changeId: string): Promise<SpecTicketSyncState | null> {
+async function readLinkedTicketsState(cwd: string, changeId: string): Promise<SpecLinkedTicketsState | null> {
   const { storage, identity } = await openWorkspaceStorage(cwd);
   const entity = await findEntityByDisplayId(storage, identity.space.id, "spec_change", changeId);
   if (!entity) {
     return null;
   }
-  const attributes = entity.attributes as { ticketSync?: SpecTicketSyncState | null };
-  return attributes.ticketSync ?? null;
+  const attributes = entity.attributes as { linkedTickets?: SpecLinkedTicketsState | null };
+  return attributes.linkedTickets ?? null;
 }
 
-async function persistTicketSyncState(
+async function persistLinkedTicketsState(
   cwd: string,
   change: SpecChangeRecord,
-  ticketSync: SpecTicketSyncState,
+  linkedTickets: SpecLinkedTicketsState,
 ): Promise<SpecChangeRecord> {
   const { storage, identity } = await openWorkspaceStorage(cwd);
   const entity = await findEntityByDisplayId(storage, identity.space.id, "spec_change", change.state.changeId);
@@ -232,40 +230,40 @@ async function persistTicketSyncState(
     pathScopes: entity.pathScopes,
     attributes: {
       ...attributes,
-      ticketSync,
+      linkedTickets,
     },
     createdAt: entity.createdAt,
-    updatedAt: ticketSync.syncedAt,
+    updatedAt: linkedTickets.ensuredAt,
   });
   return {
     ...change,
-    ticketSync,
+    linkedTickets,
     summary: {
       ...change.summary,
-      updatedAt: ticketSync.syncedAt,
+      updatedAt: linkedTickets.ensuredAt,
     },
   };
 }
 
-export async function syncSpecTickets(cwd: string, ref: string): Promise<SpecChangeRecord> {
+export async function ensureSpecTickets(cwd: string, ref: string): Promise<SpecChangeRecord> {
   const specStore = createSpecStore(cwd);
   const change = await specStore.readChange(ref);
   if (change.summary.archived || change.state.status !== "finalized") {
-    throw new Error(`Spec change ${change.state.changeId} must be active and finalized before ticket synchronization.`);
+    throw new Error(`Spec change ${change.state.changeId} must be active and finalized before ensuring linked tickets.`);
   }
 
   const orderedTasks = topoSort(change.state.tasks);
-  const previousSync = await readTicketSyncState(cwd, change.state.changeId);
+  const previousLinks = await readLinkedTicketsState(cwd, change.state.changeId);
   const ticketStore = createTicketStore(cwd);
   ticketStore.initLedger();
 
   const ticketIdsByTask = new Map<string, string>();
-  const nextEntries: SpecTicketSyncEntry[] = [];
-  const mode: SpecTicketSyncState["mode"] = previousSync ? "refresh" : "initial";
+  const nextEntries: SpecLinkedTicketEntry[] = [];
+  const mode: SpecLinkedTicketsState["mode"] = previousLinks ? "updated" : "initial";
 
   for (const task of orderedTasks) {
     const signature = taskSignature(change, task);
-    const previousEntry = previousSync?.links.find((entry) => entry.taskId === task.id) ?? null;
+    const previousEntry = previousLinks?.links.find((entry) => entry.taskId === task.id) ?? null;
     const dependencyTicketIds = task.deps.map((dependencyTaskId) => {
       const dependencyTicketId = ticketIdsByTask.get(dependencyTaskId);
       if (!dependencyTicketId) {
@@ -288,7 +286,7 @@ export async function syncSpecTickets(cwd: string, ref: string): Promise<SpecCha
       previousEntry &&
       previousEntry.signature === signature &&
       (await ticketExists(cwd, previousEntry.ticketId)) &&
-      (await syncedTicketMatches(
+      (await linkedTicketMatches(
         cwd,
         previousEntry.ticketId,
         dependencyTicketIds,
@@ -325,9 +323,9 @@ export async function syncSpecTickets(cwd: string, ref: string): Promise<SpecCha
     });
   }
 
-  return persistTicketSyncState(cwd, change, {
+  return persistLinkedTicketsState(cwd, change, {
     changeId: change.state.changeId,
-    syncedAt: new Date().toISOString(),
+    ensuredAt: new Date().toISOString(),
     mode,
     capabilityIds: normalizeStringList(change.state.capabilities.map((capability) => capability.id)),
     links: nextEntries,

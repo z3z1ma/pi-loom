@@ -107,7 +107,7 @@ function deriveContextRefsFromSpec(change: SpecChangeRecord): DocsContextRefs {
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChangeIds: [change.state.changeId],
-    ticketIds: change.ticketSync?.links.map((link) => link.ticketId) ?? [],
+    ticketIds: change.linkedTickets?.links.map((link) => link.ticketId) ?? [],
   });
 }
 

@@ -2,7 +2,7 @@
 
 `pi-specs` adds a durable specification-memory layer to pi-compatible runtimes.
 
-When active, the extension teaches the model to use specifications as the bridge between strategic initiatives and execution. Specification state is persisted in SQLite via pi-storage, with canonical change bundles, capability deltas, append-only clarification decisions, spec-quality analysis, checklist artifacts, explicit initiative membership, and ticket synchronization into the execution layer.
+When active, the extension teaches the model to use specifications as the bridge between strategic initiatives and execution. Specification state is persisted in SQLite via pi-storage, with canonical change bundles, capability deltas, append-only clarification decisions, spec-quality analysis, checklist artifacts, explicit initiative membership, and linked execution tickets.
 
 ## Features
 
@@ -13,8 +13,8 @@ When active, the extension teaches the model to use specifications as the bridge
 - AI-facing `spec_*` tools with built-in prompt guidance
 - `/spec` slash command namespace for human entrypoints
 - system-prompt augmentation via `before_agent_start`
-- finalized-spec to ticket synchronization with provenance
-- synchronized tickets inherit initiative membership from their originating spec change
+- finalized-spec ticket creation and refresh with provenance
+- linked tickets inherit initiative membership from their originating spec change
 
 ## Local layout
 
@@ -34,7 +34,7 @@ Historical `.loom` examples may still appear in local workflows, but they are no
       YYYY-MM-DD-<change-id>/...
 ```
 
-Spec state, metadata, and ticket synchronization records are persisted in SQLite via pi-storage. `/spec tickets` remains a synchronization surface into the ticket layer, not a filesystem projection step.
+Spec state, metadata, and linked-ticket records are persisted in SQLite via pi-storage. `/spec tickets` remains the surface that ensures the ticket layer matches the finalized spec, not a filesystem projection step.
 
 ## Development
 

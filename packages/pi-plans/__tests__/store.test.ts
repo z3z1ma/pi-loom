@@ -222,7 +222,7 @@ describe("PlanStore durable memory", () => {
         {
           timestamp: "2026-03-15T12:35:00.000Z",
           status: "pending",
-          text: "Keep the workplan synchronized with linked ticket changes and add proof snippets as verification lands.",
+          text: "Keep the workplan aligned with linked ticket changes and add proof snippets as verification lands.",
         },
       ],
       revisionNotes: [

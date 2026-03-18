@@ -41,10 +41,6 @@ export function getDecisionLogPath(cwd: string, changeId: string): string {
   return join(getChangeDir(cwd, changeId), "decisions.jsonl");
 }
 
-export function getProjectionPath(cwd: string, changeId: string): string {
-  return join(getChangeDir(cwd, changeId), "ticket-projection.json");
-}
-
 export function getChangeSpecsDir(cwd: string, changeId: string): string {
   return join(getChangeDir(cwd, changeId), "specs");
 }

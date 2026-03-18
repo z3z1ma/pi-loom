@@ -49,7 +49,7 @@ interface SpecChangeEntityAttributes {
   decisions: SpecDecisionRecord[];
   analysis: string;
   checklist: string;
-  ticketSync?: SpecChangeRecord["ticketSync"];
+  linkedTickets?: SpecChangeRecord["linkedTickets"];
 }
 
 interface SpecCapabilityEntityAttributes {
@@ -251,7 +251,7 @@ export class SpecStore {
     decisions: SpecDecisionRecord[],
     analysis: string,
     checklist: string,
-    ticketSync: SpecChangeRecord["ticketSync"] = null,
+    linkedTickets: SpecChangeRecord["linkedTickets"] = null,
   ): SpecChangeRecord {
     const normalized = this.normalizeState(state);
     const changeDir = this.changeDirForState(normalized);
@@ -275,7 +275,7 @@ export class SpecStore {
       capabilitySpecs: normalized.capabilities.map((capability) =>
         capabilityFromState(this.cwd, normalized, capability.id, join(changeDir, "specs", `${capability.id}.md`)),
       ),
-      ticketSync,
+      linkedTickets,
     };
   }
 
@@ -295,7 +295,7 @@ export class SpecStore {
       attributes.decisions ?? [],
       attributes.analysis ?? "",
       attributes.checklist ?? "",
-      attributes.ticketSync ?? null,
+      attributes.linkedTickets ?? null,
     );
   }
 
@@ -304,12 +304,12 @@ export class SpecStore {
     decisions: SpecDecisionRecord[],
     analysis: string,
     checklist: string,
-    ticketSync: SpecChangeRecord["ticketSync"] = null,
+    linkedTickets: SpecChangeRecord["linkedTickets"] = null,
   ): Promise<SpecChangeRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId);
     const version = (existing?.version ?? 0) + 1;
-    const record = this.materializeChangeRecord(state, decisions, analysis, checklist, ticketSync);
+    const record = this.materializeChangeRecord(state, decisions, analysis, checklist, linkedTickets);
     await upsertEntityByDisplayId(storage, {
       kind: SPEC_CHANGE_ENTITY_KIND,
       spaceId: identity.space.id,
@@ -326,7 +326,7 @@ export class SpecStore {
         decisions: record.decisions,
         analysis: record.analysis,
         checklist: record.checklist,
-        ticketSync: record.ticketSync,
+        linkedTickets: record.linkedTickets,
       },
       createdAt: existing?.createdAt ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
@@ -466,7 +466,7 @@ export class SpecStore {
       nextDecisions,
       record.analysis,
       record.checklist,
-      record.ticketSync,
+      record.linkedTickets,
     );
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const entity = await findEntityByDisplayId(
@@ -536,7 +536,7 @@ export class SpecStore {
 
     state.updatedAt = currentTimestamp();
     state.status = state.tasks.length > 0 ? "tasked" : "planned";
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.ticketSync);
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
   }
 
   async updateTasks(ref: string, input: SpecTasksInput): Promise<SpecChangeRecord> {
@@ -580,7 +580,7 @@ export class SpecStore {
     state.tasks = nextTasks.sort((left, right) => left.id.localeCompare(right.id));
     state.updatedAt = currentTimestamp();
     state.status = "tasked";
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.ticketSync);
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
   }
 
   async setInitiativeIds(ref: string, initiativeIds: string[]): Promise<SpecChangeRecord> {
@@ -590,7 +590,7 @@ export class SpecStore {
       initiativeIds: normalizeStringList(initiativeIds),
       updatedAt: currentTimestamp(),
     });
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.ticketSync);
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
   }
 
   async setResearchIds(ref: string, researchIds: string[]): Promise<SpecChangeRecord> {
@@ -600,21 +600,21 @@ export class SpecStore {
       researchIds: normalizeStringList(researchIds),
       updatedAt: currentTimestamp(),
     });
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.ticketSync);
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
   }
 
   async analyzeChange(ref: string): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
     const state = this.normalizeState({ ...record.state, updatedAt: currentTimestamp() });
     const analysis = renderAnalysisMarkdown(analyzeSpecChange(state));
-    return this.persistCanonicalChange(state, record.decisions, analysis, record.checklist, record.ticketSync);
+    return this.persistCanonicalChange(state, record.decisions, analysis, record.checklist, record.linkedTickets);
   }
 
   async generateChecklist(ref: string): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
     const state = this.normalizeState({ ...record.state, updatedAt: currentTimestamp() });
     const checklist = renderChecklistMarkdown(buildSpecChecklist(state));
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, checklist, record.ticketSync);
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, checklist, record.linkedTickets);
   }
 
   async finalizeChange(ref: string): Promise<SpecChangeRecord> {
@@ -630,7 +630,7 @@ export class SpecStore {
     state.status = "finalized";
     state.finalizedAt = currentTimestamp();
     state.updatedAt = state.finalizedAt;
-    return this.persistCanonicalChange(state, record.decisions, analysis, checklist, record.ticketSync);
+    return this.persistCanonicalChange(state, record.decisions, analysis, checklist, record.linkedTickets);
   }
 
   async archiveChange(ref: string): Promise<SpecChangeRecord> {
@@ -652,7 +652,7 @@ export class SpecStore {
       ),
       updatedAt: archivedAt,
     });
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.ticketSync);
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
   }
 }
 

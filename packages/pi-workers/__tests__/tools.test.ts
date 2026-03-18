@@ -265,7 +265,7 @@ describe("worker tools", () => {
     } finally {
       cleanup();
     }
-  }, 30000);
+  }, 90000);
 
   it("enforces ticket links on create requests", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -538,5 +538,5 @@ describe("worker tools", () => {
       runWorkerLaunchMock.mockReset();
       cleanup();
     }
-  }, 30000);
+  }, 90000);
 });

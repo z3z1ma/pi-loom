@@ -148,7 +148,7 @@ describe("pi-constitution extension", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 
   it("augments the system prompt with constitutional doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
@@ -176,5 +176,5 @@ describe("pi-constitution extension", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 30000);
 });

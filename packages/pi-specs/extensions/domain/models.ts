@@ -81,7 +81,7 @@ export interface SpecArtifactStatus {
   updatedAt: string | null;
 }
 
-export interface SpecTicketSyncEntry {
+export interface SpecLinkedTicketEntry {
   taskId: string;
   ticketId: string;
   signature: string;
@@ -90,12 +90,12 @@ export interface SpecTicketSyncEntry {
   dependencyTaskIds: string[];
 }
 
-export interface SpecTicketSyncState {
+export interface SpecLinkedTicketsState {
   changeId: string;
-  syncedAt: string;
-  mode: "initial" | "refresh";
+  ensuredAt: string;
+  mode: "initial" | "updated";
   capabilityIds: string[];
-  links: SpecTicketSyncEntry[];
+  links: SpecLinkedTicketEntry[];
 }
 
 export interface SpecChangeSummary {
@@ -136,14 +136,14 @@ export interface SpecChangeRecord {
   checklist: string;
   decisions: SpecDecisionRecord[];
   capabilitySpecs: CanonicalCapabilityRecord[];
-  ticketSync: SpecTicketSyncState | null;
+  linkedTickets: SpecLinkedTicketsState | null;
 }
 
 export interface SpecAnalysisFinding {
   id: string;
   severity: SpecAnalysisSeverity;
   blocking: boolean;
-  artifact: SpecArtifactName | "change" | "capability" | "ticket-sync";
+  artifact: SpecArtifactName | "change" | "capability" | "tickets";
   message: string;
 }
 

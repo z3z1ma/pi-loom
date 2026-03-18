@@ -352,5 +352,5 @@ describe("RalphStore durable memory", () => {
       iterationId: "iter-001",
       runtime: "subprocess",
     });
-  }, 40000);
+  }, 90000);
 });

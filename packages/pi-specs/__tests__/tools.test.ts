@@ -69,9 +69,9 @@ describe("spec tools", () => {
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "spec_analyze",
+      "spec_ensure_tickets",
       "spec_list",
       "spec_read",
-      "spec_sync_tickets",
       "spec_write",
     ]);
 
@@ -81,14 +81,14 @@ describe("spec tools", () => {
       expect(tool.promptGuidelines).toEqual(expect.arrayContaining([expect.any(String)]));
     }
 
-    expect(getTool(mockPi, "spec_sync_tickets").promptSnippet).toContain(
+    expect(getTool(mockPi, "spec_ensure_tickets").promptSnippet).toContain(
       "Generate execution tickets only after the spec is finalized, validated, and detailed enough",
     );
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
       "Capture enough bounded detail for the spec layer: problem framing, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
     );
-    expect(getTool(mockPi, "spec_sync_tickets").promptGuidelines).toContain(
-      "Require substantial specification detail before synchronization so tickets inherit complete requirements, rationale, dependencies, edge cases, and verification expectations.",
+    expect(getTool(mockPi, "spec_ensure_tickets").promptGuidelines).toContain(
+      "Require substantial specification detail before ensuring tickets so they inherit complete requirements, rationale, dependencies, edge cases, and verification expectations.",
     );
   });
 
@@ -105,7 +105,7 @@ describe("spec tools", () => {
       const specList = getTool(mockPi, "spec_list");
       const specRead = getTool(mockPi, "spec_read");
       const specAnalyze = getTool(mockPi, "spec_analyze");
-      const specSyncTickets = getTool(mockPi, "spec_sync_tickets");
+      const specEnsureTickets = getTool(mockPi, "spec_ensure_tickets");
 
       const created = await specWrite.execute(
         "call-1",
@@ -193,10 +193,10 @@ describe("spec tools", () => {
         change: { summary: { status: "finalized" } },
       });
 
-      const synchronized = await specSyncTickets.execute("call-6", { ref: "add-dark-mode" }, undefined, undefined, ctx);
-      expect(synchronized.details).toMatchObject({
+      const ensured = await specEnsureTickets.execute("call-6", { ref: "add-dark-mode" }, undefined, undefined, ctx);
+      expect(ensured.details).toMatchObject({
         change: {
-          ticketSync: {
+          linkedTickets: {
             mode: "initial",
             links: [expect.objectContaining({ taskId: "task-001", ticketId: expect.any(String) })],
           },
@@ -212,7 +212,7 @@ describe("spec tools", () => {
       expect(read.details).toMatchObject({
         change: {
           summary: { id: "add-dark-mode" },
-          ticketSync: { links: [expect.objectContaining({ taskId: "task-001" })] },
+          linkedTickets: { links: [expect.objectContaining({ taskId: "task-001" })] },
         },
       });
     } finally {
