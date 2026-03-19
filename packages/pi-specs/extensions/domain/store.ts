@@ -1,7 +1,7 @@
 import {
   appendEntityEvent,
   findEntityByDisplayId,
-  upsertEntityByDisplayId,
+  upsertEntityByDisplayIdWithLifecycleEvents,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
@@ -342,26 +342,34 @@ export class SpecStore {
     const existing = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId);
     const version = (existing?.version ?? 0) + 1;
     const record = this.materializeChangeRecord(state, decisions, analysis, checklist, linkedTickets);
-    const entity = await upsertEntityByDisplayId(storage, {
-      kind: SPEC_CHANGE_ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: record.state.changeId,
-      title: record.state.title,
-      summary: record.state.proposalSummary || record.state.title,
-      status: record.state.status,
-      version,
-      tags: ["spec-change"],
-      attributes: {
-        state: record.state,
-        decisions: record.decisions,
-        analysis: record.analysis,
-        checklist: record.checklist,
-        linkedTickets: record.linkedTickets,
+    const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+      storage,
+      {
+        kind: SPEC_CHANGE_ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: record.state.changeId,
+        title: record.state.title,
+        summary: record.state.proposalSummary || record.state.title,
+        status: record.state.status,
+        version,
+        tags: ["spec-change"],
+        attributes: {
+          state: record.state,
+          decisions: record.decisions,
+          analysis: record.analysis,
+          checklist: record.checklist,
+          linkedTickets: record.linkedTickets,
+        },
+        createdAt: existing?.createdAt ?? record.state.createdAt,
+        updatedAt: record.state.updatedAt,
       },
-      createdAt: existing?.createdAt ?? record.state.createdAt,
-      updatedAt: record.state.updatedAt,
-    });
+      {
+        actor: "spec-store",
+        createdPayload: { change: "spec_change_persisted" },
+        updatedPayload: { change: "spec_change_persisted" },
+      },
+    );
     await syncProjectedEntityLinks({
       storage,
       spaceId: identity.space.id,
@@ -389,20 +397,28 @@ export class SpecStore {
       updatedAt: currentTimestamp(),
       ref: capabilityRef(capabilityId),
     };
-    const entity = await upsertEntityByDisplayId(storage, {
-      kind: SPEC_CAPABILITY_ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: merged.id,
-      title: merged.title,
-      summary: merged.summary || merged.title,
-      status: "active",
-      version,
-      tags: ["spec-capability"],
-      attributes: { record: merged },
-      createdAt: existing?.createdAt ?? merged.updatedAt,
-      updatedAt: merged.updatedAt,
-    });
+    const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+      storage,
+      {
+        kind: SPEC_CAPABILITY_ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: merged.id,
+        title: merged.title,
+        summary: merged.summary || merged.title,
+        status: "active",
+        version,
+        tags: ["spec-capability"],
+        attributes: { record: merged },
+        createdAt: existing?.createdAt ?? merged.updatedAt,
+        updatedAt: merged.updatedAt,
+      },
+      {
+        actor: "spec-store",
+        createdPayload: { change: "spec_capability_merged" },
+        updatedPayload: { change: "spec_capability_merged" },
+      },
+    );
     // Archived capabilities preserve provenance via canonical links back to source spec changes.
     await syncProjectedEntityLinks({
       storage,
@@ -519,7 +535,14 @@ export class SpecStore {
       record.state.changeId,
     );
     if (entity) {
-      await appendEntityEvent(storage, entity.id, "decision_recorded", "spec-store", { decision }, decision.createdAt);
+      await appendEntityEvent(
+        storage,
+        entity.id,
+        "decision_recorded",
+        "spec-store",
+        { change: "spec_decision_recorded", decision },
+        decision.createdAt,
+      );
     }
     return persisted;
   }

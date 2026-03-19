@@ -6,8 +6,13 @@ import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain
 import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/models.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
+import { hasProjectedArtifactAttributes, syncProjectedArtifacts } from "@pi-loom/pi-storage/storage/artifacts.js";
 import type { LoomEntityKind, LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
-import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import {
+  appendEntityEvent,
+  findEntityByDisplayId,
+  upsertEntityByDisplayIdWithLifecycleEvents,
+} from "@pi-loom/pi-storage/storage/entities.js";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
@@ -22,7 +27,10 @@ import type {
   CreateCritiqueFindingInput,
   CreateCritiqueInput,
   CreateCritiqueRunInput,
+  CritiqueCanonicalEntityRecord,
+  CritiqueCanonicalState,
   CritiqueContextRefs,
+  CritiqueFindingArtifactPayload,
   CritiqueFindingRecord,
   CritiqueLaunchDescriptor,
   CritiqueListFilter,
@@ -60,20 +68,34 @@ import { renderCritiqueMarkdown, renderLaunchDescriptor } from "./render.js";
 
 const ENTITY_KIND = "critique" as const;
 const CRITIQUE_LINK_PROJECTION_OWNER = "critique-store";
+const CRITIQUE_FINDING_PROJECTION_OWNER = "critique-findings";
+const CRITIQUE_FINDING_ARTIFACT_TYPE = "critique-finding";
 
 interface CritiqueEntityAttributes {
-  record: CritiqueReadResult;
+  record: CritiqueCanonicalEntityRecord;
 }
 
 interface CritiqueSnapshot {
-  state: CritiqueState;
+  state: CritiqueCanonicalState;
   runs: CritiqueRunRecord[];
   findings: CritiqueFindingRecord[];
-  launch: CritiqueLaunchDescriptor | null;
+  launch?: CritiqueLaunchDescriptor | null;
 }
 
 function hasStructuredCritiqueAttributes(attributes: unknown): attributes is CritiqueEntityAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
+  if (!attributes || typeof attributes !== "object" || !("record" in attributes)) {
+    return false;
+  }
+  const record = (attributes as { record?: Record<string, unknown> }).record;
+  const state = record?.state as Record<string, unknown> | undefined;
+  return Boolean(
+    record &&
+      Array.isArray(record.runs) &&
+      state &&
+      typeof state.critiqueId === "string" &&
+      typeof state.title === "string" &&
+      typeof state.status === "string",
+  );
 }
 
 interface StoredCritiqueEntityRow {
@@ -104,18 +126,131 @@ function findStoredCritiqueRow(cwd: string, critiqueId: string): StoredCritiqueE
     .get(identity.space.id, ENTITY_KIND, critiqueId) ?? null) as StoredCritiqueEntityRow | null;
 }
 
-function listStoredCritiqueRecords(cwd: string): CritiqueReadResult[] {
+function listStoredCritiqueRows(cwd: string): StoredCritiqueEntityRow[] {
   const { storage, identity } = openCritiqueCatalogSync(cwd);
-  const rows = storage.db
-    .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id")
-    .all(identity.space.id, ENTITY_KIND) as Array<{ attributes_json: string }>;
-  return rows.map((row) => {
-    const attributes = parseStoredJson<CritiqueEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
-    if (!hasStructuredCritiqueAttributes(attributes)) {
-      throw new Error("Critique entity is missing structured attributes");
-    }
-    return attributes.record;
-  });
+  return storage.db
+    .prepare(
+      "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id",
+    )
+    .all(identity.space.id, ENTITY_KIND) as StoredCritiqueEntityRow[];
+}
+
+function critiqueFindingArtifactDisplayId(critiqueId: string, findingId: string): string {
+  return `critique:${critiqueId}:finding:${findingId}`;
+}
+
+function toCritiqueLaunchRef(critiqueId: string): string {
+  return `critique:${critiqueId}:launch`;
+}
+
+function toCanonicalState(state: CritiqueState): CritiqueCanonicalState {
+  return {
+    critiqueId: state.critiqueId,
+    title: state.title,
+    status: state.status,
+    createdAt: state.createdAt,
+    updatedAt: state.updatedAt,
+    target: state.target,
+    focusAreas: state.focusAreas,
+    reviewQuestion: state.reviewQuestion,
+    scopeRefs: state.scopeRefs,
+    nonGoals: state.nonGoals,
+    contextRefs: state.contextRefs,
+    freshContextRequired: state.freshContextRequired,
+    lastLaunchAt: state.lastLaunchAt,
+    launchCount: state.launchCount,
+  };
+}
+
+function materializeState(state: CritiqueCanonicalState): CritiqueState {
+  return {
+    ...state,
+    packetSummary: "",
+    currentVerdict: "concerns",
+    openFindingIds: [],
+    followupTicketIds: [],
+    lastRunId: null,
+  };
+}
+
+function normalizeCanonicalState(state: CritiqueCanonicalState): CritiqueCanonicalState {
+  return {
+    critiqueId: normalizeCritiqueId(state.critiqueId),
+    title: state.title.trim(),
+    status: normalizeStatus(state.status),
+    createdAt: state.createdAt,
+    updatedAt: state.updatedAt,
+    target: {
+      kind: normalizeTargetKind(state.target.kind),
+      ref: state.target.ref.trim(),
+      locator: normalizeOptionalString(state.target.locator),
+    },
+    focusAreas: normalizeFocusAreas(state.focusAreas),
+    reviewQuestion: state.reviewQuestion ?? "",
+    scopeRefs: normalizeStringList(state.scopeRefs),
+    nonGoals: normalizeStringList(state.nonGoals),
+    contextRefs: normalizeContextRefs(state.contextRefs),
+    freshContextRequired: state.freshContextRequired !== false,
+    lastLaunchAt: normalizeOptionalString(state.lastLaunchAt),
+    launchCount: Number.isFinite(state.launchCount) ? state.launchCount : 0,
+  };
+}
+
+function normalizeFindingRecord(finding: CritiqueFindingArtifactPayload): CritiqueFindingRecord {
+  return {
+    ...finding,
+    id: finding.id.trim(),
+    critiqueId: normalizeCritiqueId(finding.critiqueId),
+    runId: finding.runId.trim(),
+    kind: normalizeFindingKind(finding.kind),
+    severity: normalizeFindingSeverity(finding.severity),
+    confidence: normalizeFindingConfidence(finding.confidence),
+    title: finding.title.trim(),
+    summary: finding.summary.trim(),
+    evidence: normalizeStringList(finding.evidence),
+    scopeRefs: normalizeStringList(finding.scopeRefs),
+    recommendedAction: finding.recommendedAction.trim(),
+    status: normalizeFindingStatus(finding.status),
+    linkedTicketId: normalizeOptionalString(finding.linkedTicketId),
+    resolutionNotes: normalizeOptionalString(finding.resolutionNotes),
+  };
+}
+
+function normalizeRunRecord(run: CritiqueRunRecord): CritiqueRunRecord {
+  return {
+    ...run,
+    id: run.id.trim(),
+    critiqueId: normalizeCritiqueId(run.critiqueId),
+    kind: normalizeRunKind(run.kind),
+    summary: run.summary.trim(),
+    verdict: normalizeVerdict(run.verdict),
+    freshContext: run.freshContext !== false,
+    focusAreas: normalizeFocusAreas(run.focusAreas),
+    findingIds: normalizeStringList(run.findingIds),
+    followupTicketIds: normalizeStringList(run.followupTicketIds),
+  };
+}
+
+function buildLaunchDescriptor(state: CritiqueState): CritiqueLaunchDescriptor | null {
+  if (!state.lastLaunchAt) {
+    return null;
+  }
+  return {
+    critiqueId: state.critiqueId,
+    createdAt: state.lastLaunchAt,
+    packetRef: toCritiquePacketRef(state.critiqueId),
+    target: state.target,
+    focusAreas: state.focusAreas,
+    reviewQuestion: state.reviewQuestion,
+    freshContextRequired: state.freshContextRequired,
+    runtime: "descriptor_only",
+    instructions: [
+      "Open a fresh reviewer session; do not continue in the saturated executor context.",
+      `Read ${toCritiquePacketRef(state.critiqueId)} before analyzing the target.`,
+      "Record the run verdict with critique_run once review is complete.",
+      "Record each concrete issue with critique_finding and create follow-up tickets only for accepted findings.",
+    ],
+  };
 }
 
 function readStructuredEntityAttributesSync<T>(cwd: string, kind: string, displayId: string): T | null {
@@ -149,14 +284,6 @@ function excerpt(value: string, limit = 280): string {
 
 function toCritiquePacketRef(critiqueId: string): string {
   return `critique:${critiqueId}:packet`;
-}
-
-function latestFindings(history: CritiqueFindingRecord[]): CritiqueFindingRecord[] {
-  const latest = new Map<string, CritiqueFindingRecord>();
-  for (const entry of history) {
-    latest.set(entry.id, entry);
-  }
-  return [...latest.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function summarizeRuns(runs: CritiqueRunRecord[]): string[] {
@@ -260,6 +387,7 @@ function buildProjectedCritiqueLinks(state: CritiqueState): ProjectedEntityLinkI
         kind: "references",
         targetKind: "ticket",
         targetDisplayId,
+        required: false,
       }),
     ),
     ...state.followupTicketIds.map(
@@ -267,6 +395,7 @@ function buildProjectedCritiqueLinks(state: CritiqueState): ProjectedEntityLinkI
         kind: "references",
         targetKind: "ticket",
         targetDisplayId,
+        required: false,
       }),
     ),
   ];
@@ -278,6 +407,7 @@ function buildProjectedCritiqueLinks(state: CritiqueState): ProjectedEntityLinkI
       // Critique targets still use the legacy "spec" label in aggregates; canonical links project the real entity kind.
       targetKind,
       targetDisplayId: state.target.ref,
+      required: false,
     });
   }
 
@@ -337,7 +467,10 @@ export class CritiqueStore {
   }
 
   private critiqueDirectories(): string[] {
-    return listStoredCritiqueRecords(this.cwd).map((record) => getCritiqueDir(this.cwd, record.state.critiqueId));
+    return listStoredCritiqueRows(this.cwd)
+      .map((row) => row.display_id)
+      .filter((displayId): displayId is string => Boolean(displayId))
+      .map((displayId) => getCritiqueDir(this.cwd, displayId));
   }
 
   private nextCritiqueId(baseTitle: string): string {
@@ -361,7 +494,7 @@ export class CritiqueStore {
     throw new Error(`Unknown critique: ${ref}`);
   }
 
-  private readState(critiqueDir: string): CritiqueState {
+  private readStoredSnapshot(critiqueDir: string): CritiqueSnapshot {
     const critiqueId = normalizeCritiqueRef(critiqueDir);
     const row = findStoredCritiqueRow(this.cwd, critiqueId);
     if (!row) {
@@ -371,94 +504,29 @@ export class CritiqueStore {
     if (!hasStructuredCritiqueAttributes(attributes)) {
       throw new Error(`Critique ${critiqueId} is missing structured attributes`);
     }
-    const state = attributes.record.state;
     return {
-      ...state,
-      critiqueId: normalizeCritiqueId(state.critiqueId),
-      title: state.title.trim(),
-      status: normalizeStatus(state.status),
-      target: {
-        kind: normalizeTargetKind(state.target.kind),
-        ref: state.target.ref.trim(),
-        locator: normalizeOptionalString(state.target.locator),
-      },
-      focusAreas: normalizeFocusAreas(state.focusAreas),
-      reviewQuestion: state.reviewQuestion ?? "",
-      scopeRefs: normalizeStringList(state.scopeRefs),
-      nonGoals: normalizeStringList(state.nonGoals),
-      contextRefs: normalizeContextRefs(state.contextRefs),
-      packetSummary: state.packetSummary ?? "",
-      currentVerdict: normalizeVerdict(state.currentVerdict),
-      openFindingIds: normalizeStringList(state.openFindingIds),
-      followupTicketIds: normalizeStringList(state.followupTicketIds),
-      freshContextRequired: state.freshContextRequired !== false,
-      lastRunId: normalizeOptionalString(state.lastRunId),
-      lastLaunchAt: normalizeOptionalString(state.lastLaunchAt),
-      launchCount: Number.isFinite(state.launchCount) ? state.launchCount : 0,
+      state: normalizeCanonicalState(attributes.record.state),
+      runs: attributes.record.runs.map((run) => normalizeRunRecord(run)),
+      findings: this.readStoredFindings(row),
     };
   }
 
-  private readRuns(critiqueDir: string): CritiqueRunRecord[] {
-    const critiqueId = normalizeCritiqueRef(critiqueDir);
-    const row = findStoredCritiqueRow(this.cwd, critiqueId);
-    if (!row) {
-      throw new Error(`Unknown critique: ${critiqueId}`);
-    }
-    const attributes = parseStoredJson<CritiqueEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
-    if (!hasStructuredCritiqueAttributes(attributes)) {
-      throw new Error(`Critique ${critiqueId} is missing structured attributes`);
-    }
-    return attributes.record.runs.map((run) => ({
-      ...run,
-      id: run.id.trim(),
-      critiqueId: normalizeCritiqueId(run.critiqueId),
-      kind: normalizeRunKind(run.kind),
-      summary: run.summary.trim(),
-      verdict: normalizeVerdict(run.verdict),
-      freshContext: run.freshContext !== false,
-      focusAreas: normalizeFocusAreas(run.focusAreas),
-      findingIds: normalizeStringList(run.findingIds),
-      followupTicketIds: normalizeStringList(run.followupTicketIds),
-    }));
-  }
-
-  private readFindingsHistory(critiqueDir: string): CritiqueFindingRecord[] {
-    const critiqueId = normalizeCritiqueRef(critiqueDir);
-    const row = findStoredCritiqueRow(this.cwd, critiqueId);
-    if (!row) {
-      throw new Error(`Unknown critique: ${critiqueId}`);
-    }
-    const attributes = parseStoredJson<CritiqueEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
-    if (!hasStructuredCritiqueAttributes(attributes)) {
-      throw new Error(`Critique ${critiqueId} is missing structured attributes`);
-    }
-    return attributes.record.findings.map((finding) => ({
-      ...finding,
-      id: finding.id.trim(),
-      critiqueId: normalizeCritiqueId(finding.critiqueId),
-      runId: finding.runId.trim(),
-      kind: normalizeFindingKind(finding.kind),
-      severity: normalizeFindingSeverity(finding.severity),
-      confidence: normalizeFindingConfidence(finding.confidence),
-      title: finding.title.trim(),
-      summary: finding.summary.trim(),
-      evidence: normalizeStringList(finding.evidence),
-      scopeRefs: normalizeStringList(finding.scopeRefs),
-      recommendedAction: finding.recommendedAction.trim(),
-      status: normalizeFindingStatus(finding.status),
-      linkedTicketId: normalizeOptionalString(finding.linkedTicketId),
-      resolutionNotes: normalizeOptionalString(finding.resolutionNotes),
-    }));
-  }
-
-  private readLaunch(critiqueDir: string): CritiqueLaunchDescriptor | null {
-    const critiqueId = normalizeCritiqueRef(critiqueDir);
-    const row = findStoredCritiqueRow(this.cwd, critiqueId);
-    if (!row) {
-      return null;
-    }
-    const attributes = parseStoredJson<CritiqueEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
-    return hasStructuredCritiqueAttributes(attributes) ? attributes.record.launch : null;
+  private readStoredFindings(row: StoredCritiqueEntityRow): CritiqueFindingRecord[] {
+    const { storage, identity } = openCritiqueCatalogSync(this.cwd);
+    const artifacts = storage.db
+      .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id")
+      .all(identity.space.id, "artifact") as Array<{ attributes_json: string }>;
+    return artifacts
+      .map((artifact) => parseStoredJson<Record<string, unknown>>(artifact.attributes_json, {}))
+      .filter(hasProjectedArtifactAttributes)
+      .filter(
+        (attributes) =>
+          attributes.projectionOwner === CRITIQUE_FINDING_PROJECTION_OWNER &&
+          attributes.artifactType === CRITIQUE_FINDING_ARTIFACT_TYPE &&
+          attributes.owner.entityId === row.id,
+      )
+      .map((attributes) => normalizeFindingRecord(attributes.payload as unknown as CritiqueFindingArtifactPayload))
+      .sort((left, right) => left.id.localeCompare(right.id));
   }
 
   private readConstitutionIfPresent(): ConstitutionalRecord | null {
@@ -1142,10 +1210,15 @@ export class CritiqueStore {
   }
 
   private async buildCanonicalRecord(snapshot: CritiqueSnapshot): Promise<CritiqueReadResult> {
-    const nextState = await this.deriveStateCanonical(snapshot.state, snapshot.runs, snapshot.findings);
+    const nextState = await this.deriveStateCanonical(
+      materializeState(snapshot.state),
+      snapshot.runs,
+      snapshot.findings,
+    );
     const packet = await this.buildPacketCanonical(nextState, snapshot.runs, snapshot.findings);
     const critique = renderCritiqueMarkdown(nextState, snapshot.runs, snapshot.findings);
-    const dashboard = buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, snapshot.launch);
+    const launch = snapshot.launch ?? buildLaunchDescriptor(nextState);
+    const dashboard = buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, launch);
 
     return {
       state: nextState,
@@ -1155,7 +1228,7 @@ export class CritiqueStore {
       runs: snapshot.runs,
       findings: snapshot.findings,
       dashboard,
-      launch: snapshot.launch,
+      launch,
     };
   }
 
@@ -1164,10 +1237,11 @@ export class CritiqueStore {
     runs: CritiqueRunRecord[],
     findings: CritiqueFindingRecord[],
     launchOverride?: CritiqueLaunchDescriptor | null,
+    persist = true,
   ): CritiqueReadResult {
     const critiqueId = state.critiqueId;
-    const launch = launchOverride ?? this.readLaunch(getCritiqueDir(this.cwd, critiqueId));
     const nextState = this.deriveState(state, runs, findings);
+    const launch = launchOverride ?? buildLaunchDescriptor(nextState);
     const packet = this.buildPacket(nextState, runs, findings);
     const critique = renderCritiqueMarkdown(nextState, runs, findings);
     const dashboard = buildCritiqueDashboard(nextState, runs, findings, launch);
@@ -1182,36 +1256,46 @@ export class CritiqueStore {
       dashboard,
       launch,
     };
-    const { storage, identity } = openCritiqueCatalogSync(this.cwd);
-    const existing = findStoredCritiqueRow(this.cwd, critiqueId);
-    void storage.upsertEntity({
-      id:
+    if (persist) {
+      const { storage, identity } = openCritiqueCatalogSync(this.cwd);
+      const existing = findStoredCritiqueRow(this.cwd, critiqueId);
+      void storage.upsertEntity({
+        id:
+          existing?.id ??
+          createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+        kind: ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: record.summary.id,
+        title: record.summary.title,
+        summary: record.state.reviewQuestion,
+        status: record.summary.status,
+        version: (existing?.version ?? 0) + 1,
+        tags: record.summary.focusAreas,
+        attributes: { record: { state: toCanonicalState(record.state), runs: record.runs } },
+        createdAt: existing?.created_at ?? record.state.createdAt,
+        updatedAt: record.state.updatedAt,
+      });
+      void this.syncFindingArtifactsAsync(
+        storage,
+        identity.space.id,
+        identity.repository.id,
         existing?.id ??
-        createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
-      kind: ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: record.summary.id,
-      title: record.summary.title,
-      summary: record.state.reviewQuestion,
-      status: record.summary.status,
-      version: (existing?.version ?? 0) + 1,
-      tags: record.summary.focusAreas,
-      attributes: { record },
-      createdAt: existing?.created_at ?? record.state.createdAt,
-      updatedAt: record.state.updatedAt,
-    });
-    void syncProjectedEntityLinks({
-      storage,
-      spaceId: identity.space.id,
-      fromEntityId:
-        existing?.id ??
-        createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
-      projectionOwner: CRITIQUE_LINK_PROJECTION_OWNER,
-      // Context roadmap refs resolve to embedded constitution items, so phase 1 projects only canonical entity relationships.
-      desired: buildProjectedCritiqueLinks(record.state),
-      timestamp: record.state.updatedAt,
-    }).catch(() => undefined);
+          createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+        record,
+      ).catch(() => undefined);
+      void syncProjectedEntityLinks({
+        storage,
+        spaceId: identity.space.id,
+        fromEntityId:
+          existing?.id ??
+          createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+        projectionOwner: CRITIQUE_LINK_PROJECTION_OWNER,
+        // Context roadmap refs resolve to embedded constitution items, so phase 1 projects only canonical entity relationships.
+        desired: buildProjectedCritiqueLinks(record.state),
+        timestamp: record.state.updatedAt,
+      }).catch(() => undefined);
+    }
     return record;
   }
   private createDefaultState(input: CreateCritiqueInput, critiqueId: string, timestamp: string): CritiqueState {
@@ -1246,8 +1330,9 @@ export class CritiqueStore {
 
   listCritiques(filter: CritiqueListFilter = {}): CritiqueSummary[] {
     this.initLedger();
-    return listStoredCritiqueRecords(this.cwd)
-      .map((record) => summarizeCritique(record.state))
+    return listStoredCritiqueRows(this.cwd)
+      .map((row) => this.readCritique(row.display_id ?? row.id))
+      .map((record) => record.summary)
       .filter((summary) => {
         if (filter.status && summary.status !== filter.status) {
           return false;
@@ -1274,33 +1359,33 @@ export class CritiqueStore {
 
   readCritique(ref: string): CritiqueReadResult {
     this.initLedger();
-    const critiqueId = normalizeCritiqueRef(ref);
-    const row = findStoredCritiqueRow(this.cwd, critiqueId);
-    if (!row) {
-      throw new Error(`Unknown critique: ${critiqueId}`);
-    }
-    const attributes = parseStoredJson<CritiqueEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
-    if (!hasStructuredCritiqueAttributes(attributes)) {
-      throw new Error(`Critique ${critiqueId} is missing structured attributes`);
-    }
-    return this.writeArtifacts(
-      attributes.record.state,
-      attributes.record.runs,
-      latestFindings(attributes.record.findings),
-    );
+    const critiqueDir = this.resolveCritiqueDirectory(ref);
+    const snapshot = this.readStoredSnapshot(critiqueDir);
+    const nextState = this.deriveState(materializeState(snapshot.state), snapshot.runs, snapshot.findings);
+    const launch = buildLaunchDescriptor(nextState);
+    return {
+      state: nextState,
+      summary: summarizeCritique(nextState),
+      packet: this.buildPacket(nextState, snapshot.runs, snapshot.findings),
+      critique: renderCritiqueMarkdown(nextState, snapshot.runs, snapshot.findings),
+      runs: snapshot.runs,
+      findings: snapshot.findings,
+      dashboard: buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, launch),
+      launch,
+    };
   }
 
-  createCritique(input: CreateCritiqueInput): CritiqueReadResult {
+  private createCritique(input: CreateCritiqueInput, persist = true): CritiqueReadResult {
     this.initLedger();
     const timestamp = currentTimestamp();
     const critiqueId = this.nextCritiqueId(input.title);
     const state = this.createDefaultState(input, critiqueId, timestamp);
-    return this.writeArtifacts(state, [], []);
+    return this.writeArtifacts(state, [], [], undefined, persist);
   }
 
-  updateCritique(ref: string, input: UpdateCritiqueInput): CritiqueReadResult {
-    const critiqueDir = this.resolveCritiqueDirectory(ref);
-    const state = this.readState(critiqueDir);
+  private updateCritique(ref: string, input: UpdateCritiqueInput, persist = true): CritiqueReadResult {
+    const critique = this.readCritique(ref);
+    const state = critique.state;
     const nextState: CritiqueState = {
       ...state,
       title: input.title?.trim() ?? state.title,
@@ -1322,45 +1407,39 @@ export class CritiqueStore {
       currentVerdict: input.verdict ? normalizeVerdict(input.verdict) : state.currentVerdict,
       updatedAt: currentTimestamp(),
     };
-    return this.writeArtifacts(
-      nextState,
-      this.readRuns(critiqueDir),
-      latestFindings(this.readFindingsHistory(critiqueDir)),
-    );
+    return this.writeArtifacts(nextState, critique.runs, critique.findings, undefined, persist);
   }
 
-  launchCritique(ref: string): { critique: CritiqueReadResult; launch: CritiqueLaunchDescriptor; text: string } {
+  private launchCritique(
+    ref: string,
+    persist = true,
+  ): { critique: CritiqueReadResult; launch: CritiqueLaunchDescriptor; text: string } {
     const critique = this.readCritique(ref);
     const timestamp = currentTimestamp();
     // The package owns durable launch metadata; the actual fresh-session runtime adapter
     // lives above this layer. Interactive adapters can use ctx.newSession()/switchSession(),
     // while external adapters can spawn `pi --mode json -p --no-session` consistently.
     const launch: CritiqueLaunchDescriptor = {
-      critiqueId: critique.state.critiqueId,
+      ...(buildLaunchDescriptor({
+        ...critique.state,
+        lastLaunchAt: timestamp,
+      }) as CritiqueLaunchDescriptor),
       createdAt: timestamp,
-      packetRef: critique.dashboard.packetRef,
-      target: critique.state.target,
-      focusAreas: critique.state.focusAreas,
-      reviewQuestion: critique.state.reviewQuestion,
-      freshContextRequired: critique.state.freshContextRequired,
-      runtime: "descriptor_only",
-      instructions: [
-        "Open a fresh reviewer session; do not continue in the saturated executor context.",
-        `Read ${critique.dashboard.packetRef} before analyzing the target.`,
-        "Record the run verdict with critique_run once review is complete.",
-        "Record each concrete issue with critique_finding and create follow-up tickets only for accepted findings.",
-      ],
     };
-    const refreshed = this.updateCritique(ref, {
-      status: critique.state.status === "proposed" ? "active" : critique.state.status,
-    });
+    const refreshed = this.updateCritique(
+      ref,
+      {
+        status: critique.state.status === "proposed" ? "active" : critique.state.status,
+      },
+      persist,
+    );
     const nextState: CritiqueState = {
       ...refreshed.state,
       lastLaunchAt: timestamp,
       launchCount: refreshed.state.launchCount + 1,
       updatedAt: timestamp,
     };
-    const materialized = this.writeArtifacts(nextState, refreshed.runs, refreshed.findings, launch);
+    const materialized = this.writeArtifacts(nextState, refreshed.runs, refreshed.findings, launch, persist);
     return {
       critique: materialized,
       launch,
@@ -1368,7 +1447,7 @@ export class CritiqueStore {
     };
   }
 
-  recordRun(ref: string, input: CreateCritiqueRunInput): CritiqueReadResult {
+  private recordRun(ref: string, input: CreateCritiqueRunInput, persist = true): CritiqueReadResult {
     const critique = this.readCritique(ref);
     const state = critique.state;
     const runs = critique.runs;
@@ -1398,10 +1477,12 @@ export class CritiqueStore {
       },
       [...runs, run],
       findings,
+      undefined,
+      persist,
     );
   }
 
-  addFinding(ref: string, input: CreateCritiqueFindingInput): CritiqueReadResult {
+  private addFinding(ref: string, input: CreateCritiqueFindingInput, persist = true): CritiqueReadResult {
     const critique = this.readCritique(ref);
     const state = critique.state;
     const runs = critique.runs;
@@ -1438,10 +1519,12 @@ export class CritiqueStore {
       },
       runs,
       [...findings, finding],
+      undefined,
+      persist,
     );
   }
 
-  updateFinding(ref: string, input: UpdateCritiqueFindingInput): CritiqueReadResult {
+  private updateFinding(ref: string, input: UpdateCritiqueFindingInput, persist = true): CritiqueReadResult {
     const critique = this.readCritique(ref);
     const state = critique.state;
     const runs = critique.runs;
@@ -1467,23 +1550,12 @@ export class CritiqueStore {
       },
       runs,
       findings.map((finding) => (finding.id === updated.id ? updated : finding)),
+      undefined,
+      persist,
     );
   }
 
-  ticketifyFinding(ref: string, input: TicketifyCritiqueFindingInput): CritiqueReadResult {
-    const critique = this.readCritique(ref);
-    const finding = critique.findings.find((entry) => entry.id === input.findingId);
-    if (!finding) {
-      throw new Error(`Unknown critique finding: ${input.findingId}`);
-    }
-    if (finding.linkedTicketId) {
-      return critique;
-    }
-
-    throw new Error("Use ticketifyFindingAsync for canonical ticket creation");
-  }
-
-  resolveCritique(ref: string, verdict?: CritiqueState["currentVerdict"]): CritiqueReadResult {
+  private resolveCritique(ref: string, verdict?: CritiqueState["currentVerdict"], persist = true): CritiqueReadResult {
     const critique = this.readCritique(ref);
     const nextVerdict = verdict
       ? normalizeVerdict(verdict)
@@ -1499,34 +1571,110 @@ export class CritiqueStore {
       },
       critique.runs,
       critique.findings,
+      undefined,
+      persist,
     );
   }
 
-  private async upsertCanonicalRecord(record: CritiqueReadResult): Promise<CritiqueReadResult> {
+  private async syncFindingArtifactsAsync(
+    storage: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"],
+    spaceId: string,
+    owningRepositoryId: string,
+    critiqueEntityId: string,
+    record: CritiqueReadResult,
+  ): Promise<void> {
+    await syncProjectedArtifacts({
+      storage,
+      spaceId,
+      owningRepositoryId,
+      owner: {
+        entityId: critiqueEntityId,
+        kind: ENTITY_KIND,
+        displayId: record.summary.id,
+      },
+      projectionOwner: CRITIQUE_FINDING_PROJECTION_OWNER,
+      timestamp: record.state.updatedAt,
+      desired: record.findings.map((finding) => ({
+        artifactType: CRITIQUE_FINDING_ARTIFACT_TYPE,
+        displayId: critiqueFindingArtifactDisplayId(record.summary.id, finding.id),
+        title: finding.title,
+        summary: finding.summary,
+        status: finding.status,
+        tags: [finding.kind, finding.severity, finding.status],
+        payload: { ...finding },
+        links: finding.linkedTicketId
+          ? [
+              {
+                kind: "references",
+                targetKind: "ticket",
+                targetDisplayId: finding.linkedTicketId,
+              },
+            ]
+          : [],
+      })),
+    });
+  }
+
+  private async readProjectedFindingsAsync(
+    storage: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"],
+    spaceId: string,
+    critiqueEntityId: string,
+  ): Promise<CritiqueFindingRecord[]> {
+    return (await storage.listEntities(spaceId, "artifact"))
+      .filter((entity) => hasProjectedArtifactAttributes(entity.attributes))
+      .filter(
+        (entity) =>
+          entity.attributes.projectionOwner === CRITIQUE_FINDING_PROJECTION_OWNER &&
+          entity.attributes.artifactType === CRITIQUE_FINDING_ARTIFACT_TYPE &&
+          (entity.attributes.owner as { entityId: string }).entityId === critiqueEntityId,
+      )
+      .map((entity) => normalizeFindingRecord(entity.attributes.payload as unknown as CritiqueFindingArtifactPayload))
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  private async upsertCanonicalRecord(
+    record: CritiqueReadResult,
+    mutationEvents: Array<Record<string, unknown>> = [],
+  ): Promise<CritiqueReadResult> {
     const canonicalRecord = await this.buildCanonicalRecord({
-      state: record.state,
+      state: toCanonicalState(record.state),
       runs: record.runs,
       findings: record.findings,
       launch: record.launch,
     });
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
-    const version = (existing?.version ?? 0) + 1;
-    const entity = await upsertEntityByDisplayId(storage, {
-      kind: ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: canonicalRecord.summary.id,
-      title: canonicalRecord.summary.title,
-      summary:
-        canonicalRecord.state.reviewQuestion || canonicalRecord.state.packetSummary || canonicalRecord.summary.title,
-      status: canonicalRecord.summary.status,
-      version,
-      tags: canonicalRecord.summary.focusAreas,
-      attributes: { record: canonicalRecord },
-      createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
-      updatedAt: canonicalRecord.state.updatedAt,
-    });
+    const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+      storage,
+      {
+        kind: ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: canonicalRecord.summary.id,
+        title: canonicalRecord.summary.title,
+        summary:
+          canonicalRecord.state.reviewQuestion || canonicalRecord.state.packetSummary || canonicalRecord.summary.title,
+        status: canonicalRecord.summary.status,
+        version:
+          ((await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id))
+            ?.version ?? 0) + 1,
+        tags: canonicalRecord.summary.focusAreas,
+        attributes: { record: { state: toCanonicalState(canonicalRecord.state), runs: canonicalRecord.runs } },
+        createdAt: canonicalRecord.state.createdAt,
+        updatedAt: canonicalRecord.state.updatedAt,
+      },
+      {
+        actor: CRITIQUE_LINK_PROJECTION_OWNER,
+        createdPayload: { change: "critique_entity_created", critiqueId: canonicalRecord.summary.id },
+        updatedPayload: { change: "critique_entity_updated", critiqueId: canonicalRecord.summary.id },
+      },
+    );
+    await this.syncFindingArtifactsAsync(
+      storage,
+      identity.space.id,
+      identity.repository.id,
+      entity.id,
+      canonicalRecord,
+    );
     await syncProjectedEntityLinks({
       storage,
       spaceId: identity.space.id,
@@ -1536,19 +1684,32 @@ export class CritiqueStore {
       desired: buildProjectedCritiqueLinks(canonicalRecord.state),
       timestamp: canonicalRecord.state.updatedAt,
     });
+    for (const payload of mutationEvents) {
+      await appendEntityEvent(
+        storage,
+        entity.id,
+        "updated",
+        CRITIQUE_LINK_PROJECTION_OWNER,
+        payload,
+        canonicalRecord.state.updatedAt,
+      );
+    }
     return canonicalRecord;
   }
 
-  private async entityRecord(entity: LoomEntityRecord): Promise<CritiqueReadResult> {
+  private async entityRecord(
+    entity: LoomEntityRecord,
+    storage?: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"],
+  ): Promise<CritiqueReadResult> {
     if (!hasStructuredCritiqueAttributes(entity.attributes)) {
       const critiqueId = entity.displayId ?? entity.id;
       throw new Error(`Critique ${critiqueId} is missing structured attributes`);
     }
+    const canonicalStorage = storage ?? (await openWorkspaceStorage(this.cwd)).storage;
     return this.buildCanonicalRecord({
       state: entity.attributes.record.state,
       runs: entity.attributes.record.runs,
-      findings: entity.attributes.record.findings,
-      launch: entity.attributes.record.launch,
+      findings: await this.readProjectedFindingsAsync(canonicalStorage, entity.spaceId, entity.id),
     });
   }
 
@@ -1559,7 +1720,7 @@ export class CritiqueStore {
   async listCritiquesAsync(filter: CritiqueListFilter = {}): Promise<CritiqueSummary[]> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const records = await Promise.all(
-      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity)),
+      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity, storage)),
     );
     return records
       .map((record) => record.summary)
@@ -1584,34 +1745,110 @@ export class CritiqueStore {
     if (!entity) {
       throw new Error(`Unknown critique: ${critiqueId}`);
     }
-    return this.entityRecord(entity);
+    return this.entityRecord(entity, storage);
   }
 
   async createCritiqueAsync(input: CreateCritiqueInput): Promise<CritiqueReadResult> {
-    return this.upsertCanonicalRecord(this.createCritique(input));
+    return this.upsertCanonicalRecord(this.createCritique(input, false));
   }
 
   async updateCritiqueAsync(ref: string, input: UpdateCritiqueInput): Promise<CritiqueReadResult> {
-    return this.upsertCanonicalRecord(this.updateCritique(ref, input));
+    return this.upsertCanonicalRecord(this.updateCritique(ref, input, false));
   }
 
   async launchCritiqueAsync(
     ref: string,
   ): Promise<{ critique: CritiqueReadResult; launch: CritiqueLaunchDescriptor; text: string }> {
-    const launched = this.launchCritique(ref);
-    return { ...launched, critique: await this.upsertCanonicalRecord(launched.critique) };
+    const launched = this.launchCritique(ref, false);
+    return {
+      ...launched,
+      critique: await this.upsertCanonicalRecord(launched.critique, [
+        {
+          change: "critique_launch_prepared",
+          critiqueId: launched.critique.state.critiqueId,
+          launchRef: toCritiqueLaunchRef(launched.critique.state.critiqueId),
+          packetRef: launched.launch.packetRef,
+          freshContextRequired: launched.launch.freshContextRequired,
+        },
+      ]),
+    };
   }
 
   async recordRunAsync(ref: string, input: CreateCritiqueRunInput): Promise<CritiqueReadResult> {
-    return this.upsertCanonicalRecord(this.recordRun(ref, input));
+    const record = this.recordRun(ref, input, false);
+    const run = record.runs.at(-1);
+    return this.upsertCanonicalRecord(
+      record,
+      run
+        ? [
+            {
+              change: "critique_run_recorded",
+              critiqueId: record.state.critiqueId,
+              runId: run.id,
+              runKind: run.kind,
+              verdict: run.verdict,
+              findingIds: run.findingIds,
+              followupTicketIds: run.followupTicketIds,
+            },
+          ]
+        : [],
+    );
   }
 
   async addFindingAsync(ref: string, input: CreateCritiqueFindingInput): Promise<CritiqueReadResult> {
-    return this.upsertCanonicalRecord(this.addFinding(ref, input));
+    const record = this.addFinding(ref, input, false);
+    const finding = record.findings.at(-1);
+    return this.upsertCanonicalRecord(
+      record,
+      finding
+        ? [
+            {
+              change: "critique_finding_created",
+              critiqueId: record.state.critiqueId,
+              findingId: finding.id,
+              findingRef: critiqueFindingArtifactDisplayId(record.state.critiqueId, finding.id),
+              runId: finding.runId,
+              status: finding.status,
+              severity: finding.severity,
+              linkedTicketId: finding.linkedTicketId,
+            },
+          ]
+        : [],
+    );
   }
 
   async updateFindingAsync(ref: string, input: UpdateCritiqueFindingInput): Promise<CritiqueReadResult> {
-    return this.upsertCanonicalRecord(this.updateFinding(ref, input));
+    const previous = await this.readCritiqueAsync(ref);
+    const record = this.updateFinding(ref, input, false);
+    const finding = record.findings.find((entry) => entry.id === input.id);
+    const before = previous.findings.find((entry) => entry.id === input.id);
+    const events = finding
+      ? [
+          {
+            change: "critique_finding_updated",
+            critiqueId: record.state.critiqueId,
+            findingId: finding.id,
+            findingRef: critiqueFindingArtifactDisplayId(record.state.critiqueId, finding.id),
+            previousStatus: before?.status ?? null,
+            status: finding.status,
+            linkedTicketId: finding.linkedTicketId,
+          },
+          ...(before && isActiveFindingStatus(before.status) && !isActiveFindingStatus(finding.status)
+            ? [
+                {
+                  change: "critique_finding_resolved",
+                  critiqueId: record.state.critiqueId,
+                  findingId: finding.id,
+                  findingRef: critiqueFindingArtifactDisplayId(record.state.critiqueId, finding.id),
+                  previousStatus: before.status,
+                  status: finding.status,
+                  linkedTicketId: finding.linkedTicketId,
+                },
+              ]
+            : []),
+        ]
+      : [];
+    return this.upsertCanonicalRecord(record, events);
   }
 
   async ticketifyFindingAsync(ref: string, input: TicketifyCritiqueFindingInput): Promise<CritiqueReadResult> {
@@ -1645,18 +1882,32 @@ export class CritiqueStore {
       labels: ["critique", finding.kind],
     });
 
-    return this.upsertCanonicalRecord(
-      this.updateFinding(ref, {
+    const record = this.updateFinding(
+      ref,
+      {
         id: finding.id,
         linkedTicketId: created.summary.id,
         status: "accepted",
         resolutionNotes: `Follow-up ticket created: ${created.summary.id}`,
-      }),
+      },
+      false,
     );
+
+    return this.upsertCanonicalRecord(record, [
+      {
+        change: "critique_finding_updated",
+        critiqueId: critique.state.critiqueId,
+        findingId: finding.id,
+        findingRef: critiqueFindingArtifactDisplayId(critique.state.critiqueId, finding.id),
+        previousStatus: finding.status,
+        status: "accepted",
+        linkedTicketId: created.summary.id,
+      },
+    ]);
   }
 
   async resolveCritiqueAsync(ref: string, verdict?: CritiqueState["currentVerdict"]): Promise<CritiqueReadResult> {
-    return this.upsertCanonicalRecord(this.resolveCritique(ref, verdict));
+    return this.upsertCanonicalRecord(this.resolveCritique(ref, verdict, false));
   }
 }
 

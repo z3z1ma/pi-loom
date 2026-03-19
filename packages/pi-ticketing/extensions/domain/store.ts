@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { PlanState } from "@pi-loom/pi-plans/extensions/domain/models.js";
 import type { LoomCanonicalStorage } from "@pi-loom/pi-storage/storage/contract.js";
-import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import {
+  findEntityByDisplayId,
+  upsertEntityByDisplayIdWithLifecycleEvents,
+} from "@pi-loom/pi-storage/storage/entities.js";
 import { createLinkId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
@@ -43,14 +46,6 @@ interface PlanEntityAttributes {
 }
 
 type WorkspaceIdentity = Awaited<ReturnType<typeof openWorkspaceStorage>>["identity"];
-
-interface SqliteMutationTarget {
-  db: {
-    prepare(sql: string): {
-      run(...params: unknown[]): unknown;
-    };
-  };
-}
 
 function hasStructuredTicketAttributes(attributes: unknown): attributes is TicketEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
@@ -104,6 +99,7 @@ function projectedLinksForTicket(record: TicketReadResult): ProjectedEntityLinkI
       kind: "belongs_to",
       targetKind: "initiative",
       targetDisplayId: initiativeId,
+      required: false,
     });
   }
 
@@ -118,7 +114,7 @@ function projectedLinksForTicket(record: TicketReadResult): ProjectedEntityLinkI
   for (const externalRef of frontmatter["external-refs"]) {
     const planId = parsePlanExternalRef(externalRef);
     if (planId) {
-      desired.push({ kind: "belongs_to", targetKind: "plan", targetDisplayId: planId });
+      desired.push({ kind: "belongs_to", targetKind: "plan", targetDisplayId: planId, required: false });
     }
   }
 
@@ -127,6 +123,7 @@ function projectedLinksForTicket(record: TicketReadResult): ProjectedEntityLinkI
       kind: "references",
       targetKind: "research",
       targetDisplayId: researchId,
+      required: false,
     });
   }
 
@@ -135,6 +132,7 @@ function projectedLinksForTicket(record: TicketReadResult): ProjectedEntityLinkI
       kind: "implements",
       targetKind: "spec_change",
       targetDisplayId: frontmatter["spec-change"],
+      required: false,
     });
   }
 
@@ -176,20 +174,28 @@ export class TicketStore {
         desired: projectedLinksForTicket(canonicalRecord),
       });
     }
-    const entity = await upsertEntityByDisplayId(storage, {
-      kind: ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: canonicalRecord.summary.id,
-      title: canonicalRecord.summary.title,
-      summary: canonicalRecord.ticket.body.summary,
-      status: canonicalRecord.summary.status,
-      version,
-      tags: canonicalRecord.ticket.frontmatter.tags,
-      attributes: { record: canonicalRecord },
-      createdAt: existing?.createdAt ?? canonicalRecord.summary.createdAt,
-      updatedAt: canonicalRecord.summary.updatedAt,
-    });
+    const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+      storage,
+      {
+        kind: ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: canonicalRecord.summary.id,
+        title: canonicalRecord.summary.title,
+        summary: canonicalRecord.ticket.body.summary,
+        status: canonicalRecord.summary.status,
+        version,
+        tags: canonicalRecord.ticket.frontmatter.tags,
+        attributes: { record: canonicalRecord },
+        createdAt: existing?.createdAt ?? canonicalRecord.summary.createdAt,
+        updatedAt: canonicalRecord.summary.updatedAt,
+      },
+      {
+        actor: "ticket-store",
+        createdPayload: { change: "ticket_persisted" },
+        updatedPayload: { change: "ticket_persisted" },
+      },
+    );
     if (options.syncProjectedLinks !== false) {
       await syncProjectedEntityLinks({
         storage,
@@ -268,10 +274,6 @@ export class TicketStore {
       }
     }
     return updated;
-  }
-
-  private deleteEntityRow(storage: SqliteMutationTarget, entityId: string): void {
-    (storage as unknown as SqliteMutationTarget).db.prepare("DELETE FROM entities WHERE id = ?").run(entityId);
   }
 
   private entityRecord(entity: { attributes: unknown }): TicketReadResult {
@@ -723,7 +725,7 @@ export class TicketStore {
       for (const record of canonicalAffected) {
         await this.upsertCanonicalRecordWithStorage(tx, identity, record);
       }
-      this.deleteEntityRow(tx as unknown as SqliteMutationTarget, targetEntity.id);
+      await tx.removeEntity(targetEntity.id);
     });
 
     return {

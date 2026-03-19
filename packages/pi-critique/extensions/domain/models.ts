@@ -95,6 +95,28 @@ export interface CritiqueState {
   launchCount: number;
 }
 
+export interface CritiqueCanonicalState {
+  critiqueId: string;
+  title: string;
+  status: CritiqueStatus;
+  createdAt: string;
+  updatedAt: string;
+  target: CritiqueTargetRef;
+  focusAreas: CritiqueFocusArea[];
+  reviewQuestion: string;
+  scopeRefs: string[];
+  nonGoals: string[];
+  contextRefs: CritiqueContextRefs;
+  freshContextRequired: boolean;
+  lastLaunchAt: string | null;
+  launchCount: number;
+}
+
+export interface CritiqueCanonicalEntityRecord {
+  state: CritiqueCanonicalState;
+  runs: CritiqueRunRecord[];
+}
+
 export interface CritiqueSummary {
   id: string;
   title: string;
@@ -139,6 +161,10 @@ export interface CritiqueFindingRecord {
   status: CritiqueFindingStatus;
   linkedTicketId: string | null;
   resolutionNotes: string | null;
+}
+
+export interface CritiqueFindingArtifactPayload extends CritiqueFindingRecord, Record<string, unknown> {
+  critiqueId: string;
 }
 
 export interface CritiqueLaunchDescriptor {

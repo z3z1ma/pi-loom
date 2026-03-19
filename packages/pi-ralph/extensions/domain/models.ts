@@ -138,6 +138,12 @@ export interface RalphLaunchDescriptor {
   instructions: string[];
 }
 
+export interface RalphPreparedLaunchState {
+  runtime: RalphLaunchDescriptor["runtime"] | null;
+  resume: boolean;
+  instructions: string[];
+}
+
 export interface RalphRunState {
   runId: string;
   title: string;
@@ -157,6 +163,7 @@ export interface RalphRunState {
   currentIterationId: string | null;
   lastLaunchAt: string | null;
   launchCount: number;
+  preparedLaunch: RalphPreparedLaunchState;
   stopReason: RalphDecisionReason | null;
   packetSummary: string;
 }

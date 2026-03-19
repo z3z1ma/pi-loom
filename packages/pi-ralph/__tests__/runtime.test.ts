@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRalphDashboard } from "../extensions/domain/dashboard.js";
 import type { RalphLaunchDescriptor, RalphRunState } from "../extensions/domain/models.js";
@@ -37,6 +39,7 @@ describe("ralph runtime spawn resolution", () => {
   it("projects dashboard artifact refs from the run id", () => {
     const dashboard = buildRalphDashboard(
       {
+        runId: "run-123",
         critiqueLinks: [],
         latestDecision: null,
         waitingFor: "operator",
@@ -151,7 +154,7 @@ describe("ralph review-state gating", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("keeps reviewing runs gated when iteration verifier evidence is blocking", () => {
+  it("keeps reviewing runs gated when iteration verifier evidence is blocking", async () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-16T09:00:00.000Z"));
@@ -182,6 +185,30 @@ describe("ralph review-state gating", () => {
     expect(reviewed.state.phase).toBe("reviewing");
     expect(reviewed.state.waitingFor).toBe("operator");
     expect(reviewed.launch.packetRef).toBe(`ralph-run:${created.state.runId}:packet`);
+
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const runEntity = await findEntityByDisplayId(storage, identity.space.id, "ralph_run", created.state.runId);
+    expect(runEntity?.attributes).toEqual(
+      expect.objectContaining({
+        state: expect.objectContaining({
+          runId: created.state.runId,
+          waitingFor: "operator",
+          currentIterationId: "iter-001",
+        }),
+      }),
+    );
+    expect(runEntity?.attributes).not.toHaveProperty("record");
+
+    const readback = store.readRun(created.state.runId);
+    expect(readback.iterations).toHaveLength(1);
+    expect(readback.iterations[0]).toMatchObject({ id: "iter-001", status: "reviewing" });
+    expect(readback.state.waitingFor).toBe("operator");
+    expect(readback.launch).toMatchObject({
+      iterationId: "iter-001",
+      runtime: "descriptor_only",
+      packetRef: `ralph-run:${created.state.runId}:packet`,
+    });
+
     expect(() => store.prepareLaunch(created.state.runId)).toThrow(
       "Ralph run verifier-blocked-review is waiting for operator and cannot launch until that gate is cleared.",
     );

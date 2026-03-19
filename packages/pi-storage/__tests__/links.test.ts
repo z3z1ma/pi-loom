@@ -101,6 +101,26 @@ describe("syncProjectedEntityLinks", () => {
       ]),
     );
     expect(links).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: staleManaged.id })]));
+
+    const events = await storage.listEvents(plan.id);
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: "linked",
+        actor: "plan-store",
+        payload: expect.objectContaining({
+          change: "projected_link_added",
+          linkKind: "references",
+        }),
+      }),
+      expect.objectContaining({
+        kind: "unlinked",
+        actor: "plan-store",
+        payload: expect.objectContaining({
+          change: "projected_link_removed",
+          linkId: staleManaged.id,
+        }),
+      }),
+    ]);
   });
 
   it("skips unresolved targets without failing persistence", async () => {

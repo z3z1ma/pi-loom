@@ -93,7 +93,7 @@ export async function handleCritiqueCommand(args: string, ctx: ExtensionCommandC
       return renderCritiqueDetail(
         await store.createCritiqueAsync({
           title: parsed.title,
-          target: { kind: parsed.kind, ref: parsed.ref, path: null },
+          target: { kind: parsed.kind, ref: parsed.ref, locator: null },
           reviewQuestion: parsed.reviewQuestion,
         }),
       );
@@ -173,7 +173,9 @@ export async function handleCritiqueCommand(args: string, ctx: ExtensionCommandC
       if (!ref || !findingId) {
         throw new Error("Usage: /critique ticketify <critique> <finding-id> [title]");
       }
-      return renderCritiqueDetail(await store.ticketifyFindingAsync(ref, { findingId, title: titleParts.join(" ") || undefined }));
+      return renderCritiqueDetail(
+        await store.ticketifyFindingAsync(ref, { findingId, title: titleParts.join(" ") || undefined }),
+      );
     }
     case "resolve": {
       const [ref] = rest;

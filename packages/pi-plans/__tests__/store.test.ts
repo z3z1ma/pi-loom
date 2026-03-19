@@ -141,7 +141,7 @@ describe("PlanStore durable memory", () => {
         "Does the plan layer stay detailed at the execution-strategy level while tickets remain the live execution system of record and complete units of work?",
       contextRefs: { roadmapItemIds: [roadmapId] },
     });
-    critiqueStore.recordRun(critique.state.critiqueId, {
+    await critiqueStore.recordRunAsync(critique.state.critiqueId, {
       kind: "architecture",
       verdict: "pass",
       summary:

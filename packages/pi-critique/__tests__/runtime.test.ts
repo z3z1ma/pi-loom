@@ -73,21 +73,21 @@ describe("critique verdict derivation", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("does not keep a pass verdict once an active finding is recorded", () => {
+  it("does not keep a pass verdict once an active finding is recorded", async () => {
     const critiqueStore = createCritiqueStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
-    const critique = critiqueStore.createCritique({
+    const critique = await critiqueStore.createCritiqueAsync({
       title: "Workspace review",
       target: {
         kind: "workspace",
         ref: "pi-critique",
-        path: "packages/pi-critique",
+        locator: "packages/pi-critique",
       },
     });
 
     vi.setSystemTime(new Date("2026-03-15T10:05:00.000Z"));
-    const withRun = critiqueStore.recordRun(critique.state.critiqueId, {
+    const withRun = await critiqueStore.recordRunAsync(critique.state.critiqueId, {
       kind: "verification",
       verdict: "pass",
       summary: "Initial verification did not find issues.",
@@ -96,7 +96,7 @@ describe("critique verdict derivation", () => {
     expect(firstRun).toBeDefined();
 
     vi.setSystemTime(new Date("2026-03-15T10:10:00.000Z"));
-    const withFinding = critiqueStore.addFinding(critique.state.critiqueId, {
+    const withFinding = await critiqueStore.addFindingAsync(critique.state.critiqueId, {
       runId: firstRun?.id ?? "missing-run",
       kind: "bug",
       severity: "medium",

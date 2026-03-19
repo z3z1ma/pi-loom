@@ -82,6 +82,39 @@ export interface DocumentationDashboard {
   scopePaths: string[];
 }
 
+export interface DocumentationCanonicalSnapshot {
+  state: DocumentationState;
+  revisions: DocumentationRevisionRecord[];
+  documentBody: string;
+}
+
+export interface DocumentationEntityAttributes {
+  snapshot: DocumentationCanonicalSnapshot;
+}
+
+export interface DocumentationPersistedEventPayload extends Record<string, unknown> {
+  change: "documentation_persisted";
+  entityKind: "documentation";
+  displayId: string;
+  version: number;
+  status: DocStatus;
+  docType: DocType;
+  sourceTarget: DocSourceTarget;
+  revisionCount: number;
+  lastRevisionId: string | null;
+}
+
+export interface DocumentationRevisionRecordedEventPayload extends Record<string, unknown> {
+  change: "documentation_revision_recorded";
+  docId: string;
+  revisionId: string;
+  revisionCount: number;
+  documentUpdated: boolean;
+  changedSections: string[];
+  sourceTarget: DocSourceTarget;
+  linkedContextRefs: DocsContextRefs;
+}
+
 export interface DocumentationReadResult {
   state: DocumentationState;
   summary: DocumentationSummary;

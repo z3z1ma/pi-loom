@@ -224,7 +224,13 @@ describe("TicketStore canonical storage", () => {
     ]);
     await expect(store.listTicketsAsync({ includeClosed: true, includeArchived: true })).resolves.toEqual([
       expect.objectContaining({ id: archivedCandidate.summary.id, archived: false, status: "ready", closed: false }),
-      expect.objectContaining({ id: closedArchivedCandidate.summary.id, archived: true, archivedAt: "2024-01-04T00:00:04.000Z", status: "closed", closed: true }),
+      expect.objectContaining({
+        id: closedArchivedCandidate.summary.id,
+        archived: true,
+        archivedAt: "2024-01-04T00:00:04.000Z",
+        status: "closed",
+        closed: true,
+      }),
     ]);
 
     await expect(store.readTicketAsync(closedArchivedCandidate.summary.id)).resolves.toMatchObject({
@@ -241,7 +247,10 @@ describe("TicketStore canonical storage", () => {
     vi.setSystemTime(new Date("2024-01-05T00:00:01.000Z"));
     const archivedCandidate = await store.createTicketAsync({ title: "Delete me later" });
     vi.setSystemTime(new Date("2024-01-05T00:00:02.000Z"));
-    const dependent = await store.createTicketAsync({ title: "Depends on deleted", deps: [archivedCandidate.summary.id] });
+    const dependent = await store.createTicketAsync({
+      title: "Depends on deleted",
+      deps: [archivedCandidate.summary.id],
+    });
     vi.setSystemTime(new Date("2024-01-05T00:00:03.000Z"));
     const child = await store.createTicketAsync({ title: "Child of deleted", parent: archivedCandidate.summary.id });
 

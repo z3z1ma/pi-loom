@@ -1,9 +1,4 @@
-import type {
-  LoomCanonicalStorage,
-  LoomEntityEventRecord,
-  LoomEntityKind,
-  LoomEntityRecord,
-} from "./contract.js";
+import type { LoomCanonicalStorage, LoomEntityEventRecord, LoomEntityKind, LoomEntityRecord } from "./contract.js";
 import { createEntityId, createEventId } from "./ids.js";
 
 export interface UpsertEntityInput {
@@ -19,6 +14,19 @@ export interface UpsertEntityInput {
   attributes: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface EntityLifecycleEventOptions {
+  actor: string;
+  createdPayload?: Record<string, unknown>;
+  updatedPayload?: Record<string, unknown>;
+  skipUpdatedEvent?: boolean;
+}
+
+export interface UpsertEntityResult {
+  entity: LoomEntityRecord;
+  previous: LoomEntityRecord | null;
+  events: LoomEntityEventRecord[];
 }
 
 export async function findEntityByDisplayId(
@@ -54,6 +62,72 @@ export async function upsertEntityByDisplayId(
   return entity;
 }
 
+export async function upsertEntityByDisplayIdWithLifecycleEvents(
+  storage: LoomCanonicalStorage,
+  input: UpsertEntityInput,
+  options: EntityLifecycleEventOptions,
+): Promise<UpsertEntityResult> {
+  const previous = await findEntityByDisplayId(storage, input.spaceId, input.kind, input.displayId);
+  const entity = await upsertEntityByDisplayId(storage, input);
+  const events: LoomEntityEventRecord[] = [];
+  const basePayload = {
+    entityKind: input.kind,
+    displayId: input.displayId,
+    version: entity.version,
+  } satisfies Record<string, unknown>;
+
+  if (!previous) {
+    events.push(
+      await appendEntityEvent(
+        storage,
+        entity.id,
+        "created",
+        options.actor,
+        { ...basePayload, status: entity.status, ...(options.createdPayload ?? {}) },
+        input.createdAt,
+      ),
+    );
+    return { entity, previous: null, events };
+  }
+
+  if (previous.status !== entity.status) {
+    events.push(
+      await appendEntityEvent(
+        storage,
+        entity.id,
+        "status_changed",
+        options.actor,
+        {
+          ...basePayload,
+          previousStatus: previous.status,
+          nextStatus: entity.status,
+        },
+        input.updatedAt,
+      ),
+    );
+  }
+
+  if (!options.skipUpdatedEvent) {
+    events.push(
+      await appendEntityEvent(
+        storage,
+        entity.id,
+        "updated",
+        options.actor,
+        {
+          ...basePayload,
+          status: entity.status,
+          previousVersion: previous.version,
+          ...(options.updatedPayload ?? {}),
+        },
+        input.updatedAt,
+      ),
+    );
+  }
+
+  return { entity, previous, events };
+}
+
 export async function appendEntityEvent(
   storage: LoomCanonicalStorage,
   entityId: string,
@@ -63,11 +137,12 @@ export async function appendEntityEvent(
   createdAt: string,
 ): Promise<LoomEntityEventRecord> {
   const existing = await storage.listEvents(entityId);
+  const nextSequence = (existing.at(-1)?.sequence ?? 0) + 1;
   const event: LoomEntityEventRecord = {
-    id: createEventId(entityId, existing.length + 1),
+    id: createEventId(entityId, nextSequence),
     entityId,
     kind,
-    sequence: existing.length + 1,
+    sequence: nextSequence,
     createdAt,
     actor,
     payload,

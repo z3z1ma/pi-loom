@@ -295,17 +295,24 @@ describe("research tools", () => {
       if (!entity) {
         throw new Error("Expected research entity to exist");
       }
-      expect(entity.attributes).toMatchObject({
-        artifacts: [
-          {
-            id: "artifact-001",
-            kind: "experiment",
-            summary: "Revised summary only.",
-            tags: ["updated"],
-          },
-        ],
-      });
-      expect(entity.attributes).not.toHaveProperty("artifacts.0.body");
+      expect(entity.attributes).not.toHaveProperty("artifacts");
+
+      expect(await storage.listEntities(identity.space.id, "artifact")).toEqual([
+        expect.objectContaining({
+          displayId: "research:evaluate-theme-architecture:artifact:experiment:artifact-001",
+          attributes: expect.objectContaining({
+            projectionOwner: "research-store:artifacts",
+            artifactType: "research-artifact",
+            payload: expect.objectContaining({
+              id: "artifact-001",
+              kind: "experiment",
+              summary: "Revised summary only.",
+              tags: ["updated"],
+              body: "Original prototype notes",
+            }),
+          }),
+        }),
+      ]);
     } finally {
       cleanup();
     }
@@ -373,7 +380,13 @@ describe("research tools", () => {
         research: [expect.objectContaining({ id: "evaluate-control-surfaces" })],
       });
 
-      const read = await researchRead.execute("call-2", { ref: "evaluate-control-surfaces" }, undefined, undefined, ctx);
+      const read = await researchRead.execute(
+        "call-2",
+        { ref: "evaluate-control-surfaces" },
+        undefined,
+        undefined,
+        ctx,
+      );
       expect(read.details).toMatchObject({
         research: {
           summary: { id: "evaluate-control-surfaces" },
@@ -439,13 +452,7 @@ describe("research tools", () => {
         },
       });
 
-      const map = await researchMap.execute(
-        "call-4",
-        { ref: "evaluate-control-surfaces" },
-        undefined,
-        undefined,
-        ctx,
-      );
+      const map = await researchMap.execute("call-4", { ref: "evaluate-control-surfaces" }, undefined, undefined, ctx);
       expect(map.details).toMatchObject({
         map: {
           nodes: expect.objectContaining({

@@ -2,12 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
-import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
 import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
-import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
-import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseMarkdownArtifact } from "../extensions/domain/frontmatter.js";
 import { createDocumentationStore } from "../extensions/domain/store.js";
 
 describe("DocumentationStore durable memory", () => {
@@ -27,11 +27,8 @@ describe("DocumentationStore durable memory", () => {
 
   it("compiles documentation packets from linked context and appends durable revision history", async () => {
     const constitutionStore = createConstitutionalStore(workspace);
-    const critiqueStore = createCritiqueStore(workspace);
     const initiativeStore = createInitiativeStore(workspace);
     const researchStore = createResearchStore(workspace);
-    const specStore = createSpecStore(workspace);
-    const ticketStore = createTicketStore(workspace);
     const docsStore = createDocumentationStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T11:00:00.000Z"));
@@ -80,66 +77,15 @@ describe("DocumentationStore durable memory", () => {
     initiativeStore.setResearchIds(initiative.state.initiativeId, [research.state.researchId]);
 
     vi.setSystemTime(new Date("2026-03-15T11:15:00.000Z"));
-    const spec = await specStore.createChange({
-      title: "Add docs layer",
-      summary: "Persist documentation packets, docs, and revision history.",
-      initiativeIds: [initiative.state.initiativeId],
-      researchIds: [research.state.researchId],
-    });
-    await specStore.updatePlan(spec.state.changeId, {
-      designNotes: "Compile packets from linked context and maintain focused docs instead of one giant markdown file.",
-      capabilities: [
-        {
-          title: "Focused docs corpus",
-          summary: "Store durable overview, guide, concept, and operations docs.",
-          requirements: [
-            "Update docs only after completed code changes materially affect understanding.",
-            "Run docs maintenance through a fresh process similar to critique.",
-          ],
-          acceptance: ["Docs remain high-level and explanatory rather than API reference material."],
-          scenarios: ["A guide is refreshed after a workflow changes."],
-        },
-      ],
-    });
-
-    vi.setSystemTime(new Date("2026-03-15T11:20:00.000Z"));
-    const ticket = await ticketStore.createTicketAsync({
-      title: "Implement docs package",
-      summary: "Persist docs state, packet, rendered document, revisions, and dashboard artifacts.",
-      initiativeIds: [initiative.state.initiativeId],
-      researchIds: [research.state.researchId],
-      specChange: spec.state.changeId,
-    });
-    await initiativeStore.linkTicket(initiative.state.initiativeId, ticket.summary.id);
-    await researchStore.linkTicket(research.state.researchId, ticket.summary.id);
-
-    vi.setSystemTime(new Date("2026-03-15T11:25:00.000Z"));
-    const critique = await critiqueStore.createCritiqueAsync({
-      title: "Critique docs package",
-      target: { kind: "ticket", ref: ticket.summary.id, path: "packages/pi-docs/extensions/domain/store.ts" },
-      focusAreas: ["architecture", "docs"],
-      reviewQuestion: "Does the docs package keep documentation distinct from critique and API reference material?",
-      contextRefs: { roadmapItemIds: [roadmapId] },
-    });
-    await critiqueStore.recordRunAsync(critique.state.critiqueId, {
-      kind: "docs",
-      verdict: "pass",
-      summary: "The docs layer remains distinct from critique and focused on high-level explanatory material.",
-    });
-
-    vi.setSystemTime(new Date("2026-03-15T11:30:00.000Z"));
     const doc = await docsStore.createDoc({
       title: "Documentation memory system",
       docType: "overview",
       summary: "Explain the durable documentation layer and when it should be updated.",
-      sourceTarget: { kind: "spec", ref: spec.state.changeId },
+      sourceTarget: { kind: "initiative", ref: initiative.state.initiativeId },
       contextRefs: {
         roadmapItemIds: [roadmapId],
         initiativeIds: [initiative.state.initiativeId],
         researchIds: [research.state.researchId],
-        specChangeIds: [spec.state.changeId],
-        ticketIds: [ticket.summary.id],
-        critiqueIds: [critique.state.critiqueId],
       },
       scopePaths: ["packages/pi-docs", "README.md", "docs/loom.md"],
       guideTopics: ["documentation-memory", "fresh-updater"],
@@ -156,13 +102,10 @@ describe("DocumentationStore durable memory", () => {
     expect(doc.packet).toContain("Keep Loom memory layers truthful as the codebase evolves.");
     expect(doc.packet).toContain(initiative.state.initiativeId);
     expect(doc.packet).toContain(research.state.researchId);
-    expect(doc.packet).toContain(spec.state.changeId);
-    expect(doc.packet).toContain(ticket.summary.id);
-    expect(doc.packet).toContain(critique.state.critiqueId);
     expect(doc.packet).toContain("Do not generate API reference docs");
     expect(doc.packet).toContain("Likely Sections To Update");
 
-    vi.setSystemTime(new Date("2026-03-15T11:35:00.000Z"));
+    vi.setSystemTime(new Date("2026-03-15T11:20:00.000Z"));
     const revised = await docsStore.updateDoc(doc.state.docId, {
       updateReason: "Document the fresh-process updater and durable revision semantics.",
       summary: "Explains the docs packet, fresh updater, and durable revision history.",
@@ -195,9 +138,87 @@ describe("DocumentationStore durable memory", () => {
     expect(revised.document).toContain("## Update Flow");
     expect(revised.document).toContain("Documentation remains distinct from critique");
 
+    vi.setSystemTime(new Date("2026-03-15T11:25:00.000Z"));
+    const metadataOnlyRevision = await docsStore.updateDoc(doc.state.docId, {
+      summary: "Explains the docs packet, fresh updater, revision events, and durable revision history.",
+      updateReason: "Refresh the summary without changing the rendered markdown.",
+      guideTopics: ["documentation-memory", "fresh-updater", "revision-events"],
+    });
+
+    expect(metadataOnlyRevision.revisions).toHaveLength(2);
+    expect(metadataOnlyRevision.revisions[1]).toMatchObject({
+      id: "rev-002",
+      reason: "Refresh the summary without changing the rendered markdown.",
+      changedSections: [],
+      summary: "Explains the docs packet, fresh updater, revision events, and durable revision history.",
+    });
+    expect(parseMarkdownArtifact(metadataOnlyRevision.document, metadataOnlyRevision.dashboard.documentRef).body).toBe(
+      parseMarkdownArtifact(revised.document, revised.dashboard.documentRef).body,
+    );
+    expect(metadataOnlyRevision.dashboard.revisionCount).toBe(2);
+    expect(metadataOnlyRevision.dashboard.lastRevision?.id).toBe("rev-002");
+
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, "documentation", doc.state.docId);
+    expect(entity?.attributes).toEqual({
+      snapshot: {
+        state: metadataOnlyRevision.state,
+        revisions: metadataOnlyRevision.revisions,
+        documentBody: [
+          "## Summary",
+          "The documentation layer stores focused high-level docs in durable SQLite-backed memory and updates them after completed changes.",
+          "",
+          "## Update Flow",
+          "A bounded packet is compiled from constitution, initiative, research, spec, ticket, and critique context before a fresh maintainer session updates the document.",
+          "",
+          "## Boundaries",
+          "Documentation remains distinct from critique and from API reference generation.",
+        ].join("\n"),
+      },
+    });
+    expect(entity?.attributes).not.toEqual(expect.objectContaining({ packet: expect.anything() }));
+    expect(entity?.attributes).not.toEqual(expect.objectContaining({ document: expect.anything() }));
+    expect(entity?.attributes).not.toEqual(expect.objectContaining({ dashboard: expect.anything() }));
+
+    const events = await storage.listEvents(entity?.id ?? "missing");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "updated",
+          actor: "documentation-store",
+          payload: expect.objectContaining({
+            change: "documentation_revision_recorded",
+            revisionId: "rev-001",
+            documentUpdated: true,
+            changedSections: ["Boundaries", "Summary", "Update Flow"],
+          }),
+        }),
+        expect.objectContaining({
+          kind: "updated",
+          actor: "documentation-store",
+          payload: expect.objectContaining({
+            change: "documentation_revision_recorded",
+            revisionId: "rev-002",
+            documentUpdated: false,
+            changedSections: [],
+          }),
+        }),
+        expect.objectContaining({
+          kind: "updated",
+          actor: "documentation-store",
+          payload: expect.objectContaining({
+            change: "documentation_persisted",
+            revisionCount: 2,
+            lastRevisionId: "rev-002",
+          }),
+        }),
+      ]),
+    );
+
     const reread = await docsStore.readDoc(doc.state.docId);
-    expect(reread.revisions).toEqual(revised.revisions);
-    expect(reread.document).toBe(revised.document);
-    expect(reread.packet).toBe(revised.packet);
+    expect(reread.revisions).toEqual(metadataOnlyRevision.revisions);
+    expect(reread.document).toBe(metadataOnlyRevision.document);
+    expect(reread.packet).toBe(metadataOnlyRevision.packet);
+    expect(reread.dashboard).toEqual(metadataOnlyRevision.dashboard);
   }, 120000);
 });

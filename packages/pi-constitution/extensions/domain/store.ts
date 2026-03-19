@@ -2,7 +2,7 @@ import * as path from "node:path";
 import {
   appendEntityEvent,
   findEntityByDisplayId,
-  upsertEntityByDisplayId,
+  upsertEntityByDisplayIdWithLifecycleEvents,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
@@ -141,6 +141,7 @@ function buildProjectedReferenceLinks(state: ConstitutionalState): ProjectedEnti
         kind: "references",
         targetKind: "initiative",
         targetDisplayId,
+        required: false,
       }),
     ),
     ...state.researchIds.map(
@@ -148,6 +149,7 @@ function buildProjectedReferenceLinks(state: ConstitutionalState): ProjectedEnti
         kind: "references",
         targetKind: "research",
         targetDisplayId,
+        required: false,
       }),
     ),
     ...state.specChangeIds.map(
@@ -155,6 +157,7 @@ function buildProjectedReferenceLinks(state: ConstitutionalState): ProjectedEnti
         kind: "references",
         targetKind: "spec_change",
         targetDisplayId,
+        required: false,
       }),
     ),
   ];
@@ -256,20 +259,28 @@ export class ConstitutionalStore {
     if (!entity) {
       const timestamp = currentTimestamp();
       const bootstrapState = this.defaultState({}, timestamp);
-      entity = await upsertEntityByDisplayId(storage, {
-        kind: "constitution",
-        spaceId: identity.space.id,
-        owningRepositoryId: identity.repository.id,
-        displayId: CONSTITUTION_ENTITY_DISPLAY_ID,
-        title: bootstrapState.title,
-        summary: bootstrapState.visionSummary || bootstrapState.strategicDirectionSummary || bootstrapState.title,
-        status: "active",
-        version: 1,
-        tags: ["constitution"],
-        attributes: { state: bootstrapState },
-        createdAt: bootstrapState.createdAt,
-        updatedAt: bootstrapState.updatedAt,
-      });
+      ({ entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+        storage,
+        {
+          kind: "constitution",
+          spaceId: identity.space.id,
+          owningRepositoryId: identity.repository.id,
+          displayId: CONSTITUTION_ENTITY_DISPLAY_ID,
+          title: bootstrapState.title,
+          summary: bootstrapState.visionSummary || bootstrapState.strategicDirectionSummary || bootstrapState.title,
+          status: "active",
+          version: 1,
+          tags: ["constitution"],
+          attributes: { state: bootstrapState },
+          createdAt: bootstrapState.createdAt,
+          updatedAt: bootstrapState.updatedAt,
+        },
+        {
+          actor: "constitution-store",
+          createdPayload: { change: "constitution_bootstrapped" },
+          updatedPayload: { change: "constitution_bootstrapped" },
+        },
+      ));
       const record = this.materializeArtifacts(bootstrapState, []);
       return { record, storage };
     }
@@ -306,28 +317,38 @@ export class ConstitutionalStore {
       CONSTITUTION_ENTITY_DISPLAY_ID,
     );
     const version = (existing?.version ?? 0) + 1;
-    const entity = await upsertEntityByDisplayId(storage, {
-      kind: "constitution",
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: CONSTITUTION_ENTITY_DISPLAY_ID,
-      title: normalized.title,
-      summary: normalized.visionSummary || normalized.strategicDirectionSummary || normalized.title,
-      status: "active",
-      version,
-      tags: ["constitution"],
-      attributes: { state: normalized },
-      createdAt: existing?.createdAt ?? normalized.createdAt,
-      updatedAt: normalized.updatedAt,
-    });
-    await syncProjectedEntityLinks({
-      storage,
-      spaceId: identity.space.id,
-      fromEntityId: entity.id,
-      projectionOwner: CONSTITUTION_LINK_PROJECTION_OWNER,
-      // Roadmap items stay embedded in the aggregate for phase 1; only canonical entity ids project into links.
-      desired: buildProjectedReferenceLinks(normalized),
-      timestamp: normalized.updatedAt,
+    await storage.transact(async (tx) => {
+      const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+        tx,
+        {
+          kind: "constitution",
+          spaceId: identity.space.id,
+          owningRepositoryId: identity.repository.id,
+          displayId: CONSTITUTION_ENTITY_DISPLAY_ID,
+          title: normalized.title,
+          summary: normalized.visionSummary || normalized.strategicDirectionSummary || normalized.title,
+          status: "active",
+          version,
+          tags: ["constitution"],
+          attributes: { state: normalized },
+          createdAt: existing?.createdAt ?? normalized.createdAt,
+          updatedAt: normalized.updatedAt,
+        },
+        {
+          actor: "constitution-store",
+          createdPayload: { change: "constitution_persisted" },
+          updatedPayload: { change: "constitution_persisted" },
+        },
+      );
+      await syncProjectedEntityLinks({
+        storage: tx,
+        spaceId: identity.space.id,
+        fromEntityId: entity.id,
+        projectionOwner: CONSTITUTION_LINK_PROJECTION_OWNER,
+        // Roadmap items stay embedded in the aggregate for phase 1; only canonical entity ids project into links.
+        desired: buildProjectedReferenceLinks(normalized),
+        timestamp: normalized.updatedAt,
+      });
     });
     return this.materializeArtifacts(normalized, decisions);
   }
@@ -518,7 +539,14 @@ export class ConstitutionalStore {
       CONSTITUTION_ENTITY_DISPLAY_ID,
     );
     if (entity) {
-      await appendEntityEvent(storage, entity.id, "decision_recorded", "constitution-store", { decision }, timestamp);
+      await appendEntityEvent(
+        storage,
+        entity.id,
+        "decision_recorded",
+        "constitution-store",
+        { change: "constitution_decision_recorded", decision },
+        timestamp,
+      );
     }
     decisions.push(decision);
     const state = { ...record.state, updatedAt: timestamp };

@@ -115,6 +115,12 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
   await storage.removeLink(link.id);
   expect(await storage.listLinks(entity.id)).toEqual([]);
 
+  await storage.removeEvent(event.id);
+  expect(await storage.listEvents(entity.id)).toEqual([]);
+
+  await storage.removeEntity(entity.id);
+  expect(await storage.getEntity(entity.id)).toBeNull();
+
   await storage.removeRuntimeAttachment(runtimeAttachment.id);
   expect(await storage.listRuntimeAttachments(worktree.id)).toEqual([]);
 }

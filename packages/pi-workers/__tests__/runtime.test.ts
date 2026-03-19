@@ -161,7 +161,7 @@ describe("worker runtime", () => {
       const launched = store.prepareLaunch("runtime-worker", false, "prepare launch");
       expect(launched.launch).not.toBeNull();
       expect(launched.launch?.runtime).toBe("sdk");
-      expect(existsSync(launched.launch?.workspacePath ?? "")).toBe(true);
+      expect(existsSync(launched.launch?.workspaceDir ?? "")).toBe(true);
       expect(launched.launch?.status).toBe("prepared");
 
       const retired = store.retireWorker("runtime-worker", "retired in test");
@@ -182,10 +182,10 @@ describe("worker runtime", () => {
       store.createWorker({ title: "Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } });
 
       const firstLaunch = store.prepareLaunch("runtime-worker", false, "initial launch");
-      expect(firstLaunch.launch?.workspacePath).toBeTruthy();
+      expect(firstLaunch.launch?.workspaceDir).toBeTruthy();
       expect(firstLaunch.launch?.runtime).toBe("sdk");
       expect(
-        execFileSync("git", ["-C", firstLaunch.launch?.workspacePath ?? "", "branch", "--show-current"], {
+        execFileSync("git", ["-C", firstLaunch.launch?.workspaceDir ?? "", "branch", "--show-current"], {
           encoding: "utf-8",
         }).trim(),
       ).toBe("runtime-worker");
@@ -195,9 +195,9 @@ describe("worker runtime", () => {
       });
 
       const secondLaunch = store.prepareLaunch("runtime-worker", true, "resume on new branch");
-      expect(secondLaunch.launch?.workspacePath).toBe(firstLaunch.launch?.workspacePath);
+      expect(secondLaunch.launch?.workspaceDir).toBe(firstLaunch.launch?.workspaceDir);
       expect(
-        execFileSync("git", ["-C", secondLaunch.launch?.workspacePath ?? "", "branch", "--show-current"], {
+        execFileSync("git", ["-C", secondLaunch.launch?.workspaceDir ?? "", "branch", "--show-current"], {
           encoding: "utf-8",
         }).trim(),
       ).toBe("runtime-worker-rebased");
@@ -289,14 +289,14 @@ describe("worker runtime", () => {
       expect(sdkOptions?.thinkingLevel).toBe("high");
       expect(sdkOptions?.tools).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ name: "read", cwd: launch.workspacePath }),
-          expect.objectContaining({ name: "bash", cwd: launch.workspacePath }),
+          expect.objectContaining({ name: "read", cwd: launch.workspaceDir }),
+          expect.objectContaining({ name: "bash", cwd: launch.workspaceDir }),
         ]),
       );
       const loadedExtensions =
         sdkOptions?.resourceLoader?.getExtensions().extensions.map((extension) => extension.resolvedPath) ?? [];
       expect(loadedExtensions).toContain(join(cwd, "packages", "demo-extension", "index.ts"));
-      const finished = createWorkerStore(cwd).finishLaunchExecution("sdk-worker", execution);
+      const finished = store.finishLaunchExecution("sdk-worker", execution);
       expect(finished.state.lastRuntimeKind).toBe("sdk");
       expect(finished.state.status).toBe("ready");
       expect(finished.state.latestTelemetry.state).toBe("idle");
@@ -347,7 +347,7 @@ describe("worker runtime", () => {
       updatedAt: new Date().toISOString(),
       runtime: "rpc",
       resume: false,
-      workspacePath: ".",
+      workspaceDir: ".",
       branch: "rpc-worker",
       baseRef: "HEAD",
       launchPrompt: "Prompt",
@@ -371,7 +371,7 @@ describe("worker runtime", () => {
       updatedAt: new Date().toISOString(),
       runtime: "sdk",
       resume: false,
-      workspacePath: ".",
+      workspaceDir: ".",
       branch: "sdk-failure-worker",
       baseRef: "HEAD",
       launchPrompt: "Prompt",
@@ -420,7 +420,7 @@ describe("worker runtime", () => {
       updatedAt: new Date().toISOString(),
       runtime: "sdk",
       resume: true,
-      workspacePath: ".",
+      workspaceDir: ".",
       branch: "sdk-error-worker",
       baseRef: "HEAD",
       launchPrompt: "Prompt",
@@ -470,7 +470,7 @@ describe("worker runtime", () => {
       updatedAt: new Date().toISOString(),
       runtime: "sdk",
       resume: true,
-      workspacePath: ".",
+      workspaceDir: ".",
       branch: "sdk-empty-turn-worker",
       baseRef: "HEAD",
       launchPrompt: "Prompt",

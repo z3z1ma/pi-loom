@@ -238,6 +238,18 @@ export interface WorkerRuntimeDescriptor {
   note: string;
 }
 
+export interface WorkerLaunchAttachmentMetadata extends Record<string, unknown> {
+  workerId: string;
+  launch: WorkerRuntimeDescriptor;
+}
+
+export interface WorkerCheckpointArtifactPayload extends WorkerCheckpointRecord, Record<string, unknown> {}
+
+export interface WorkerCanonicalRecord extends Record<string, unknown> {
+  state: WorkerState;
+  messages: WorkerMessageRecord[];
+}
+
 export interface WorkerSupervisionDecision {
   action: SupervisionAction;
   confidence: number;

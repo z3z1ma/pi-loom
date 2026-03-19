@@ -6,7 +6,7 @@ import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import {
   appendEntityEvent,
   findEntityByDisplayId,
-  upsertEntityByDisplayId,
+  upsertEntityByDisplayIdWithLifecycleEvents,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
@@ -181,20 +181,28 @@ export class InitiativeStore {
     if (!entity) {
       const timestamp = currentTimestamp();
       const state = this.defaultState({ title: initiativeId, initiativeId }, timestamp);
-      entity = await upsertEntityByDisplayId(storage, {
-        kind: ENTITY_KIND,
-        spaceId: identity.space.id,
-        owningRepositoryId: identity.repository.id,
-        displayId: state.initiativeId,
-        title: state.title,
-        summary: state.statusSummary || state.objective,
-        status: state.status,
-        version: 1,
-        tags: state.tags,
-        attributes: { state, decisions: [] },
-        createdAt: state.createdAt,
-        updatedAt: state.updatedAt,
-      });
+      ({ entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+        storage,
+        {
+          kind: ENTITY_KIND,
+          spaceId: identity.space.id,
+          owningRepositoryId: identity.repository.id,
+          displayId: state.initiativeId,
+          title: state.title,
+          summary: state.statusSummary || state.objective,
+          status: state.status,
+          version: 1,
+          tags: state.tags,
+          attributes: { state, decisions: [] },
+          createdAt: state.createdAt,
+          updatedAt: state.updatedAt,
+        },
+        {
+          actor: "initiative-store",
+          createdPayload: { change: "initiative_bootstrapped" },
+          updatedPayload: { change: "initiative_bootstrapped" },
+        },
+      ));
     }
     if (!hasStructuredInitiativeAttributes(entity.attributes)) {
       throw new Error(`Initiative entity ${initiativeId} is missing structured attributes`);
@@ -221,20 +229,28 @@ export class InitiativeStore {
       desired: buildProjectedReferenceLinks(record.state),
     });
     await storage.transact(async (tx) => {
-      const entity = await upsertEntityByDisplayId(tx, {
-        kind: ENTITY_KIND,
-        spaceId: identity.space.id,
-        owningRepositoryId: identity.repository.id,
-        displayId: record.state.initiativeId,
-        title: record.state.title,
-        summary: record.state.statusSummary || record.state.objective,
-        status: record.state.status,
-        version,
-        tags: record.state.tags,
-        attributes: { state: record.state, decisions: record.decisions },
-        createdAt: existing?.createdAt ?? record.state.createdAt,
-        updatedAt: record.state.updatedAt,
-      });
+      const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+        tx,
+        {
+          kind: ENTITY_KIND,
+          spaceId: identity.space.id,
+          owningRepositoryId: identity.repository.id,
+          displayId: record.state.initiativeId,
+          title: record.state.title,
+          summary: record.state.statusSummary || record.state.objective,
+          status: record.state.status,
+          version,
+          tags: record.state.tags,
+          attributes: { state: record.state, decisions: record.decisions },
+          createdAt: existing?.createdAt ?? record.state.createdAt,
+          updatedAt: record.state.updatedAt,
+        },
+        {
+          actor: "initiative-store",
+          createdPayload: { change: "initiative_persisted" },
+          updatedPayload: { change: "initiative_persisted" },
+        },
+      );
       await syncProjectedEntityLinks({
         storage: tx,
         spaceId: identity.space.id,
@@ -509,7 +525,7 @@ export class InitiativeStore {
         entity.id,
         "decision_recorded",
         "initiative-store",
-        { decision },
+        { change: "initiative_decision_recorded", decision },
         decision.createdAt,
       );
     }

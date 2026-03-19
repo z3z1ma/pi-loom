@@ -1,11 +1,13 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
-import { createRalphStore } from "@pi-loom/pi-ralph/extensions/domain/store.js";
-import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
+import { createPlanStore } from "../../pi-plans/extensions/domain/store.js";
+import { createRalphStore } from "../../pi-ralph/extensions/domain/store.js";
 import { createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
+import { hasProjectedArtifactAttributes } from "../../pi-storage/storage/artifacts.js";
+import { openWorkspaceStorage } from "../../pi-storage/storage/workspace.js";
+import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { getWorkerRuntimeDir } from "../extensions/domain/paths.js";
 import { createWorkerStore } from "../extensions/domain/store.js";
 
@@ -64,7 +66,7 @@ describe("WorkerStore", () => {
       expect(created.state.workerId).toBe("worker-foundation");
       expect(created.state.workspace.repositoryRoot).toBe(".");
       expect(created.state.workspace.workspaceKey).toBe("worker-runtime:worker-foundation");
-      expect(created.launch?.runtime).toBe("sdk");
+      expect(created.launch).toBeNull();
       expect(JSON.stringify(created.state)).not.toContain(cwd);
       expect(created.summary.ticketCount).toBe(1);
 
@@ -72,6 +74,19 @@ describe("WorkerStore", () => {
         const ticket = await ticketStore.readTicketAsync("t-0001");
         expect(ticket.ticket.frontmatter["external-refs"]).toContain("worker:worker-foundation");
       });
+
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const entity = await storage.getEntityByDisplayId(identity.space.id, "worker", "worker-foundation");
+      expect(entity?.attributes).toEqual(
+        expect.objectContaining({
+          state: expect.objectContaining({ workerId: "worker-foundation" }),
+          messages: [],
+        }),
+      );
+      expect(JSON.stringify(entity?.attributes ?? {})).not.toContain('"packet"');
+      expect(JSON.stringify(entity?.attributes ?? {})).not.toContain('"dashboard"');
+      expect(JSON.stringify(entity?.attributes ?? {})).not.toContain('"launch"');
+      expect(JSON.stringify(entity?.attributes ?? {})).not.toContain('"checkpoints"');
     } finally {
       cleanup();
     }
@@ -223,6 +238,43 @@ describe("WorkerStore", () => {
       expect(result.messages).toHaveLength(1);
       expect(result.checkpoints).toHaveLength(1);
 
+      await store.readWorkerAsync("lifecycle-worker");
+
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const workerEntity = await storage.getEntityByDisplayId(identity.space.id, "worker", "lifecycle-worker");
+      expect(workerEntity?.attributes).toEqual(
+        expect.objectContaining({
+          state: expect.objectContaining({ workerId: "lifecycle-worker" }),
+          messages: expect.any(Array),
+        }),
+      );
+      expect(JSON.stringify(workerEntity?.attributes ?? {})).not.toContain('"checkpoints"');
+
+      const checkpointArtifact = await storage.getEntityByDisplayId(
+        identity.space.id,
+        "artifact",
+        result.checkpoints[0]?.id ?? "",
+      );
+      expect(checkpointArtifact).not.toBeNull();
+      const checkpointAttributes = checkpointArtifact?.attributes ?? {};
+      expect(hasProjectedArtifactAttributes(checkpointAttributes)).toBe(true);
+      if (!hasProjectedArtifactAttributes(checkpointAttributes)) {
+        throw new Error("Expected projected checkpoint artifact attributes");
+      }
+      expect(checkpointAttributes.projectionOwner).toBe("worker-store:checkpoints");
+      expect(checkpointAttributes.payload).toEqual(expect.objectContaining({ id: result.checkpoints[0]?.id }));
+
+      const events = workerEntity ? await storage.listEvents(workerEntity.id) : [];
+      expect(events.map((event) => event.payload.change)).toEqual(
+        expect.arrayContaining([
+          "message_appended",
+          "checkpoint_appended",
+          "completion_requested",
+          "approval_decided",
+          "consolidation_recorded",
+        ]),
+      );
+
       await vi.waitFor(
         async () => {
           const linkedTicket = await createTicketStore(cwd).readTicketAsync("t-0001");
@@ -296,10 +348,33 @@ describe("WorkerStore", () => {
       expect(prepared.launch?.workspaceDir).toBe(getWorkerRuntimeDir(cwd, "runtime-worker"));
       expect(existsSync(prepared.launch?.workspaceDir ?? "")).toBe(true);
       expect(prepared.launch?.status).toBe("prepared");
+
+      await store.readWorkerAsync("runtime-worker");
+
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const workerEntity = await storage.getEntityByDisplayId(identity.space.id, "worker", "runtime-worker");
+      expect(JSON.stringify(workerEntity?.attributes ?? {})).not.toContain('"launch"');
+      const runtimeAttachments = await storage.listRuntimeAttachments(identity.worktree.id);
+      expect(runtimeAttachments).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "launch_descriptor",
+            locator: "worker:runtime-worker:launch",
+          }),
+        ]),
+      );
+
       const canonicalPrepared = await store.readWorkerAsync("runtime-worker");
       expect(canonicalPrepared.launch?.workspaceDir).toBe(prepared.launch?.workspaceDir);
       expect(canonicalPrepared.launch?.status).toBe("prepared");
       expect(JSON.stringify(canonicalPrepared.state)).not.toContain(prepared.launch?.workspaceDir ?? "");
+
+      const attachment = runtimeAttachments.find((entry) => entry.locator === "worker:runtime-worker:launch");
+      if (!attachment) {
+        throw new Error("Expected launch runtime attachment");
+      }
+      await storage.removeRuntimeAttachment(attachment.id);
+      expect((await store.readWorkerAsync("runtime-worker")).launch).toBeNull();
     } finally {
       cleanup();
     }

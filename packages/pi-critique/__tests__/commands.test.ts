@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { describe, expect, it, vi } from "vitest";
 import { handleCritiqueCommand } from "../extensions/commands/critique.js";
 import { createCritiqueStore } from "../extensions/domain/store.js";
@@ -89,6 +91,25 @@ describe("/critique command handler", () => {
         ctx,
       );
       expect(finding).toContain("Open findings: 1");
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const critiqueEntity = await findEntityByDisplayId(
+        storage,
+        identity.space.id,
+        "critique",
+        "critique-package-launch-boundary",
+      );
+      expect(critiqueEntity?.attributes).not.toHaveProperty("record.launch");
+      expect(critiqueEntity?.attributes).not.toHaveProperty("record.findings");
+      const findingArtifact = await findEntityByDisplayId(
+        storage,
+        identity.space.id,
+        "artifact",
+        "critique:critique-package-launch-boundary:finding:finding-001",
+      );
+      expect(findingArtifact?.attributes).toMatchObject({
+        artifactType: "critique-finding",
+        payload: expect.objectContaining({ id: "finding-001", status: "open" }),
+      });
 
       const ticketified = await handleCritiqueCommand(
         "ticketify critique-package-launch-boundary finding-001 Add launch verification follow-up",

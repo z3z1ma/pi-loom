@@ -122,7 +122,7 @@ describe("execution-layer canonical link projection", () => {
       order: 1,
     });
 
-    const critique = critiqueStore.createCritique({
+    const critique = await critiqueStore.createCritiqueAsync({
       title: "Review execution graph",
       target: { kind: "ticket", ref: foundation.summary.id, locator: null },
       contextRefs: {
@@ -132,7 +132,7 @@ describe("execution-layer canonical link projection", () => {
         ticketIds: [dependent.summary.id],
       },
     });
-    critiqueStore.recordRun(critique.state.critiqueId, {
+    await critiqueStore.recordRunAsync(critique.state.critiqueId, {
       kind: "architecture",
       summary: "Add follow-up work",
       verdict: "concerns",

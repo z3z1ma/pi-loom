@@ -1,11 +1,12 @@
 import { resolve } from "node:path";
-import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
-import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
-import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
+import { hasProjectedArtifactAttributes, syncProjectedArtifacts } from "@pi-loom/pi-storage/storage/artifacts.js";
+import type { LoomEntityRecord, LoomRuntimeAttachment } from "@pi-loom/pi-storage/storage/contract.js";
+import { appendEntityEvent, upsertEntityByDisplayIdWithLifecycleEvents } from "@pi-loom/pi-storage/storage/entities.js";
+import { createStableLoomId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildWorkerDashboard, filterWorkersByTelemetry, filterWorkersByText } from "./dashboard.js";
 import type {
@@ -25,9 +26,12 @@ import type {
   SetWorkerTelemetryInput,
   UpdateWorkerInput,
   WorkerApprovalDecision,
+  WorkerCanonicalRecord,
+  WorkerCheckpointArtifactPayload,
   WorkerCheckpointRecord,
   WorkerConsolidationOutcome,
   WorkerDashboard,
+  WorkerLaunchAttachmentMetadata,
   WorkerLinkedRefs,
   WorkerListFilter,
   WorkerMessageRecord,
@@ -40,7 +44,6 @@ import type {
   WorkerTelemetry,
   WorkerWorkspaceDescriptor,
 } from "./models.js";
-import { DEFAULT_WORKER_RUNTIME_KIND } from "./models.js";
 import {
   currentTimestamp,
   ensureRelativeOrLogicalRef,
@@ -76,13 +79,22 @@ import {
 
 const ENTITY_KIND = "worker" as const;
 const WORKER_PROJECTION_OWNER = "worker-store" as const;
+const WORKER_CHECKPOINT_PROJECTION_OWNER = "worker-store:checkpoints" as const;
+const WORKER_LAUNCH_ATTACHMENT_KIND = "launch_descriptor" as const;
 
-interface WorkerEntityAttributes {
-  worker: WorkerReadResult;
+interface WorkerEntityAttributes extends WorkerCanonicalRecord {}
+
+interface WorkerMutationEvent {
+  payload: Record<string, unknown>;
+  createdAt: string;
 }
 
 function hasStructuredWorkerAttributes(attributes: unknown): attributes is WorkerEntityAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "worker" in attributes);
+  if (!attributes || typeof attributes !== "object") {
+    return false;
+  }
+  const candidate = attributes as Record<string, unknown>;
+  return Array.isArray(candidate.messages) && Boolean(candidate.state && typeof candidate.state === "object");
 }
 
 interface StoredWorkerEntityRow {
@@ -122,6 +134,147 @@ function openWorkerCatalogSync(cwd: string) {
   return openWorkspaceStorageSync(cwd);
 }
 
+function launchAttachmentId(worktreeId: string, workerId: string): string {
+  return createStableLoomId("attachment", [worktreeId, WORKER_LAUNCH_ATTACHMENT_KIND, workerId]);
+}
+
+function launchAttachmentLocator(workerId: string): string {
+  return getWorkerArtifactPaths(".", workerId).launch;
+}
+
+function normalizeWorkerCheckpointRecord(checkpoint: WorkerCheckpointRecord): WorkerCheckpointRecord {
+  return {
+    id: checkpoint.id,
+    workerId: checkpoint.workerId,
+    createdAt: checkpoint.createdAt,
+    summary: normalizeOptionalString(checkpoint.summary) ?? "",
+    understanding: normalizeOptionalString(checkpoint.understanding) ?? "",
+    recentChanges: normalizeStringList(checkpoint.recentChanges),
+    validation: normalizeStringList(checkpoint.validation),
+    blockers: normalizeStringList(checkpoint.blockers),
+    nextAction: normalizeOptionalString(checkpoint.nextAction) ?? "Continue",
+    acknowledgedMessageIds: normalizeStringList(checkpoint.acknowledgedMessageIds),
+    resolvedMessageIds: normalizeStringList(checkpoint.resolvedMessageIds),
+    remainingInboxCount:
+      typeof checkpoint.remainingInboxCount === "number" && Number.isFinite(checkpoint.remainingInboxCount)
+        ? Math.max(0, Math.floor(checkpoint.remainingInboxCount))
+        : 0,
+    managerInputRequired: checkpoint.managerInputRequired === true,
+  };
+}
+
+function checkpointArtifactInputs(worker: WorkerReadResult) {
+  return worker.checkpoints.map((checkpoint) => {
+    const normalized = normalizeWorkerCheckpointRecord(checkpoint);
+    const payload: WorkerCheckpointArtifactPayload = { ...normalized };
+    return {
+      artifactType: "worker_checkpoint",
+      displayId: normalized.id,
+      title: `${worker.state.title} checkpoint ${normalized.id}`,
+      summary: normalized.summary,
+      status: normalized.managerInputRequired
+        ? "waiting_for_review"
+        : normalized.blockers.length > 0
+          ? "blocked"
+          : "active",
+      tags: [worker.state.workerId],
+      payload,
+    };
+  });
+}
+
+function projectedCheckpointRecordsFromRows(
+  rows: Array<{ attributes_json: string }>,
+  ownerEntityId: string,
+): WorkerCheckpointRecord[] {
+  return rows
+    .map((row) => parseStoredJson<Record<string, unknown>>(row.attributes_json, {}))
+    .filter(hasProjectedArtifactAttributes)
+    .filter(
+      (attributes) =>
+        attributes.projectionOwner === WORKER_CHECKPOINT_PROJECTION_OWNER &&
+        attributes.owner.entityId === ownerEntityId,
+    )
+    .map((attributes) =>
+      normalizeWorkerCheckpointRecord(attributes.payload as unknown as WorkerCheckpointArtifactPayload),
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+}
+
+function readProjectedCheckpointsSync(cwd: string, ownerEntityId: string): WorkerCheckpointRecord[] {
+  const { storage, identity } = openWorkerCatalogSync(cwd);
+  const rows = storage.db
+    .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = 'artifact'")
+    .all(identity.space.id) as Array<{ attributes_json: string }>;
+  return projectedCheckpointRecordsFromRows(rows, ownerEntityId);
+}
+
+function hasWorkerLaunchAttachmentMetadata(value: unknown): value is WorkerLaunchAttachmentMetadata {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.workerId === "string" && Boolean(candidate.launch && typeof candidate.launch === "object");
+}
+
+function normalizeWorkerLaunchDescriptor(launch: WorkerRuntimeDescriptor): WorkerRuntimeDescriptor {
+  return {
+    workerId: launch.workerId,
+    createdAt: launch.createdAt,
+    updatedAt: launch.updatedAt,
+    runtime: normalizeRuntimeKind(launch.runtime),
+    resume: launch.resume === true,
+    workspaceDir: launch.workspaceDir,
+    branch: launch.branch,
+    baseRef: launch.baseRef,
+    launchPrompt: launch.launchPrompt,
+    command: [...launch.command],
+    pid: typeof launch.pid === "number" && Number.isFinite(launch.pid) ? Math.floor(launch.pid) : null,
+    status: launch.status,
+    note: normalizeOptionalString(launch.note) ?? "",
+  };
+}
+
+function readLaunchAttachmentSync(cwd: string, workerId: string): WorkerRuntimeDescriptor | null {
+  const { storage, identity } = openWorkerCatalogSync(cwd);
+  const row = (storage.db
+    .prepare("SELECT metadata_json FROM runtime_attachments WHERE worktree_id = ? AND kind = ? AND locator = ? LIMIT 1")
+    .get(identity.worktree.id, WORKER_LAUNCH_ATTACHMENT_KIND, launchAttachmentLocator(workerId)) ?? null) as {
+    metadata_json: string;
+  } | null;
+  if (!row) {
+    return null;
+  }
+  const metadata = parseStoredJson<Record<string, unknown>>(row.metadata_json, {});
+  if (!hasWorkerLaunchAttachmentMetadata(metadata) || metadata.workerId !== workerId) {
+    return null;
+  }
+  return normalizeWorkerLaunchDescriptor(metadata.launch);
+}
+
+function buildWorkerReadResult(
+  cwd: string,
+  ownerEntityId: string,
+  attributes: WorkerEntityAttributes,
+  launchOverride?: WorkerRuntimeDescriptor | null,
+): WorkerReadResult {
+  const artifacts = getWorkerArtifactPaths(cwd, attributes.state.workerId);
+  const materialized: WorkerReadResult = {
+    state: normalizeWorkerState(attributes.state),
+    summary: buildSummary(cwd, normalizeWorkerState(attributes.state), artifacts.dir),
+    worker: "",
+    messages: [...attributes.messages],
+    checkpoints: readProjectedCheckpointsSync(cwd, ownerEntityId),
+    launch: launchOverride === undefined ? readLaunchAttachmentSync(cwd, attributes.state.workerId) : launchOverride,
+    dashboard: {} as WorkerDashboard,
+    packet: "",
+    artifacts,
+  };
+  syncDerivedViews(cwd, materialized);
+  materialized.worker = renderWorkerMarkdown(materialized);
+  return materialized;
+}
+
 function parseStoredJson<T>(value: string, fallback: T): T {
   if (!value.trim()) {
     return fallback;
@@ -141,14 +294,16 @@ function findStoredWorkerRow(cwd: string, workerId: string): StoredWorkerEntityR
 function listStoredWorkerRecords(cwd: string): WorkerReadResult[] {
   const { storage, identity } = openWorkerCatalogSync(cwd);
   const rows = storage.db
-    .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id")
-    .all(identity.space.id, ENTITY_KIND) as Array<{ attributes_json: string }>;
+    .prepare(
+      "SELECT id, space_id, owning_repository_id, display_id, title, summary, status, version, tags_json, created_at, updated_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id",
+    )
+    .all(identity.space.id, ENTITY_KIND) as StoredWorkerEntityRow[];
   return rows.map((row) => {
     const attributes = parseStoredJson<WorkerEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
     if (!hasStructuredWorkerAttributes(attributes)) {
       throw new Error("Worker entity is missing structured attributes");
     }
-    return attributes.worker;
+    return buildWorkerReadResult(cwd, row.id, attributes);
   });
 }
 
@@ -351,25 +506,7 @@ function defaultManagerRef(): ManagerRef {
   return normalizeManagerRef({ kind: "operator", ref: "operator" });
 }
 
-function initialLaunchDescriptor(workerId: string, branch: string, baseRef: string): WorkerRuntimeDescriptor {
-  return {
-    workerId,
-    createdAt: currentTimestamp(),
-    updatedAt: currentTimestamp(),
-    runtime: DEFAULT_WORKER_RUNTIME_KIND,
-    resume: false,
-    workspaceDir: "",
-    branch,
-    baseRef,
-    launchPrompt: "",
-    command: [],
-    pid: null,
-    status: "retired",
-    note: "Launch not prepared yet.",
-  };
-}
-
-function isSuccessfulConsolidationStatus(status: RecordWorkerConsolidationInput["status"]): boolean {
+function isSuccessfulConsolidationStatus(status: WorkerConsolidationOutcome["status"]): boolean {
   return status === "merged" || status === "cherry_picked" || status === "patched";
 }
 
@@ -561,7 +698,7 @@ function materializeWorkerRecord(cwd: string, worker: WorkerReadResult): WorkerR
   const artifacts = getWorkerArtifactPaths(cwd, worker.state.workerId);
   const materialized: WorkerReadResult = {
     state: normalizeWorkerState(worker.state),
-    summary: worker.summary,
+    summary: buildSummary(cwd, normalizeWorkerState(worker.state), artifacts.dir),
     worker: worker.worker,
     messages: [...worker.messages],
     checkpoints: [...worker.checkpoints],
@@ -608,6 +745,37 @@ ${state.consolidation.status}${state.consolidation.summary ? ` — ${state.conso
 `;
 }
 
+function canonicalWorkerAttributes(worker: WorkerReadResult): WorkerEntityAttributes {
+  return {
+    state: normalizeWorkerState(worker.state),
+    messages: worker.messages.map((message) => ({
+      ...message,
+      relatedRefs: normalizeStringList(message.relatedRefs),
+    })),
+  };
+}
+
+function launchRuntimeAttachment(
+  worktreeId: string,
+  workerId: string,
+  launch: WorkerRuntimeDescriptor,
+): LoomRuntimeAttachment {
+  return {
+    id: launchAttachmentId(worktreeId, workerId),
+    worktreeId,
+    kind: WORKER_LAUNCH_ATTACHMENT_KIND,
+    locator: launchAttachmentLocator(workerId),
+    processId: launch.pid,
+    leaseExpiresAt: null,
+    metadata: {
+      workerId,
+      launch: normalizeWorkerLaunchDescriptor(launch),
+    } satisfies WorkerLaunchAttachmentMetadata,
+    createdAt: launch.createdAt,
+    updatedAt: launch.updatedAt,
+  };
+}
+
 export class WorkerStore {
   readonly cwd: string;
   private persistQueue: Promise<void> = Promise.resolve();
@@ -646,18 +814,10 @@ export class WorkerStore {
     return normalizeWorkerRef(ref);
   }
 
-  private persist(worker: WorkerReadResult): Promise<void> {
+  private persist(worker: WorkerReadResult, events: WorkerMutationEvent[] = []): Promise<void> {
     const materialized = materializeWorkerRecord(this.cwd, worker);
     const { storage, identity } = openWorkerCatalogSync(this.cwd);
     const existing = findStoredWorkerRow(this.cwd, materialized.summary.id);
-    const entityId =
-      existing?.id ??
-      createEntityId(
-        ENTITY_KIND,
-        identity.space.id,
-        materialized.summary.id,
-        `${ENTITY_KIND}:${materialized.summary.id}`,
-      );
     validateProjectedLinksSync(
       storage,
       identity.space.id,
@@ -671,35 +831,73 @@ export class WorkerStore {
       previousPersist?.catch(() => undefined),
     ]).then(() => undefined);
     const persistPromise = queueHead.then(async () => {
-      await storage.upsertEntity({
-        id: entityId,
-        kind: ENTITY_KIND,
-        spaceId: identity.space.id,
-        owningRepositoryId: identity.repository.id,
-        displayId: materialized.summary.id,
-        title: materialized.summary.title,
-        summary: materialized.state.summary || materialized.state.objective,
-        status: materialized.summary.status,
-        version: (existing?.version ?? 0) + 1,
-        tags: [materialized.summary.telemetryState, ...(materialized.state.linkedRefs.ticketIds ?? [])],
-        attributes: { worker: materialized },
-        createdAt: existing?.created_at ?? materialized.state.createdAt,
-        updatedAt: materialized.state.updatedAt,
-      });
+      const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+        storage,
+        {
+          kind: ENTITY_KIND,
+          spaceId: identity.space.id,
+          owningRepositoryId: identity.repository.id,
+          displayId: materialized.summary.id,
+          title: materialized.summary.title,
+          summary: materialized.state.summary || materialized.state.objective,
+          status: materialized.summary.status,
+          version: (existing?.version ?? 0) + 1,
+          tags: [materialized.summary.telemetryState, ...(materialized.state.linkedRefs.ticketIds ?? [])],
+          attributes: canonicalWorkerAttributes(materialized),
+          createdAt: existing?.created_at ?? materialized.state.createdAt,
+          updatedAt: materialized.state.updatedAt,
+        },
+        {
+          actor: WORKER_PROJECTION_OWNER,
+          createdPayload: { change: "worker_projected" },
+          updatedPayload: { change: "worker_projected" },
+        },
+      );
       try {
         await syncProjectedEntityLinks({
           storage,
           spaceId: identity.space.id,
-          fromEntityId: entityId,
+          fromEntityId: entity.id,
           projectionOwner: WORKER_PROJECTION_OWNER,
           desired: projectedLinksForWorker(materialized),
           timestamp: materialized.state.updatedAt,
         });
+        await syncProjectedArtifacts({
+          storage,
+          spaceId: identity.space.id,
+          owningRepositoryId: identity.repository.id,
+          owner: {
+            entityId: entity.id,
+            kind: ENTITY_KIND,
+            displayId: materialized.state.workerId,
+          },
+          projectionOwner: WORKER_CHECKPOINT_PROJECTION_OWNER,
+          desired: checkpointArtifactInputs(materialized),
+          timestamp: materialized.state.updatedAt,
+          actor: WORKER_PROJECTION_OWNER,
+        });
+        if (materialized.launch) {
+          await storage.upsertRuntimeAttachment(
+            launchRuntimeAttachment(identity.worktree.id, materialized.state.workerId, materialized.launch),
+          );
+        } else {
+          await storage.removeRuntimeAttachment(launchAttachmentId(identity.worktree.id, materialized.state.workerId));
+        }
+        for (const event of events) {
+          await appendEntityEvent(
+            storage,
+            entity.id,
+            "updated",
+            WORKER_PROJECTION_OWNER,
+            event.payload,
+            event.createdAt,
+          );
+        }
       } catch (error) {
         if (previousEntity) {
           await storage.upsertEntity(previousEntity);
         } else {
-          storage.db.prepare("DELETE FROM entities WHERE id = ?").run(entityId);
+          storage.db.prepare("DELETE FROM entities WHERE id = ?").run(entity.id);
         }
         throw error;
       }
@@ -721,10 +919,6 @@ export class WorkerStore {
         }
       });
     return persistPromise;
-  }
-
-  private entityWorker(entity: { attributes: unknown }): WorkerReadResult {
-    return materializeWorkerRecord(this.cwd, (entity.attributes as WorkerEntityAttributes).worker);
   }
 
   private trackDurability(
@@ -812,7 +1006,7 @@ export class WorkerStore {
     if (!hasStructuredWorkerAttributes(attributes)) {
       throw new Error(`Worker entity ${workerId} is missing structured attributes`);
     }
-    return materializeWorkerRecord(this.cwd, attributes.worker);
+    return buildWorkerReadResult(this.cwd, row.id, attributes);
   }
 
   managerOverview(): ManagerOverview {
@@ -1041,7 +1235,7 @@ export class WorkerStore {
       worker: "",
       messages: [],
       checkpoints: [],
-      launch: initialLaunchDescriptor(workerId, state.workspace.branch, state.workspace.baseRef),
+      launch: null,
       dashboard: {} as WorkerDashboard,
       packet: "",
       artifacts,
@@ -1068,8 +1262,10 @@ export class WorkerStore {
       worker.state.managerRef = normalizeManagerRef({ ...worker.state.managerRef, ...input.managerRef });
     if (input.linkedRefs !== undefined)
       worker.state.linkedRefs = mergeLinkedRefs(worker.state.linkedRefs, input.linkedRefs);
-    if (input.workspace !== undefined)
+    if (input.workspace !== undefined) {
       worker.state.workspace = normalizeWorkspaceDescriptor({ ...worker.state.workspace, ...input.workspace });
+      worker.launch = null;
+    }
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
     const persistPromise = this.persist(worker);
@@ -1125,7 +1321,19 @@ export class WorkerStore {
     worker.state.latestTelemetry.pendingMessages = unresolvedInbox(worker.messages).length;
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt,
+        payload: {
+          change: "message_appended",
+          workerId: worker.state.workerId,
+          messageId: record.id,
+          direction: record.direction,
+          kind: record.kind,
+          status: record.status,
+        },
+      },
+    ]);
     this.trackDurability(worker, persistPromise);
     void persistPromise.catch(() => undefined);
     return worker;
@@ -1176,7 +1384,18 @@ export class WorkerStore {
     worker.state.latestTelemetry.pendingMessages = unresolvedInbox(worker.messages).length;
     worker.state.updatedAt = timestamp;
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt: timestamp,
+        payload: {
+          change: nextState === "acknowledged" ? "message_acknowledged" : "message_resolved",
+          workerId: worker.state.workerId,
+          messageId,
+          actor,
+          followUpMessageId: worker.messages.at(-1)?.id ?? null,
+        },
+      },
+    ]);
     this.trackDurability(worker, persistPromise);
     void persistPromise.catch(() => undefined);
     return worker;
@@ -1248,7 +1467,18 @@ export class WorkerStore {
             : worker.state.status;
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt,
+        payload: {
+          change: "checkpoint_appended",
+          workerId: worker.state.workerId,
+          checkpointId: checkpoint.id,
+          remainingInboxCount: checkpoint.remainingInboxCount,
+          managerInputRequired: checkpoint.managerInputRequired,
+        },
+      },
+    ]);
     const ticketSyncPromise = persistPromise.then(() =>
       this.queueTicketRefSync(worker.state.workerId, async () => {
         const ticketStore = createTicketStore(this.cwd);
@@ -1318,7 +1548,17 @@ export class WorkerStore {
     });
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt: worker.state.completionRequest.requestedAt ?? worker.state.updatedAt,
+        payload: {
+          change: "completion_requested",
+          workerId: worker.state.workerId,
+          requestedBy: worker.state.completionRequest.requestedBy,
+          summary: worker.state.completionRequest.summary,
+        },
+      },
+    ]);
     const ticketSyncPromise = persistPromise.then(() =>
       this.queueTicketRefSync(worker.state.workerId, async () => {
         const ticketStore = createTicketStore(this.cwd);
@@ -1375,7 +1615,17 @@ export class WorkerStore {
     }
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt: worker.state.approval.decidedAt ?? worker.state.updatedAt,
+        payload: {
+          change: "approval_decided",
+          workerId: worker.state.workerId,
+          status,
+          decidedBy: worker.state.approval.decidedBy,
+        },
+      },
+    ]);
     const ticketSyncPromise = persistPromise.then(() =>
       this.queueTicketRefSync(worker.state.workerId, async () => {
         const ticketStore = createTicketStore(this.cwd);
@@ -1433,7 +1683,17 @@ export class WorkerStore {
     }
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt: worker.state.consolidation.decidedAt ?? worker.state.updatedAt,
+        payload: {
+          change: "consolidation_recorded",
+          workerId: worker.state.workerId,
+          status,
+          strategy: input.strategy ?? null,
+        },
+      },
+    ]);
     const ticketSyncPromise = persistPromise.then(() =>
       this.queueTicketRefSync(worker.state.workerId, async () => {
         const ticketStore = createTicketStore(this.cwd);
@@ -1564,7 +1824,18 @@ export class WorkerStore {
     worker.state.launchCount += 1;
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt: launch.updatedAt,
+        payload: {
+          change: "launch_prepared",
+          workerId: worker.state.workerId,
+          runtime: launch.runtime,
+          resume: launch.resume,
+          branch: launch.branch,
+        },
+      },
+    ]);
     this.trackDurability(worker, persistPromise);
     void persistPromise.catch(() => undefined);
     return worker;
@@ -1594,7 +1865,17 @@ export class WorkerStore {
     });
     worker.state.updatedAt = startedAt;
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt: startedAt,
+        payload: {
+          change: "launch_started",
+          workerId: worker.state.workerId,
+          runtime: worker.launch.runtime,
+          resume: worker.launch.resume,
+        },
+      },
+    ]);
     this.trackDurability(worker, persistPromise);
     void persistPromise.catch(() => undefined);
     return worker;
@@ -1664,7 +1945,18 @@ export class WorkerStore {
 
     worker.state.updatedAt = finishedAt;
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt: finishedAt,
+        payload: {
+          change: execution.status === "cancelled" ? "launch_cancelled" : "launch_finished",
+          workerId: worker.state.workerId,
+          executionStatus: execution.status,
+          launchStatus,
+          runtime: worker.launch.runtime,
+        },
+      },
+    ]);
     this.trackDurability(worker, persistPromise);
     void persistPromise.catch(() => undefined);
     return worker;
@@ -1691,7 +1983,16 @@ export class WorkerStore {
       };
     }
     syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
+    const persistPromise = this.persist(worker, [
+      {
+        createdAt: worker.state.updatedAt,
+        payload: {
+          change: "launch_cancelled",
+          workerId: worker.state.workerId,
+          reason: normalizeOptionalString(note) ?? "Worker retired",
+        },
+      },
+    ]);
     this.trackDurability(worker, persistPromise);
     void persistPromise.catch(() => undefined);
     return worker;
@@ -1722,16 +2023,7 @@ export class WorkerStore {
   }
 
   async listWorkersAsync(filter: WorkerListFilter = {}): Promise<WorkerSummary[]> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const workers = await Promise.all(
-      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map(async (entity) => {
-        const workerId = this.resolveWorkerRef(entity.displayId ?? entity.id);
-        if (!hasStructuredWorkerAttributes(entity.attributes)) {
-          throw new Error(`Worker entity ${workerId} is missing structured attributes`);
-        }
-        return this.entityWorker(entity);
-      }),
-    );
+    const workers = listStoredWorkerRecords(this.cwd);
     return workers
       .map((worker) => worker.summary)
       .filter((worker) => {
@@ -1747,15 +2039,7 @@ export class WorkerStore {
     const workerId = this.resolveWorkerRef(ref);
     await this.pendingPersists.get(workerId);
     await this.pendingTicketRefSyncs.get(workerId);
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, workerId);
-    if (!entity) {
-      throw new Error(`Unknown worker: ${workerId}`);
-    }
-    if (!hasStructuredWorkerAttributes(entity.attributes)) {
-      throw new Error(`Worker entity ${workerId} is missing structured attributes`);
-    }
-    return this.entityWorker(entity);
+    return this.readWorker(workerId);
   }
 
   async managerOverviewAsync(): Promise<ManagerOverview> {

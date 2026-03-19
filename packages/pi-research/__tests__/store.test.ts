@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitiativeStore } from "../../pi-initiatives/extensions/domain/store.js";
 import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
+import { findEntityByDisplayId } from "../../pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "../../pi-storage/storage/workspace.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { createResearchStore } from "../extensions/domain/store.js";
 
@@ -118,6 +120,73 @@ describe("research store", () => {
       ]),
     );
 
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const researchEntity = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "research",
+      "evaluate-theme-architecture",
+    );
+    expect(researchEntity).toBeTruthy();
+    if (!researchEntity) {
+      throw new Error("Expected research entity to exist");
+    }
+    expect(researchEntity.attributes).not.toHaveProperty("artifacts");
+
+    expect(await storage.listEntities(identity.space.id, "artifact")).toEqual([
+      expect.objectContaining({
+        displayId: "research:evaluate-theme-architecture:artifact:experiment:artifact-001",
+        attributes: expect.objectContaining({
+          projectionOwner: "research-store:artifacts",
+          artifactType: "research-artifact",
+          payload: expect.objectContaining({
+            id: "artifact-001",
+            summary: "Prototype centralizes theme reads and writes.",
+            body: "The prototype collapses duplicated persistence logic into one module.",
+            sourceUri: "https://example.com/prototype",
+          }),
+        }),
+      }),
+    ]);
+
+    expect(await storage.listEvents(researchEntity.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "updated",
+          payload: expect.objectContaining({
+            change: "research_hypothesis_recorded",
+            action: "created",
+            hypothesisId: "hyp-001",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "updated",
+          payload: expect.objectContaining({
+            change: "research_hypothesis_recorded",
+            action: "updated",
+            hypothesisId: "hyp-001",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "updated",
+          payload: expect.objectContaining({
+            change: "research_hypothesis_recorded",
+            action: "created",
+            hypothesisId: "hyp-002",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "updated",
+          payload: expect.objectContaining({
+            change: "research_artifact_recorded",
+            action: "created",
+            artifactId: "artifact-001",
+            artifactKind: "experiment",
+          }),
+        }),
+      ]),
+    );
+
     const linked = await store.updateResearch("evaluate-theme-architecture", {
       initiativeIds: ["theme-modernization"],
       specChangeIds: ["add-dark-mode"],
@@ -173,4 +242,33 @@ describe("research store", () => {
     ]);
   });
 
+  it("rebuilds research artifacts from canonical artifact entities without leaving stale ids", async () => {
+    const store = createResearchStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
+    await store.createResearch({
+      title: "Evaluate cache invalidation",
+      question: "How should cache invalidation be coordinated?",
+    });
+    await store.recordArtifact("evaluate-cache-invalidation", {
+      kind: "note",
+      title: "Invalidation notes",
+      summary: "Candidate invalidation rules.",
+      body: "Detailed notes that only live in the canonical artifact payload.",
+    });
+
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const [artifactEntity] = await storage.listEntities(identity.space.id, "artifact");
+    expect(artifactEntity).toBeTruthy();
+    if (!artifactEntity) {
+      throw new Error("Expected artifact projection to exist");
+    }
+    await storage.removeEntity(artifactEntity.id);
+
+    const rebuilt = await store.readResearch("evaluate-cache-invalidation");
+    expect(rebuilt.artifacts).toEqual([]);
+    expect(rebuilt.state.artifactIds).toEqual([]);
+    expect(rebuilt.dashboard.artifacts.total).toBe(0);
+    expect(Object.values(rebuilt.map.nodes).some((node) => node.kind === "artifact")).toBe(false);
+  });
 });

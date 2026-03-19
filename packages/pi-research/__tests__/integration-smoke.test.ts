@@ -109,6 +109,13 @@ describe("research integration smoke", () => {
       hypotheses: { counts: { supported: 1 } },
       artifacts: { counts: { source: 1 } },
     });
+    expect(refreshedResearch.artifacts).toEqual([
+      expect.objectContaining({
+        id: "artifact-001",
+        kind: "source",
+        artifactRef: "research:evaluate-theme-architecture:artifact:source:artifact-001",
+      }),
+    ]);
     expect(refreshedResearch.map.edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ relation: "links_initiative", to: "initiative:theme-modernization" }),

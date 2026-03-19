@@ -2,9 +2,15 @@ import { resolve } from "node:path";
 import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import {
+  hasProjectedArtifactAttributes,
+  type ProjectedArtifactInput,
+  syncProjectedArtifacts,
+} from "@pi-loom/pi-storage/storage/artifacts.js";
+import {
   appendEntityEvent,
   findEntityByDisplayId,
   upsertEntityByDisplayId,
+  upsertEntityByDisplayIdWithLifecycleEvents,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
@@ -43,11 +49,16 @@ import { renderResearchMarkdown } from "./render.js";
 
 const ENTITY_KIND = "research" as const;
 const RESEARCH_LINK_PROJECTION_OWNER = "research-store";
+const RESEARCH_ARTIFACT_PROJECTION_OWNER = "research-store:artifacts";
+const RESEARCH_ARTIFACT_TYPE = "research-artifact";
 
 interface ResearchEntityAttributes {
   state: ResearchState;
   hypotheses: ResearchHypothesisRecord[];
-  artifacts: ResearchArtifactRecord[];
+}
+
+interface ResearchArtifactPayload extends ResearchArtifactRecord, Record<string, unknown> {
+  body: string;
 }
 
 interface ResearchSummaryWithSynthesis extends ResearchSummary {
@@ -64,6 +75,23 @@ interface SqliteMutationTarget {
 
 function hasStructuredResearchAttributes(attributes: unknown): attributes is ResearchEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
+}
+
+function isResearchArtifactPayload(payload: unknown): payload is ResearchArtifactPayload {
+  return Boolean(
+    payload &&
+      typeof payload === "object" &&
+      typeof (payload as ResearchArtifactPayload).id === "string" &&
+      typeof (payload as ResearchArtifactPayload).researchId === "string" &&
+      typeof (payload as ResearchArtifactPayload).kind === "string" &&
+      typeof (payload as ResearchArtifactPayload).title === "string" &&
+      typeof (payload as ResearchArtifactPayload).artifactRef === "string" &&
+      typeof (payload as ResearchArtifactPayload).createdAt === "string" &&
+      typeof (payload as ResearchArtifactPayload).summary === "string" &&
+      Array.isArray((payload as ResearchArtifactPayload).tags) &&
+      Array.isArray((payload as ResearchArtifactPayload).linkedHypothesisIds) &&
+      typeof (payload as ResearchArtifactPayload).body === "string",
+  );
 }
 
 function latestHypotheses(history: ResearchHypothesisRecord[]): ResearchHypothesisRecord[] {
@@ -110,6 +138,43 @@ function stripDynamicState(state: ResearchState): ResearchState {
   return {
     ...state,
     artifactIds: normalizeStringList(state.artifactIds),
+  };
+}
+
+function buildResearchArtifactRef(
+  researchId: string,
+  kind: ResearchArtifactRecord["kind"],
+  artifactId: string,
+): string {
+  return `research:${researchId}:artifact:${kind}:${artifactId}`;
+}
+
+function summarizeArtifactPayload(payload: ResearchArtifactPayload): ResearchArtifactRecord {
+  return {
+    id: normalizeArtifactId(payload.id),
+    researchId: normalizeResearchId(payload.researchId),
+    kind: normalizeArtifactKind(payload.kind),
+    title: payload.title.trim(),
+    artifactRef: payload.artifactRef.trim(),
+    createdAt: payload.createdAt,
+    summary: payload.summary.trim(),
+    sourceUri: normalizeOptionalString(payload.sourceUri),
+    tags: normalizeStringList(payload.tags),
+    linkedHypothesisIds: normalizeStringList(payload.linkedHypothesisIds),
+  };
+}
+
+function toProjectedResearchArtifactInput(
+  artifact: ResearchArtifactPayload,
+): ProjectedArtifactInput<ResearchArtifactPayload> {
+  return {
+    artifactType: RESEARCH_ARTIFACT_TYPE,
+    displayId: artifact.artifactRef,
+    title: artifact.title,
+    summary: artifact.summary,
+    status: "active",
+    tags: artifact.tags,
+    payload: artifact,
   };
 }
 
@@ -189,6 +254,67 @@ export class ResearchStore {
     };
   }
 
+  private async loadArtifactPayloads(entityId: string): Promise<ResearchArtifactPayload[]> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const payloads: ResearchArtifactPayload[] = [];
+    for (const entity of await storage.listEntities(identity.space.id, "artifact")) {
+      if (!entity.displayId || !hasProjectedArtifactAttributes(entity.attributes)) {
+        continue;
+      }
+      if (
+        entity.attributes.projectionOwner !== RESEARCH_ARTIFACT_PROJECTION_OWNER ||
+        entity.attributes.artifactType !== RESEARCH_ARTIFACT_TYPE ||
+        entity.attributes.owner.entityId !== entityId ||
+        !isResearchArtifactPayload(entity.attributes.payload)
+      ) {
+        continue;
+      }
+      payloads.push(entity.attributes.payload);
+    }
+    return payloads.sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  private async loadArtifactRecords(entityId: string): Promise<ResearchArtifactRecord[]> {
+    const payloads = await this.loadArtifactPayloads(entityId);
+    return payloads.map(summarizeArtifactPayload);
+  }
+
+  private async loadArtifactPayloadsByResearchId(researchId: string): Promise<ResearchArtifactPayload[]> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const entity = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      ENTITY_KIND,
+      normalizeResearchId(researchId),
+    );
+    return entity ? this.loadArtifactPayloads(entity.id) : [];
+  }
+
+  private async listArtifactRecordsByResearchId(): Promise<Map<string, ResearchArtifactRecord[]>> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const grouped = new Map<string, ResearchArtifactRecord[]>();
+    for (const entity of await storage.listEntities(identity.space.id, "artifact")) {
+      if (
+        entity.displayId === null ||
+        !hasProjectedArtifactAttributes(entity.attributes) ||
+        entity.attributes.projectionOwner !== RESEARCH_ARTIFACT_PROJECTION_OWNER ||
+        entity.attributes.artifactType !== RESEARCH_ARTIFACT_TYPE ||
+        !isResearchArtifactPayload(entity.attributes.payload)
+      ) {
+        continue;
+      }
+      const payload = entity.attributes.payload;
+      const researchId = normalizeResearchId(payload.researchId);
+      const artifacts = grouped.get(researchId) ?? [];
+      artifacts.push(summarizeArtifactPayload(payload));
+      grouped.set(researchId, artifacts);
+    }
+    for (const artifacts of grouped.values()) {
+      artifacts.sort((left, right) => left.id.localeCompare(right.id));
+    }
+    return grouped;
+  }
+
   private async materializeCanonicalArtifacts(
     state: ResearchState,
     hypothesisHistory: ResearchHypothesisRecord[],
@@ -231,56 +357,83 @@ export class ResearchStore {
         status: state.status,
         version: 1,
         tags: state.tags,
-        attributes: { state, hypotheses: [], artifacts: [] },
+        attributes: { state, hypotheses: [] },
         createdAt: state.createdAt,
         updatedAt: state.updatedAt,
       });
     }
-    if (!hasStructuredResearchAttributes(entity.attributes)) {
+    if (!entity || !hasStructuredResearchAttributes(entity.attributes)) {
       throw new Error(`Research entity ${researchId} is missing structured attributes`);
     }
     const attributes = entity.attributes;
     return this.materializeCanonicalArtifacts(
       stripDynamicState(attributes.state),
       attributes.hypotheses ?? [],
-      attributes.artifacts ?? [],
+      await this.loadArtifactRecords(entity.id),
     );
   }
 
   private async persistRecord(
     state: ResearchState,
     hypothesisHistory: ResearchHypothesisRecord[],
-    artifacts: ResearchArtifactRecord[],
+    artifacts: ResearchArtifactPayload[],
   ): Promise<ResearchRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.researchId);
     const version = (existing?.version ?? 0) + 1;
-    const record = await this.materializeCanonicalArtifacts(stripDynamicState(state), hypothesisHistory, artifacts);
-    const entity = await upsertEntityByDisplayId(storage, {
-      kind: ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: record.state.researchId,
-      title: record.state.title,
-      summary: record.state.statusSummary || record.state.question,
-      status: record.state.status,
-      version,
-      tags: record.state.tags,
-      attributes: {
-        state: record.state,
-        hypotheses: record.hypothesisHistory,
-        artifacts: record.artifacts,
-      },
-      createdAt: existing?.createdAt ?? record.state.createdAt,
-      updatedAt: record.state.updatedAt,
-    });
-    await syncProjectedEntityLinks({
-      storage,
-      spaceId: identity.space.id,
-      fromEntityId: entity.id,
-      projectionOwner: RESEARCH_LINK_PROJECTION_OWNER,
-      desired: buildProjectedReferenceLinks(record.state),
-      timestamp: record.state.updatedAt,
+    const record = await this.materializeCanonicalArtifacts(
+      stripDynamicState(state),
+      hypothesisHistory,
+      artifacts.map(summarizeArtifactPayload),
+    );
+    await storage.transact(async (tx) => {
+      const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+        tx,
+        {
+          kind: ENTITY_KIND,
+          spaceId: identity.space.id,
+          owningRepositoryId: identity.repository.id,
+          displayId: record.state.researchId,
+          title: record.state.title,
+          summary: record.state.statusSummary || record.state.question,
+          status: record.state.status,
+          version,
+          tags: record.state.tags,
+          attributes: {
+            state: record.state,
+            hypotheses: record.hypothesisHistory,
+          },
+          createdAt: existing?.createdAt ?? record.state.createdAt,
+          updatedAt: record.state.updatedAt,
+        },
+        {
+          actor: "research-store",
+          createdPayload: { change: "research_persisted" },
+          updatedPayload: { change: "research_persisted" },
+        },
+      );
+      await syncProjectedEntityLinks({
+        storage: tx,
+        spaceId: identity.space.id,
+        fromEntityId: entity.id,
+        projectionOwner: RESEARCH_LINK_PROJECTION_OWNER,
+        desired: buildProjectedReferenceLinks(record.state),
+        timestamp: record.state.updatedAt,
+      });
+      await syncProjectedArtifacts({
+        storage: tx,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        owner: {
+          entityId: entity.id,
+          kind: ENTITY_KIND,
+          displayId: record.state.researchId,
+        },
+        projectionOwner: RESEARCH_ARTIFACT_PROJECTION_OWNER,
+        desired: artifacts.map(toProjectedResearchArtifactInput),
+        timestamp: record.state.updatedAt,
+        actor: "research-store",
+      });
     });
     return record;
   }
@@ -303,13 +456,14 @@ export class ResearchStore {
   async listResearch(filter: ResearchListFilter = {}): Promise<ResearchSummary[]> {
     this.initLedger();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const artifactsByResearchId = await this.listArtifactRecordsByResearchId();
     const summaries = new Map<string, ResearchSummaryWithSynthesis>();
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
       const researchId = normalizeResearchId(entity.displayId ?? entity.id);
       if (hasStructuredResearchAttributes(entity.attributes)) {
         const state = stripDynamicState(entity.attributes.state);
         const hypotheses = latestHypotheses(entity.attributes.hypotheses ?? []);
-        const artifacts = entity.attributes.artifacts ?? [];
+        const artifacts = artifactsByResearchId.get(researchId) ?? [];
         summaries.set(researchId, {
           ...summarizeResearch(state, hypotheses, artifacts),
           synthesis: renderSynthesis(state, hypotheses, artifacts),
@@ -458,7 +612,11 @@ export class ResearchStore {
       state.specChangeIds,
       state.ticketIds,
     );
-    return this.persistRecord(state, record.hypothesisHistory, record.artifacts);
+    return this.persistRecord(
+      state,
+      record.hypothesisHistory,
+      await this.loadArtifactPayloadsByResearchId(record.state.researchId),
+    );
   }
 
   async recordHypothesis(ref: string, input: ResearchHypothesisInput): Promise<ResearchRecord> {
@@ -490,19 +648,47 @@ export class ResearchStore {
     };
     history.push(entry);
     const state = { ...record.state, updatedAt: timestamp };
-    const persisted = await this.persistRecord(state, history, record.artifacts);
+    const persisted = await this.persistRecord(
+      state,
+      history,
+      await this.loadArtifactPayloadsByResearchId(record.state.researchId),
+    );
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, persisted.state.researchId);
     if (entity) {
-      await appendEntityEvent(storage, entity.id, "updated", "research-store", { hypothesis: entry }, timestamp);
+      await appendEntityEvent(
+        storage,
+        entity.id,
+        "updated",
+        "research-store",
+        {
+          change: "research_hypothesis_recorded",
+          action: current ? "updated" : "created",
+          hypothesisId: entry.id,
+          status: entry.status,
+          confidence: entry.confidence,
+          hypothesis: entry,
+        },
+        timestamp,
+      );
     }
     return persisted;
   }
 
   async recordArtifact(ref: string, input: ResearchArtifactInput): Promise<ResearchRecord> {
     const record = await this.loadRecord(ref);
-    const artifacts = [...record.artifacts];
     const timestamp = currentTimestamp();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const researchEntity = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      ENTITY_KIND,
+      record.state.researchId,
+    );
+    if (!researchEntity) {
+      throw new Error(`Research entity ${record.state.researchId} is missing structured attributes`);
+    }
+    const artifacts = await this.loadArtifactPayloads(researchEntity.id);
     const normalizedId = input.id
       ? normalizeArtifactId(input.id)
       : nextSequenceId(
@@ -511,14 +697,15 @@ export class ResearchStore {
         );
     const kind = normalizeArtifactKind(input.kind);
     const existing = artifacts.find((artifact) => artifact.id === normalizedId) ?? null;
-    const artifact: ResearchArtifactRecord = {
+    const artifact: ResearchArtifactPayload = {
       id: normalizedId,
       researchId: record.state.researchId,
       kind,
       title: input.title.trim(),
-      artifactRef: `research:${record.state.researchId}:artifact:${kind}:${normalizedId}`,
+      artifactRef: buildResearchArtifactRef(record.state.researchId, kind, normalizedId),
       createdAt: existing?.createdAt ?? timestamp,
       summary: input.summary?.trim() ?? existing?.summary ?? "",
+      body: input.body?.trim() ?? existing?.body ?? "",
       sourceUri: normalizeOptionalString(input.sourceUri ?? existing?.sourceUri ?? null),
       tags: normalizeStringList(input.tags ?? existing?.tags),
       linkedHypothesisIds: normalizeStringList(input.linkedHypothesisIds ?? existing?.linkedHypothesisIds),
@@ -527,7 +714,23 @@ export class ResearchStore {
       left.id.localeCompare(right.id),
     );
     const state = { ...record.state, updatedAt: timestamp };
-    return this.persistRecord(state, record.hypothesisHistory, nextArtifacts);
+    const persisted = await this.persistRecord(state, record.hypothesisHistory, nextArtifacts);
+    await appendEntityEvent(
+      storage,
+      researchEntity.id,
+      "updated",
+      "research-store",
+      {
+        change: "research_artifact_recorded",
+        action: existing ? "updated" : "created",
+        artifactId: artifact.id,
+        artifactKind: artifact.kind,
+        artifactRef: artifact.artifactRef,
+        artifact: summarizeArtifactPayload(artifact),
+      },
+      timestamp,
+    );
+    return persisted;
   }
 
   async linkInitiative(ref: string, initiativeId: string): Promise<ResearchRecord> {
@@ -538,7 +741,11 @@ export class ResearchStore {
       updatedAt: currentTimestamp(),
     };
     await this.syncInitiativeMembership(record.state.researchId, record.state.initiativeIds, state.initiativeIds);
-    return this.persistRecord(state, record.hypothesisHistory, record.artifacts);
+    return this.persistRecord(
+      state,
+      record.hypothesisHistory,
+      await this.loadArtifactPayloadsByResearchId(record.state.researchId),
+    );
   }
 
   async unlinkInitiative(ref: string, initiativeId: string): Promise<ResearchRecord> {
@@ -549,7 +756,11 @@ export class ResearchStore {
       updatedAt: currentTimestamp(),
     };
     await this.syncInitiativeMembership(record.state.researchId, record.state.initiativeIds, state.initiativeIds);
-    return this.persistRecord(state, record.hypothesisHistory, record.artifacts);
+    return this.persistRecord(
+      state,
+      record.hypothesisHistory,
+      await this.loadArtifactPayloadsByResearchId(record.state.researchId),
+    );
   }
 
   async linkSpec(ref: string, changeId: string): Promise<ResearchRecord> {
@@ -560,7 +771,11 @@ export class ResearchStore {
       updatedAt: currentTimestamp(),
     };
     await this.syncSpecMembership(record.state.researchId, record.state.specChangeIds, state.specChangeIds);
-    return this.persistRecord(state, record.hypothesisHistory, record.artifacts);
+    return this.persistRecord(
+      state,
+      record.hypothesisHistory,
+      await this.loadArtifactPayloadsByResearchId(record.state.researchId),
+    );
   }
 
   async unlinkSpec(ref: string, changeId: string): Promise<ResearchRecord> {
@@ -571,7 +786,11 @@ export class ResearchStore {
       updatedAt: currentTimestamp(),
     };
     await this.syncSpecMembership(record.state.researchId, record.state.specChangeIds, state.specChangeIds);
-    return this.persistRecord(state, record.hypothesisHistory, record.artifacts);
+    return this.persistRecord(
+      state,
+      record.hypothesisHistory,
+      await this.loadArtifactPayloadsByResearchId(record.state.researchId),
+    );
   }
 
   async linkTicket(ref: string, ticketId: string): Promise<ResearchRecord> {
@@ -582,7 +801,11 @@ export class ResearchStore {
       updatedAt: currentTimestamp(),
     };
     await this.syncTicketMembership(record.state.researchId, record.state.ticketIds, state.ticketIds);
-    return this.persistRecord(state, record.hypothesisHistory, record.artifacts);
+    return this.persistRecord(
+      state,
+      record.hypothesisHistory,
+      await this.loadArtifactPayloadsByResearchId(record.state.researchId),
+    );
   }
 
   async unlinkTicket(ref: string, ticketId: string): Promise<ResearchRecord> {
@@ -593,7 +816,11 @@ export class ResearchStore {
       updatedAt: currentTimestamp(),
     };
     await this.syncTicketMembership(record.state.researchId, record.state.ticketIds, state.ticketIds);
-    return this.persistRecord(state, record.hypothesisHistory, record.artifacts);
+    return this.persistRecord(
+      state,
+      record.hypothesisHistory,
+      await this.loadArtifactPayloadsByResearchId(record.state.researchId),
+    );
   }
 
   async archiveResearch(ref: string): Promise<ResearchRecord> {

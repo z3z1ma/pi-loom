@@ -1,19 +1,15 @@
 import { resolve } from "node:path";
-import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
-import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
-import { createDocumentationStore } from "@pi-loom/pi-docs/extensions/domain/store.js";
-import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
-import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
-import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
-import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
-import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
-import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
+import {
+  hasProjectedArtifactAttributes,
+  type ProjectedArtifactEntityAttributes,
+  projectedArtifactAttributes,
+} from "@pi-loom/pi-storage/storage/artifacts.js";
+import { createEntityId, createEventId, createLinkId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
-import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
-import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
+import { openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { buildRalphDashboard, summarizeRalphRun } from "./dashboard.js";
 import { renderBulletList, renderSection } from "./frontmatter.js";
 import type {
@@ -33,6 +29,7 @@ import type {
   RalphListFilter,
   RalphPolicyMode,
   RalphPolicySnapshot,
+  RalphPreparedLaunchState,
   RalphReadResult,
   RalphRunPhase,
   RalphRunState,
@@ -75,13 +72,30 @@ import { renderRalphMarkdown } from "./render.js";
 
 const ENTITY_KIND = "ralph_run" as const;
 const RALPH_LINK_PROJECTION_OWNER = "ralph-store";
+const RALPH_EVENT_ACTOR = "ralph-store";
+const RALPH_ITERATION_PROJECTION_OWNER = "ralph-iterations";
+const RALPH_ITERATION_ARTIFACT_TYPE = "ralph-iteration";
 
 interface RalphEntityAttributes {
-  record: RalphReadResult;
+  state: RalphRunState;
 }
 
 function hasStructuredRalphAttributes(attributes: unknown): attributes is RalphEntityAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
+  return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
+}
+
+interface RalphIterationArtifactPayload extends Record<string, unknown> {
+  iteration: RalphIterationRecord;
+}
+
+function isRalphIterationArtifactAttributes(
+  attributes: Record<string, unknown>,
+): attributes is ProjectedArtifactEntityAttributes<RalphIterationArtifactPayload> {
+  return (
+    hasProjectedArtifactAttributes(attributes) &&
+    attributes.projectionOwner === RALPH_ITERATION_PROJECTION_OWNER &&
+    attributes.artifactType === RALPH_ITERATION_ARTIFACT_TYPE
+  );
 }
 
 interface StoredRalphEntityRow {
@@ -124,7 +138,7 @@ function findStoredRalphRow(cwd: string, runId: string): StoredRalphEntityRow | 
     .get(identity.space.id, ENTITY_KIND, runId) ?? null) as StoredRalphEntityRow | null;
 }
 
-function listStoredRalphRecords(cwd: string): RalphReadResult[] {
+function listStoredRalphStates(cwd: string): RalphRunState[] {
   const { storage, identity } = openRalphCatalogSync(cwd);
   const rows = storage.db
     .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id")
@@ -134,8 +148,198 @@ function listStoredRalphRecords(cwd: string): RalphReadResult[] {
     if (!hasStructuredRalphAttributes(attributes)) {
       throw new Error("Ralph run entity is missing structured attributes");
     }
-    return attributes.record;
+    return normalizeStoredRunState(attributes.state);
   });
+}
+
+function normalizePreparedLaunchState(
+  input: Partial<RalphPreparedLaunchState> | null | undefined,
+): RalphPreparedLaunchState {
+  return {
+    runtime: input?.runtime === "subprocess" || input?.runtime === "descriptor_only" ? input.runtime : null,
+    resume: input?.resume === true,
+    instructions: normalizeStringList(input?.instructions),
+  };
+}
+
+function toRalphIterationArtifactDisplayId(runId: string, iterationId: string): string {
+  return `ralph-run:${runId}:iteration:${iterationId}`;
+}
+
+function buildIterationArtifactTitle(runTitle: string, iteration: RalphIterationRecord): string {
+  return `${runTitle} iteration ${iteration.iteration}`;
+}
+
+function buildIterationArtifactSummary(iteration: RalphIterationRecord): string {
+  return summarizeText(
+    `${iteration.summary} ${iteration.workerSummary}`,
+    `Ralph iteration ${iteration.iteration} for ${iteration.runId}.`,
+  );
+}
+
+function upsertEntitySync(
+  cwd: string,
+  record: {
+    id: string;
+    kind: string;
+    spaceId: string;
+    owningRepositoryId: string | null;
+    displayId: string | null;
+    title: string;
+    summary: string;
+    status: string;
+    version: number;
+    tags: string[];
+    attributes: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+  },
+): void {
+  const { storage } = openRalphCatalogSync(cwd);
+  storage.db
+    .prepare(`
+      INSERT INTO entities (id, kind, space_id, owning_repository_id, display_id, title, summary, status, version, tags_json, attributes_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        space_id = excluded.space_id,
+        owning_repository_id = excluded.owning_repository_id,
+        display_id = excluded.display_id,
+        title = excluded.title,
+        summary = excluded.summary,
+        status = excluded.status,
+        version = excluded.version,
+        tags_json = excluded.tags_json,
+        attributes_json = excluded.attributes_json,
+        updated_at = excluded.updated_at
+    `)
+    .run(
+      record.id,
+      record.kind,
+      record.spaceId,
+      record.owningRepositoryId,
+      record.displayId,
+      record.title,
+      record.summary,
+      record.status,
+      record.version,
+      JSON.stringify(record.tags),
+      JSON.stringify(record.attributes),
+      record.createdAt,
+      record.updatedAt,
+    );
+}
+
+function appendEntityEventSync(
+  cwd: string,
+  entityId: string,
+  kind: "updated" | "decision_recorded",
+  payload: Record<string, unknown>,
+  createdAt: string,
+): void {
+  const { storage } = openRalphCatalogSync(cwd);
+  const row = storage.db
+    .prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events WHERE entity_id = ?")
+    .get(entityId) as { sequence?: number } | undefined;
+  const sequence = Number(row?.sequence ?? 0) + 1;
+  storage.db
+    .prepare(
+      "INSERT INTO events (id, entity_id, kind, sequence, created_at, actor, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run(
+      createEventId(entityId, sequence),
+      entityId,
+      kind,
+      sequence,
+      createdAt,
+      RALPH_EVENT_ACTOR,
+      JSON.stringify(payload),
+    );
+}
+
+function syncIterationArtifactsSync(
+  cwd: string,
+  owner: { entityId: string; displayId: string; title: string; spaceId: string; repositoryId: string | null },
+  iterations: RalphIterationRecord[],
+  timestamp: string,
+): void {
+  const { storage } = openRalphCatalogSync(cwd);
+  const existingRows = storage.db
+    .prepare(
+      "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ?",
+    )
+    .all(owner.spaceId, "artifact") as Array<{
+    id: string;
+    display_id: string | null;
+    version: number;
+    created_at: string;
+    attributes_json: string;
+  }>;
+  const managed = existingRows.filter((row) => {
+    const attributes = parseStoredJson<Record<string, unknown>>(row.attributes_json, {});
+    return (
+      hasProjectedArtifactAttributes(attributes) &&
+      attributes.projectionOwner === RALPH_ITERATION_PROJECTION_OWNER &&
+      attributes.artifactType === RALPH_ITERATION_ARTIFACT_TYPE &&
+      attributes.owner.entityId === owner.entityId
+    );
+  });
+  const existingByDisplayId = new Map(managed.map((row) => [row.display_id ?? row.id, row]));
+  const desiredDisplayIds = new Set<string>();
+
+  for (const iteration of iterations) {
+    const displayId = toRalphIterationArtifactDisplayId(owner.displayId, iteration.id);
+    desiredDisplayIds.add(displayId);
+    const existing = existingByDisplayId.get(displayId);
+    const artifactId =
+      existing?.id ??
+      createEntityId("artifact", owner.spaceId, displayId, `${RALPH_ITERATION_ARTIFACT_TYPE}:${displayId}`);
+    upsertEntitySync(cwd, {
+      id: artifactId,
+      kind: "artifact",
+      spaceId: owner.spaceId,
+      owningRepositoryId: owner.repositoryId,
+      displayId,
+      title: buildIterationArtifactTitle(owner.title, iteration),
+      summary: buildIterationArtifactSummary(iteration),
+      status: iteration.status,
+      version: (existing?.version ?? 0) + 1,
+      tags: [RALPH_ITERATION_ARTIFACT_TYPE, owner.displayId, iteration.status],
+      attributes: projectedArtifactAttributes(
+        RALPH_ITERATION_PROJECTION_OWNER,
+        RALPH_ITERATION_ARTIFACT_TYPE,
+        { entityId: owner.entityId, kind: ENTITY_KIND, displayId: owner.displayId },
+        { iteration },
+      ),
+      createdAt: existing?.created_at ?? timestamp,
+      updatedAt: timestamp,
+    });
+    storage.db
+      .prepare(
+        `
+          INSERT INTO links (id, kind, from_entity_id, to_entity_id, metadata_json, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        createLinkId("belongs_to", artifactId, owner.entityId),
+        "belongs_to",
+        artifactId,
+        owner.entityId,
+        JSON.stringify({ projectionOwner: `${RALPH_ITERATION_PROJECTION_OWNER}:links` }),
+        existing?.created_at ?? timestamp,
+        timestamp,
+      );
+  }
+
+  for (const row of managed) {
+    const displayId = row.display_id ?? row.id;
+    if (desiredDisplayIds.has(displayId)) {
+      continue;
+    }
+    storage.db.prepare("DELETE FROM entities WHERE id = ?").run(row.id);
+  }
 }
 
 function readStructuredEntityAttributesSync<T>(cwd: string, kind: string, displayId: string): T | null {
@@ -478,6 +682,7 @@ function normalizeStoredRunState(state: RalphRunState): RalphRunState {
       typeof state.launchCount === "number" && Number.isFinite(state.launchCount)
         ? Math.max(0, Math.floor(state.launchCount))
         : 0,
+    preparedLaunch: normalizePreparedLaunchState(state.preparedLaunch),
     stopReason: normalizeOptionalString(state.stopReason) as RalphContinuationDecision["reason"] | null,
     packetSummary: state.packetSummary?.trim() ?? "",
   };
@@ -541,7 +746,7 @@ export class RalphStore {
   }
 
   private runDirectories(): string[] {
-    return listStoredRalphRecords(this.cwd).map((record) => getRalphRunDir(this.cwd, record.state.runId));
+    return listStoredRalphStates(this.cwd).map((state) => getRalphRunDir(this.cwd, state.runId));
   }
 
   private nextRunId(seed: string): string {
@@ -570,6 +775,19 @@ export class RalphStore {
     return summarizeRalphRun(state, runDir);
   }
 
+  private appendRunEvent(
+    runId: string,
+    kind: "updated" | "decision_recorded",
+    payload: Record<string, unknown>,
+    createdAt: string,
+  ): void {
+    const row = findStoredRalphRow(this.cwd, runId);
+    if (!row) {
+      return;
+    }
+    appendEntityEventSync(this.cwd, row.id, kind, payload, createdAt);
+  }
+
   private buildContextSummary(refs: string[], resolver: (ref: string) => string): string[] {
     return refs.map((ref) => {
       try {
@@ -578,21 +796,6 @@ export class RalphStore {
         return `${ref} (unresolved)`;
       }
     });
-  }
-
-  private async buildContextSummaryAsync(
-    refs: string[],
-    resolver: (ref: string) => Promise<string>,
-  ): Promise<string[]> {
-    return Promise.all(
-      refs.map(async (ref) => {
-        try {
-          return await resolver(ref);
-        } catch {
-          return `${ref} (unresolved)`;
-        }
-      }),
-    );
   }
 
   private resolvePacketContext(state: RalphRunState): ResolvedPacketContext {
@@ -657,54 +860,6 @@ export class RalphStore {
         return `${doc.record.summary.id} [${doc.record.summary.status}/${doc.record.summary.docType}] ${doc.record.state.title}`;
       }),
     };
-  }
-
-  private async resolvePacketContextAsync(state: RalphRunState): Promise<ResolvedPacketContext> {
-    const constitutionStore = createConstitutionalStore(this.cwd);
-    const initiativeStore = createInitiativeStore(this.cwd);
-    const researchStore = createResearchStore(this.cwd);
-    const specStore = createSpecStore(this.cwd);
-    const planStore = createPlanStore(this.cwd);
-    const ticketStore = createTicketStore(this.cwd);
-    const critiqueStore = createCritiqueStore(this.cwd);
-    const docsStore = createDocumentationStore(this.cwd);
-
-    const [roadmap, initiatives, research, specs, plans, tickets, critiques, docs] = await Promise.all([
-      this.buildContextSummaryAsync(state.linkedRefs.roadmapItemIds, async (ref) => {
-        const item = await constitutionStore.readRoadmapItem(ref);
-        return `${item.id} [${item.status}] ${item.title}`;
-      }),
-      this.buildContextSummaryAsync(state.linkedRefs.initiativeIds, async (ref) => {
-        const initiative = await initiativeStore.readInitiative(ref);
-        return `${initiative.state.initiativeId} [${initiative.state.status}] ${initiative.state.title}`;
-      }),
-      this.buildContextSummaryAsync(state.linkedRefs.researchIds, async (ref) => {
-        const entry = await researchStore.readResearch(ref);
-        return `${entry.state.researchId} [${entry.state.status}] ${entry.state.title}`;
-      }),
-      this.buildContextSummaryAsync(state.linkedRefs.specChangeIds, async (ref) => {
-        const spec = await specStore.readChange(ref);
-        return `${spec.summary.id} [${spec.summary.status}] ${spec.state.title}`;
-      }),
-      this.buildContextSummaryAsync(state.linkedRefs.planIds, async (ref) => {
-        const plan = await planStore.readPlan(ref);
-        return `${plan.summary.id} [${plan.summary.status}] ${plan.state.title}`;
-      }),
-      this.buildContextSummaryAsync(state.linkedRefs.ticketIds, async (ref) => {
-        const ticket = await ticketStore.readTicketAsync(ref);
-        return `${ticket.summary.id} [${ticket.summary.status}] ${ticket.summary.title}`;
-      }),
-      this.buildContextSummaryAsync(state.linkedRefs.critiqueIds, async (ref) => {
-        const critique = await critiqueStore.readCritiqueAsync(ref);
-        return `${critique.summary.id} [${critique.summary.status}/${critique.summary.verdict}] ${critique.state.title}`;
-      }),
-      this.buildContextSummaryAsync(state.linkedRefs.docIds, async (ref) => {
-        const doc = await docsStore.readDoc(ref);
-        return `${doc.summary.id} [${doc.summary.status}/${doc.summary.docType}] ${doc.state.title}`;
-      }),
-    ]);
-
-    return { roadmap, initiatives, research, specs, plans, tickets, critiques, docs };
   }
 
   private renderPacket(
@@ -818,10 +973,6 @@ export class RalphStore {
     return this.renderPacket(state, iterations, this.resolvePacketContext(state));
   }
 
-  private async buildPacketAsync(state: RalphRunState, iterations: RalphIterationRecord[]): Promise<string> {
-    return this.renderPacket(state, iterations, await this.resolvePacketContextAsync(state));
-  }
-
   private readState(runDir: string): RalphRunState {
     const runId = normalizeRalphRunRef(runDir);
     const row = findStoredRalphRow(this.cwd, runId);
@@ -832,7 +983,7 @@ export class RalphStore {
     if (!hasStructuredRalphAttributes(attributes)) {
       throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
     }
-    return normalizeStoredRunState(attributes.record.state);
+    return normalizeStoredRunState(attributes.state);
   }
 
   private readIterationHistory(runId: string): RalphIterationRecord[] {
@@ -840,38 +991,46 @@ export class RalphStore {
     if (!row) {
       return [];
     }
-    const attributes = parseStoredJson<RalphEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
-    if (!hasStructuredRalphAttributes(attributes)) {
-      throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
-    }
-    return attributes.record.iterations.map((entry) => normalizeIteration(entry));
+    const { storage, identity } = openRalphCatalogSync(this.cwd);
+    const rows = storage.db
+      .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ?")
+      .all(identity.space.id, "artifact") as Array<{ attributes_json: string }>;
+    return rows
+      .map((artifact) => parseStoredJson<Record<string, unknown>>(artifact.attributes_json, {}))
+      .filter(
+        (attributes): attributes is ProjectedArtifactEntityAttributes<RalphIterationArtifactPayload> =>
+          isRalphIterationArtifactAttributes(attributes) && attributes.owner.entityId === row.id,
+      )
+      .map((attributes) => normalizeIteration((attributes.payload as RalphIterationArtifactPayload).iteration))
+      .sort((left, right) => left.iteration - right.iteration);
   }
 
   private readIterations(runId: string): RalphIterationRecord[] {
     return latestById(this.readIterationHistory(runId)).sort((left, right) => left.iteration - right.iteration);
   }
 
-  private readLaunch(runId: string): RalphLaunchDescriptor | null {
-    const row = findStoredRalphRow(this.cwd, runId);
-    if (!row) {
+  private readLaunch(state: RalphRunState, iterations: RalphIterationRecord[]): RalphLaunchDescriptor | null {
+    const currentIteration = this.latestIterationById(iterations, state.currentIterationId);
+    if (!currentIteration) {
       return null;
     }
-    const attributes = parseStoredJson<RalphEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
-    if (!hasStructuredRalphAttributes(attributes) || !attributes.record.launch) {
-      return null;
-    }
-    const launch = attributes.record.launch;
-    const normalizedRunId = normalizeRalphRunId(launch.runId);
     return {
-      runId: normalizedRunId,
-      iterationId: launch.iterationId.trim(),
-      iteration: Math.max(1, Math.floor(launch.iteration)),
-      createdAt: launch.createdAt,
-      runtime: launch.runtime,
-      packetRef: toRalphPacketRef(normalizedRunId),
-      launchRef: toRalphLaunchRef(normalizedRunId),
-      resume: launch.resume === true,
-      instructions: normalizeStringList(launch.instructions),
+      runId: state.runId,
+      iterationId: currentIteration.id,
+      iteration: currentIteration.iteration,
+      createdAt: state.lastLaunchAt ?? currentTimestamp(),
+      runtime: state.preparedLaunch.runtime ?? (state.lastLaunchAt ? "subprocess" : "descriptor_only"),
+      packetRef: toRalphPacketRef(state.runId),
+      launchRef: toRalphLaunchRef(state.runId),
+      resume: state.preparedLaunch.resume,
+      instructions:
+        state.preparedLaunch.instructions.length > 0
+          ? state.preparedLaunch.instructions
+          : [
+              `Read ${toRalphPacketRef(state.runId)} before acting.`,
+              `Persist iteration updates for ${currentIteration.id} through the Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
+              "Execute exactly one bounded iteration and record an explicit policy decision before exiting.",
+            ],
     };
   }
 
@@ -910,7 +1069,7 @@ export class RalphStore {
     const run = renderRalphMarkdown(normalizedState, iterations);
     const launch =
       launchOverride ??
-      this.readLaunch(state.runId) ??
+      this.readLaunch(normalizedState, iterations) ??
       this.defaultLaunchDescriptor(normalizedState, iterations.at(-1) ?? null);
     const dashboard = buildRalphDashboard(
       normalizedState,
@@ -933,10 +1092,11 @@ export class RalphStore {
     };
     const { storage, identity } = openRalphCatalogSync(this.cwd);
     const existing = findStoredRalphRow(this.cwd, record.summary.id);
-    void storage.upsertEntity({
-      id:
-        existing?.id ??
-        createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+    const entityId =
+      existing?.id ??
+      createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`);
+    upsertEntitySync(this.cwd, {
+      id: entityId,
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -946,16 +1106,26 @@ export class RalphStore {
       status: record.summary.status,
       version: (existing?.version ?? 0) + 1,
       tags: [record.summary.phase, ...(record.state.linkedRefs.planIds ?? [])],
-      attributes: { record },
+      attributes: { state: record.state },
       createdAt: existing?.created_at ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
     });
+    syncIterationArtifactsSync(
+      this.cwd,
+      {
+        entityId,
+        displayId: record.summary.id,
+        title: record.summary.title,
+        spaceId: identity.space.id,
+        repositoryId: identity.repository.id,
+      },
+      iterations,
+      record.state.updatedAt,
+    );
     void syncProjectedEntityLinks({
       storage,
       spaceId: identity.space.id,
-      fromEntityId:
-        existing?.id ??
-        createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+      fromEntityId: entityId,
       projectionOwner: RALPH_LINK_PROJECTION_OWNER,
       // Roadmap refs point at embedded constitution items, so phase 1 projects only canonical entity relationships.
       desired: buildProjectedRalphLinks(record.state),
@@ -988,6 +1158,7 @@ export class RalphStore {
       currentIterationId: null,
       lastLaunchAt: null,
       launchCount: 0,
+      preparedLaunch: normalizePreparedLaunchState({ instructions: input.launchInstructions }),
       stopReason: null,
       packetSummary: "",
     };
@@ -1190,6 +1361,7 @@ export class RalphStore {
         next.waitingFor = "none";
         next.stopReason = decision.reason;
         next.currentIterationId = null;
+        next.preparedLaunch = normalizePreparedLaunchState(undefined);
         return next;
       }
       case "halt": {
@@ -1198,6 +1370,7 @@ export class RalphStore {
         next.waitingFor = "none";
         next.stopReason = decision.reason;
         next.currentIterationId = null;
+        next.preparedLaunch = normalizePreparedLaunchState(undefined);
         return next;
       }
       case "escalate": {
@@ -1367,10 +1540,67 @@ export class RalphStore {
       latestDecision: decision ?? current.state.latestDecision,
       lastIterationNumber: Math.max(current.state.lastIterationNumber, iterationNumber),
       currentIterationId: ["accepted", "rejected", "failed", "cancelled"].includes(status) ? null : id,
+      preparedLaunch: ["accepted", "rejected", "failed", "cancelled"].includes(status)
+        ? normalizePreparedLaunchState(undefined)
+        : current.state.preparedLaunch,
       updatedAt: now,
       stopReason: ["failed", "cancelled"].includes(status) ? "runtime_failure" : current.state.stopReason,
     };
-    return this.writeArtifacts(nextState, undefined, nextIterations);
+    const result = this.writeArtifacts(nextState, undefined, nextIterations);
+    this.appendRunEvent(
+      result.state.runId,
+      "updated",
+      {
+        change: existing ? "iteration_updated" : "iteration_appended",
+        iterationId: record.id,
+        iteration: record.iteration,
+        status: record.status,
+        waitingFor: result.state.waitingFor,
+        reviewState: result.state.phase,
+      },
+      now,
+    );
+    if (input.verifier) {
+      this.appendRunEvent(
+        result.state.runId,
+        "updated",
+        {
+          change: "verifier_updated",
+          iterationId: record.id,
+          verdict: verifier.verdict,
+          blocker: verifier.blocker,
+          sourceKind: verifier.sourceKind,
+          sourceRef: verifier.sourceRef,
+        },
+        now,
+      );
+    }
+    if (input.critiqueLinks && input.critiqueLinks.length > 0) {
+      this.appendRunEvent(
+        result.state.runId,
+        "updated",
+        {
+          change: "critique_links_updated",
+          iterationId: record.id,
+          critiqueIds: critiqueLinks.map((link) => link.critiqueId),
+          waitingFor: result.state.waitingFor,
+        },
+        now,
+      );
+    }
+    if (decision) {
+      this.appendRunEvent(
+        result.state.runId,
+        "decision_recorded",
+        {
+          change: "iteration_decision_recorded",
+          iterationId: record.id,
+          decision,
+        },
+        now,
+      );
+    }
+    return result;
   }
 
   setVerifier(ref: string, input: Partial<RalphVerifierSummary>): RalphReadResult {
@@ -1382,7 +1612,7 @@ export class RalphStore {
     const waitingFor = waitingForFromReviewSignals(verifierSummary, current.state.critiqueLinks);
     const status = verifierSummary.blocker ? "waiting_for_review" : current.state.status;
     const phase = verifierSummary.blocker ? "reviewing" : current.state.phase;
-    return this.writeArtifacts({
+    const result = this.writeArtifacts({
       ...current.state,
       verifierSummary,
       waitingFor,
@@ -1390,6 +1620,20 @@ export class RalphStore {
       phase,
       updatedAt: currentTimestamp(),
     });
+    this.appendRunEvent(
+      result.state.runId,
+      "updated",
+      {
+        change: "verifier_updated",
+        verdict: verifierSummary.verdict,
+        blocker: verifierSummary.blocker,
+        sourceKind: verifierSummary.sourceKind,
+        sourceRef: verifierSummary.sourceRef,
+        waitingFor: result.state.waitingFor,
+      },
+      result.state.updatedAt,
+    );
+    return result;
   }
 
   linkCritique(ref: string, input: LinkRalphCritiqueInput): RalphReadResult {
@@ -1406,7 +1650,7 @@ export class RalphStore {
     });
     const critiqueLinks = mergeCritiqueLinks(current.state.critiqueLinks, [link]);
     const waitingFor = waitingForFromReviewSignals(current.state.verifierSummary, critiqueLinks);
-    return this.writeArtifacts({
+    const result = this.writeArtifacts({
       ...current.state,
       linkedRefs: mergeLinkedRefs(current.state.linkedRefs, { critiqueIds: [link.critiqueId] }),
       critiqueLinks,
@@ -1415,12 +1659,40 @@ export class RalphStore {
       phase: waitingFor === "none" ? current.state.phase : "reviewing",
       updatedAt: currentTimestamp(),
     });
+    this.appendRunEvent(
+      result.state.runId,
+      "updated",
+      {
+        change: "critique_linked",
+        critiqueId: link.critiqueId,
+        kind: link.kind,
+        verdict: link.verdict,
+        blocking: link.blocking,
+        required: link.required,
+        waitingFor: result.state.waitingFor,
+      },
+      result.state.updatedAt,
+    );
+    return result;
   }
 
   decideRun(ref: string, input: DecideRalphRunInput): RalphReadResult {
     const current = this.readRun(ref);
     const decision = this.buildDecision(current.state, input);
-    return this.writeArtifacts(this.applyDecision(current.state, decision));
+    const result = this.writeArtifacts(this.applyDecision(current.state, decision));
+    this.appendRunEvent(
+      result.state.runId,
+      "decision_recorded",
+      {
+        change: "run_decision_recorded",
+        decision,
+        status: result.state.status,
+        phase: result.state.phase,
+        waitingFor: result.state.waitingFor,
+      },
+      decision.decidedAt,
+    );
+    return result;
   }
 
   prepareLaunch(ref: string, input: PrepareRalphLaunchInput = {}): RalphReadResult {
@@ -1455,11 +1727,30 @@ export class RalphStore {
       currentIterationId: latest.id,
       lastLaunchAt: currentTimestamp(),
       launchCount: current.state.launchCount + 1,
+      preparedLaunch: normalizePreparedLaunchState({
+        runtime: "subprocess",
+        resume: input.resume === true,
+        instructions: normalizeStringList(input.instructions),
+      }),
       updatedAt: currentTimestamp(),
       stopReason: null,
     };
     const launch = this.createLaunchDescriptor(nextState, latest, input);
-    return this.writeArtifacts(nextState, launch);
+    const result = this.writeArtifacts(nextState, launch);
+    this.appendRunEvent(
+      result.state.runId,
+      "updated",
+      {
+        change: input.resume ? "launch_resumed" : "launch_prepared",
+        iterationId: latest.id,
+        iteration: latest.iteration,
+        resume: launch.resume,
+        runtime: launch.runtime,
+        launchCount: result.state.launchCount,
+      },
+      launch.createdAt,
+    );
+    return result;
   }
 
   resumeRun(ref: string, input: Omit<PrepareRalphLaunchInput, "resume"> = {}): RalphReadResult {
@@ -1498,6 +1789,7 @@ export class RalphStore {
       currentIterationId: previousState.currentIterationId,
       launchCount: previousState.launchCount,
       lastLaunchAt: previousState.lastLaunchAt,
+      preparedLaunch: previousState.preparedLaunch,
       updatedAt: currentTimestamp(),
     };
     return this.writeArtifacts(nextState, undefined, nextIterations);
@@ -1511,50 +1803,9 @@ export class RalphStore {
       phase: "halted",
       waitingFor: "none",
       currentIterationId: null,
+      preparedLaunch: normalizePreparedLaunchState(undefined),
       updatedAt: currentTimestamp(),
     });
-  }
-
-  private async materializeCanonicalRecord(record: RalphReadResult): Promise<RalphReadResult> {
-    return {
-      ...record,
-      packet: await this.buildPacketAsync(record.state, record.iterations),
-    };
-  }
-
-  private async upsertCanonicalRecord(record: RalphReadResult): Promise<RalphReadResult> {
-    const materialized = await this.materializeCanonicalRecord(record);
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, materialized.summary.id);
-    const version = (existing?.version ?? 0) + 1;
-    const entity = await upsertEntityByDisplayId(storage, {
-      kind: ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: materialized.summary.id,
-      title: materialized.summary.title,
-      summary: materialized.state.summary,
-      status: materialized.summary.status,
-      version,
-      tags: [materialized.summary.phase, ...(materialized.state.linkedRefs.planIds ?? [])],
-      attributes: { record: materialized },
-      createdAt: existing?.createdAt ?? materialized.state.createdAt,
-      updatedAt: materialized.state.updatedAt,
-    });
-    await syncProjectedEntityLinks({
-      storage,
-      spaceId: identity.space.id,
-      fromEntityId: entity.id,
-      projectionOwner: RALPH_LINK_PROJECTION_OWNER,
-      // Roadmap refs point at embedded constitution items, so phase 1 projects only canonical entity relationships.
-      desired: buildProjectedRalphLinks(materialized.state),
-      timestamp: materialized.state.updatedAt,
-    });
-    return materialized;
-  }
-
-  private entityRecord(entity: { attributes: unknown }): RalphReadResult {
-    return (entity.attributes as RalphEntityAttributes).record;
   }
 
   async initLedgerAsync(): Promise<{ initialized: true; root: string }> {
@@ -1562,73 +1813,43 @@ export class RalphStore {
   }
 
   async listRunsAsync(filter: RalphListFilter = {}): Promise<ReturnType<RalphStore["listRuns"]>> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const summaries = await Promise.all(
-      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map(async (entity) => {
-        const runId = entity.displayId ?? entity.id;
-        if (!hasStructuredRalphAttributes(entity.attributes)) {
-          throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
-        }
-        return this.entityRecord(entity).summary;
-      }),
-    );
-    return summaries.filter((summary) => {
-      if (filter.status && summary.status !== filter.status) return false;
-      if (filter.phase && summary.phase !== filter.phase) return false;
-      if (filter.decision && summary.decision !== filter.decision) return false;
-      if (filter.waitingFor && summary.waitingFor !== filter.waitingFor) return false;
-      if (!filter.text) return true;
-      const text = filter.text.toLowerCase();
-      return [summary.id, summary.title, summary.objectiveSummary, summary.status, summary.phase]
-        .join(" ")
-        .toLowerCase()
-        .includes(text);
-    });
+    return this.listRuns(filter);
   }
 
   async readRunAsync(ref: string): Promise<RalphReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const runId = normalizeRalphRunRef(ref);
-    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, runId);
-    if (!entity) {
-      throw new Error(`Unknown Ralph run: ${ref}`);
-    }
-    if (!hasStructuredRalphAttributes(entity.attributes)) {
-      throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
-    }
-    return this.materializeCanonicalRecord(this.entityRecord(entity));
+    return this.readRun(ref);
   }
 
   async createRunAsync(input: CreateRalphRunInput): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.createRun(input));
+    return this.createRun(input);
   }
 
   async updateRunAsync(ref: string, input: UpdateRalphRunInput): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.updateRun(ref, input));
+    return this.updateRun(ref, input);
   }
 
   async appendIterationAsync(ref: string, input: AppendRalphIterationInput): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.appendIteration(ref, input));
+    return this.appendIteration(ref, input);
   }
 
   async setVerifierAsync(ref: string, input: Partial<RalphVerifierSummary>): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.setVerifier(ref, input));
+    return this.setVerifier(ref, input);
   }
 
   async linkCritiqueAsync(ref: string, input: LinkRalphCritiqueInput): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.linkCritique(ref, input));
+    return this.linkCritique(ref, input);
   }
 
   async decideRunAsync(ref: string, input: DecideRalphRunInput): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.decideRun(ref, input));
+    return this.decideRun(ref, input);
   }
 
   async prepareLaunchAsync(ref: string, input: PrepareRalphLaunchInput = {}): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.prepareLaunch(ref, input));
+    return this.prepareLaunch(ref, input);
   }
 
   async resumeRunAsync(ref: string, input: Omit<PrepareRalphLaunchInput, "resume"> = {}): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.resumeRun(ref, input));
+    return this.resumeRun(ref, input);
   }
 
   async cancelLaunchAsync(
@@ -1637,11 +1858,11 @@ export class RalphStore {
     preparedIterationId: string,
     summary?: string,
   ): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.cancelLaunch(ref, previousState, preparedIterationId, summary));
+    return this.cancelLaunch(ref, previousState, preparedIterationId, summary);
   }
 
   async archiveRunAsync(ref: string): Promise<RalphReadResult> {
-    return this.upsertCanonicalRecord(this.archiveRun(ref));
+    return this.archiveRun(ref);
   }
 }
 

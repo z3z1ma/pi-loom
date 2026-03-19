@@ -1,4 +1,5 @@
 import type { LoomCanonicalStorage, LoomEntityKind, LoomEntityLinkRecord, LoomId, LoomLinkKind } from "./contract.js";
+import { appendEntityEvent } from "./entities.js";
 import { createLinkId } from "./ids.js";
 
 const PROJECTION_OWNER_KEY = "projectionOwner" as const;
@@ -25,6 +26,7 @@ export interface SyncProjectedEntityLinksInput {
   projectionOwner: string;
   desired: ProjectedEntityLinkInput[];
   timestamp: string;
+  actor?: string | null;
 }
 
 export interface SyncProjectedEntityLinksResult {
@@ -121,6 +123,7 @@ export async function syncProjectedEntityLinks({
   projectionOwner,
   desired,
   timestamp,
+  actor,
 }: SyncProjectedEntityLinksInput): Promise<SyncProjectedEntityLinksResult> {
   const existingManaged = (await storage.listLinks(fromEntityId)).filter((link) =>
     isManagedProjectedLink(link, fromEntityId, projectionOwner),
@@ -155,11 +158,31 @@ export async function syncProjectedEntityLinks({
   const removedIds: LoomId[] = [];
   const removedRecords: LoomEntityLinkRecord[] = [];
   const upsertedIds: LoomId[] = [];
+  const emittedEventIds: LoomId[] = [];
+  const eventActor = actor ?? projectionOwner;
 
   try {
     for (const record of desiredRecords) {
+      const existing = existingManagedById.get(record.id);
       await storage.upsertLink(record);
       upsertedIds.push(record.id);
+      if (!existing) {
+        const event = await appendEntityEvent(
+          storage,
+          fromEntityId,
+          "linked",
+          eventActor,
+          {
+            change: "projected_link_added",
+            projectionOwner,
+            linkId: record.id,
+            linkKind: record.kind,
+            toEntityId: record.toEntityId,
+          },
+          timestamp,
+        );
+        emittedEventIds.push(event.id);
+      }
     }
 
     for (const existing of existingManaged) {
@@ -167,9 +190,27 @@ export async function syncProjectedEntityLinks({
         await storage.removeLink(existing.id);
         removedIds.push(existing.id);
         removedRecords.push(existing);
+        const event = await appendEntityEvent(
+          storage,
+          fromEntityId,
+          "unlinked",
+          eventActor,
+          {
+            change: "projected_link_removed",
+            projectionOwner,
+            linkId: existing.id,
+            linkKind: existing.kind,
+            toEntityId: existing.toEntityId,
+          },
+          timestamp,
+        );
+        emittedEventIds.push(event.id);
       }
     }
   } catch (error) {
+    for (const eventId of [...emittedEventIds].reverse()) {
+      await storage.removeEvent(eventId);
+    }
     for (const removedRecord of removedRecords) {
       await storage.upsertLink(removedRecord);
     }

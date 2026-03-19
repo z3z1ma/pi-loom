@@ -4,24 +4,34 @@ _Last updated: 2026-03-19_
 
 This file is the current-state map of Pi Loom's SQLite-backed data plane across every package.
 
+Update after the completion cutover:
+
+- canonical links are live across the major package stores
+- canonical events are now part of the normal write path instead of a narrow special case
+- worker launch/process state is stored in `runtime_attachments`, not canonical worker entities
+- research artifacts, critique findings, Ralph iterations, and worker checkpoints are projected as canonical `artifact` entities
+- docs, critique, Ralph, and workers rebuild read-model surfaces from smaller canonical snapshots instead of persisting full read-result blobs
+
+Where the older per-package audit sections below conflict with this completion update, this update reflects the current accepted system.
+
 The short version:
 
-- Pi Loom has a real shared catalog now: `spaces`, `repositories`, `worktrees`, `entities`, `links`, `events`, and `runtime_attachments` live in SQLite.
-- In practice, almost every package stores its canonical state as one row in `entities` with a large `attributes_json` blob.
-- The system is therefore already a durable cross-package document store.
-- It is not yet a graph-native data plane, even though the substrate already has the beginnings of one.
-- The `links` table is mostly dormant.
-- The `events` table is used narrowly and inconsistently.
-- Some packages store rendered markdown, dashboards, launch instructions, or clone-local runtime details inside canonical entity blobs. That makes the current model rich for one-package reads, but weaker for adapters, queryability, and eventual Postgres-backed multi-machine coordination.
+- Pi Loom now uses `spaces`, `repositories`, `worktrees`, `entities`, `links`, `events`, and `runtime_attachments` as an active shared substrate rather than a mostly dormant future boundary.
+- Entities remain the package-owned typed state snapshots.
+- Links now carry canonical graph truth for the implemented cross-package relationships.
+- Events now carry canonical lifecycle and mutation truth for the implemented write flows.
+- Runtime attachments now isolate clone-local launch and process state from canonical entities.
+- A first wave of high-value embedded subrecords now exists as canonical `artifact` entities linked back to their owners.
+- Some packages still keep rich aggregate payloads, but the system is no longer just a family of isolated entity blobs.
 
-That means the opportunity is unusually clear:
+That means the next-stage opportunity is unusually clear:
 
 1. Keep the rich typed domain payloads.
 2. Stop treating `entities.attributes_json` as the only place relationships live.
-3. Promote cross-layer relationships into first-class canonical links.
-4. Promote lifecycle history into first-class canonical events.
-5. Strip clone-local/runtime-only details out of canonical entities.
-6. Make the data plane the product, and let every harness adapter consume the same graph.
+3. Continue broadening cross-layer relationships and child-record projections where adapters gain real leverage.
+4. Keep event payloads and artifact conventions stable enough to become the adapter contract.
+5. Keep clone-local/runtime-only details out of canonical entities.
+6. Make the data plane the product, and let every harness adapter consume the same entity/link/event/runtime/artifact substrate.
 
 ---
 
@@ -36,10 +46,10 @@ Defined in `packages/pi-storage/storage/sqlite.ts`.
 | `spaces` | Top-level workspace / project scope | `id`, `slug`, `title`, `description`, `repository_ids_json`, timestamps | Used by storage substrate only; foundational identity layer |
 | `repositories` | Repository identity within a space | `id`, `space_id`, `slug`, `display_name`, `default_branch`, `remote_urls_json`, timestamps | Used by workspace initialization and storage substrate |
 | `worktrees` | Worktree identity and lifecycle | `id`, `repository_id`, `branch`, `base_ref`, `logical_key`, `status`, timestamps | Used by workspace initialization; runtime attachments hang off this |
-| `entities` | Canonical shared entity catalog | `id`, `kind`, `space_id`, `owning_repository_id`, `display_id`, `title`, `summary`, `status`, `version`, `tags_json`, `attributes_json`, timestamps | This is where almost all package state lives |
-| `links` | First-class graph edges between entities | `id`, `kind`, `from_entity_id`, `to_entity_id`, `metadata_json`, timestamps | Present in substrate, largely unused by packages |
-| `events` | Append-only entity history | `id`, `entity_id`, `kind`, `sequence`, `created_at`, `actor`, `payload_json` | Used sparsely, mainly for decision/hypothesis history |
-| `runtime_attachments` | Clone-local runtime attachment records | `id`, `worktree_id`, `kind`, `locator`, `process_id`, `lease_expires_at`, `metadata_json`, timestamps | Present in substrate, effectively unused by package stores |
+| `entities` | Canonical shared entity catalog | `id`, `kind`, `space_id`, `owning_repository_id`, `display_id`, `title`, `summary`, `status`, `version`, `tags_json`, `attributes_json`, timestamps | Still the main typed state snapshot surface |
+| `links` | First-class graph edges between entities | `id`, `kind`, `from_entity_id`, `to_entity_id`, `metadata_json`, timestamps | Active canonical graph for implemented package relationships |
+| `events` | Append-only entity history | `id`, `entity_id`, `kind`, `sequence`, `created_at`, `actor`, `payload_json` | Active lifecycle and mutation timeline for the implemented write paths |
+| `runtime_attachments` | Clone-local runtime attachment records | `id`, `worktree_id`, `kind`, `locator`, `process_id`, `lease_expires_at`, `metadata_json`, timestamps | Active boundary for worker launch/process state |
 
 ### 1.2 Indexes
 
@@ -50,7 +60,7 @@ Defined in `packages/pi-storage/storage/sqlite.ts`.
 | `idx_entities_space_kind` | `entities(space_id, kind)` | Good for package scans |
 | `idx_entities_display_id` | `entities(display_id)` | Weak: not composite, not unique |
 | `idx_links_from_entity` | `links(from_entity_id)` | Incomplete: no matching `to_entity_id` index |
-| `idx_events_entity_sequence` | `events(entity_id, sequence)` | Good for ordered playback |
+| `idx_events_entity_sequence` | `events(entity_id, sequence)` | Unique, supports ordered playback and guards duplicate per-entity sequence numbers |
 | `idx_runtime_attachments_worktree` | `runtime_attachments(worktree_id)` | Good |
 
 ### 1.3 Core storage contract
@@ -112,16 +122,22 @@ Pi Loom's physical substrate is a hybrid of:
 - a dormant-but-useful event log (`events`)
 - a local runtime side-channel (`runtime_attachments`)
 
-The current implementation style uses this substrate mostly as a document store over `entities.attributes_json`.
+The current implementation style is now a hybrid:
 
-That is why the current system feels rich when you read one entity at a time, but thin when you want graph queries, adapter portability, or cross-package analytics.
+- typed entity snapshots in `entities`
+- canonical graph truth in `links`
+- canonical mutation history in `events`
+- clone-local execution details in `runtime_attachments`
+- selected child records projected into `artifact` entities
+
+The system still uses rich package-owned snapshots, but it is no longer accurate to describe it as only a document store over `entities.attributes_json`.
 
 ### 1.5 Storage-substrate strengths
 
 1. There is already a stable canonical catalog boundary.
 2. Every domain has a durable `kind`, `display_id`, `status`, `tags`, and `attributes` envelope.
 3. Review surfaces are conceptually derived from canonical state, which is the right boundary.
-4. The substrate already has the right primitives for a future Postgres-backed graph: entities, links, events, runtime attachments.
+4. The substrate already has the right primitives for a future Postgres-backed graph: entities, links, events, runtime attachments, and artifact child projections.
 
 ### 1.6 Storage-substrate gaps and bug risks
 
@@ -1319,7 +1335,20 @@ The graph must be traversable without package-specific folklore.
 
 ---
 
-## 7. Proposed phased plan
+## 7. Phased plan status
+
+The original phased plan below has now been executed for the current internal-only cutover.
+
+- Phase 0 — completed
+- Phase 1 — completed
+- Phase 2 — completed for the implemented package write paths and shared projection helpers
+- Phase 3 — completed for workers, critique, Ralph, docs, and the selected aggregate snapshots that previously stored full read-result blobs
+- Phase 4 — completed for research artifacts, critique findings, Ralph iterations, and worker checkpoints
+- Phase 5 — completed through the stabilized storage contract, projected artifact conventions, verification suite, and this repository-level contract documentation
+
+What remains after this milestone is not another pending phase of the same plan; it is future broadening work over the now-coherent contract.
+
+## 7.1 Original phase framing
 
 ## Phase 0 — Correctness hardening
 
@@ -1528,3 +1557,56 @@ Tomorrow it should be:
 - and domain payloads rich enough that every harness adapter can participate without bespoke package folklore
 
 That is the path to the real system.
+
+---
+
+## 11. Adapter-facing contract after completion
+
+For adapter authors, the accepted contract is now:
+
+### 11.1 Entities
+
+- Each package still owns a canonical typed snapshot in `entities`.
+- Snapshots should contain portable domain truth, not clone-local execution details or redundant read-model projections.
+- Selected child records now appear as `artifact` entities with deterministic `display_id` values, subtype tags, owner metadata, and owner links.
+
+### 11.2 Links
+
+- Cross-package relationships are queryable through `links`.
+- Artifact child entities link back to their owning aggregate through `belongs_to` plus any extra package-specific references.
+- `metadata_json.projectionOwner` identifies which projection concern owns a managed edge.
+
+### 11.3 Events
+
+- Entity create/update/status transitions emit canonical lifecycle events.
+- Link projection emits `linked` / `unlinked` events.
+- Package mutation boundaries emit structured `updated` or `decision_recorded` payloads with a stable `change` discriminator.
+- Per-entity event `sequence` is unique and ordered.
+
+### 11.4 Runtime attachments
+
+- Clone-local worker launch/process state lives in `runtime_attachments`, not canonical entities.
+- Runtime attachments are keyed by worktree and locator and may be deleted independently of canonical domain state.
+
+### 11.5 First-wave canonical child artifacts
+
+Implemented child artifact families:
+
+- research artifacts
+- critique findings
+- Ralph iterations
+- worker checkpoints
+
+These are now first-class canonical records rather than only nested aggregate arrays.
+
+### 11.6 Practical adapter model
+
+Another harness can now:
+
+- list entities by kind
+- traverse graph relationships through links
+- tail package lifecycle and mutation events
+- inspect current clone-local worker runtime attachments when local execution matters
+- query high-value child records directly through artifact entities
+
+That is the current accepted adapter substrate.

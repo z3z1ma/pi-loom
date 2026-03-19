@@ -117,9 +117,9 @@ describe("ConstitutionalStore durable memory", () => {
 
     const persistedEntity = await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution");
     expect(persistedEntity?.version).toBeGreaterThan(1);
-    expect(await storage.listEvents(persistedEntity?.id ?? "missing")).toEqual([
-      expect.objectContaining({ kind: "decision_recorded" }),
-    ]);
+    expect(await storage.listEvents(persistedEntity?.id ?? "missing")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "decision_recorded" })]),
+    );
 
     expect(await store.readRoadmapItem("item-001")).toMatchObject({
       id: "item-001",

@@ -12,6 +12,8 @@ export default defineConfig({
       "packages/*/__tests__/analysis.test.ts",
       "packages/*/__tests__/checklist.test.ts",
       "packages/*/__tests__/backend-contract.test.ts",
+      "packages/pi-storage/__tests__/entities.test.ts",
+      "packages/pi-storage/__tests__/artifacts.test.ts",
       "packages/pi-storage/__tests__/links.test.ts",
       "packages/*/__tests__/contract.test.ts",
     ],

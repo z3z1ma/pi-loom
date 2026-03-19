@@ -3,11 +3,15 @@ import type { ConstitutionalRecord } from "@pi-loom/pi-constitution/extensions/d
 import type { CritiqueReadResult } from "@pi-loom/pi-critique/extensions/domain/models.js";
 import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
 import type { DocumentationReadResult } from "@pi-loom/pi-docs/extensions/domain/models.js";
+import { createDocumentationStore } from "@pi-loom/pi-docs/extensions/domain/store.js";
 import type { InitiativeRecord } from "@pi-loom/pi-initiatives/extensions/domain/models.js";
 import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/models.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import type { LoomCanonicalStorage } from "@pi-loom/pi-storage/storage/contract.js";
-import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import {
+  findEntityByDisplayId,
+  upsertEntityByDisplayIdWithLifecycleEvents,
+} from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
@@ -391,12 +395,7 @@ export class PlanStore {
 
   private async safeReadDocAsync(id: string): Promise<DocumentationReadResult | null> {
     try {
-      const { storage, identity } = await openWorkspaceStorage(this.cwd);
-      const entity = await findEntityByDisplayId(storage, identity.space.id, "documentation", id);
-      if (!entity) {
-        return null;
-      }
-      return (entity.attributes as { record: DocumentationReadResult }).record;
+      return await createDocumentationStore(this.cwd).readDoc(id);
     } catch {
       return null;
     }
@@ -751,20 +750,28 @@ export class PlanStore {
       projectionOwner: PLAN_PROJECTION_OWNER,
       desired: projectedLinksForPlan(record.state),
     });
-    const entity = await upsertEntityByDisplayId(storage, {
-      kind: ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: record.state.planId,
-      title: record.state.title,
-      summary: record.state.summary,
-      status: record.state.status,
-      version,
-      tags: ["plan"],
-      attributes: { state: record.state },
-      createdAt: existing?.createdAt ?? record.state.createdAt,
-      updatedAt: record.state.updatedAt,
-    });
+    const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+      storage,
+      {
+        kind: ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: record.state.planId,
+        title: record.state.title,
+        summary: record.state.summary,
+        status: record.state.status,
+        version,
+        tags: ["plan"],
+        attributes: { state: record.state },
+        createdAt: existing?.createdAt ?? record.state.createdAt,
+        updatedAt: record.state.updatedAt,
+      },
+      {
+        actor: "plan-store",
+        createdPayload: { change: "plan_persisted" },
+        updatedPayload: { change: "plan_persisted" },
+      },
+    );
     await syncProjectedEntityLinks({
       storage,
       spaceId: identity.space.id,

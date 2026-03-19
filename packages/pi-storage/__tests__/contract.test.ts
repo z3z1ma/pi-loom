@@ -107,9 +107,11 @@ describe("pi-storage contract", () => {
       async upsertRepository() {},
       async upsertWorktree() {},
       async upsertEntity() {},
+      async removeEntity() {},
       async upsertLink() {},
       async removeLink() {},
       async appendEvent() {},
+      async removeEvent() {},
       async upsertRuntimeAttachment() {},
       async removeRuntimeAttachment() {},
       async transact(run) {

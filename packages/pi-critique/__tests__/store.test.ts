@@ -75,7 +75,7 @@ describe("CritiqueStore durable memory", () => {
       openQuestions: ["Which runtime adapter should own session spawning?"],
       initiativeIds: [initiative.state.initiativeId],
     });
-    initiativeStore.setResearchIds(initiative.state.initiativeId, [research.state.researchId]);
+    await initiativeStore.setResearchIds(initiative.state.initiativeId, [research.state.researchId]);
 
     vi.setSystemTime(new Date("2026-03-15T10:15:00.000Z"));
     const spec = await specStore.createChange({
@@ -120,11 +120,11 @@ describe("CritiqueStore durable memory", () => {
       target: {
         kind: "ticket",
         ref: ticket.summary.id,
-        path: "packages/pi-critique/extensions/domain/store.ts",
+        locator: "packages/pi-critique/extensions/domain/store.ts",
       },
       focusAreas: ["architecture", "tests"],
       reviewQuestion: "Does this work satisfy the constitutional requirement for durable adversarial review?",
-      scopePaths: [
+      scopeRefs: [
         "packages/pi-critique/extensions/domain/store.ts",
         "packages/pi-critique/extensions/tools/critique.ts",
       ],
@@ -136,14 +136,23 @@ describe("CritiqueStore durable memory", () => {
 
     expect(critique.state.critiqueId).toBe("critique-implementation-ticket");
     const { storage, identity } = await openWorkspaceStorage(workspace);
-    const createdEntity = await findEntityByDisplayId(storage, identity.space.id, "critique", critique.state.critiqueId);
+    const createdEntity = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "critique",
+      critique.state.critiqueId,
+    );
     expect(createdEntity).toBeTruthy();
     expect(createdEntity?.attributes).toMatchObject({
       record: {
         state: { critiqueId: critique.state.critiqueId },
-        summary: { id: critique.state.critiqueId, targetKind: "ticket", targetRef: ticket.summary.id },
+        runs: [],
       },
     });
+    expect(createdEntity?.attributes).not.toHaveProperty("record.findings");
+    expect(createdEntity?.attributes).not.toHaveProperty("record.launch");
+    expect(createdEntity?.attributes).not.toHaveProperty("record.packet");
+    expect(createdEntity?.attributes).not.toHaveProperty("record.dashboard");
     expect(critique.packet).toContain("Ship a durable critique system for mission-critical AI development.");
     expect(critique.packet).toContain(`${roadmapId} [active/now] Critique layer`);
     expect(critique.packet).toContain(initiative.state.initiativeId);
@@ -165,17 +174,19 @@ describe("CritiqueStore durable memory", () => {
     expect(launched.critique.dashboard.critique.critiqueRef).toBe(`critique:${critique.state.critiqueId}`);
     expect(launched.critique.dashboard.packetRef).toBe(`critique:${critique.state.critiqueId}:packet`);
     expect(launched.critique.dashboard.launchRef).toBe(`critique:${critique.state.critiqueId}:launch`);
-    const launchedEntity = await findEntityByDisplayId(storage, identity.space.id, "critique", critique.state.critiqueId);
+    const launchedEntity = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "critique",
+      critique.state.critiqueId,
+    );
     expect(launchedEntity?.attributes).toMatchObject({
       record: {
         state: { critiqueId: critique.state.critiqueId, launchCount: 1 },
-        launch: {
-          critiqueId: critique.state.critiqueId,
-          runtime: "descriptor_only",
-          packetRef: `critique:${critique.state.critiqueId}:packet`,
-        },
+        runs: [],
       },
     });
+    expect(launchedEntity?.attributes).not.toHaveProperty("record.launch");
 
     vi.setSystemTime(new Date("2026-03-15T10:35:00.000Z"));
     const withRun = await critiqueStore.recordRunAsync(critique.state.critiqueId, {
@@ -206,6 +217,25 @@ describe("CritiqueStore durable memory", () => {
     });
     expect(withFirstFinding.findings).toHaveLength(1);
     expect(withFirstFinding.state.openFindingIds).toEqual(["finding-001"]);
+    const findingArtifact = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "artifact",
+      `critique:${critique.state.critiqueId}:finding:finding-001`,
+    );
+    expect(findingArtifact).toMatchObject({
+      displayId: `critique:${critique.state.critiqueId}:finding:finding-001`,
+      status: "open",
+      attributes: {
+        artifactType: "critique-finding",
+        payload: expect.objectContaining({
+          critiqueId: critique.state.critiqueId,
+          id: "finding-001",
+          status: "open",
+          linkedTicketId: null,
+        }),
+      },
+    });
 
     vi.setSystemTime(new Date("2026-03-15T10:45:00.000Z"));
     const withSecondFinding = await critiqueStore.addFindingAsync(critique.state.critiqueId, {
@@ -228,6 +258,18 @@ describe("CritiqueStore durable memory", () => {
     expect(ticketified.state.followupTicketIds).toEqual(["t-0002"]);
     expect(ticketified.findings.find((finding) => finding.id === "finding-001")?.linkedTicketId).toBe("t-0002");
     expect(ticketified.findings.find((finding) => finding.id === "finding-001")?.status).toBe("accepted");
+    const ticketifiedArtifact = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "artifact",
+      `critique:${critique.state.critiqueId}:finding:finding-001`,
+    );
+    expect(ticketifiedArtifact?.attributes).toMatchObject({
+      payload: expect.objectContaining({
+        linkedTicketId: "t-0002",
+        status: "accepted",
+      }),
+    });
 
     const followupTicket = await ticketStore.readTicketAsync("t-0002");
     expect(followupTicket.ticket.body.context).toContain(`Critique: ${critique.state.critiqueId}`);
@@ -249,10 +291,23 @@ describe("CritiqueStore durable memory", () => {
     expect(rejected.state.openFindingIds).toEqual([]);
 
     vi.setSystemTime(new Date("2026-03-15T11:00:00.000Z"));
-    const resolved = critiqueStore.resolveCritique(critique.state.critiqueId);
+    const resolved = await critiqueStore.resolveCritiqueAsync(critique.state.critiqueId);
     expect(resolved.state.status).toBe("resolved");
     expect(resolved.state.currentVerdict).toBe("pass");
     expect(resolved.dashboard.counts.openFindings).toBe(0);
     expect(resolved.critique).toContain("Current Verdict");
+    if (!launchedEntity) {
+      throw new Error("Expected launched critique entity to exist");
+    }
+    const critiqueEvents = await storage.listEvents(launchedEntity.id);
+    expect(critiqueEvents.map((event) => event.payload.change)).toEqual(
+      expect.arrayContaining([
+        "critique_launch_prepared",
+        "critique_run_recorded",
+        "critique_finding_created",
+        "critique_finding_updated",
+        "critique_finding_resolved",
+      ]),
+    );
   }, 300000);
 });

@@ -99,6 +99,20 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
     this.entities.set(record.id, clone(record));
   }
 
+  async removeEntity(id: string): Promise<void> {
+    this.entities.delete(id);
+    for (const [linkId, link] of [...this.links.entries()]) {
+      if (link.fromEntityId === id || link.toEntityId === id) {
+        this.links.delete(linkId);
+      }
+    }
+    for (const [eventId, event] of [...this.events.entries()]) {
+      if (event.entityId === id) {
+        this.events.delete(eventId);
+      }
+    }
+  }
+
   async upsertLink(record: LoomEntityLinkRecord): Promise<void> {
     this.links.set(record.id, clone(record));
   }
@@ -109,6 +123,10 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
 
   async appendEvent(record: LoomEntityEventRecord): Promise<void> {
     this.events.set(record.id, clone(record));
+  }
+
+  async removeEvent(id: string): Promise<void> {
+    this.events.delete(id);
   }
 
   async upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void> {
@@ -146,9 +164,11 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
       upsertRepository: this.upsertRepository.bind(this),
       upsertWorktree: this.upsertWorktree.bind(this),
       upsertEntity: this.upsertEntity.bind(this),
+      removeEntity: this.removeEntity.bind(this),
       upsertLink: this.upsertLink.bind(this),
       removeLink: this.removeLink.bind(this),
       appendEvent: this.appendEvent.bind(this),
+      removeEvent: this.removeEvent.bind(this),
       upsertRuntimeAttachment: this.upsertRuntimeAttachment.bind(this),
       removeRuntimeAttachment: this.removeRuntimeAttachment.bind(this),
       transact: this.transact.bind(this),

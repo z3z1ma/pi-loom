@@ -11,7 +11,11 @@ import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/stor
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import type { LoomEntityKind, LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
-import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import {
+  appendEntityEvent,
+  findEntityByDisplayId,
+  upsertEntityByDisplayIdWithLifecycleEvents,
+} from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
@@ -23,9 +27,13 @@ import { parseMarkdownArtifact, renderBulletList, renderSection, serializeMarkdo
 import type {
   CreateDocumentationInput,
   DocsContextRefs,
+  DocumentationCanonicalSnapshot,
+  DocumentationEntityAttributes,
   DocumentationListFilter,
+  DocumentationPersistedEventPayload,
   DocumentationReadResult,
   DocumentationRevisionRecord,
+  DocumentationRevisionRecordedEventPayload,
   DocumentationState,
   UpdateDocumentationInput,
 } from "./models.js";
@@ -48,18 +56,8 @@ import { renderDocumentationMarkdown } from "./render.js";
 const ENTITY_KIND = "documentation" as const;
 const DOCUMENTATION_LINK_PROJECTION_OWNER = "documentation-store" as const;
 
-interface DocumentationEntityAttributes {
-  record: DocumentationReadResult;
-}
-
-interface DocumentationSnapshot {
-  state: DocumentationState;
-  revisions: DocumentationRevisionRecord[];
-  documentBody: string;
-}
-
 function hasStructuredDocumentationAttributes(attributes: unknown): attributes is DocumentationEntityAttributes {
-  return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
+  return Boolean(attributes && typeof attributes === "object" && "snapshot" in attributes);
 }
 
 function mergeContextRefs(...refs: Array<Partial<DocsContextRefs> | undefined>): DocsContextRefs {
@@ -210,52 +208,98 @@ export class DocumentationStore {
   }
 
   private async upsertCanonicalRecord(record: DocumentationReadResult): Promise<DocumentationReadResult> {
-    const canonicalRecord = await this.buildCanonicalRecord({
+    const canonicalSnapshot: DocumentationCanonicalSnapshot = {
       state: record.state,
       revisions: record.revisions,
       documentBody: this.extractDocumentBody(record.document, record.dashboard.documentRef),
-    });
+    };
+    const canonicalRecord = await this.buildCanonicalRecord(canonicalSnapshot);
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
+    const previousSnapshot = this.readSnapshot(existing?.attributes ?? null);
     const version = (existing?.version ?? 0) + 1;
-    const entity = await upsertEntityByDisplayId(storage, {
-      kind: ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: canonicalRecord.summary.id,
-      title: canonicalRecord.summary.title,
-      summary: canonicalRecord.state.summary,
-      status: canonicalRecord.summary.status,
-      version,
-      tags: [canonicalRecord.summary.docType, ...canonicalRecord.state.guideTopics],
-      attributes: { record: canonicalRecord },
-      createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
-      updatedAt: canonicalRecord.state.updatedAt,
-    });
-    await syncProjectedEntityLinks({
-      storage,
-      spaceId: identity.space.id,
-      fromEntityId: entity.id,
-      projectionOwner: DOCUMENTATION_LINK_PROJECTION_OWNER,
-      desired: projectedDocumentationLinks(canonicalRecord.state),
-      timestamp: canonicalRecord.state.updatedAt,
+    await storage.transact(async (tx) => {
+      const persistedPayload: DocumentationPersistedEventPayload = {
+        change: "documentation_persisted",
+        entityKind: ENTITY_KIND,
+        displayId: canonicalRecord.summary.id,
+        version,
+        status: canonicalRecord.summary.status,
+        docType: canonicalRecord.summary.docType,
+        sourceTarget: canonicalRecord.state.sourceTarget,
+        revisionCount: canonicalRecord.revisions.length,
+        lastRevisionId: canonicalRecord.state.lastRevisionId,
+      };
+      const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+        tx,
+        {
+          kind: ENTITY_KIND,
+          spaceId: identity.space.id,
+          owningRepositoryId: identity.repository.id,
+          displayId: canonicalRecord.summary.id,
+          title: canonicalRecord.summary.title,
+          summary: canonicalRecord.state.summary,
+          status: canonicalRecord.summary.status,
+          version,
+          tags: [canonicalRecord.summary.docType, ...canonicalRecord.state.guideTopics],
+          attributes: { snapshot: canonicalSnapshot },
+          createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
+          updatedAt: canonicalRecord.state.updatedAt,
+        },
+        {
+          actor: "documentation-store",
+          createdPayload: persistedPayload,
+          updatedPayload: persistedPayload,
+        },
+      );
+      await syncProjectedEntityLinks({
+        storage: tx,
+        spaceId: identity.space.id,
+        fromEntityId: entity.id,
+        projectionOwner: DOCUMENTATION_LINK_PROJECTION_OWNER,
+        desired: projectedDocumentationLinks(canonicalRecord.state),
+        timestamp: canonicalRecord.state.updatedAt,
+      });
+      const previousLastRevisionId = previousSnapshot?.state.lastRevisionId ?? null;
+      const latestRevision = canonicalRecord.revisions.at(-1) ?? null;
+      if (latestRevision && latestRevision.id !== previousLastRevisionId) {
+        const revisionPayload: DocumentationRevisionRecordedEventPayload = {
+          change: "documentation_revision_recorded",
+          docId: canonicalRecord.state.docId,
+          revisionId: latestRevision.id,
+          revisionCount: canonicalRecord.revisions.length,
+          documentUpdated: previousSnapshot?.documentBody !== canonicalSnapshot.documentBody,
+          changedSections: latestRevision.changedSections,
+          sourceTarget: latestRevision.sourceTarget,
+          linkedContextRefs: latestRevision.linkedContextRefs,
+        };
+        await appendEntityEvent(
+          tx,
+          entity.id,
+          "updated",
+          "documentation-store",
+          revisionPayload,
+          latestRevision.createdAt,
+        );
+      }
     });
     return canonicalRecord;
   }
 
   private async entityRecord(entity: LoomEntityRecord): Promise<DocumentationReadResult> {
-    if (!hasStructuredDocumentationAttributes(entity.attributes)) {
+    const snapshot = this.readSnapshot(entity.attributes);
+    if (!snapshot) {
       const docId = entity.displayId ?? entity.id;
       throw new Error(`Documentation entity ${docId} is missing structured attributes`);
     }
-    return this.buildCanonicalRecord({
-      state: entity.attributes.record.state,
-      revisions: entity.attributes.record.revisions,
-      documentBody: this.extractDocumentBody(
-        entity.attributes.record.document,
-        entity.attributes.record.dashboard.documentRef,
-      ),
-    });
+    return this.buildCanonicalRecord(snapshot);
+  }
+
+  private readSnapshot(attributes: unknown): DocumentationCanonicalSnapshot | null {
+    if (!hasStructuredDocumentationAttributes(attributes)) {
+      return null;
+    }
+    return attributes.snapshot;
   }
 
   private async nextDocId(baseTitle: string): Promise<string> {
@@ -580,7 +624,7 @@ export class DocumentationStore {
     );
   }
 
-  private async buildCanonicalRecord(snapshot: DocumentationSnapshot): Promise<DocumentationReadResult> {
+  private async buildCanonicalRecord(snapshot: DocumentationCanonicalSnapshot): Promise<DocumentationReadResult> {
     const packet = await this.buildPacketCanonical(snapshot.state, snapshot.revisions, snapshot.documentBody);
     const document = renderDocumentationMarkdown(snapshot.state, snapshot.documentBody);
     return {
@@ -740,11 +784,12 @@ export class DocumentationStore {
       input.document?.trim() ||
       this.extractDocumentBody(current.document, current.dashboard.documentRef) ||
       this.defaultDocumentBody(current.state);
+    const documentUpdated = input.document !== undefined;
     const nextState: DocumentationState = {
       ...current.state,
       title: input.title?.trim() ?? current.state.title,
       updatedAt: currentTimestamp(),
-      summary: input.summary?.trim() ?? (input.document ? summarizeDocument(documentBody) : current.state.summary),
+      summary: input.summary?.trim() ?? (documentUpdated ? summarizeDocument(documentBody) : current.state.summary),
       audience: input.audience ? normalizeAudience(input.audience) : current.state.audience,
       scopePaths: input.scopePaths ? normalizeStringList(input.scopePaths) : current.state.scopePaths,
       contextRefs: input.contextRefs
@@ -759,29 +804,31 @@ export class DocumentationStore {
         ? normalizeStringList(input.linkedOutputPaths)
         : current.state.linkedOutputPaths,
     };
-    const revisions = !input.document
-      ? current.revisions
-      : [
-          ...current.revisions,
-          {
-            id: nextSequenceId(
-              current.revisions.map((entry) => entry.id),
-              "rev",
-            ),
-            docId: current.state.docId,
-            createdAt: nextState.updatedAt,
-            reason: nextState.updateReason,
-            summary: nextState.summary || summarizeDocument(documentBody),
-            sourceTarget: nextState.sourceTarget,
-            packetHash: packetHash(current.packet),
-            changedSections: input.changedSections
-              ? normalizeStringList(input.changedSections)
-              : extractMarkdownSections(documentBody),
-            linkedContextRefs: nextState.contextRefs,
-          },
-        ];
+    const revisionId = nextSequenceId(
+      current.revisions.map((entry) => entry.id),
+      "rev",
+    );
+    const packetForRevision = await this.buildPacketCanonical(nextState, current.revisions, documentBody);
+    const revisions = [
+      ...current.revisions,
+      {
+        id: revisionId,
+        docId: current.state.docId,
+        createdAt: nextState.updatedAt,
+        reason: nextState.updateReason,
+        summary: nextState.summary || summarizeDocument(documentBody),
+        sourceTarget: nextState.sourceTarget,
+        packetHash: packetHash(packetForRevision),
+        changedSections: input.changedSections
+          ? normalizeStringList(input.changedSections)
+          : documentUpdated
+            ? extractMarkdownSections(documentBody)
+            : [],
+        linkedContextRefs: nextState.contextRefs,
+      },
+    ];
     const nextRecord = await this.buildCanonicalRecord({
-      state: { ...nextState, lastRevisionId: revisions.at(-1)?.id ?? current.state.lastRevisionId },
+      state: { ...nextState, lastRevisionId: revisionId },
       revisions,
       documentBody,
     });

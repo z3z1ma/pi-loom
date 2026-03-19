@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRalphStore } from "../extensions/domain/store.js";
 
@@ -110,17 +112,151 @@ describe("RalphStore durable memory", () => {
     );
   }, 10000);
 
-  it("records iteration state and pauses on blocking critique decisions", () => {
+  it("stores canonical Ralph state and iteration artifacts without duplicating read models", async () => {
+    vi.setSystemTime(new Date("2026-03-15T15:00:00.000Z"));
+    const store = createRalphStore(workspace);
+
+    const created = store.createRun({
+      title: "Canonical Ralph Payload",
+      objective: "Persist only canonical state and rebuild rich reads on demand.",
+      policySnapshot: {
+        verifierRequired: true,
+      },
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T15:01:00.000Z"));
+    const launch = store.prepareLaunch(created.state.runId, { focus: "Prepare canonical iteration" });
+
+    vi.setSystemTime(new Date("2026-03-15T15:02:00.000Z"));
+    const updated = store.appendIteration(created.state.runId, {
+      id: launch.launch.iterationId,
+      status: "reviewing",
+      summary: "Captured review-gated iteration state.",
+      verifier: {
+        sourceKind: "test",
+        sourceRef: "packages/pi-ralph/__tests__/store.test.ts",
+        verdict: "concerns",
+        blocker: false,
+        summary: "Verifier raised concerns that still require critique follow-up.",
+      },
+      critiqueLinks: [
+        {
+          critiqueId: "crit-123",
+          kind: "blocking",
+          verdict: null,
+          required: true,
+          blocking: false,
+          reviewedAt: null,
+          findingIds: [],
+          summary: "Await critique review before continuing.",
+        },
+      ],
+      decision: {
+        kind: "pause",
+        reason: "manual_review_required",
+        summary: "Need explicit critique review before another launch.",
+        decidedAt: "2026-03-18T10:15:00.000Z",
+        decidedBy: "policy",
+        blockingRefs: ["crit-123"],
+      },
+    });
+
+    expect(updated.state.waitingFor).toBe("critique");
+    expect(updated.iterations).toHaveLength(1);
+    expect(updated.launch.iterationId).toBe("iter-001");
+
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const runEntity = await findEntityByDisplayId(storage, identity.space.id, "ralph_run", created.state.runId);
+    expect(runEntity?.attributes).toEqual(
+      expect.objectContaining({
+        state: expect.objectContaining({
+          runId: created.state.runId,
+          currentIterationId: "iter-001",
+          preparedLaunch: expect.objectContaining({ runtime: "subprocess", resume: false }),
+        }),
+      }),
+    );
+    expect(runEntity?.attributes).not.toHaveProperty("record");
+    expect(runEntity?.attributes).not.toHaveProperty("iterations");
+    expect(runEntity?.attributes).not.toHaveProperty("launch");
+    expect(runEntity?.attributes).not.toHaveProperty("packet");
+    expect(runEntity?.attributes).not.toHaveProperty("dashboard");
+
+    const artifacts = (await storage.listEntities(identity.space.id, "artifact")).filter((entity) =>
+      entity.displayId?.startsWith(`ralph-run:${created.state.runId}:iteration:`),
+    );
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      displayId: `ralph-run:${created.state.runId}:iteration:iter-001`,
+      status: "reviewing",
+      attributes: expect.objectContaining({
+        artifactType: "ralph-iteration",
+        payload: expect.objectContaining({
+          iteration: expect.objectContaining({ id: "iter-001", status: "reviewing", iteration: 1 }),
+        }),
+      }),
+    });
+
+    const events = await storage.listEvents(runEntity?.id ?? "missing");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "updated",
+          payload: expect.objectContaining({ change: "launch_prepared", iterationId: "iter-001" }),
+        }),
+        expect.objectContaining({
+          kind: "updated",
+          payload: expect.objectContaining({
+            change: "iteration_updated",
+            iterationId: "iter-001",
+            status: "reviewing",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "updated",
+          payload: expect.objectContaining({
+            change: "verifier_updated",
+            iterationId: "iter-001",
+            verdict: "concerns",
+          }),
+        }),
+        expect.objectContaining({
+          kind: "updated",
+          payload: expect.objectContaining({
+            change: "critique_links_updated",
+            iterationId: "iter-001",
+            critiqueIds: ["crit-123"],
+          }),
+        }),
+        expect.objectContaining({
+          kind: "decision_recorded",
+          payload: expect.objectContaining({ change: "iteration_decision_recorded" }),
+        }),
+      ]),
+    );
+
+    const readback = store.readRun(created.state.runId);
+    expect(readback.iterations).toHaveLength(1);
+    expect(readback.iterations[0]).toMatchObject({ id: "iter-001", status: "reviewing" });
+    expect(readback.state.waitingFor).toBe("critique");
+    expect(readback.launch).toMatchObject({
+      iterationId: "iter-001",
+      runtime: "subprocess",
+      packetRef: `ralph-run:${created.state.runId}:packet`,
+    });
+  }, 120000);
+
+  it("records iteration state and pauses on blocking critique decisions", async () => {
     vi.setSystemTime(new Date("2026-03-15T14:10:00.000Z"));
     const critiqueStore = createCritiqueStore(workspace);
     const store = createRalphStore(workspace);
 
-    const critique = critiqueStore.createCritique({
+    const critique = await critiqueStore.createCritiqueAsync({
       title: "Review Ralph resume blocker",
       target: {
         kind: "ticket",
         ref: "ticket-456",
-        path: "packages/pi-ralph/extensions/domain/store.ts",
+        locator: "packages/pi-ralph/extensions/domain/store.ts",
       },
       focusAreas: ["architecture"],
       reviewQuestion: "Can the run continue safely after the verifier failure?",

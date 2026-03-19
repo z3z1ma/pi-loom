@@ -178,7 +178,7 @@ function migrate(db: SqliteDatabaseLike): void {
     CREATE INDEX IF NOT EXISTS idx_entities_display_id ON entities(display_id);
     CREATE INDEX IF NOT EXISTS idx_links_from_entity ON links(from_entity_id);
     CREATE INDEX IF NOT EXISTS idx_links_to_entity ON links(to_entity_id);
-    CREATE INDEX IF NOT EXISTS idx_events_entity_sequence ON events(entity_id, sequence);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_events_entity_sequence ON events(entity_id, sequence);
     CREATE INDEX IF NOT EXISTS idx_runtime_attachments_worktree ON runtime_attachments(worktree_id);
   `);
 
@@ -501,6 +501,10 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
     );
   }
 
+  async removeEntity(id: string): Promise<void> {
+    this.db.prepare("DELETE FROM entities WHERE id = ?").run(id);
+  }
+
   async upsertLink(record: LoomEntityLinkRecord): Promise<void> {
     runNamed(
       this.db.prepare(`
@@ -550,6 +554,10 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         payload_json: encode(record.payload),
       },
     );
+  }
+
+  async removeEvent(id: string): Promise<void> {
+    this.db.prepare("DELETE FROM events WHERE id = ?").run(id);
   }
 
   async upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void> {
