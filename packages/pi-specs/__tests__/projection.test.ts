@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createResearchStore } from "../../pi-research/extensions/domain/store.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
-import { ensureSpecTickets } from "../extensions/domain/ticket-sync.js";
 import { createSpecStore } from "../extensions/domain/store.js";
+import { ensureSpecTickets } from "../extensions/domain/ticket-sync.js";
 
 describe("spec to linked ticket ensure flow", () => {
   let workspace: string;
@@ -70,7 +70,9 @@ describe("spec to linked ticket ensure flow", () => {
 
     const tickets = await ticketStore.listTicketsAsync();
     expect(tickets).toHaveLength(2);
-    const foundationTicket = await ticketStore.readTicketAsync(firstEnsure.linkedTickets?.links[0]?.ticketId ?? "t-0001");
+    const foundationTicket = await ticketStore.readTicketAsync(
+      firstEnsure.linkedTickets?.links[0]?.ticketId ?? "t-0001",
+    );
     const persistTicket = await ticketStore.readTicketAsync(firstEnsure.linkedTickets?.links[1]?.ticketId ?? "t-0002");
 
     expect(foundationTicket.ticket.frontmatter["spec-change"]).toBe("add-dark-mode");

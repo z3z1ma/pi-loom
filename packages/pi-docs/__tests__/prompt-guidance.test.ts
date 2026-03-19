@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildDocsSystemPrompt, getBaseDocsGuidance } from "../extensions/prompts/guidance.js";
 

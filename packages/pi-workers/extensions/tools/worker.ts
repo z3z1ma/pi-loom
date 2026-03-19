@@ -392,7 +392,12 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
       const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
-      const prepared = await store.prepareLaunchAsync(params.ref, true, params.note ?? "Resume requested", params.runtime);
+      const prepared = await store.prepareLaunchAsync(
+        params.ref,
+        true,
+        params.note ?? "Resume requested",
+        params.runtime,
+      );
       if (params.prepareOnly === true) {
         return machineResult({ launch: prepared.launch }, await store.renderLaunchAsync(params.ref));
       }

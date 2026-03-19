@@ -58,7 +58,9 @@ async function assertRuntimeAttachmentCompatible(
   storage: LoomCanonicalStorage,
   incoming: LoomRuntimeAttachment,
 ): Promise<void> {
-  const existing = (await storage.listRuntimeAttachments(incoming.worktreeId)).find((record) => record.id === incoming.id);
+  const existing = (await storage.listRuntimeAttachments(incoming.worktreeId)).find(
+    (record) => record.id === incoming.id,
+  );
   if (!existing) {
     return;
   }

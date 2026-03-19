@@ -1,8 +1,8 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { SpecPlanInput, SpecTasksInput } from "../domain/models.js";
-import { ensureSpecTickets } from "../domain/ticket-sync.js";
 import { renderCapabilityDetail, renderSpecDetail, renderSpecSummary } from "../domain/render.js";
 import { createSpecStore } from "../domain/store.js";
+import { ensureSpecTickets } from "../domain/ticket-sync.js";
 
 function splitArgs(args: string): string[] {
   return args.trim().split(/\s+/).filter(Boolean);

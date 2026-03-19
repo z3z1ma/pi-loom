@@ -82,6 +82,13 @@ interface CritiqueSnapshot {
   launch?: CritiqueLaunchDescriptor | null;
 }
 
+function requireStoredString(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`Critique canonical state is missing ${label}`);
+  }
+  return value;
+}
+
 function hasStructuredCritiqueAttributes(attributes: unknown): attributes is CritiqueEntityAttributes {
   if (!attributes || typeof attributes !== "object" || !("record" in attributes)) {
     return false;
@@ -163,8 +170,9 @@ function toCanonicalState(state: CritiqueState): CritiqueCanonicalState {
 }
 
 function materializeState(state: CritiqueCanonicalState): CritiqueState {
+  const normalizedState = normalizeCanonicalState(state);
   return {
-    ...state,
+    ...normalizedState,
     packetSummary: "",
     currentVerdict: "concerns",
     openFindingIds: [],
@@ -174,16 +182,26 @@ function materializeState(state: CritiqueCanonicalState): CritiqueState {
 }
 
 function normalizeCanonicalState(state: CritiqueCanonicalState): CritiqueCanonicalState {
+  const target = state.target;
+  if (!target || typeof target !== "object") {
+    throw new Error("Critique canonical state is missing target");
+  }
+  if (!("locator" in target)) {
+    throw new Error("Critique canonical state is missing target.locator");
+  }
+  if (!("scopeRefs" in state)) {
+    throw new Error("Critique canonical state is missing scopeRefs");
+  }
   return {
-    critiqueId: normalizeCritiqueId(state.critiqueId),
-    title: state.title.trim(),
-    status: normalizeStatus(state.status),
-    createdAt: state.createdAt,
-    updatedAt: state.updatedAt,
+    critiqueId: normalizeCritiqueId(requireStoredString(state.critiqueId, "critiqueId")),
+    title: requireStoredString(state.title, "title").trim(),
+    status: normalizeStatus(requireStoredString(state.status, "status")),
+    createdAt: requireStoredString(state.createdAt, "createdAt"),
+    updatedAt: requireStoredString(state.updatedAt, "updatedAt"),
     target: {
-      kind: normalizeTargetKind(state.target.kind),
-      ref: state.target.ref.trim(),
-      locator: normalizeOptionalString(state.target.locator),
+      kind: normalizeTargetKind(requireStoredString(target.kind, "target.kind")),
+      ref: requireStoredString(target.ref, "target.ref").trim(),
+      locator: normalizeOptionalString(target.locator),
     },
     focusAreas: normalizeFocusAreas(state.focusAreas),
     reviewQuestion: state.reviewQuestion ?? "",
@@ -192,7 +210,7 @@ function normalizeCanonicalState(state: CritiqueCanonicalState): CritiqueCanonic
     contextRefs: normalizeContextRefs(state.contextRefs),
     freshContextRequired: state.freshContextRequired !== false,
     lastLaunchAt: normalizeOptionalString(state.lastLaunchAt),
-    launchCount: Number.isFinite(state.launchCount) ? state.launchCount : 0,
+    launchCount: typeof state.launchCount === "number" && Number.isFinite(state.launchCount) ? state.launchCount : 0,
   };
 }
 
@@ -404,7 +422,6 @@ function buildProjectedCritiqueLinks(state: CritiqueState): ProjectedEntityLinkI
   if (targetKind) {
     desired.unshift({
       kind: "critiques",
-      // Critique targets still use the legacy "spec" label in aggregates; canonical links project the real entity kind.
       targetKind,
       targetDisplayId: state.target.ref,
       required: false,

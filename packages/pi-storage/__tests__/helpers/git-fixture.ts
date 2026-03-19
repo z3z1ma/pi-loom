@@ -67,7 +67,7 @@ function copyTemplate(templateDir: string, cwd: string): void {
 export function createSeededGitWorkspace(options: SeededGitWorkspaceOptions): SeededGitWorkspace {
   const cwd = mkdtempSync(path.join(tmpdir(), options.prefix));
   copyTemplate(ensureTemplate(options), cwd);
-  const piLoomRoot = options.piLoomRoot === false ? null : options.piLoomRoot ?? path.join(cwd, ".pi-loom-test");
+  const piLoomRoot = options.piLoomRoot === false ? null : (options.piLoomRoot ?? path.join(cwd, ".pi-loom-test"));
   if (piLoomRoot) {
     process.env.PI_LOOM_ROOT = piLoomRoot;
   }

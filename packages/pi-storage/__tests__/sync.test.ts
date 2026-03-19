@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { LoomRuntimeAttachment } from "../storage/contract.js";
-import { createSeededGitWorkspace } from "./helpers/git-fixture.js";
 import { createEntityId } from "../storage/ids.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
 import { resolveWorkspaceIdentity } from "../storage/repository.js";
 import { SqliteLoomCatalog } from "../storage/sqlite.js";
 import { exportSyncBundle, hydrateSyncBundle } from "../storage/sync.js";
+import { createSeededGitWorkspace } from "./helpers/git-fixture.js";
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   return createSeededGitWorkspace({
@@ -116,12 +116,7 @@ describe("pi-storage sync bundle", () => {
       const exported = await exportSyncBundle(cwd, sourceCatalog, bundleDir);
 
       expect(exported.files).toEqual(
-        expect.arrayContaining([
-          "bundle.json",
-          "entities.json",
-          "events.json",
-          "runtime-attachments.json",
-        ]),
+        expect.arrayContaining(["bundle.json", "entities.json", "events.json", "runtime-attachments.json"]),
       );
       expect(exported.files.some((file) => file.endsWith(".sqlite"))).toBe(false);
       expect(JSON.parse(readFileSync(path.join(bundleDir, "runtime-attachments.json"), "utf-8"))).toEqual([
@@ -136,7 +131,9 @@ describe("pi-storage sync bundle", () => {
       try {
         const hydrated = await hydrateSyncBundle(targetCatalog, bundleDir);
         const hydratedEntities = await targetCatalog.listEntities();
-        expect(hydrated.hydratedEntityIds).toEqual(seeded.entityIds.slice().sort((left, right) => left.localeCompare(right)));
+        expect(hydrated.hydratedEntityIds).toEqual(
+          seeded.entityIds.slice().sort((left, right) => left.localeCompare(right)),
+        );
         expect(hydratedEntities.length).toBe(seeded.entityIds.length);
         expect(hydratedEntities.some((entity) => entity.displayId === "db-migration")).toBe(true);
         expect(await targetCatalog.listRuntimeAttachments(seeded.runtimeAttachment.worktreeId)).toEqual([

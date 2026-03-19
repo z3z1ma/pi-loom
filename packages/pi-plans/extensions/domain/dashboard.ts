@@ -30,10 +30,7 @@ export function summarizePlan(state: PlanState): PlanSummary {
   };
 }
 
-export function buildPlanDashboard(
-  state: PlanState,
-  linkedTickets: PlanDashboardTicket[],
-): PlanDashboard {
+export function buildPlanDashboard(state: PlanState, linkedTickets: PlanDashboardTicket[]): PlanDashboard {
   const linkedTicketSnapshot = linkedTickets.map((ticket) => ({ ...ticket }));
   const byStatus = linkedTicketSnapshot.reduce<Record<string, number>>((acc, ticket) => {
     acc[ticket.status] = (acc[ticket.status] ?? 0) + 1;

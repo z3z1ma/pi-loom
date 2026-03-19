@@ -246,7 +246,11 @@ export async function handleWorkerCommand(args: string, _ctx: ExtensionCommandCo
       const parsed = parseApprovalArgs(rest.join(" "));
       const mapped =
         parsed.status === "approve" ? "approved" : parsed.status === "reject" ? "rejected_for_revision" : "escalated";
-      await store.decideApprovalAsync(parsed.ref, { status: mapped, summary: parsed.summary, rationale: parsed.rationale });
+      await store.decideApprovalAsync(parsed.ref, {
+        status: mapped,
+        summary: parsed.summary,
+        rationale: parsed.rationale,
+      });
       return store.renderDetailAsync(parsed.ref);
     }
     case "supervise": {

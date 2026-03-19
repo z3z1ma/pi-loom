@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { LoomRuntimeAttachment } from "../storage/contract.js";
-import { createSeededGitWorkspace } from "./helpers/git-fixture.js";
 import { createEntityId, createLinkId, createRepositoryId } from "../storage/ids.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
 import { resolveWorkspaceIdentity } from "../storage/repository.js";
 import { SqliteLoomCatalog } from "../storage/sqlite.js";
 import { exportSyncBundle, hydrateSyncBundle } from "../storage/sync.js";
+import { createSeededGitWorkspace } from "./helpers/git-fixture.js";
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   return createSeededGitWorkspace({
@@ -188,7 +188,9 @@ describe("pi-storage sqlite catalog backup flow", () => {
       const targetCatalog = new SqliteLoomCatalog();
       try {
         const hydrated = await hydrateSyncBundle(targetCatalog, bundleDir);
-        expect(hydrated.hydratedEntityIds).toEqual(seeded.entityIds.slice().sort((left, right) => left.localeCompare(right)));
+        expect(hydrated.hydratedEntityIds).toEqual(
+          seeded.entityIds.slice().sort((left, right) => left.localeCompare(right)),
+        );
         expect(await targetCatalog.listRuntimeAttachments(seeded.runtimeAttachment.worktreeId)).toEqual([
           seeded.runtimeAttachment,
         ]);

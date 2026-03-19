@@ -48,23 +48,23 @@ describe("plan dashboard", () => {
     };
 
     const dashboard = buildPlanDashboard(state, [
-        {
-          ticketId: "ticket-001",
-          role: "implementation",
-          order: 1,
-          status: "ready",
-          title: "Implement plan store",
-          ref: "ticket:ticket-001",
-        },
-        {
-          ticketId: "ticket-999",
-          role: "review",
-          order: 2,
-          status: "missing",
-          title: "Missing ticket",
-          ref: "ticket:ticket-999",
-        },
-      ]);
+      {
+        ticketId: "ticket-001",
+        role: "implementation",
+        order: 1,
+        status: "ready",
+        title: "Implement plan store",
+        ref: "ticket:ticket-001",
+      },
+      {
+        ticketId: "ticket-999",
+        role: "review",
+        order: 2,
+        status: "missing",
+        title: "Missing ticket",
+        ref: "ticket:ticket-999",
+      },
+    ]);
 
     expect(dashboard).toEqual({
       plan: {

@@ -179,7 +179,7 @@ describe("constitution tools", () => {
         constitution: { state: { completeness: { roadmap: true } } },
       });
 
-      const roadmapItem = await constitutionRoadmap.execute(
+      const createdRoadmapItem = await constitutionRoadmap.execute(
         "call-6",
         {
           action: "create_item",
@@ -193,7 +193,7 @@ describe("constitution tools", () => {
         undefined,
         ctx,
       );
-      expect(roadmapItem.details).toMatchObject({
+      expect(createdRoadmapItem.details).toMatchObject({
         action: "create_item",
         constitution: { state: { roadmapItems: [expect.objectContaining({ id: "item-001" })] } },
       });
@@ -220,7 +220,13 @@ describe("constitution tools", () => {
         text: expect.stringContaining("Preserve project-defining intent as durable AI-native memory."),
       });
 
-      const roadmapItem = await roadmapRead.execute("call-10", { itemId: "item-001" }, undefined, undefined, ctx);
+      const readRoadmapItem = await constitutionRead.execute(
+        "call-10",
+        { itemId: "item-001" },
+        undefined,
+        undefined,
+        ctx,
+      );
       expect(readRoadmapItem.details).toMatchObject({
         item: { id: "item-001", title: "Launch constitutional memory" },
       });

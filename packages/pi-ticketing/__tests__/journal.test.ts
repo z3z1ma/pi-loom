@@ -41,11 +41,7 @@ describe("ticket journal persistence", () => {
       "Investigated issue",
       "Rolled forward fix",
     ]);
-    expect(readBack.journal.map((entry) => entry.metadata)).toEqual([
-      { action: "create" },
-      { step: 1 },
-      { step: 2 },
-    ]);
+    expect(readBack.journal.map((entry) => entry.metadata)).toEqual([{ action: "create" }, { step: 1 }, { step: 2 }]);
 
     const { storage, identity } = await openWorkspaceStorage(workspace);
     const entity = await findEntityByDisplayId(storage, identity.space.id, "ticket", created.summary.id);
@@ -57,7 +53,12 @@ describe("ticket journal persistence", () => {
     expect(entity.attributes).toMatchObject({
       record: {
         journal: [
-          { id: "t-0001-journal-0001", kind: "state", text: "Created ticket Maintain ordered journal", metadata: { action: "create" } },
+          {
+            id: "t-0001-journal-0001",
+            kind: "state",
+            text: "Created ticket Maintain ordered journal",
+            metadata: { action: "create" },
+          },
           { id: "t-0001-journal-0002", kind: "progress", text: "Investigated issue", metadata: { step: 1 } },
           { id: "t-0001-journal-0003", kind: "decision", text: "Rolled forward fix", metadata: { step: 2 } },
         ],

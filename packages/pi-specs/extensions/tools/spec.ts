@@ -2,9 +2,9 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
 import type { SpecPlanInput, SpecTasksInput } from "../domain/models.js";
-import { ensureSpecTickets } from "../domain/ticket-sync.js";
 import { renderCapabilityDetail, renderSpecDetail, renderSpecSummary } from "../domain/render.js";
 import { createSpecStore } from "../domain/store.js";
+import { ensureSpecTickets } from "../domain/ticket-sync.js";
 
 const SpecStatusEnum = StringEnum([
   "proposed",

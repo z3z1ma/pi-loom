@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildPlanSystemPrompt, getBasePlanGuidance } from "../extensions/prompts/guidance.js";
 

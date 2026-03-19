@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@mariozechner/pi-ai";
@@ -74,7 +73,7 @@ function createCtx(cwd: string): ExtensionContext {
 function createCtxWithRuntimeConfig(cwd: string): ExtensionContext {
   return {
     cwd,
-    model: { provider: "openai", id: "gpt-5.4" } as Model<any>,
+    model: { provider: "openai", id: "gpt-5.4" } as Model<unknown>,
     modelRegistry: { modelsJsonPath: "/tmp/omp-agent/models.json" } as unknown,
     sessionManager: {
       getEntries: () => [{ type: "thinking_level_change", thinkingLevel: "high" }],

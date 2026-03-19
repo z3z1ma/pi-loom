@@ -56,7 +56,7 @@ export function getWorkerRuntimeDir(cwd: string, workerId: string): string {
   return join(getWorkerPaths(cwd).runtimeDir, normalizeWorkerId(workerId));
 }
 
-export function getWorkerArtifactPaths(cwd: string, workerId: string): WorkerArtifactPaths {
+export function getWorkerArtifactPaths(_cwd: string, workerId: string): WorkerArtifactPaths {
   const normalizedWorkerId = normalizeWorkerId(workerId);
   const dir = `worker:${normalizedWorkerId}`;
   return {

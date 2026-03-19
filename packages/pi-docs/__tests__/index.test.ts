@@ -9,6 +9,8 @@ import type {
   RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
+import { upsertEntityByDisplayIdWithLifecycleEvents } from "@pi-loom/pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { describe, expect, it, vi } from "vitest";
 import { createDocumentationStore } from "../extensions/domain/store.js";
 
@@ -44,9 +46,13 @@ type MockPi = {
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-docs-index-"));
+  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
   };
 }
 
@@ -100,6 +106,92 @@ function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: 
   };
 }
 
+async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> {
+  const { storage, identity } = await openWorkspaceStorage(cwd);
+  const docId = "documentation-memory-snapshot";
+  const updatedAt = "2026-03-17T00:36:40.314Z";
+
+  await upsertEntityByDisplayIdWithLifecycleEvents(
+    storage,
+    {
+      kind: "documentation",
+      spaceId: identity.space.id,
+      owningRepositoryId: identity.repository.id,
+      displayId: docId,
+      title: "Documentation memory snapshot",
+      summary: "Canonical docs are stored in snapshot form.",
+      status: "active",
+      version: 1,
+      tags: ["overview", "documentation-memory"],
+      attributes: {
+        snapshot: {
+          state: {
+            docId,
+            title: "Documentation memory snapshot",
+            status: "active",
+            docType: "overview",
+            sectionGroup: "overviews",
+            createdAt: "2026-03-17T00:36:38.511Z",
+            updatedAt,
+            summary: "Canonical docs are stored in snapshot form.",
+            audience: ["ai", "human"],
+            scopePaths: ["packages/pi-docs"],
+            contextRefs: {
+              roadmapItemIds: [],
+              initiativeIds: [],
+              researchIds: [],
+              specChangeIds: [],
+              ticketIds: [],
+              critiqueIds: [],
+            },
+            sourceTarget: { kind: "workspace", ref: "repo" },
+            updateReason: "Persist canonical documentation snapshots.",
+            guideTopics: ["documentation-memory"],
+            linkedOutputPaths: ["docs/loom.md"],
+            lastRevisionId: "rev-001",
+          },
+          revisions: [
+            {
+              id: "rev-001",
+              docId,
+              createdAt: updatedAt,
+              reason: "Initial canonical persistence.",
+              summary: "Canonical docs are stored in snapshot form.",
+              sourceTarget: { kind: "workspace", ref: "repo" },
+              packetHash: "abc123",
+              changedSections: ["Summary", "Fresh Updater"],
+              linkedContextRefs: {
+                roadmapItemIds: [],
+                initiativeIds: [],
+                researchIds: [],
+                specChangeIds: [],
+                ticketIds: [],
+                critiqueIds: [],
+              },
+            },
+          ],
+          documentBody: [
+            "## Summary",
+            "Canonical docs are persisted in normalized snapshots.",
+            "",
+            "## Fresh Updater",
+            "docs_update reads the current document and revision history from snapshot storage.",
+          ].join("\n"),
+        },
+      },
+      createdAt: "2026-03-17T00:36:38.511Z",
+      updatedAt,
+    },
+    {
+      actor: "test",
+      createdPayload: { change: "seeded_documentation_snapshot" },
+      updatedPayload: { change: "seeded_documentation_snapshot" },
+    },
+  );
+
+  return docId;
+}
+
 describe("pi-docs extension", () => {
   it("registers the /docs command, docs tools, and lifecycle hooks", async () => {
     const mockPi = createMockPi();
@@ -147,6 +239,95 @@ describe("pi-docs extension", () => {
         "info",
       );
       expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Source target: workspace:repo"), "info");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("lists and reads canonical snapshot documentation entities", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const docsStore = createDocumentationStore(cwd);
+      const docId = await seedCanonicalDocumentationSnapshot(cwd);
+
+      await expect(docsStore.listDocs()).resolves.toEqual([
+        expect.objectContaining({
+          id: docId,
+          ref: `documentation:${docId}`,
+          revisionCount: 1,
+          sourceKind: "workspace",
+        }),
+      ]);
+
+      await expect(docsStore.readDoc(docId)).resolves.toMatchObject({
+        summary: { id: docId, ref: `documentation:${docId}` },
+        state: { lastRevisionId: "rev-001" },
+        revisions: [expect.objectContaining({ id: "rev-001", changedSections: ["Fresh Updater", "Summary"] })],
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("fails direct reads for malformed documentation snapshots", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const { storage, identity } = await openWorkspaceStorage(cwd);
+      await upsertEntityByDisplayIdWithLifecycleEvents(
+        storage,
+        {
+          kind: "documentation",
+          spaceId: identity.space.id,
+          owningRepositoryId: identity.repository.id,
+          displayId: "broken-documentation-snapshot",
+          title: "Broken documentation snapshot",
+          summary: "Broken documentation snapshot.",
+          status: "active",
+          version: 1,
+          tags: ["overview"],
+          attributes: {
+            snapshot: {
+              state: {
+                docId: "broken-documentation-snapshot",
+                title: "Broken documentation snapshot",
+                status: "active",
+                docType: "overview",
+                sectionGroup: "overviews",
+                createdAt: "2026-03-17T00:36:38.511Z",
+                updatedAt: "2026-03-17T00:36:40.314Z",
+                summary: "Broken documentation snapshot.",
+                audience: ["ai"],
+                scopePaths: [],
+                contextRefs: {
+                  roadmapItemIds: [],
+                  initiativeIds: [],
+                  researchIds: [],
+                  specChangeIds: [],
+                  ticketIds: [],
+                  critiqueIds: [],
+                },
+                sourceTarget: { kind: "workspace", ref: "repo" },
+                updateReason: "Broken data.",
+                guideTopics: [],
+                linkedOutputPaths: [],
+                lastRevisionId: null,
+              },
+              revisions: [],
+            },
+          },
+          createdAt: "2026-03-17T00:36:38.511Z",
+          updatedAt: "2026-03-17T00:36:40.314Z",
+        },
+        {
+          actor: "test",
+          createdPayload: { change: "seeded_broken_documentation_snapshot" },
+          updatedPayload: { change: "seeded_broken_documentation_snapshot" },
+        },
+      );
+
+      await expect(createDocumentationStore(cwd).readDoc("broken-documentation-snapshot")).rejects.toThrow(
+        "Documentation snapshot is missing documentBody",
+      );
     } finally {
       cleanup();
     }

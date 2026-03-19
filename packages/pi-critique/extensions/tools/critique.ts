@@ -173,11 +173,11 @@ function toCreateInput(params: CritiqueWriteParamsValue) {
     target: {
       kind: params.target.kind,
       ref: params.target.ref,
-      path: params.target.path ?? null,
+      locator: params.target.path ?? null,
     },
     focusAreas: params.focusAreas,
     reviewQuestion: params.reviewQuestion,
-    scopePaths: params.scopePaths,
+    scopeRefs: params.scopePaths,
     nonGoals: params.nonGoals,
     contextRefs: params.contextRefs,
     freshContextRequired: params.freshContextRequired,
@@ -191,12 +191,12 @@ function toUpdateInput(params: CritiqueWriteParamsValue) {
       ? {
           kind: params.target.kind,
           ref: params.target.ref,
-          path: params.target.path ?? null,
+          locator: params.target.path ?? null,
         }
       : undefined,
     focusAreas: params.focusAreas,
     reviewQuestion: params.reviewQuestion,
-    scopePaths: params.scopePaths,
+    scopeRefs: params.scopePaths,
     nonGoals: params.nonGoals,
     contextRefs: params.contextRefs,
     freshContextRequired: params.freshContextRequired,

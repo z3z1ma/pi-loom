@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
@@ -134,7 +134,7 @@ describe("plan tools", () => {
       const ticket = await ticketStore.createTicketAsync({
         title: "Implement plan store",
         summary: "Persist state, packet, plan markdown, and dashboard artifacts.",
-      })
+      });
 
       const linked = await planTicketLink.execute(
         "call-2",
@@ -209,5 +209,4 @@ describe("plan tools", () => {
       cleanup();
     }
   }, 60000);
-
 });

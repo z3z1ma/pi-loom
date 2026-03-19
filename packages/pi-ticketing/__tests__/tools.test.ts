@@ -481,7 +481,8 @@ describe("ticket tools", () => {
         undefined,
         ctx,
       );
-      const deleteCandidateId = resultDetails<{ ticket: { summary: { id: string } } }>(deleteCandidate.details).ticket.summary.id;
+      const deleteCandidateId = resultDetails<{ ticket: { summary: { id: string } } }>(deleteCandidate.details).ticket
+        .summary.id;
 
       const deleted = await ticketWrite.execute(
         "call-6",

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
@@ -123,7 +123,6 @@ describe("ralph tools", () => {
       const ralphLaunch = getTool(mockPi, "ralph_launch");
       const ralphResume = getTool(mockPi, "ralph_resume");
       const ralphDashboard = getTool(mockPi, "ralph_dashboard");
-      const ralphList = getTool(mockPi, "ralph_list");
 
       const created = await ralphWrite.execute(
         "call-1",
@@ -288,10 +287,8 @@ describe("ralph tools", () => {
           counts: { iterations: 1 },
         },
       });
-
     } finally {
       cleanup();
     }
   }, 240000);
-
 });

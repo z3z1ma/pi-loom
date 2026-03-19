@@ -97,6 +97,42 @@ function hasStructuredWorkerAttributes(attributes: unknown): attributes is Worke
   return Array.isArray(candidate.messages) && Boolean(candidate.state && typeof candidate.state === "object");
 }
 
+function normalizeWorkerMessageRecord(record: WorkerMessageRecord): WorkerMessageRecord {
+  return {
+    ...record,
+    workerId: record.workerId,
+    createdAt: record.createdAt,
+    direction: normalizeMessageDirection(record.direction),
+    awaiting: normalizeMessageAwaiting(record.awaiting),
+    kind: normalizeMessageKind(record.kind),
+    status: normalizeMessageStatus(record.status),
+    from: normalizeOptionalString(record.from) ?? "",
+    text: normalizeOptionalString(record.text) ?? "",
+    relatedRefs: normalizeStringList(record.relatedRefs),
+    replyTo: normalizeOptionalString(record.replyTo),
+    acknowledgedAt: normalizeOptionalString(record.acknowledgedAt),
+    acknowledgedBy: normalizeOptionalString(record.acknowledgedBy),
+    resolvedAt: normalizeOptionalString(record.resolvedAt),
+    resolvedBy: normalizeOptionalString(record.resolvedBy),
+  };
+}
+
+function normalizeStoredWorkerAttributes(attributes: WorkerEntityAttributes): WorkerEntityAttributes {
+  return {
+    state: normalizeWorkerState(attributes.state),
+    messages: attributes.messages.map((message) =>
+      normalizeWorkerMessageRecord(message as unknown as WorkerMessageRecord),
+    ),
+  };
+}
+
+function readStoredWorkerSnapshot(rawAttributes: unknown): WorkerEntityAttributes | null {
+  if (!hasStructuredWorkerAttributes(rawAttributes)) {
+    return null;
+  }
+  return normalizeStoredWorkerAttributes(rawAttributes);
+}
+
 interface StoredWorkerEntityRow {
   id: string;
   space_id: string;
@@ -256,16 +292,17 @@ function buildWorkerReadResult(
   cwd: string,
   ownerEntityId: string,
   attributes: WorkerEntityAttributes,
-  launchOverride?: WorkerRuntimeDescriptor | null,
 ): WorkerReadResult {
   const artifacts = getWorkerArtifactPaths(cwd, attributes.state.workerId);
+  const projectedCheckpoints = readProjectedCheckpointsSync(cwd, ownerEntityId);
+  const launch = readLaunchAttachmentSync(cwd, attributes.state.workerId);
   const materialized: WorkerReadResult = {
     state: normalizeWorkerState(attributes.state),
     summary: buildSummary(cwd, normalizeWorkerState(attributes.state), artifacts.dir),
     worker: "",
     messages: [...attributes.messages],
-    checkpoints: readProjectedCheckpointsSync(cwd, ownerEntityId),
-    launch: launchOverride === undefined ? readLaunchAttachmentSync(cwd, attributes.state.workerId) : launchOverride,
+    checkpoints: projectedCheckpoints,
+    launch,
     dashboard: {} as WorkerDashboard,
     packet: "",
     artifacts,
@@ -299,11 +336,11 @@ function listStoredWorkerRecords(cwd: string): WorkerReadResult[] {
     )
     .all(identity.space.id, ENTITY_KIND) as StoredWorkerEntityRow[];
   return rows.map((row) => {
-    const attributes = parseStoredJson<WorkerEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
-    if (!hasStructuredWorkerAttributes(attributes)) {
+    const snapshot = readStoredWorkerSnapshot(parseStoredJson<Record<string, unknown>>(row.attributes_json, {}));
+    if (!snapshot) {
       throw new Error("Worker entity is missing structured attributes");
     }
-    return buildWorkerReadResult(cwd, row.id, attributes);
+    return buildWorkerReadResult(cwd, row.id, snapshot);
   });
 }
 
@@ -1002,11 +1039,11 @@ export class WorkerStore {
     if (!row) {
       throw new Error(`Unknown worker: ${workerId}`);
     }
-    const attributes = parseStoredJson<WorkerEntityAttributes | Record<string, unknown>>(row.attributes_json, {});
-    if (!hasStructuredWorkerAttributes(attributes)) {
+    const snapshot = readStoredWorkerSnapshot(parseStoredJson<Record<string, unknown>>(row.attributes_json, {}));
+    if (!snapshot) {
       throw new Error(`Worker entity ${workerId} is missing structured attributes`);
     }
-    return buildWorkerReadResult(this.cwd, row.id, attributes);
+    return buildWorkerReadResult(this.cwd, row.id, snapshot);
   }
 
   managerOverview(): ManagerOverview {

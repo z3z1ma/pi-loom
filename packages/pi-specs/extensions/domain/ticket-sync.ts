@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
-import type { CreateTicketInput, UpdateTicketInput } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
-import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import type { CreateTicketInput, UpdateTicketInput } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
+import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import type {
   SpecChangeRecord,
-  SpecRequirementRecord,
-  SpecTaskRecord,
   SpecLinkedTicketEntry,
   SpecLinkedTicketsState,
+  SpecRequirementRecord,
+  SpecTaskRecord,
 } from "./models.js";
 import { normalizeStringList } from "./normalize.js";
 import { createSpecStore } from "./store.js";
@@ -254,7 +254,9 @@ export async function ensureSpecTickets(cwd: string, ref: string): Promise<SpecC
   const specStore = createSpecStore(cwd);
   const change = await specStore.readChange(ref);
   if (change.summary.archived || change.state.status !== "finalized") {
-    throw new Error(`Spec change ${change.state.changeId} must be active and finalized before ensuring linked tickets.`);
+    throw new Error(
+      `Spec change ${change.state.changeId} must be active and finalized before ensuring linked tickets.`,
+    );
   }
 
   const orderedTasks = topoSort(change.state.tasks);

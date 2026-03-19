@@ -17,10 +17,7 @@ export function getDocumentationDocumentRef(state: DocumentationState): string {
   return `${getDocumentationRef(state)}:document`;
 }
 
-export function summarizeDocumentation(
-  state: DocumentationState,
-  revisionCount: number,
-): DocumentationSummary {
+export function summarizeDocumentation(state: DocumentationState, revisionCount: number): DocumentationSummary {
   return {
     id: state.docId,
     title: state.title,

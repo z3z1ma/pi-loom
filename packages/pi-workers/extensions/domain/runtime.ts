@@ -5,12 +5,12 @@ import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
 import {
   buildSessionContext,
-  createCodingTools,
   createAgentSession,
+  createCodingTools,
   DefaultResourceLoader,
-  SessionManager,
   type ExtensionContext,
   type ModelRegistry,
+  SessionManager,
 } from "@mariozechner/pi-coding-agent";
 import type {
   PrepareWorkerLaunchInput,
@@ -61,7 +61,7 @@ export interface WorkerSdkSessionConfig {
   cliExtensionPaths?: string[] | undefined;
   agentDir?: string | undefined;
   modelRegistry?: ModelRegistry | undefined;
-  model?: Model<any> | undefined;
+  model?: Model<unknown> | undefined;
   thinkingLevel?: ThinkingLevel | undefined;
 }
 
@@ -524,7 +524,8 @@ async function runSdkWorkerLaunch(
       }
 
       if (messageEvent.message.stopReason === "error") {
-        terminalError = messageEvent.message.errorMessage?.trim() || "SDK worker session ended with an empty assistant error";
+        terminalError =
+          messageEvent.message.errorMessage?.trim() || "SDK worker session ended with an empty assistant error";
       }
     }
   });

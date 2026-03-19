@@ -22,7 +22,7 @@ import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { buildDocumentationDashboard, summarizeDocumentation } from "./dashboard.js";
+import { buildDocumentationDashboard, getDocumentationDocumentRef, summarizeDocumentation } from "./dashboard.js";
 import { parseMarkdownArtifact, renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
   CreateDocumentationInput,
@@ -43,8 +43,12 @@ import {
   nextSequenceId,
   normalizeAudience,
   normalizeContextRefs,
+  normalizeDocId,
   normalizeDocRef,
+  normalizeDocStatus,
   normalizeDocType,
+  normalizeOptionalString,
+  normalizeSectionGroup,
   normalizeSourceTargetKind,
   normalizeStringList,
   sectionGroupForDocType,
@@ -295,11 +299,151 @@ export class DocumentationStore {
     return this.buildCanonicalRecord(snapshot);
   }
 
-  private readSnapshot(attributes: unknown): DocumentationCanonicalSnapshot | null {
-    if (!hasStructuredDocumentationAttributes(attributes)) {
-      return null;
+  private normalizeStoredState(state: DocumentationState): DocumentationState {
+    if (!state || typeof state !== "object") {
+      throw new Error("Documentation state is missing");
     }
-    return attributes.snapshot;
+    const status = typeof state.status === "string" ? state.status.trim() : "";
+    if (!status) {
+      throw new Error("Documentation state is missing status");
+    }
+    const docTypeValue = typeof state.docType === "string" ? state.docType.trim() : "";
+    if (!docTypeValue) {
+      throw new Error("Documentation state is missing docType");
+    }
+    const title = typeof state?.title === "string" ? state.title.trim() : "";
+    if (!title) {
+      throw new Error("Documentation state is missing title");
+    }
+    const docId = typeof state.docId === "string" ? state.docId.trim() : "";
+    if (!docId) {
+      throw new Error("Documentation state is missing docId");
+    }
+    const createdAt = typeof state.createdAt === "string" ? state.createdAt.trim() : "";
+    if (!createdAt) {
+      throw new Error("Documentation state is missing createdAt");
+    }
+    const updatedAt = typeof state.updatedAt === "string" ? state.updatedAt.trim() : "";
+    if (!updatedAt) {
+      throw new Error("Documentation state is missing updatedAt");
+    }
+    const sourceRef = typeof state.sourceTarget?.ref === "string" ? state.sourceTarget.ref.trim() : "";
+    if (!sourceRef) {
+      throw new Error("Documentation state is missing sourceTarget.ref");
+    }
+    const sourceKind = typeof state.sourceTarget?.kind === "string" ? state.sourceTarget.kind.trim() : "";
+    if (!sourceKind) {
+      throw new Error("Documentation state is missing sourceTarget.kind");
+    }
+    if (!Array.isArray(state.audience)) {
+      throw new Error("Documentation state is missing audience");
+    }
+    if (
+      !(typeof state.lastRevisionId === "string" || state.lastRevisionId === null || state.lastRevisionId === undefined)
+    ) {
+      throw new Error("Documentation state has invalid lastRevisionId");
+    }
+
+    const docType = normalizeDocType(docTypeValue);
+    return {
+      docId: normalizeDocId(docId),
+      title,
+      status: normalizeDocStatus(status),
+      docType,
+      sectionGroup: state.sectionGroup ? normalizeSectionGroup(state.sectionGroup) : sectionGroupForDocType(docType),
+      createdAt,
+      updatedAt,
+      summary: typeof state.summary === "string" ? state.summary.trim() : "",
+      audience: normalizeAudience(state.audience),
+      scopePaths: normalizeStringList(state.scopePaths),
+      contextRefs: normalizeContextRefs(state.contextRefs),
+      sourceTarget: {
+        kind: normalizeSourceTargetKind(sourceKind),
+        ref: sourceRef,
+      },
+      updateReason: typeof state.updateReason === "string" ? state.updateReason.trim() : "",
+      guideTopics: normalizeStringList(state.guideTopics),
+      linkedOutputPaths: normalizeStringList(state.linkedOutputPaths),
+      lastRevisionId: normalizeOptionalString(state.lastRevisionId),
+    };
+  }
+
+  private normalizeStoredRevision(revision: DocumentationRevisionRecord, docId: string): DocumentationRevisionRecord {
+    if (!revision || typeof revision !== "object") {
+      throw new Error(`Documentation ${docId} has invalid revision entry`);
+    }
+    const id = typeof revision?.id === "string" ? revision.id.trim() : "";
+    if (!id) {
+      throw new Error("Documentation revision is missing id");
+    }
+    const createdAt = typeof revision.createdAt === "string" ? revision.createdAt.trim() : "";
+    if (!createdAt) {
+      throw new Error(`Documentation revision ${id} is missing createdAt`);
+    }
+    const packetHash = typeof revision.packetHash === "string" ? revision.packetHash.trim() : "";
+    if (!packetHash) {
+      throw new Error(`Documentation revision ${id} is missing packetHash`);
+    }
+    const revisionDocIdValue = typeof revision.docId === "string" ? revision.docId.trim() : "";
+    if (!revisionDocIdValue) {
+      throw new Error(`Documentation revision ${id} is missing docId`);
+    }
+    const revisionDocId = normalizeDocId(revisionDocIdValue);
+    if (revisionDocId !== docId) {
+      throw new Error(`Documentation revision ${id} belongs to ${revisionDocId}, expected ${docId}`);
+    }
+    const sourceRef = typeof revision.sourceTarget?.ref === "string" ? revision.sourceTarget.ref.trim() : "";
+    if (!sourceRef) {
+      throw new Error(`Documentation revision ${id} is missing sourceTarget.ref`);
+    }
+    const sourceKind = typeof revision.sourceTarget?.kind === "string" ? revision.sourceTarget.kind.trim() : "";
+    if (!sourceKind) {
+      throw new Error(`Documentation revision ${id} is missing sourceTarget.kind`);
+    }
+
+    return {
+      id,
+      docId: revisionDocId,
+      createdAt,
+      reason: typeof revision.reason === "string" ? revision.reason.trim() : "",
+      summary: typeof revision.summary === "string" ? revision.summary.trim() : "",
+      sourceTarget: {
+        kind: normalizeSourceTargetKind(sourceKind),
+        ref: sourceRef,
+      },
+      packetHash,
+      changedSections: normalizeStringList(revision.changedSections),
+      linkedContextRefs: normalizeContextRefs(revision.linkedContextRefs),
+    };
+  }
+
+  private materializeSnapshot(snapshot: DocumentationCanonicalSnapshot): DocumentationCanonicalSnapshot {
+    if (typeof snapshot?.documentBody !== "string") {
+      throw new Error("Documentation snapshot is missing documentBody");
+    }
+    if (!Array.isArray(snapshot.revisions)) {
+      throw new Error("Documentation snapshot has invalid revisions");
+    }
+
+    const state = this.normalizeStoredState(snapshot.state);
+    const revisions = snapshot.revisions.map((revision) => this.normalizeStoredRevision(revision, state.docId));
+    const lastRevisionId = revisions.at(-1)?.id ?? null;
+    if (state.lastRevisionId !== lastRevisionId) {
+      throw new Error(`Documentation ${state.docId} has inconsistent lastRevisionId`);
+    }
+
+    return {
+      state,
+      revisions,
+      documentBody: this.extractDocumentBody(snapshot.documentBody, getDocumentationDocumentRef(state)),
+    };
+  }
+
+  private readSnapshot(attributes: unknown): DocumentationCanonicalSnapshot | null {
+    if (hasStructuredDocumentationAttributes(attributes)) {
+      return this.materializeSnapshot(attributes.snapshot);
+    }
+    return null;
   }
 
   private async nextDocId(baseTitle: string): Promise<string> {

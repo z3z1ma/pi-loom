@@ -1,4 +1,3 @@
-import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildConstitutionalSystemPrompt, getBaseConstitutionalGuidance } from "../extensions/prompts/guidance.js";
 

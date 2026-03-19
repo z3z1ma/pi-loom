@@ -146,7 +146,9 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
     }
     case "update": {
       const parsed = parseUpdateArgs(rest.join(" "));
-      return renderRalphDetail(await store.updateRunAsync(parsed.ref, { summary: parsed.summary, objective: parsed.objective }));
+      return renderRalphDetail(
+        await store.updateRunAsync(parsed.ref, { summary: parsed.summary, objective: parsed.objective }),
+      );
     }
     case "iteration": {
       const parsed = parseIterationArgs(rest.join(" "));
@@ -206,7 +208,12 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
         ctx.ui.setEditorText(renderLaunchPrompt(ctx.cwd, result.launch));
         ctx.ui.notify("Fresh Ralph session ready. Submit when ready.", "info");
       } else {
-        await store.cancelLaunchAsync(ref, previous.state, result.launch.iterationId, "Interactive Ralph launch was cancelled.");
+        await store.cancelLaunchAsync(
+          ref,
+          previous.state,
+          result.launch.iterationId,
+          "Interactive Ralph launch was cancelled.",
+        );
         return `Cancelled Ralph launch for ${ref}.`;
       }
       return renderLaunchDescriptor(ctx.cwd, result.launch);
@@ -221,7 +228,12 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
         ctx.ui.setEditorText(renderLaunchPrompt(ctx.cwd, result.launch));
         ctx.ui.notify("Fresh Ralph resume session ready. Submit when ready.", "info");
       } else {
-        await store.cancelLaunchAsync(ref, previous.state, result.launch.iterationId, "Interactive Ralph resume was cancelled.");
+        await store.cancelLaunchAsync(
+          ref,
+          previous.state,
+          result.launch.iterationId,
+          "Interactive Ralph resume was cancelled.",
+        );
         return `Cancelled Ralph resume for ${ref}.`;
       }
       return renderLaunchDescriptor(ctx.cwd, result.launch);

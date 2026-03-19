@@ -31,7 +31,12 @@ describe("/constitution command handler", () => {
       const initialized = await handleConstitutionCommand("init", ctx);
       expect(initialized).toContain("catalog.sqlite");
       const { storage, identity } = await openWorkspaceStorage(cwd);
-      const constitutionEntity = await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution");
+      const constitutionEntity = await findEntityByDisplayId(
+        storage,
+        identity.space.id,
+        "constitution",
+        "constitution",
+      );
       expect(constitutionEntity).toBeTruthy();
 
       const vision = await handleConstitutionCommand(
@@ -86,4 +91,3 @@ describe("/constitution command handler", () => {
     }
   }, 15000);
 });
-

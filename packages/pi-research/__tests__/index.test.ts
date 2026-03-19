@@ -9,8 +9,8 @@ import type {
   RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
-import { createResearchStore } from "../extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
+import { createResearchStore } from "../extensions/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
