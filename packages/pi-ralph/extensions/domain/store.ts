@@ -6,18 +6,16 @@ import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain
 import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
-import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
+import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
-import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
-import {
-  findEntityByDisplayId,
-  upsertEntityByDisplayId,
-} from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
+import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildRalphDashboard, summarizeRalphRun } from "./dashboard.js";
-import { parseMarkdownArtifact, renderBulletList, renderSection } from "./frontmatter.js";
+import { renderBulletList, renderSection } from "./frontmatter.js";
 import type {
   AppendRalphIterationInput,
   CreateRalphRunInput,
@@ -68,7 +66,6 @@ import {
 } from "./normalize.js";
 import {
   getRalphArtifactPaths,
-  getRalphPaths,
   getRalphRunDir,
   normalizeRalphRunId,
   normalizeRalphRunRef,
@@ -77,6 +74,7 @@ import {
 import { renderRalphMarkdown } from "./render.js";
 
 const ENTITY_KIND = "ralph_run" as const;
+const RALPH_LINK_PROJECTION_OWNER = "ralph-store";
 
 interface RalphEntityAttributes {
   record: RalphReadResult;
@@ -148,22 +146,22 @@ function readStructuredEntityAttributesSync<T>(cwd: string, kind: string, displa
   return row ? parseStoredJson<T>(row.attributes_json, {} as T) : null;
 }
 
-function parseJsonlText<T>(content: string): T[] {
+function _parseJsonlText<T>(content: string): T[] {
   return content
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => JSON.parse(line) as T);
 }
 
-function frontmatterString(
+function _frontmatterString(
   frontmatter: Readonly<Record<string, string | null | string[]>> | undefined,
   key: string,
-): string | null {
+): string {
   const value = frontmatter?.[key];
-  return typeof value === "string" ? value : null;
+  return typeof value === "string" ? value : "";
 }
 
-function frontmatterStringList(
+function _frontmatterStringList(
   frontmatter: Readonly<Record<string, string | null | string[]>> | undefined,
   key: string,
 ): string[] {
@@ -251,6 +249,60 @@ function mergeLinkedRefs(current: RalphLinkedRefs, next: Partial<RalphLinkedRefs
     docIds: [...current.docIds, ...(next.docIds ?? [])],
     planIds: [...current.planIds, ...(next.planIds ?? [])],
   });
+}
+
+function buildProjectedRalphLinks(state: RalphRunState): ProjectedEntityLinkInput[] {
+  return [
+    ...state.linkedRefs.initiativeIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "initiative",
+        targetDisplayId,
+      }),
+    ),
+    ...state.linkedRefs.researchIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "research",
+        targetDisplayId,
+      }),
+    ),
+    ...state.linkedRefs.specChangeIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "spec_change",
+        targetDisplayId,
+      }),
+    ),
+    ...state.linkedRefs.ticketIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "ticket",
+        targetDisplayId,
+      }),
+    ),
+    ...state.linkedRefs.docIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "documentation",
+        targetDisplayId,
+      }),
+    ),
+    ...state.linkedRefs.planIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "plan",
+        targetDisplayId,
+      }),
+    ),
+    ...state.linkedRefs.critiqueIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "critiques",
+        targetKind: "critique",
+        targetDisplayId,
+      }),
+    ),
+  ];
 }
 
 function normalizePolicySnapshot(input: Partial<RalphPolicySnapshot> | undefined): RalphPolicySnapshot {
@@ -546,47 +598,61 @@ export class RalphStore {
   private resolvePacketContext(state: RalphRunState): ResolvedPacketContext {
     return {
       roadmap: this.buildContextSummary(state.linkedRefs.roadmapItemIds, (ref) => {
-        const constitution = readStructuredEntityAttributesSync<{ state: { roadmapItems: Array<{ id: string; status: string; title: string }> } }>(
-          this.cwd,
-          "constitution",
-          resolveWorkspaceIdentity(this.cwd).repository.slug,
-        );
+        const constitution = readStructuredEntityAttributesSync<{
+          state: { roadmapItems: Array<{ id: string; status: string; title: string }> };
+        }>(this.cwd, "constitution", resolveWorkspaceIdentity(this.cwd).repository.slug);
         const item = constitution?.state.roadmapItems.find((entry) => entry.id === ref);
         if (!item) throw new Error(`Unknown roadmap item: ${ref}`);
         return `${item.id} [${item.status}] ${item.title}`;
       }),
       initiatives: this.buildContextSummary(state.linkedRefs.initiativeIds, (ref) => {
-        const initiative = readStructuredEntityAttributesSync<{ state: { initiativeId: string; status: string; title: string } }>(this.cwd, "initiative", ref);
+        const initiative = readStructuredEntityAttributesSync<{
+          state: { initiativeId: string; status: string; title: string };
+        }>(this.cwd, "initiative", ref);
         if (!initiative) throw new Error(`Unknown initiative: ${ref}`);
         return `${initiative.state.initiativeId} [${initiative.state.status}] ${initiative.state.title}`;
       }),
       research: this.buildContextSummary(state.linkedRefs.researchIds, (ref) => {
-        const research = readStructuredEntityAttributesSync<{ state: { researchId: string; status: string; title: string } }>(this.cwd, "research", ref);
+        const research = readStructuredEntityAttributesSync<{
+          state: { researchId: string; status: string; title: string };
+        }>(this.cwd, "research", ref);
         if (!research) throw new Error(`Unknown research: ${ref}`);
         return `${research.state.researchId} [${research.state.status}] ${research.state.title}`;
       }),
       specs: this.buildContextSummary(state.linkedRefs.specChangeIds, (ref) => {
-        const spec = readStructuredEntityAttributesSync<{ record: { summary: { id: string; status: string }; state: { title: string } } }>(this.cwd, "spec_change", ref);
+        const spec = readStructuredEntityAttributesSync<{
+          record: { summary: { id: string; status: string }; state: { title: string } };
+        }>(this.cwd, "spec_change", ref);
         if (!spec) throw new Error(`Unknown spec: ${ref}`);
         return `${spec.record.summary.id} [${spec.record.summary.status}] ${spec.record.state.title}`;
       }),
       plans: this.buildContextSummary(state.linkedRefs.planIds, (ref) => {
-        const plan = readStructuredEntityAttributesSync<{ state: { planId: string; status: string; title: string } }>(this.cwd, "plan", ref);
+        const plan = readStructuredEntityAttributesSync<{ state: { planId: string; status: string; title: string } }>(
+          this.cwd,
+          "plan",
+          ref,
+        );
         if (!plan) throw new Error(`Unknown plan: ${ref}`);
         return `${plan.state.planId} [${plan.state.status}] ${plan.state.title}`;
       }),
       tickets: this.buildContextSummary(state.linkedRefs.ticketIds, (ref) => {
-        const ticket = readStructuredEntityAttributesSync<{ record: { summary: { id: string; status: string; title: string } } }>(this.cwd, "ticket", ref);
+        const ticket = readStructuredEntityAttributesSync<{
+          record: { summary: { id: string; status: string; title: string } };
+        }>(this.cwd, "ticket", ref);
         if (!ticket) throw new Error(`Unknown ticket: ${ref}`);
         return `${ticket.record.summary.id} [${ticket.record.summary.status}] ${ticket.record.summary.title}`;
       }),
       critiques: this.buildContextSummary(state.linkedRefs.critiqueIds, (ref) => {
-        const critique = readStructuredEntityAttributesSync<{ record: { summary: { id: string; status: string; verdict: string }; state: { title: string } } }>(this.cwd, "critique", ref);
+        const critique = readStructuredEntityAttributesSync<{
+          record: { summary: { id: string; status: string; verdict: string }; state: { title: string } };
+        }>(this.cwd, "critique", ref);
         if (!critique) throw new Error(`Unknown critique: ${ref}`);
         return `${critique.record.summary.id} [${critique.record.summary.status}/${critique.record.summary.verdict}] ${critique.record.state.title}`;
       }),
       docs: this.buildContextSummary(state.linkedRefs.docIds, (ref) => {
-        const doc = readStructuredEntityAttributesSync<{ record: { summary: { id: string; status: string; docType: string }; state: { title: string } } }>(this.cwd, "documentation", ref);
+        const doc = readStructuredEntityAttributesSync<{
+          record: { summary: { id: string; status: string; docType: string }; state: { title: string } };
+        }>(this.cwd, "documentation", ref);
         if (!doc) throw new Error(`Unknown document: ${ref}`);
         return `${doc.record.summary.id} [${doc.record.summary.status}/${doc.record.summary.docType}] ${doc.record.state.title}`;
       }),
@@ -778,9 +844,7 @@ export class RalphStore {
     if (!hasStructuredRalphAttributes(attributes)) {
       throw new Error(`Ralph run entity ${runId} is missing structured attributes`);
     }
-    return attributes.record.iterations.map((entry) =>
-      normalizeIteration(entry),
-    );
+    return attributes.record.iterations.map((entry) => normalizeIteration(entry));
   }
 
   private readIterations(runId: string): RalphIterationRecord[] {
@@ -870,7 +934,9 @@ export class RalphStore {
     const { storage, identity } = openRalphCatalogSync(this.cwd);
     const existing = findStoredRalphRow(this.cwd, record.summary.id);
     void storage.upsertEntity({
-      id: existing?.id ?? createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+      id:
+        existing?.id ??
+        createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -884,6 +950,17 @@ export class RalphStore {
       createdAt: existing?.created_at ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
     });
+    void syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId:
+        existing?.id ??
+        createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+      projectionOwner: RALPH_LINK_PROJECTION_OWNER,
+      // Roadmap refs point at embedded constitution items, so phase 1 projects only canonical entity relationships.
+      desired: buildProjectedRalphLinks(record.state),
+      timestamp: record.state.updatedAt,
+    }).catch(() => undefined);
     return record;
   }
 
@@ -1450,7 +1527,7 @@ export class RalphStore {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, materialized.summary.id);
     const version = (existing?.version ?? 0) + 1;
-    await upsertEntityByDisplayId(storage, {
+    const entity = await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -1463,6 +1540,15 @@ export class RalphStore {
       attributes: { record: materialized },
       createdAt: existing?.createdAt ?? materialized.state.createdAt,
       updatedAt: materialized.state.updatedAt,
+    });
+    await syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId: entity.id,
+      projectionOwner: RALPH_LINK_PROJECTION_OWNER,
+      // Roadmap refs point at embedded constitution items, so phase 1 projects only canonical entity relationships.
+      desired: buildProjectedRalphLinks(materialized.state),
+      timestamp: materialized.state.updatedAt,
     });
     return materialized;
   }

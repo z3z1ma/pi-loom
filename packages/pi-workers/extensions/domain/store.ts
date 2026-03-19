@@ -1,6 +1,9 @@
 import { resolve } from "node:path";
+import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
+import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
-import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
@@ -55,7 +58,7 @@ import {
   normalizeWorkspaceDescriptor,
   summarizeText,
 } from "./normalize.js";
-import { getWorkerArtifactPaths, getWorkerPaths, normalizeWorkerRef, slugifyWorkerValue } from "./paths.js";
+import { getWorkerArtifactPaths, normalizeWorkerRef, slugifyWorkerValue } from "./paths.js";
 import {
   renderLaunchDescriptor,
   renderWorkerDashboard,
@@ -72,6 +75,7 @@ import {
 } from "./runtime.js";
 
 const ENTITY_KIND = "worker" as const;
+const WORKER_PROJECTION_OWNER = "worker-store" as const;
 
 interface WorkerEntityAttributes {
   worker: WorkerReadResult;
@@ -83,10 +87,35 @@ function hasStructuredWorkerAttributes(attributes: unknown): attributes is Worke
 
 interface StoredWorkerEntityRow {
   id: string;
+  space_id: string;
+  owning_repository_id: string | null;
   display_id: string | null;
+  title: string;
+  summary: string;
+  status: string;
   version: number;
+  tags_json: string;
   created_at: string;
+  updated_at: string;
   attributes_json: string;
+}
+
+function storedWorkerRowToEntity(row: StoredWorkerEntityRow): LoomEntityRecord {
+  return {
+    id: row.id,
+    kind: ENTITY_KIND,
+    spaceId: row.space_id,
+    owningRepositoryId: row.owning_repository_id,
+    displayId: row.display_id,
+    title: row.title,
+    summary: row.summary,
+    status: row.status,
+    version: row.version,
+    tags: parseStoredJson<string[]>(row.tags_json, []),
+    attributes: parseStoredJson<Record<string, unknown>>(row.attributes_json, {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 function openWorkerCatalogSync(cwd: string) {
@@ -104,7 +133,7 @@ function findStoredWorkerRow(cwd: string, workerId: string): StoredWorkerEntityR
   const { storage, identity } = openWorkerCatalogSync(cwd);
   return (storage.db
     .prepare(
-      "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1",
+      "SELECT id, space_id, owning_repository_id, display_id, title, summary, status, version, tags_json, created_at, updated_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1",
     )
     .get(identity.space.id, ENTITY_KIND, workerId) ?? null) as StoredWorkerEntityRow | null;
 }
@@ -218,6 +247,65 @@ function mergeLinkedRefs(current: WorkerLinkedRefs, next: Partial<WorkerLinkedRe
     planIds: next.planIds ?? current.planIds,
     ralphRunIds: next.ralphRunIds ?? current.ralphRunIds,
   });
+}
+
+function projectedLinksForWorker(worker: WorkerReadResult): ProjectedEntityLinkInput[] {
+  const desired: ProjectedEntityLinkInput[] = [];
+  const linkedRefs = worker.state.linkedRefs;
+
+  for (const ticketId of linkedRefs.ticketIds) {
+    desired.push({ kind: "implements", targetKind: "ticket", targetDisplayId: ticketId });
+  }
+
+  for (const planId of linkedRefs.planIds) {
+    desired.push({ kind: "belongs_to", targetKind: "plan", targetDisplayId: planId });
+  }
+
+  // Plans organize worker execution; other linked refs stay contextual references.
+  for (const initiativeId of linkedRefs.initiativeIds) {
+    desired.push({ kind: "references", targetKind: "initiative", targetDisplayId: initiativeId });
+  }
+  for (const researchId of linkedRefs.researchIds) {
+    desired.push({ kind: "references", targetKind: "research", targetDisplayId: researchId });
+  }
+  for (const specChangeId of linkedRefs.specChangeIds) {
+    desired.push({ kind: "references", targetKind: "spec_change", targetDisplayId: specChangeId });
+  }
+  for (const critiqueId of linkedRefs.critiqueIds) {
+    desired.push({ kind: "references", targetKind: "critique", targetDisplayId: critiqueId });
+  }
+  for (const docId of linkedRefs.docIds) {
+    desired.push({ kind: "references", targetKind: "documentation", targetDisplayId: docId });
+  }
+  for (const ralphRunId of linkedRefs.ralphRunIds) {
+    desired.push({ kind: "references", targetKind: "ralph_run", targetDisplayId: ralphRunId });
+  }
+
+  return desired;
+}
+
+function validateProjectedLinksSync(
+  storage: ReturnType<typeof openWorkerCatalogSync>["storage"],
+  spaceId: string,
+  desired: ProjectedEntityLinkInput[],
+  projectionOwner: string,
+): void {
+  const missing = normalizeStringList(
+    desired.flatMap((link) => {
+      const displayId = link.targetDisplayId.trim();
+      if (!displayId || link.required === false) {
+        return [];
+      }
+      const row = storage.db
+        .prepare("SELECT id FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1")
+        .get(spaceId, link.targetKind, displayId) as { id: string } | undefined;
+      return row ? [] : [`${link.targetKind}:${displayId}`];
+    }),
+  );
+
+  if (missing.length > 0) {
+    throw new Error(`Missing projected link targets for ${projectionOwner}: ${missing.join(", ")}`);
+  }
 }
 
 function defaultTelemetry(): WorkerTelemetry {
@@ -411,21 +499,23 @@ function normalizeWorkerState(state: WorkerState): WorkerState {
     launchCount: state.launchCount ?? 0,
     lastRuntimeKind: state.lastRuntimeKind ?? null,
     interventionCount: state.interventionCount ?? 0,
-    completionRequest:
-      state.completionRequest ?? {
-        requestedAt: null,
-        scopeComplete: [],
-        validationEvidence: [],
-        remainingRisks: [],
-        branchState: "",
-        summary: "",
-        requestedBy: "",
-      },
+    completionRequest: state.completionRequest ?? {
+      requestedAt: null,
+      scopeComplete: [],
+      validationEvidence: [],
+      remainingRisks: [],
+      branchState: "",
+      summary: "",
+      requestedBy: "",
+    },
     approval: state.approval ?? defaultApproval(),
     consolidation: state.consolidation ?? defaultConsolidation(),
     packetSummary: state.packetSummary ?? "",
   };
-  normalized.workspace.repositoryRoot = ensureRelativeOrLogicalRef(normalized.workspace.repositoryRoot, "repository root");
+  normalized.workspace.repositoryRoot = ensureRelativeOrLogicalRef(
+    normalized.workspace.repositoryRoot,
+    "repository root",
+  );
   normalized.workspace.workspaceKey = ensureRelativeOrLogicalRef(normalized.workspace.workspaceKey, "workspace key");
   return normalized;
 }
@@ -520,6 +610,12 @@ ${state.consolidation.status}${state.consolidation.summary ? ` — ${state.conso
 
 export class WorkerStore {
   readonly cwd: string;
+  private persistQueue: Promise<void> = Promise.resolve();
+  private readonly pendingPersists = new Map<string, Promise<void>>();
+  private readonly pendingTicketRefSyncs = new Map<string, Promise<void>>();
+  private readonly persistBySnapshot = new WeakMap<WorkerReadResult, Promise<void>>();
+  private readonly ticketSyncBySnapshot = new WeakMap<WorkerReadResult, Promise<void>>();
+  private readonly pendingSnapshots = new Map<string, WorkerReadResult>();
 
   constructor(cwd: string) {
     this.cwd = resolve(cwd);
@@ -550,62 +646,145 @@ export class WorkerStore {
     return normalizeWorkerRef(ref);
   }
 
-  private persist(worker: WorkerReadResult): void {
+  private persist(worker: WorkerReadResult): Promise<void> {
     const materialized = materializeWorkerRecord(this.cwd, worker);
     const { storage, identity } = openWorkerCatalogSync(this.cwd);
     const existing = findStoredWorkerRow(this.cwd, materialized.summary.id);
-    void storage.upsertEntity({
-      id: existing?.id ?? createEntityId(ENTITY_KIND, identity.space.id, materialized.summary.id, `${ENTITY_KIND}:${materialized.summary.id}`),
-      kind: ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: materialized.summary.id,
-      title: materialized.summary.title,
-      summary: materialized.state.summary || materialized.state.objective,
-      status: materialized.summary.status,
-      version: (existing?.version ?? 0) + 1,
-      tags: [materialized.summary.telemetryState, ...(materialized.state.linkedRefs.ticketIds ?? [])],
-      attributes: { worker: materialized },
-      createdAt: existing?.created_at ?? materialized.state.createdAt,
-      updatedAt: materialized.state.updatedAt,
+    const entityId =
+      existing?.id ??
+      createEntityId(
+        ENTITY_KIND,
+        identity.space.id,
+        materialized.summary.id,
+        `${ENTITY_KIND}:${materialized.summary.id}`,
+      );
+    validateProjectedLinksSync(
+      storage,
+      identity.space.id,
+      projectedLinksForWorker(materialized),
+      WORKER_PROJECTION_OWNER,
+    );
+    const previousEntity = existing ? storedWorkerRowToEntity(existing) : null;
+    const previousPersist = this.pendingPersists.get(materialized.state.workerId);
+    const queueHead = Promise.all([
+      this.persistQueue.catch(() => undefined),
+      previousPersist?.catch(() => undefined),
+    ]).then(() => undefined);
+    const persistPromise = queueHead.then(async () => {
+      await storage.upsertEntity({
+        id: entityId,
+        kind: ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: materialized.summary.id,
+        title: materialized.summary.title,
+        summary: materialized.state.summary || materialized.state.objective,
+        status: materialized.summary.status,
+        version: (existing?.version ?? 0) + 1,
+        tags: [materialized.summary.telemetryState, ...(materialized.state.linkedRefs.ticketIds ?? [])],
+        attributes: { worker: materialized },
+        createdAt: existing?.created_at ?? materialized.state.createdAt,
+        updatedAt: materialized.state.updatedAt,
+      });
+      try {
+        await syncProjectedEntityLinks({
+          storage,
+          spaceId: identity.space.id,
+          fromEntityId: entityId,
+          projectionOwner: WORKER_PROJECTION_OWNER,
+          desired: projectedLinksForWorker(materialized),
+          timestamp: materialized.state.updatedAt,
+        });
+      } catch (error) {
+        if (previousEntity) {
+          await storage.upsertEntity(previousEntity);
+        } else {
+          storage.db.prepare("DELETE FROM entities WHERE id = ?").run(entityId);
+        }
+        throw error;
+      }
     });
-  }
-
-  private async upsertCanonicalWorker(worker: WorkerReadResult): Promise<WorkerReadResult> {
-    const materialized = materializeWorkerRecord(this.cwd, worker);
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, materialized.summary.id);
-    const version = (existing?.version ?? 0) + 1;
-    await upsertEntityByDisplayId(storage, {
-      kind: ENTITY_KIND,
-      spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: materialized.summary.id,
-      title: materialized.summary.title,
-      summary: materialized.state.summary || materialized.state.objective,
-      status: materialized.summary.status,
-      version,
-      tags: [materialized.summary.telemetryState, ...(materialized.state.linkedRefs.ticketIds ?? [])],
-      attributes: { worker: materialized },
-      createdAt: existing?.createdAt ?? materialized.state.createdAt,
-      updatedAt: materialized.state.updatedAt,
-    });
-    return materialized;
+    this.persistQueue = persistPromise;
+    this.pendingPersists.set(materialized.state.workerId, persistPromise);
+    this.pendingSnapshots.set(materialized.state.workerId, materialized);
+    void persistPromise
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .finally(() => {
+        if (this.pendingPersists.get(materialized.state.workerId) === persistPromise) {
+          this.pendingPersists.delete(materialized.state.workerId);
+        }
+        if (this.pendingSnapshots.get(materialized.state.workerId) === materialized) {
+          this.pendingSnapshots.delete(materialized.state.workerId);
+        }
+      });
+    return persistPromise;
   }
 
   private entityWorker(entity: { attributes: unknown }): WorkerReadResult {
     return materializeWorkerRecord(this.cwd, (entity.attributes as WorkerEntityAttributes).worker);
   }
 
-  private linkWorkerIntoTickets(worker: WorkerState): void {
+  private trackDurability(
+    worker: WorkerReadResult,
+    persistPromise: Promise<void>,
+    ticketSyncPromise: Promise<void> = Promise.resolve(),
+  ): void {
+    this.persistBySnapshot.set(worker, persistPromise);
+    this.ticketSyncBySnapshot.set(worker, ticketSyncPromise);
+  }
+
+  private queueTicketRefSync(workerId: string, run: () => Promise<void>): Promise<void> {
+    const previous = this.pendingTicketRefSyncs.get(workerId);
+    const next = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(run);
+    this.pendingTicketRefSyncs.set(workerId, next);
+    void next
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.pendingTicketRefSyncs.get(workerId) === next) {
+          this.pendingTicketRefSyncs.delete(workerId);
+        }
+      });
+    return next;
+  }
+
+  private syncWorkerTicketRefs(workerId: string, previousTicketIds: string[], nextTicketIds: string[]): Promise<void> {
     const ticketStore = createTicketStore(this.cwd);
-    for (const ticketId of worker.linkedRefs.ticketIds) {
-      void ticketStore.addExternalRefAsync(ticketId, `worker:${worker.workerId}`).catch(() => undefined);
-    }
+    const previous = new Set(previousTicketIds);
+    const next = new Set(nextTicketIds);
+
+    return this.queueTicketRefSync(workerId, async () => {
+      await Promise.all(normalizeStringList(nextTicketIds).map((ticketId) => ticketStore.readTicketAsync(ticketId)));
+      for (const ticketId of nextTicketIds) {
+        await ticketStore.addExternalRefAsync(ticketId, `worker:${workerId}`);
+      }
+      for (const ticketId of [...previous].filter((ticketId) => !next.has(ticketId))) {
+        try {
+          await ticketStore.removeExternalRefAsync(ticketId, `worker:${workerId}`);
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith("Unknown ticket:")) {
+            continue;
+          }
+          // Deleted tickets have no surviving backlink to clean up.
+          throw error;
+        }
+      }
+    });
   }
 
   listWorkers(filter: WorkerListFilter = {}): WorkerSummary[] {
-    const workers = listStoredWorkerRecords(this.cwd).map((worker) => materializeWorkerRecord(this.cwd, worker).summary);
+    const workersById = new Map(
+      listStoredWorkerRecords(this.cwd).map((worker) => [
+        worker.state.workerId,
+        materializeWorkerRecord(this.cwd, worker),
+      ]),
+    );
+    for (const [workerId, worker] of this.pendingSnapshots) {
+      workersById.set(workerId, materializeWorkerRecord(this.cwd, worker));
+    }
+    const workers = [...workersById.values()].map((worker) => worker.summary);
     const filteredByText = filterWorkersByText(workers, filter.text);
     const filteredByTelemetry = filterWorkersByTelemetry(filteredByText, filter.telemetryState);
     return filteredByTelemetry.filter((worker) => {
@@ -621,6 +800,10 @@ export class WorkerStore {
 
   readWorker(ref: string): WorkerReadResult {
     const workerId = this.resolveWorkerRef(ref);
+    const pending = this.pendingSnapshots.get(workerId);
+    if (pending) {
+      return materializeWorkerRecord(this.cwd, pending);
+    }
     const row = findStoredWorkerRow(this.cwd, workerId);
     if (!row) {
       throw new Error(`Unknown worker: ${workerId}`);
@@ -663,13 +846,15 @@ export class WorkerStore {
     return workerRefs.map((ref) => ({ ref, decision: this.superviseWorker(ref, apply).decision }));
   }
 
-  private recordSchedulerObservation(ref: string, summary: string): void {
+  private async recordSchedulerObservation(ref: string, summary: string): Promise<void> {
     const worker = this.readWorker(ref);
     worker.state.lastSchedulerAt = currentTimestamp();
     worker.state.lastSchedulerSummary = summary;
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
+    const persistPromise = this.persist(worker);
+    this.trackDurability(worker, persistPromise);
+    await persistPromise;
   }
 
   async runManagerSchedulerPass(
@@ -686,6 +871,13 @@ export class WorkerStore {
         ? options.refs.map((ref) => this.resolveWorkerRef(ref))
         : this.listWorkers().map((worker) => worker.id);
 
+    await Promise.all(
+      workerRefs.map(async (workerId) => {
+        await this.pendingPersists.get(workerId);
+        await this.pendingTicketRefSyncs.get(workerId);
+      }),
+    );
+
     const decisions: ManagerSchedulerDecision[] = [];
 
     for (const ref of workerRefs) {
@@ -693,7 +885,7 @@ export class WorkerStore {
       const unresolvedCount = unresolvedInbox(worker.messages).length;
       if (worker.state.status === "completion_requested" && worker.state.approval.status === "pending") {
         const summary = "Pending manager approval requires explicit review.";
-        this.recordSchedulerObservation(ref, summary);
+        await this.recordSchedulerObservation(ref, summary);
         decisions.push({
           workerId: ref,
           action: "needs_approval",
@@ -705,7 +897,7 @@ export class WorkerStore {
 
       if (worker.launch?.status === "running") {
         const summary = "Worker already has a running launch; scheduler will not start a second concurrent run.";
-        this.recordSchedulerObservation(ref, summary);
+        await this.recordSchedulerObservation(ref, summary);
         decisions.push({
           workerId: ref,
           action: "wait",
@@ -724,8 +916,10 @@ export class WorkerStore {
           (worker.state.status === "waiting_for_review" && !worker.summary.pendingApproval))
       ) {
         if (options.apply === true && options.executeResumes === true) {
-          this.prepareLaunch(ref, true, "Prepared by manager scheduler.");
+          const prepared = this.prepareLaunch(ref, true, "Prepared by manager scheduler.");
+          await this.persistBySnapshot.get(prepared);
           const running = this.startLaunchExecution(ref);
+          await this.persistBySnapshot.get(running);
           if (!running.launch) {
             decisions.push({
               workerId: ref,
@@ -736,9 +930,10 @@ export class WorkerStore {
             continue;
           }
           const execution = await runWorkerLaunch(running.launch, options.signal, undefined, options.sdkSessionConfig);
-          this.finishLaunchExecution(ref, execution);
+          const finished = this.finishLaunchExecution(ref, execution);
+          await this.persistBySnapshot.get(finished);
           const summary = `Scheduler resumed worker because unresolved inbox backlog existed (${unresolvedCount}).`;
-          this.recordSchedulerObservation(ref, summary);
+          await this.recordSchedulerObservation(ref, summary);
           decisions.push({
             workerId: ref,
             action: "resume",
@@ -747,7 +942,7 @@ export class WorkerStore {
           });
         } else {
           const summary = `Worker has unresolved inbox backlog (${unresolvedCount}) and is a resume candidate.`;
-          this.recordSchedulerObservation(ref, summary);
+          await this.recordSchedulerObservation(ref, summary);
           decisions.push({
             workerId: ref,
             action: "resume",
@@ -759,9 +954,12 @@ export class WorkerStore {
       }
 
       const supervision = this.superviseWorker(ref, options.apply === true);
+      if (options.apply === true) {
+        await this.persistBySnapshot.get(supervision.worker);
+      }
       if (supervision.decision.action === "steer" || supervision.decision.action === "escalate") {
         const summary = supervision.decision.message ?? supervision.decision.reasoning;
-        this.recordSchedulerObservation(ref, summary);
+        await this.recordSchedulerObservation(ref, summary);
         decisions.push({
           workerId: ref,
           action: "message",
@@ -769,7 +967,7 @@ export class WorkerStore {
           summary,
         });
       } else if (worker.state.status === "blocked" || worker.state.status === "failed") {
-        this.recordSchedulerObservation(ref, supervision.decision.reasoning);
+        await this.recordSchedulerObservation(ref, supervision.decision.reasoning);
         decisions.push({
           workerId: ref,
           action: "blocked",
@@ -777,7 +975,7 @@ export class WorkerStore {
           summary: supervision.decision.reasoning,
         });
       } else {
-        this.recordSchedulerObservation(ref, supervision.decision.reasoning);
+        await this.recordSchedulerObservation(ref, supervision.decision.reasoning);
         decisions.push({
           workerId: ref,
           action: "wait",
@@ -849,13 +1047,19 @@ export class WorkerStore {
       artifacts,
     };
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-    this.linkWorkerIntoTickets(worker.state);
-    return this.readWorker(workerId);
+    const persistPromise = this.persist(worker);
+    const ticketSyncPromise = persistPromise.then(() =>
+      this.syncWorkerTicketRefs(worker.state.workerId, [], worker.state.linkedRefs.ticketIds),
+    );
+    this.trackDurability(worker, persistPromise, ticketSyncPromise);
+    void persistPromise.catch(() => undefined);
+    void ticketSyncPromise.catch(() => undefined);
+    return worker;
   }
 
   updateWorker(ref: string, input: UpdateWorkerInput): WorkerReadResult {
     const worker = this.readWorker(ref);
+    const previousTicketIds = [...worker.state.linkedRefs.ticketIds];
     if (input.title !== undefined) worker.state.title = input.title.trim();
     if (input.objective !== undefined) worker.state.objective = input.objective.trim();
     if (input.summary !== undefined) worker.state.summary = input.summary.trim();
@@ -868,9 +1072,14 @@ export class WorkerStore {
       worker.state.workspace = normalizeWorkspaceDescriptor({ ...worker.state.workspace, ...input.workspace });
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-    this.linkWorkerIntoTickets(worker.state);
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    const ticketSyncPromise = persistPromise.then(() =>
+      this.syncWorkerTicketRefs(worker.state.workerId, previousTicketIds, worker.state.linkedRefs.ticketIds),
+    );
+    this.trackDurability(worker, persistPromise, ticketSyncPromise);
+    void persistPromise.catch(() => undefined);
+    void ticketSyncPromise.catch(() => undefined);
+    return worker;
   }
 
   appendMessage(ref: string, input: AppendWorkerMessageInput): WorkerReadResult {
@@ -916,8 +1125,10 @@ export class WorkerStore {
     worker.state.latestTelemetry.pendingMessages = unresolvedInbox(worker.messages).length;
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    this.trackDurability(worker, persistPromise);
+    void persistPromise.catch(() => undefined);
+    return worker;
   }
 
   private updateMessageState(
@@ -965,8 +1176,10 @@ export class WorkerStore {
     worker.state.latestTelemetry.pendingMessages = unresolvedInbox(worker.messages).length;
     worker.state.updatedAt = timestamp;
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    this.trackDurability(worker, persistPromise);
+    void persistPromise.catch(() => undefined);
+    return worker;
   }
 
   acknowledgeMessage(ref: string, messageId: string, actor = "worker", note?: string): WorkerReadResult {
@@ -1035,21 +1248,27 @@ export class WorkerStore {
             : worker.state.status;
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-
-    const ticketStore = createTicketStore(this.cwd);
-    for (const ticketId of worker.state.linkedRefs.ticketIds) {
-      void ticketStore.addJournalEntryAsync(
-        ticketId,
-        "checkpoint",
-        `Worker ${worker.state.workerId} recorded checkpoint ${checkpoint.id}: ${checkpoint.summary}`,
-        {
-          workerId: worker.state.workerId,
-          checkpointId: checkpoint.id,
-        },
-      ).catch(() => undefined);
-    }
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    const ticketSyncPromise = persistPromise.then(() =>
+      this.queueTicketRefSync(worker.state.workerId, async () => {
+        const ticketStore = createTicketStore(this.cwd);
+        for (const ticketId of worker.state.linkedRefs.ticketIds) {
+          await ticketStore.addJournalEntryAsync(
+            ticketId,
+            "checkpoint",
+            `Worker ${worker.state.workerId} recorded checkpoint ${checkpoint.id}: ${checkpoint.summary}`,
+            {
+              workerId: worker.state.workerId,
+              checkpointId: checkpoint.id,
+            },
+          );
+        }
+      }),
+    );
+    this.trackDurability(worker, persistPromise, ticketSyncPromise);
+    void persistPromise.catch(() => undefined);
+    void ticketSyncPromise.catch(() => undefined);
+    return worker;
   }
 
   setTelemetry(ref: string, input: SetWorkerTelemetryInput): WorkerReadResult {
@@ -1066,8 +1285,10 @@ export class WorkerStore {
     if (telemetryState === "finished" && worker.state.status === "active") worker.state.status = "completion_requested";
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    this.trackDurability(worker, persistPromise);
+    void persistPromise.catch(() => undefined);
+    return worker;
   }
 
   requestCompletion(ref: string, input: RequestWorkerCompletionInput): WorkerReadResult {
@@ -1097,16 +1318,27 @@ export class WorkerStore {
     });
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-
-    const ticketStore = createTicketStore(this.cwd);
-    for (const ticketId of worker.state.linkedRefs.ticketIds) {
-      void ticketStore.addJournalEntryAsync(ticketId, "state", `Worker ${worker.state.workerId} requested completion`, {
-        workerId: worker.state.workerId,
-        summary: worker.state.completionRequest.summary,
-      }).catch(() => undefined);
-    }
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    const ticketSyncPromise = persistPromise.then(() =>
+      this.queueTicketRefSync(worker.state.workerId, async () => {
+        const ticketStore = createTicketStore(this.cwd);
+        for (const ticketId of worker.state.linkedRefs.ticketIds) {
+          await ticketStore.addJournalEntryAsync(
+            ticketId,
+            "state",
+            `Worker ${worker.state.workerId} requested completion`,
+            {
+              workerId: worker.state.workerId,
+              summary: worker.state.completionRequest.summary,
+            },
+          );
+        }
+      }),
+    );
+    this.trackDurability(worker, persistPromise, ticketSyncPromise);
+    void persistPromise.catch(() => undefined);
+    void ticketSyncPromise.catch(() => undefined);
+    return worker;
   }
 
   decideApproval(ref: string, input: DecideWorkerApprovalInput): WorkerReadResult {
@@ -1143,16 +1375,27 @@ export class WorkerStore {
     }
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-
-    const ticketStore = createTicketStore(this.cwd);
-    for (const ticketId of worker.state.linkedRefs.ticketIds) {
-      void ticketStore.addJournalEntryAsync(ticketId, "state", `Worker ${worker.state.workerId} approval decision: ${status}`, {
-        workerId: worker.state.workerId,
-        approval: status,
-      }).catch(() => undefined);
-    }
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    const ticketSyncPromise = persistPromise.then(() =>
+      this.queueTicketRefSync(worker.state.workerId, async () => {
+        const ticketStore = createTicketStore(this.cwd);
+        for (const ticketId of worker.state.linkedRefs.ticketIds) {
+          await ticketStore.addJournalEntryAsync(
+            ticketId,
+            "state",
+            `Worker ${worker.state.workerId} approval decision: ${status}`,
+            {
+              workerId: worker.state.workerId,
+              approval: status,
+            },
+          );
+        }
+      }),
+    );
+    this.trackDurability(worker, persistPromise, ticketSyncPromise);
+    void persistPromise.catch(() => undefined);
+    void ticketSyncPromise.catch(() => undefined);
+    return worker;
   }
 
   recordConsolidation(ref: string, input: RecordWorkerConsolidationInput): WorkerReadResult {
@@ -1190,18 +1433,24 @@ export class WorkerStore {
     }
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-
-    const ticketStore = createTicketStore(this.cwd);
-    for (const ticketId of worker.state.linkedRefs.ticketIds) {
-      void ticketStore.addJournalEntryAsync(
-        ticketId,
-        isSuccessfulConsolidationStatus(status) ? "verification" : "state",
-        `Worker ${worker.state.workerId} consolidation outcome: ${status}`,
-        { workerId: worker.state.workerId, consolidationStatus: status, strategy: input.strategy ?? null },
-      ).catch(() => undefined);
-    }
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    const ticketSyncPromise = persistPromise.then(() =>
+      this.queueTicketRefSync(worker.state.workerId, async () => {
+        const ticketStore = createTicketStore(this.cwd);
+        for (const ticketId of worker.state.linkedRefs.ticketIds) {
+          await ticketStore.addJournalEntryAsync(
+            ticketId,
+            isSuccessfulConsolidationStatus(status) ? "verification" : "state",
+            `Worker ${worker.state.workerId} consolidation outcome: ${status}`,
+            { workerId: worker.state.workerId, consolidationStatus: status, strategy: input.strategy ?? null },
+          );
+        }
+      }),
+    );
+    this.trackDurability(worker, persistPromise, ticketSyncPromise);
+    void persistPromise.catch(() => undefined);
+    void ticketSyncPromise.catch(() => undefined);
+    return worker;
   }
 
   superviseWorker(ref: string, apply = false): { worker: WorkerReadResult; decision: WorkerSupervisionDecision } {
@@ -1315,8 +1564,10 @@ export class WorkerStore {
     worker.state.launchCount += 1;
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    this.trackDurability(worker, persistPromise);
+    void persistPromise.catch(() => undefined);
+    return worker;
   }
 
   startLaunchExecution(ref: string): WorkerReadResult {
@@ -1343,8 +1594,10 @@ export class WorkerStore {
     });
     worker.state.updatedAt = startedAt;
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    this.trackDurability(worker, persistPromise);
+    void persistPromise.catch(() => undefined);
+    return worker;
   }
 
   finishLaunchExecution(ref: string, execution: WorkerExecutionResult): WorkerReadResult {
@@ -1411,8 +1664,10 @@ export class WorkerStore {
 
     worker.state.updatedAt = finishedAt;
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    this.trackDurability(worker, persistPromise);
+    void persistPromise.catch(() => undefined);
+    return worker;
   }
 
   retireWorker(ref: string, note?: string): WorkerReadResult {
@@ -1436,8 +1691,10 @@ export class WorkerStore {
       };
     }
     syncDerivedViews(this.cwd, worker);
-    this.persist(worker);
-    return this.readWorker(worker.state.workerId);
+    const persistPromise = this.persist(worker);
+    this.trackDurability(worker, persistPromise);
+    void persistPromise.catch(() => undefined);
+    return worker;
   }
 
   renderList(filter: WorkerListFilter = {}): string {
@@ -1487,8 +1744,10 @@ export class WorkerStore {
   }
 
   async readWorkerAsync(ref: string): Promise<WorkerReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const workerId = this.resolveWorkerRef(ref);
+    await this.pendingPersists.get(workerId);
+    await this.pendingTicketRefSyncs.get(workerId);
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, workerId);
     if (!entity) {
       throw new Error(`Unknown worker: ${workerId}`);
@@ -1519,23 +1778,52 @@ export class WorkerStore {
   }
 
   async createWorkerAsync(input: CreateWorkerInput): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.createWorker(input));
+    const worker = this.createWorker(input);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    const ticketSyncPromise = this.ticketSyncBySnapshot.get(worker);
+    await persistPromise;
+    await ticketSyncPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async updateWorkerAsync(ref: string, input: UpdateWorkerInput): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.updateWorker(ref, input));
+    const worker = this.updateWorker(ref, input);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    const ticketSyncPromise = this.ticketSyncBySnapshot.get(worker);
+    await persistPromise;
+    await ticketSyncPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async appendMessageAsync(ref: string, input: AppendWorkerMessageInput): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.appendMessage(ref, input));
+    const worker = this.appendMessage(ref, input);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    await persistPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
-  async acknowledgeMessageAsync(ref: string, messageId: string, actor = "worker", note?: string): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.acknowledgeMessage(ref, messageId, actor, note));
+  async acknowledgeMessageAsync(
+    ref: string,
+    messageId: string,
+    actor = "worker",
+    note?: string,
+  ): Promise<WorkerReadResult> {
+    const worker = this.acknowledgeMessage(ref, messageId, actor, note);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    await persistPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
-  async resolveMessageAsync(ref: string, messageId: string, actor = "worker", note?: string): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.resolveMessage(ref, messageId, actor, note));
+  async resolveMessageAsync(
+    ref: string,
+    messageId: string,
+    actor = "worker",
+    note?: string,
+  ): Promise<WorkerReadResult> {
+    const worker = this.resolveMessage(ref, messageId, actor, note);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    await persistPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async readInboxAsync(ref: string): Promise<ReturnType<WorkerStore["readInbox"]>> {
@@ -1548,26 +1836,52 @@ export class WorkerStore {
   }
 
   async appendCheckpointAsync(ref: string, input: AppendWorkerCheckpointInput): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.appendCheckpoint(ref, input));
+    const worker = this.appendCheckpoint(ref, input);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    const ticketSyncPromise = this.ticketSyncBySnapshot.get(worker);
+    await persistPromise;
+    await ticketSyncPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async setTelemetryAsync(ref: string, input: SetWorkerTelemetryInput): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.setTelemetry(ref, input));
+    const worker = this.setTelemetry(ref, input);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    await persistPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async requestCompletionAsync(ref: string, input: RequestWorkerCompletionInput): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.requestCompletion(ref, input));
+    const worker = this.requestCompletion(ref, input);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    const ticketSyncPromise = this.ticketSyncBySnapshot.get(worker);
+    await persistPromise;
+    await ticketSyncPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async decideApprovalAsync(ref: string, input: DecideWorkerApprovalInput): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.decideApproval(ref, input));
+    const worker = this.decideApproval(ref, input);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    const ticketSyncPromise = this.ticketSyncBySnapshot.get(worker);
+    await persistPromise;
+    await ticketSyncPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async recordConsolidationAsync(ref: string, input: RecordWorkerConsolidationInput): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.recordConsolidation(ref, input));
+    const worker = this.recordConsolidation(ref, input);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    const ticketSyncPromise = this.ticketSyncBySnapshot.get(worker);
+    await persistPromise;
+    await ticketSyncPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
-  async superviseWorkersAsync(refs?: string[], apply = false): Promise<Array<{ ref: string; decision: WorkerSupervisionDecision }>> {
+  async superviseWorkersAsync(
+    refs?: string[],
+    apply = false,
+  ): Promise<Array<{ ref: string; decision: WorkerSupervisionDecision }>> {
     return this.superviseWorkers(refs, apply);
   }
 
@@ -1577,19 +1891,31 @@ export class WorkerStore {
     note?: string,
     runtime?: WorkerRuntimeDescriptor["runtime"],
   ): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.prepareLaunch(ref, resume, note, runtime));
+    const worker = this.prepareLaunch(ref, resume, note, runtime);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    await persistPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async startLaunchExecutionAsync(ref: string): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.startLaunchExecution(ref));
+    const worker = this.startLaunchExecution(ref);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    await persistPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async finishLaunchExecutionAsync(ref: string, execution: WorkerExecutionResult): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.finishLaunchExecution(ref, execution));
+    const worker = this.finishLaunchExecution(ref, execution);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    await persistPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   async retireWorkerAsync(ref: string, note?: string): Promise<WorkerReadResult> {
-    return this.upsertCanonicalWorker(this.retireWorker(ref, note));
+    const worker = this.retireWorker(ref, note);
+    const persistPromise = this.persistBySnapshot.get(worker);
+    await persistPromise;
+    return materializeWorkerRecord(this.cwd, worker);
   }
 
   renderListAsync(filter: WorkerListFilter = {}): Promise<string> {

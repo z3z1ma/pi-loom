@@ -134,7 +134,7 @@ describe("PlanStore durable memory", () => {
       target: {
         kind: "ticket",
         ref: implementationTicket.summary.id,
-        path: "packages/pi-plans/extensions/domain/store.ts",
+        locator: "packages/pi-plans/extensions/domain/store.ts",
       },
       focusAreas: ["architecture", "process"],
       reviewQuestion:
@@ -311,9 +311,9 @@ describe("PlanStore durable memory", () => {
     const unlinked = await planStore.unlinkPlanTicket(linkedClosed.state.planId, reviewTicket.summary.id);
     expect(unlinked.state.linkedTickets).toHaveLength(1);
     expect(unlinked.state.linkedTickets[0]?.ticketId).toBe(implementationTicket.summary.id);
-    expect((await ticketStore.readTicketAsync(reviewTicket.summary.id)).ticket.frontmatter["external-refs"]).toContain(
-      `plan:${linkedClosed.state.planId}`,
-    );
+    expect(
+      (await ticketStore.readTicketAsync(reviewTicket.summary.id)).ticket.frontmatter["external-refs"],
+    ).not.toContain(`plan:${linkedClosed.state.planId}`);
 
     expect(reread.plan).toContain("## Purpose / Big Picture");
     expect(reread.plan).toContain("## Artifacts and Notes");
@@ -355,5 +355,43 @@ describe("PlanStore durable memory", () => {
       }),
     ]);
     expect(linked.dashboard.counts.byStatus).toMatchObject({ ready: 1 });
+  }, 30000);
+
+  it("removes deleted tickets from linked plan membership and canonical plan links", async () => {
+    const ticketStore = createTicketStore(workspace);
+    const planStore = createPlanStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T15:00:00.000Z"));
+    const created = await planStore.createPlan({
+      title: "Delete linked ticket",
+      sourceTarget: { kind: "workspace", ref: "." },
+      contextRefs: { ticketIds: [] },
+    });
+    const ticket = await ticketStore.createTicketAsync({ title: "Plan-linked ticket" });
+
+    await planStore.linkPlanTicket(created.state.planId, {
+      ticketId: ticket.summary.id,
+      role: "implementation",
+      order: 1,
+    });
+    await planStore.updatePlan(created.state.planId, {
+      contextRefs: { ticketIds: [ticket.summary.id] },
+    });
+
+    await ticketStore.deleteTicketAsync(ticket.summary.id);
+
+    const reread = await planStore.readPlan(created.state.planId);
+    expect(reread.state.linkedTickets).toEqual([]);
+    expect(reread.state.contextRefs.ticketIds).toEqual([]);
+
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const planEntity = await findEntityByDisplayId(storage, identity.space.id, "plan", created.state.planId);
+    expect(planEntity).toBeTruthy();
+    if (!planEntity) {
+      throw new Error("Expected plan entity to exist");
+    }
+    const outgoing = (await storage.listLinks(planEntity.id)).filter((link) => link.fromEntityId === planEntity.id);
+    expect(outgoing).toEqual([]);
+    expect(reread.state.revisionNotes.at(-1)?.change).toContain(`Removed deleted ticket ${ticket.summary.id}`);
   }, 30000);
 });

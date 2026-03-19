@@ -179,6 +179,7 @@ export interface CreateInitiativeInput {
   targetWindow?: string | null;
   owners?: string[];
   tags?: string[];
+  researchIds?: string[];
   specChangeIds?: string[];
   ticketIds?: string[];
   capabilityIds?: string[];
@@ -200,6 +201,7 @@ export interface UpdateInitiativeInput {
   targetWindow?: string | null;
   owners?: string[];
   tags?: string[];
+  researchIds?: string[];
   specChangeIds?: string[];
   ticketIds?: string[];
   capabilityIds?: string[];

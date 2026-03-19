@@ -112,6 +112,9 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
     expect.objectContaining({ id: runtimeAttachment.id, processId: 4321 }),
   ]);
 
+  await storage.removeLink(link.id);
+  expect(await storage.listLinks(entity.id)).toEqual([]);
+
   await storage.removeRuntimeAttachment(runtimeAttachment.id);
   expect(await storage.listRuntimeAttachments(worktree.id)).toEqual([]);
 }
@@ -139,33 +142,33 @@ describe("pi-storage backend contract", () => {
       slug: "core",
       "@slug": "core",
       ":slug": "core",
-      "$slug": "core",
+      $slug: "core",
       default_branch: null,
       "@default_branch": null,
       ":default_branch": null,
-      "$default_branch": null,
+      $default_branch: null,
       display_id: null,
       "@display_id": null,
       ":display_id": null,
-      "$display_id": null,
+      $display_id: null,
       repository_id: null,
       "@repository_id": null,
       ":repository_id": null,
-      "$repository_id": null,
+      $repository_id: null,
       content: null,
       "@content": null,
       ":content": null,
-      "$content": null,
+      $content: null,
     });
     expect(toSqliteNamedParams({ "@id": "space-1", $title: "Core" })).toEqual({
       id: "space-1",
       "@id": "space-1",
       ":id": "space-1",
-      "$id": "space-1",
+      $id: "space-1",
       title: "Core",
       "@title": "Core",
       ":title": "Core",
-      "$title": "Core",
+      $title: "Core",
     });
   });
 

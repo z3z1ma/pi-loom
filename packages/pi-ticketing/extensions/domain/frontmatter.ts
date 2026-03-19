@@ -1,5 +1,4 @@
 import type { TicketBody, TicketFrontmatter, TicketRecord } from "./models.js";
-import { getTicketRef } from "./paths.js";
 import {
   normalizeOptionalString,
   normalizePriority,
@@ -10,6 +9,7 @@ import {
   normalizeTicketId,
   normalizeType,
 } from "./normalize.js";
+import { getTicketRef } from "./paths.js";
 
 const SECTION_TITLES = ["Summary", "Context", "Plan", "Notes", "Verification", "Journal Summary"] as const;
 
@@ -239,6 +239,8 @@ export function parseTicket(text: string, sourceLabel: string, closed: boolean):
     frontmatter,
     body,
     closed,
+    archived: false,
+    archivedAt: null,
     ref: getTicketRef(frontmatter.id),
   };
 }

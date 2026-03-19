@@ -1,6 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import type { PlanState } from "@pi-loom/pi-plans/extensions/domain/models.js";
+import type { LoomCanonicalStorage } from "@pi-loom/pi-storage/storage/contract.js";
 import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import { createLinkId } from "@pi-loom/pi-storage/storage/ids.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { inferMediaType } from "./attachments.js";
@@ -27,9 +32,14 @@ import { getAttachmentSourceRef, getCheckpointRef, getTicketRef } from "./paths.
 import { filterTickets, summarizeTickets } from "./query.js";
 
 const ENTITY_KIND = "ticket" as const;
+const TICKET_PROJECTION_OWNER = "ticket-store" as const;
 
 interface TicketEntityAttributes {
   record: TicketReadResult;
+}
+
+interface PlanEntityAttributes {
+  state: PlanState;
 }
 
 type WorkspaceIdentity = Awaited<ReturnType<typeof openWorkspaceStorage>>["identity"];
@@ -44,6 +54,10 @@ interface SqliteMutationTarget {
 
 function hasStructuredTicketAttributes(attributes: unknown): attributes is TicketEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
+}
+
+function hasStructuredPlanAttributes(attributes: unknown): attributes is PlanEntityAttributes {
+  return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
 }
 
 function nextNumericId(existingIds: string[], prefix: string): string {
@@ -64,6 +78,69 @@ function parseTicketRef(value: string): string {
   return normalizeTicketId(normalized);
 }
 
+function parsePlanExternalRef(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("plan:")) {
+    return null;
+  }
+  const planId = trimmed.slice("plan:".length).trim();
+  return planId ? planId : null;
+}
+
+function projectedLinksForTicket(record: TicketReadResult): ProjectedEntityLinkInput[] {
+  const desired: ProjectedEntityLinkInput[] = [];
+  const frontmatter = record.ticket.frontmatter;
+
+  for (const dependencyId of frontmatter.deps) {
+    desired.push({
+      kind: "depends_on",
+      targetKind: "ticket",
+      targetDisplayId: dependencyId,
+    });
+  }
+
+  for (const initiativeId of frontmatter["initiative-ids"]) {
+    desired.push({
+      kind: "belongs_to",
+      targetKind: "initiative",
+      targetDisplayId: initiativeId,
+    });
+  }
+
+  if (frontmatter.parent) {
+    desired.push({
+      kind: "belongs_to",
+      targetKind: "ticket",
+      targetDisplayId: frontmatter.parent,
+    });
+  }
+
+  for (const externalRef of frontmatter["external-refs"]) {
+    const planId = parsePlanExternalRef(externalRef);
+    if (planId) {
+      desired.push({ kind: "belongs_to", targetKind: "plan", targetDisplayId: planId });
+    }
+  }
+
+  for (const researchId of frontmatter["research-ids"]) {
+    desired.push({
+      kind: "references",
+      targetKind: "research",
+      targetDisplayId: researchId,
+    });
+  }
+
+  if (frontmatter["spec-change"]) {
+    desired.push({
+      kind: "implements",
+      targetKind: "spec_change",
+      targetDisplayId: frontmatter["spec-change"],
+    });
+  }
+
+  return desired;
+}
+
 export class TicketStore {
   readonly cwd: string;
 
@@ -76,38 +153,124 @@ export class TicketStore {
   }
 
   private async upsertCanonicalRecordWithStorage(
-    storage: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"],
+    storage: LoomCanonicalStorage,
     identity: WorkspaceIdentity,
     record: TicketReadResult,
+    options: { validateProjectedLinks?: boolean; syncProjectedLinks?: boolean } = {},
   ): Promise<TicketReadResult> {
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, record.summary.id);
     const version = (existing?.version ?? 0) + 1;
-    await upsertEntityByDisplayId(storage, {
+    const summary = summarizeTickets([record.ticket])[0];
+    if (!summary) {
+      throw new Error(`Missing canonical ticket summary for ${record.ticket.frontmatter.id}`);
+    }
+    const canonicalRecord: TicketReadResult = {
+      ...record,
+      summary,
+    };
+    if (options.validateProjectedLinks !== false) {
+      await assertProjectedEntityLinksResolvable({
+        storage,
+        spaceId: identity.space.id,
+        projectionOwner: TICKET_PROJECTION_OWNER,
+        desired: projectedLinksForTicket(canonicalRecord),
+      });
+    }
+    const entity = await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
-      displayId: record.summary.id,
-      title: record.summary.title,
-      summary: record.ticket.body.summary,
-      status: record.summary.status,
+      displayId: canonicalRecord.summary.id,
+      title: canonicalRecord.summary.title,
+      summary: canonicalRecord.ticket.body.summary,
+      status: canonicalRecord.summary.status,
       version,
-      tags: record.ticket.frontmatter.tags,
-      attributes: { record },
-      createdAt: existing?.createdAt ?? record.summary.createdAt,
-      updatedAt: record.summary.updatedAt,
+      tags: canonicalRecord.ticket.frontmatter.tags,
+      attributes: { record: canonicalRecord },
+      createdAt: existing?.createdAt ?? canonicalRecord.summary.createdAt,
+      updatedAt: canonicalRecord.summary.updatedAt,
     });
-    return record;
+    if (options.syncProjectedLinks !== false) {
+      await syncProjectedEntityLinks({
+        storage,
+        spaceId: identity.space.id,
+        fromEntityId: entity.id,
+        projectionOwner: TICKET_PROJECTION_OWNER,
+        desired: projectedLinksForTicket(canonicalRecord),
+        timestamp: canonicalRecord.summary.updatedAt,
+      });
+    }
+    return canonicalRecord;
   }
 
   private async upsertCanonicalRecord(record: TicketReadResult): Promise<TicketReadResult> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    return this.upsertCanonicalRecordWithStorage(storage, identity, record);
+    return storage.transact((tx) => this.upsertCanonicalRecordWithStorage(tx, identity, record));
   }
 
-  private deleteEntityRow(
-    storage: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"],
-    entityId: string,
-  ): void {
+  async syncExternalRefWithStorage(
+    storage: LoomCanonicalStorage,
+    identity: WorkspaceIdentity,
+    ref: string,
+    externalRef: string,
+    present: boolean,
+  ): Promise<TicketReadResult> {
+    const ticketId = this.resolveTicketRef(ref);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, ticketId);
+    if (!entity) {
+      throw new Error(`Unknown ticket: ${ticketId}`);
+    }
+    if (!hasStructuredTicketAttributes(entity.attributes)) {
+      throw new Error(`Ticket entity ${ticketId} is missing structured attributes`);
+    }
+
+    const normalizedRef = externalRef.trim();
+    const current = this.entityRecord(entity);
+    if (!normalizedRef) {
+      return current;
+    }
+
+    const hasRef = current.ticket.frontmatter["external-refs"].includes(normalizedRef);
+    if (present === hasRef) {
+      return current;
+    }
+
+    const timestamp = currentTimestamp();
+    current.ticket.frontmatter["external-refs"] = present
+      ? normalizeStringList([...current.ticket.frontmatter["external-refs"], normalizedRef])
+      : current.ticket.frontmatter["external-refs"].filter((value) => value !== normalizedRef);
+    current.ticket.frontmatter["updated-at"] = timestamp;
+    current.journal = [
+      ...current.journal,
+      createJournalEntry(
+        current.summary.id,
+        "state",
+        `${present ? "Added" : "Removed"} external reference ${normalizedRef}`,
+        timestamp,
+        { externalRef: normalizedRef },
+        current.journal.length + 1,
+      ),
+    ];
+
+    if (present) {
+      return this.upsertCanonicalRecordWithStorage(storage, identity, current);
+    }
+
+    const updated = await this.upsertCanonicalRecordWithStorage(storage, identity, current, {
+      validateProjectedLinks: false,
+      syncProjectedLinks: false,
+    });
+    const planId = parsePlanExternalRef(normalizedRef);
+    if (planId) {
+      const planEntity = await findEntityByDisplayId(storage, identity.space.id, "plan", planId);
+      if (planEntity) {
+        await storage.removeLink(createLinkId("belongs_to", entity.id, planEntity.id));
+      }
+    }
+    return updated;
+  }
+
+  private deleteEntityRow(storage: SqliteMutationTarget, entityId: string): void {
     (storage as unknown as SqliteMutationTarget).db.prepare("DELETE FROM entities WHERE id = ?").run(entityId);
   }
 
@@ -460,7 +623,6 @@ export class TicketStore {
 
   async deleteTicketAsync(ref: string): Promise<DeleteTicketResult> {
     const ticketId = this.resolveTicketRef(ref);
-    const current = await this.readTicketAsync(ticketId);
 
     const timestamp = currentTimestamp();
     const records = await this.canonicalRecords();
@@ -519,13 +681,49 @@ export class TicketStore {
       if (!targetEntity) {
         throw new Error(`Unknown ticket: ${ticketId}`);
       }
+      for (const planEntity of await tx.listEntities(identity.space.id, "plan")) {
+        if (!hasStructuredPlanAttributes(planEntity.attributes)) {
+          continue;
+        }
+        const state = planEntity.attributes.state;
+        const linkedTicketIds = state.linkedTickets.map((link) => link.ticketId);
+        const contextTicketIds = state.contextRefs.ticketIds;
+        if (!linkedTicketIds.includes(ticketId) && !contextTicketIds.includes(ticketId)) {
+          continue;
+        }
+        const nextState: PlanState = {
+          ...state,
+          linkedTickets: state.linkedTickets.filter((link) => link.ticketId !== ticketId),
+          contextRefs: {
+            ...state.contextRefs,
+            ticketIds: state.contextRefs.ticketIds.filter((id) => id !== ticketId),
+          },
+          revisionNotes: [
+            ...state.revisionNotes,
+            {
+              timestamp,
+              change: `Removed deleted ticket ${ticketId} from plan references.`,
+              reason: "Deleted tickets cannot remain active plan membership or context references.",
+            },
+          ],
+          updatedAt: timestamp,
+        };
+        await tx.upsertEntity({
+          ...planEntity,
+          title: nextState.title,
+          summary: nextState.summary,
+          status: nextState.status,
+          version: planEntity.version + 1,
+          attributes: { state: nextState },
+          updatedAt: nextState.updatedAt,
+        });
+        await tx.removeLink(createLinkId("belongs_to", planEntity.id, targetEntity.id));
+        await tx.removeLink(createLinkId("references", planEntity.id, targetEntity.id));
+      }
       for (const record of canonicalAffected) {
         await this.upsertCanonicalRecordWithStorage(tx, identity, record);
       }
-      this.deleteEntityRow(
-        tx as unknown as Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"],
-        targetEntity.id,
-      );
+      this.deleteEntityRow(tx as unknown as SqliteMutationTarget, targetEntity.id);
     });
 
     return {
@@ -824,30 +1022,19 @@ export class TicketStore {
   }
 
   async addExternalRefAsync(ref: string, externalRef: string): Promise<TicketReadResult> {
-    const current = await this.readTicketAsync(ref);
-    const normalizedRef = externalRef.trim();
-    if (!normalizedRef || current.ticket.frontmatter["external-refs"].includes(normalizedRef)) {
-      return current;
-    }
-    const timestamp = currentTimestamp();
-    current.ticket.frontmatter["external-refs"] = normalizeStringList([
-      ...current.ticket.frontmatter["external-refs"],
-      normalizedRef,
-    ]);
-    current.ticket.frontmatter["updated-at"] = timestamp;
-    current.journal = [
-      ...current.journal,
-      createJournalEntry(
-        current.summary.id,
-        "state",
-        `Added external reference ${normalizedRef}`,
-        timestamp,
-        { externalRef: normalizedRef },
-        current.journal.length + 1,
-      ),
-    ];
-    await this.upsertCanonicalRecord(current);
-    return this.readTicketAsync(current.summary.id);
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const updated = await storage.transact((tx) =>
+      this.syncExternalRefWithStorage(tx, identity, ref, externalRef, true),
+    );
+    return this.readTicketAsync(updated.summary.id);
+  }
+
+  async removeExternalRefAsync(ref: string, externalRef: string): Promise<TicketReadResult> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const updated = await storage.transact((tx) =>
+      this.syncExternalRefWithStorage(tx, identity, ref, externalRef, false),
+    );
+    return this.readTicketAsync(updated.summary.id);
   }
 }
 

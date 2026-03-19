@@ -1,5 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSpecStore } from "../extensions/domain/store.js";
 
@@ -18,8 +19,11 @@ describe("SpecStore durable memory", () => {
 
   it("writes durable spec artifacts, decisions, and canonical capability merges", async () => {
     const store = createSpecStore(workspace);
+    const initiativeStore = createInitiativeStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
+    await initiativeStore.createInitiative({ title: "Platform modernization" });
+    await initiativeStore.createInitiative({ title: "UI foundation" });
     const created = await store.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
     expect(created.state.changeId).toBe("add-dark-mode");
     const changeRef = created.summary.ref;
@@ -89,7 +93,9 @@ describe("SpecStore durable memory", () => {
       "archive:spec:2026-03-15:add-dark-mode:artifact:analysis",
       "archive:spec:2026-03-15:add-dark-mode:artifact:checklist",
     ]);
-    const canonicalCapability = await store.readCapability(plannedSnapshot.capabilitySpecs[0]?.ref ?? "capability:theme-toggling");
+    const canonicalCapability = await store.readCapability(
+      plannedSnapshot.capabilitySpecs[0]?.ref ?? "capability:theme-toggling",
+    );
     expect(canonicalCapability.ref).toBe("capability:theme-toggling");
     expect(canonicalCapability.requirements).toContain("Users can toggle dark mode.");
 

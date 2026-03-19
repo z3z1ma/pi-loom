@@ -43,7 +43,11 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
     return clone(this.entities.get(id) ?? null);
   }
 
-  async getEntityByDisplayId(spaceId: string, kind: LoomEntityRecord["kind"], displayId: string): Promise<LoomEntityRecord | null> {
+  async getEntityByDisplayId(
+    spaceId: string,
+    kind: LoomEntityRecord["kind"],
+    displayId: string,
+  ): Promise<LoomEntityRecord | null> {
     for (const entity of this.entities.values()) {
       if (entity.spaceId === spaceId && entity.kind === kind && entity.displayId === displayId) {
         return clone(entity);
@@ -99,6 +103,10 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
     this.links.set(record.id, clone(record));
   }
 
+  async removeLink(id: string): Promise<void> {
+    this.links.delete(id);
+  }
+
   async appendEvent(record: LoomEntityEventRecord): Promise<void> {
     this.events.set(record.id, clone(record));
   }
@@ -123,7 +131,27 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
     };
 
     const tx: LoomCanonicalTransaction = {
-      ...this,
+      contractVersion: this.contractVersion,
+      backendKind: this.backendKind,
+      getSpace: this.getSpace.bind(this),
+      listRepositories: this.listRepositories.bind(this),
+      listWorktrees: this.listWorktrees.bind(this),
+      getEntity: this.getEntity.bind(this),
+      getEntityByDisplayId: this.getEntityByDisplayId.bind(this),
+      listEntities: this.listEntities.bind(this),
+      listLinks: this.listLinks.bind(this),
+      listEvents: this.listEvents.bind(this),
+      listRuntimeAttachments: this.listRuntimeAttachments.bind(this),
+      upsertSpace: this.upsertSpace.bind(this),
+      upsertRepository: this.upsertRepository.bind(this),
+      upsertWorktree: this.upsertWorktree.bind(this),
+      upsertEntity: this.upsertEntity.bind(this),
+      upsertLink: this.upsertLink.bind(this),
+      removeLink: this.removeLink.bind(this),
+      appendEvent: this.appendEvent.bind(this),
+      upsertRuntimeAttachment: this.upsertRuntimeAttachment.bind(this),
+      removeRuntimeAttachment: this.removeRuntimeAttachment.bind(this),
+      transact: this.transact.bind(this),
       commit: async () => undefined,
       rollback: async () => {
         this.spaces.clear();

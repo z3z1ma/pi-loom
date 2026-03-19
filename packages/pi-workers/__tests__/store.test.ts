@@ -1,12 +1,13 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
+import { createRalphStore } from "@pi-loom/pi-ralph/extensions/domain/store.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
 import { createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
-import { createWorkerStore } from "../extensions/domain/store.js";
 import { getWorkerRuntimeDir } from "../extensions/domain/paths.js";
+import { createWorkerStore } from "../extensions/domain/store.js";
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-workers-store-"));
@@ -48,12 +49,16 @@ describe("WorkerStore", () => {
     try {
       await createWorkerTicket(cwd, "Worker-linked ticket");
 
+      const planStore = createPlanStore(cwd);
+      const ralphStore = createRalphStore(cwd);
       const ticketStore = createTicketStore(cwd);
       const store = createWorkerStore(cwd);
+      const plan = await planStore.createPlan({ title: "Worker plan", sourceTarget: { kind: "workspace", ref: "." } });
+      const ralphRun = ralphStore.createRun({ title: "Worker Ralph Run" });
       const created = store.createWorker({
         title: "Worker Foundation",
         objective: "Build a durable worker package",
-        linkedRefs: { ticketIds: ["t-0001"], planIds: ["worker-plan"], ralphRunIds: ["ralph-run-1"] },
+        linkedRefs: { ticketIds: ["t-0001"], planIds: [plan.state.planId], ralphRunIds: [ralphRun.state.runId] },
       });
 
       expect(created.state.workerId).toBe("worker-foundation");
@@ -66,6 +71,36 @@ describe("WorkerStore", () => {
       await vi.waitFor(async () => {
         const ticket = await ticketStore.readTicketAsync("t-0001");
         expect(ticket.ticket.frontmatter["external-refs"]).toContain("worker:worker-foundation");
+      });
+    } finally {
+      cleanup();
+    }
+  }, 30000);
+
+  it("removes stale worker external refs when linked ticket ids shrink", async () => {
+    const { cwd, cleanup } = createWorkspace();
+    try {
+      await createWorkerTicket(cwd, "Worker-linked ticket 1");
+      await createWorkerTicket(cwd, "Worker-linked ticket 2");
+
+      const ticketStore = createTicketStore(cwd);
+      const store = createWorkerStore(cwd);
+      store.createWorker({ title: "Shrinking Worker", linkedRefs: { ticketIds: ["t-0001", "t-0002"] } });
+
+      await vi.waitFor(async () => {
+        const first = await ticketStore.readTicketAsync("t-0001");
+        const second = await ticketStore.readTicketAsync("t-0002");
+        expect(first.ticket.frontmatter["external-refs"]).toContain("worker:shrinking-worker");
+        expect(second.ticket.frontmatter["external-refs"]).toContain("worker:shrinking-worker");
+      });
+
+      store.updateWorker("shrinking-worker", { linkedRefs: { ticketIds: ["t-0001"] } });
+
+      await vi.waitFor(async () => {
+        const first = await ticketStore.readTicketAsync("t-0001");
+        const second = await ticketStore.readTicketAsync("t-0002");
+        expect(first.ticket.frontmatter["external-refs"]).toContain("worker:shrinking-worker");
+        expect(second.ticket.frontmatter["external-refs"]).not.toContain("worker:shrinking-worker");
       });
     } finally {
       cleanup();
@@ -188,12 +223,15 @@ describe("WorkerStore", () => {
       expect(result.messages).toHaveLength(1);
       expect(result.checkpoints).toHaveLength(1);
 
-      await vi.waitFor(async () => {
-        const linkedTicket = await createTicketStore(cwd).readTicketAsync("t-0001");
-        expect(linkedTicket.journal.map((entry) => entry.text)).toEqual(
-          expect.arrayContaining([expect.stringContaining("consolidation outcome: merged")]),
-        );
-      });
+      await vi.waitFor(
+        async () => {
+          const linkedTicket = await createTicketStore(cwd).readTicketAsync("t-0001");
+          expect(linkedTicket.journal.map((entry) => entry.text)).toEqual(
+            expect.arrayContaining([expect.stringContaining("consolidation outcome: merged")]),
+          );
+        },
+        { timeout: 5000 },
+      );
     } finally {
       cleanup();
     }
@@ -282,9 +320,10 @@ describe("WorkerStore", () => {
       persist({
         ...prepared,
         launch: {
-          ...(prepared.launch ?? (() => {
-            throw new Error("Expected launch descriptor");
-          })()),
+          ...(prepared.launch ??
+            (() => {
+              throw new Error("Expected launch descriptor");
+            })()),
           workspaceDir: outsideDir,
           status: "prepared",
           note: "unsafe workspace dir injected for test",
@@ -299,9 +338,10 @@ describe("WorkerStore", () => {
       persist({
         ...prepared,
         launch: {
-          ...(prepared.launch ?? (() => {
-            throw new Error("Expected launch descriptor");
-          })()),
+          ...(prepared.launch ??
+            (() => {
+              throw new Error("Expected launch descriptor");
+            })()),
           workspaceDir: siblingLaunch.launch?.workspaceDir ?? "",
           status: "prepared",
           note: "sibling workspace dir injected for test",

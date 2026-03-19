@@ -177,6 +177,7 @@ function migrate(db: SqliteDatabaseLike): void {
     CREATE INDEX IF NOT EXISTS idx_entities_space_kind ON entities(space_id, kind);
     CREATE INDEX IF NOT EXISTS idx_entities_display_id ON entities(display_id);
     CREATE INDEX IF NOT EXISTS idx_links_from_entity ON links(from_entity_id);
+    CREATE INDEX IF NOT EXISTS idx_links_to_entity ON links(to_entity_id);
     CREATE INDEX IF NOT EXISTS idx_events_entity_sequence ON events(entity_id, sequence);
     CREATE INDEX IF NOT EXISTS idx_runtime_attachments_worktree ON runtime_attachments(worktree_id);
   `);
@@ -325,7 +326,11 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
     return row ? rowToEntity(row) : null;
   }
 
-  async getEntityByDisplayId(spaceId: string, kind: LoomEntityRecord["kind"], displayId: string): Promise<LoomEntityRecord | null> {
+  async getEntityByDisplayId(
+    spaceId: string,
+    kind: LoomEntityRecord["kind"],
+    displayId: string,
+  ): Promise<LoomEntityRecord | null> {
     const row = this.db
       .prepare("SELECT * FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1")
       .get(spaceId, kind, displayId) as Record<string, unknown> | undefined;
@@ -518,6 +523,10 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         updated_at: record.updatedAt,
       },
     );
+  }
+
+  async removeLink(id: string): Promise<void> {
+    this.db.prepare("DELETE FROM links WHERE id = ?").run(id);
   }
 
   async appendEvent(record: LoomEntityEventRecord): Promise<void> {

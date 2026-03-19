@@ -1,19 +1,15 @@
 import { resolve } from "node:path";
 import type { ConstitutionalRecord } from "@pi-loom/pi-constitution/extensions/domain/models.js";
-import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import type { CritiqueReadResult } from "@pi-loom/pi-critique/extensions/domain/models.js";
 import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
 import type { DocumentationReadResult } from "@pi-loom/pi-docs/extensions/domain/models.js";
-import { createDocumentationStore } from "@pi-loom/pi-docs/extensions/domain/store.js";
 import type { InitiativeRecord } from "@pi-loom/pi-initiatives/extensions/domain/models.js";
-import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/models.js";
-import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
-import {
-  findEntityByDisplayId,
-  upsertEntityByDisplayId,
-} from "@pi-loom/pi-storage/storage/entities.js";
+import type { LoomCanonicalStorage } from "@pi-loom/pi-storage/storage/contract.js";
+import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
@@ -45,10 +41,10 @@ import {
   slugifyTitle,
   summarizeText,
 } from "./normalize.js";
-import { getPlansPaths } from "./paths.js";
 import { renderPlanMarkdown } from "./render.js";
 
 const ENTITY_KIND = "plan" as const;
+const PLAN_PROJECTION_OWNER = "plan-store" as const;
 
 interface PlanEntityAttributes {
   state: PlanState;
@@ -145,6 +141,73 @@ function deriveContextRefsFromDoc(documentation: DocumentationReadResult): PlanC
   return mergeContextRefs(documentation.state.contextRefs, {
     docIds: [documentation.state.docId],
   });
+}
+
+function sourceTargetEntityKind(
+  sourceTarget: PlanState["sourceTarget"],
+): ProjectedEntityLinkInput["targetKind"] | null {
+  switch (sourceTarget.kind) {
+    case "initiative":
+      return "initiative";
+    case "spec":
+      return "spec_change";
+    case "research":
+      return "research";
+    case "workspace":
+      return null;
+  }
+}
+
+function projectedLinksForPlan(state: PlanState): ProjectedEntityLinkInput[] {
+  const desired: ProjectedEntityLinkInput[] = [];
+  const sourceTargetKind = sourceTargetEntityKind(state.sourceTarget);
+
+  if (sourceTargetKind) {
+    desired.push({ kind: "belongs_to", targetKind: sourceTargetKind, targetDisplayId: state.sourceTarget.ref });
+  }
+
+  // Linked tickets are active plan membership; context tickets remain loose references.
+  for (const ticketId of normalizeStringList(state.linkedTickets.map((link) => link.ticketId))) {
+    desired.push({ kind: "belongs_to", targetKind: "ticket", targetDisplayId: ticketId });
+  }
+
+  for (const ticketId of normalizeStringList(state.contextRefs.ticketIds)) {
+    if (state.linkedTickets.some((link) => link.ticketId === ticketId)) {
+      continue;
+    }
+    desired.push({ kind: "references", targetKind: "ticket", targetDisplayId: ticketId });
+  }
+
+  for (const initiativeId of state.contextRefs.initiativeIds) {
+    if (sourceTargetKind === "initiative" && initiativeId === state.sourceTarget.ref) {
+      continue;
+    }
+    desired.push({ kind: "references", targetKind: "initiative", targetDisplayId: initiativeId });
+  }
+
+  for (const researchId of state.contextRefs.researchIds) {
+    if (sourceTargetKind === "research" && researchId === state.sourceTarget.ref) {
+      continue;
+    }
+    desired.push({ kind: "references", targetKind: "research", targetDisplayId: researchId });
+  }
+
+  for (const specChangeId of state.contextRefs.specChangeIds) {
+    if (sourceTargetKind === "spec_change" && specChangeId === state.sourceTarget.ref) {
+      continue;
+    }
+    desired.push({ kind: "references", targetKind: "spec_change", targetDisplayId: specChangeId });
+  }
+
+  for (const critiqueId of state.contextRefs.critiqueIds) {
+    desired.push({ kind: "references", targetKind: "critique", targetDisplayId: critiqueId });
+  }
+
+  for (const docId of state.contextRefs.docIds) {
+    desired.push({ kind: "references", targetKind: "documentation", targetDisplayId: docId });
+  }
+
+  return desired;
 }
 
 interface ResolvedPlanContext {
@@ -318,22 +381,9 @@ export class PlanStore {
     }
   }
 
-  private safeReadCritique(id: string): CritiqueReadResult | null {
-    try {
-      return createCritiqueStore(this.cwd).readCritique(id);
-    } catch {
-      return null;
-    }
-  }
-
   private async safeReadCritiqueAsync(id: string): Promise<CritiqueReadResult | null> {
     try {
-      const { storage, identity } = await openWorkspaceStorage(this.cwd);
-      const entity = await findEntityByDisplayId(storage, identity.space.id, "critique", id);
-      if (!entity) {
-        return createCritiqueStore(this.cwd).readCritique(id);
-      }
-      return (entity.attributes as { record: CritiqueReadResult }).record;
+      return await createCritiqueStore(this.cwd).readCritiqueAsync(id);
     } catch {
       return null;
     }
@@ -684,10 +734,24 @@ export class PlanStore {
 
   private async persistCanonical(state: PlanState): Promise<PlanReadResult> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    return storage.transact((tx) => this.persistCanonicalWithStorage(tx, identity, state));
+  }
+
+  private async persistCanonicalWithStorage(
+    storage: LoomCanonicalStorage,
+    identity: Awaited<ReturnType<typeof openWorkspaceStorage>>["identity"],
+    state: PlanState,
+  ): Promise<PlanReadResult> {
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.planId);
     const version = (existing?.version ?? 0) + 1;
     const record = await this.materializeCanonical(state);
-    await upsertEntityByDisplayId(storage, {
+    await assertProjectedEntityLinksResolvable({
+      storage,
+      spaceId: identity.space.id,
+      projectionOwner: PLAN_PROJECTION_OWNER,
+      desired: projectedLinksForPlan(record.state),
+    });
+    const entity = await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -700,6 +764,14 @@ export class PlanStore {
       attributes: { state: record.state },
       createdAt: existing?.createdAt ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
+    });
+    await syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId: entity.id,
+      projectionOwner: PLAN_PROJECTION_OWNER,
+      desired: projectedLinksForPlan(record.state),
+      timestamp: record.state.updatedAt,
     });
     return record;
   }
@@ -730,28 +802,30 @@ export class PlanStore {
       }
       throw new Error(`Plan entity ${entity.displayId} is missing structured attributes`);
     }
-    return summaries.filter(({ summary, state }) => {
-      if (filter.status && summary.status !== filter.status) {
-        return false;
-      }
-      if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
-        return false;
-      }
-      if (filter.linkedTicketId) {
-        const linkedTicketId = filter.linkedTicketId.trim();
-        if (!state.linkedTickets.some((link) => link.ticketId === linkedTicketId)) {
+    return summaries
+      .filter(({ summary, state }) => {
+        if (filter.status && summary.status !== filter.status) {
           return false;
         }
-      }
-      if (!filter.text) {
-        return true;
-      }
-      const text = filter.text.toLowerCase();
-      return [summary.id, summary.title, summary.summary, summary.sourceRef, summary.sourceKind]
-        .join(" ")
-        .toLowerCase()
-        .includes(text);
-    }).map(({ summary }) => summary);
+        if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
+          return false;
+        }
+        if (filter.linkedTicketId) {
+          const linkedTicketId = filter.linkedTicketId.trim();
+          if (!state.linkedTickets.some((link) => link.ticketId === linkedTicketId)) {
+            return false;
+          }
+        }
+        if (!filter.text) {
+          return true;
+        }
+        const text = filter.text.toLowerCase();
+        return [summary.id, summary.title, summary.summary, summary.sourceRef, summary.sourceKind]
+          .join(" ")
+          .toLowerCase()
+          .includes(text);
+      })
+      .map(({ summary }) => summary);
   }
 
   async readPlan(ref: string): Promise<PlanReadResult> {
@@ -839,8 +913,7 @@ export class PlanStore {
   async linkPlanTicket(ref: string, input: LinkPlanTicketInput): Promise<PlanReadResult> {
     const current = await this.readPlan(ref);
     const ticketStore = createTicketStore(this.cwd);
-    const ticket = await ticketStore.readTicketAsync(input.ticketId);
-    const ticketId = ticket.summary.id;
+    const ticketId = ticketStore.resolveTicketRef(input.ticketId);
     const existing = current.state.linkedTickets.find((link) => link.ticketId === ticketId);
     const otherLinks = current.state.linkedTickets.filter((link) => link.ticketId !== ticketId);
     const maxOrder = otherLinks.reduce((max, link) => Math.max(max, link.order), 0);
@@ -853,12 +926,7 @@ export class PlanStore {
       },
     ]);
 
-    const externalRef = `plan:${current.state.planId}`;
-    if (!ticket.ticket.frontmatter["external-refs"].includes(externalRef)) {
-      await ticketStore.addExternalRefAsync(ticketId, externalRef);
-    }
-
-    return this.persistCanonical({
+    const nextState: PlanState = {
       ...current.state,
       linkedTickets: nextLinks,
       revisionNotes: appendRevisionNote(
@@ -869,13 +937,32 @@ export class PlanStore {
         ),
       ),
       updatedAt: currentTimestamp(),
+    };
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    await assertProjectedEntityLinksResolvable({
+      storage,
+      spaceId: identity.space.id,
+      projectionOwner: PLAN_PROJECTION_OWNER,
+      desired: projectedLinksForPlan(nextState),
+    });
+    const externalRef = `plan:${current.state.planId}`;
+    return storage.transact(async (tx) => {
+      const persisted = await this.persistCanonicalWithStorage(tx, identity, nextState);
+      await ticketStore.syncExternalRefWithStorage(tx, identity, ticketId, externalRef, true);
+      return persisted;
     });
   }
 
   async unlinkPlanTicket(ref: string, ticketRef: string): Promise<PlanReadResult> {
     const current = await this.readPlan(ref);
-    const ticketId = (await createTicketStore(this.cwd).readTicketAsync(ticketRef)).summary.id;
-    return this.persistCanonical({
+    const ticketStore = createTicketStore(this.cwd);
+    let ticketId: string;
+    try {
+      ticketId = (await ticketStore.readTicketAsync(ticketRef)).summary.id;
+    } catch {
+      ticketId = ticketStore.resolveTicketRef(ticketRef);
+    }
+    const nextState: PlanState = {
       ...current.state,
       linkedTickets: current.state.linkedTickets.filter((link) => link.ticketId !== ticketId),
       revisionNotes: appendRevisionNote(
@@ -886,6 +973,25 @@ export class PlanStore {
         ),
       ),
       updatedAt: currentTimestamp(),
+    };
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    await assertProjectedEntityLinksResolvable({
+      storage,
+      spaceId: identity.space.id,
+      projectionOwner: PLAN_PROJECTION_OWNER,
+      desired: projectedLinksForPlan(nextState),
+    });
+    return storage.transact(async (tx) => {
+      const persisted = await this.persistCanonicalWithStorage(tx, identity, nextState);
+      try {
+        await ticketStore.syncExternalRefWithStorage(tx, identity, ticketId, `plan:${current.state.planId}`, false);
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.startsWith("Unknown ticket:")) {
+          throw error;
+        }
+        // Missing tickets have no backlink left to remove; the plan cleanup can still proceed.
+      }
+      return persisted;
     });
   }
 

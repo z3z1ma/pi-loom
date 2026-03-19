@@ -4,6 +4,8 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { buildConstitutionalDashboard } from "./dashboard.js";
@@ -45,6 +47,7 @@ import {
 } from "./render.js";
 
 const CONSTITUTION_ENTITY_DISPLAY_ID = "constitution";
+const CONSTITUTION_LINK_PROJECTION_OWNER = "constitution-store";
 
 const MISSING_QUESTIONS = {
   vision: "Define the durable project vision.",
@@ -129,6 +132,32 @@ function normalizeRoadmapRef(ref: string): string {
   const basename = path.basename(ref.trim());
   const itemId = basename.toLowerCase().endsWith(".md") ? basename.slice(0, -3) : basename;
   return normalizeRoadmapItemId(itemId);
+}
+
+function buildProjectedReferenceLinks(state: ConstitutionalState): ProjectedEntityLinkInput[] {
+  return [
+    ...state.initiativeIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "initiative",
+        targetDisplayId,
+      }),
+    ),
+    ...state.researchIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "research",
+        targetDisplayId,
+      }),
+    ),
+    ...state.specChangeIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "spec_change",
+        targetDisplayId,
+      }),
+    ),
+  ];
 }
 
 export class ConstitutionalStore {
@@ -277,7 +306,7 @@ export class ConstitutionalStore {
       CONSTITUTION_ENTITY_DISPLAY_ID,
     );
     const version = (existing?.version ?? 0) + 1;
-    await upsertEntityByDisplayId(storage, {
+    const entity = await upsertEntityByDisplayId(storage, {
       kind: "constitution",
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -290,6 +319,15 @@ export class ConstitutionalStore {
       attributes: { state: normalized },
       createdAt: existing?.createdAt ?? normalized.createdAt,
       updatedAt: normalized.updatedAt,
+    });
+    await syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId: entity.id,
+      projectionOwner: CONSTITUTION_LINK_PROJECTION_OWNER,
+      // Roadmap items stay embedded in the aggregate for phase 1; only canonical entity ids project into links.
+      desired: buildProjectedReferenceLinks(normalized),
+      timestamp: normalized.updatedAt,
     });
     return this.materializeArtifacts(normalized, decisions);
   }

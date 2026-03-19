@@ -1,4 +1,4 @@
-export const LOOM_STORAGE_CONTRACT_VERSION = 2 as const;
+export const LOOM_STORAGE_CONTRACT_VERSION = 3 as const;
 
 export const LOOM_ENTITY_KINDS = [
   "constitution",
@@ -145,6 +145,7 @@ export interface LoomCanonicalStorage {
   upsertWorktree(record: LoomWorktreeRecord): Promise<void>;
   upsertEntity(record: LoomEntityRecord): Promise<void>;
   upsertLink(record: LoomEntityLinkRecord): Promise<void>;
+  removeLink(id: LoomId): Promise<void>;
   appendEvent(record: LoomEntityEventRecord): Promise<void>;
   upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void>;
   removeRuntimeAttachment(id: LoomId): Promise<void>;

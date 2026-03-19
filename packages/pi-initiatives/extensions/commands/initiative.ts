@@ -71,6 +71,9 @@ function parseUpdateArgs(parts: string[]): { ref: string; updates: UpdateInitiat
       case "tags":
         updates.tags = parseList(value);
         break;
+      case "researchIds":
+        updates.researchIds = parseList(value);
+        break;
       case "specChangeIds":
         updates.specChangeIds = parseList(value);
         break;

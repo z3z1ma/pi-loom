@@ -10,11 +10,10 @@ import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/mode
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
-import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
-import {
-  findEntityByDisplayId,
-  upsertEntityByDisplayId,
-} from "@pi-loom/pi-storage/storage/entities.js";
+import type { LoomEntityKind, LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
+import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
@@ -44,12 +43,10 @@ import {
   slugifyTitle,
   summarizeDocument,
 } from "./normalize.js";
-import {
-  getDocumentationPaths,
-} from "./paths.js";
 import { renderDocumentationMarkdown } from "./render.js";
 
 const ENTITY_KIND = "documentation" as const;
+const DOCUMENTATION_LINK_PROJECTION_OWNER = "documentation-store" as const;
 
 interface DocumentationEntityAttributes {
   record: DocumentationReadResult;
@@ -126,6 +123,67 @@ function deriveContextRefsFromCritique(critique: CritiqueReadResult): DocsContex
   });
 }
 
+function canonicalEntityKindForDocSourceTarget(
+  kind: DocumentationState["sourceTarget"]["kind"],
+): LoomEntityKind | null {
+  switch (kind) {
+    case "initiative":
+      return "initiative";
+    case "spec":
+      return "spec_change";
+    case "ticket":
+      return "ticket";
+    case "critique":
+      return "critique";
+    case "workspace":
+      return null;
+  }
+}
+
+function projectedDocumentationLinks(state: DocumentationState): ProjectedEntityLinkInput[] {
+  const links: ProjectedEntityLinkInput[] = [];
+  const sourceTargetKind = canonicalEntityKindForDocSourceTarget(state.sourceTarget.kind);
+
+  if (sourceTargetKind) {
+    links.push({
+      kind: "documents",
+      targetKind: sourceTargetKind,
+      targetDisplayId: state.sourceTarget.ref,
+    });
+  }
+
+  // Workspace docs and roadmap refs do not map to canonical entity kinds yet, so only project resolvable entity refs.
+  links.push(
+    ...normalizeStringList(state.contextRefs.initiativeIds).map((initiativeId) => ({
+      kind: "references" as const,
+      targetKind: "initiative" as const,
+      targetDisplayId: initiativeId,
+    })),
+    ...normalizeStringList(state.contextRefs.researchIds).map((researchId) => ({
+      kind: "references" as const,
+      targetKind: "research" as const,
+      targetDisplayId: researchId,
+    })),
+    ...normalizeStringList(state.contextRefs.specChangeIds).map((changeId) => ({
+      kind: "references" as const,
+      targetKind: "spec_change" as const,
+      targetDisplayId: changeId,
+    })),
+    ...normalizeStringList(state.contextRefs.ticketIds).map((ticketId) => ({
+      kind: "references" as const,
+      targetKind: "ticket" as const,
+      targetDisplayId: ticketId,
+    })),
+    ...normalizeStringList(state.contextRefs.critiqueIds).map((critiqueId) => ({
+      kind: "references" as const,
+      targetKind: "critique" as const,
+      targetDisplayId: critiqueId,
+    })),
+  );
+
+  return links;
+}
+
 interface ResolvedDocumentationContext {
   sourceSummary: string;
   contextRefs: DocsContextRefs;
@@ -160,7 +218,7 @@ export class DocumentationStore {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
     const version = (existing?.version ?? 0) + 1;
-    await upsertEntityByDisplayId(storage, {
+    const entity = await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -173,6 +231,14 @@ export class DocumentationStore {
       attributes: { record: canonicalRecord },
       createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
       updatedAt: canonicalRecord.state.updatedAt,
+    });
+    await syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId: entity.id,
+      projectionOwner: DOCUMENTATION_LINK_PROJECTION_OWNER,
+      desired: projectedDocumentationLinks(canonicalRecord.state),
+      timestamp: canonicalRecord.state.updatedAt,
     });
     return canonicalRecord;
   }
@@ -658,7 +724,10 @@ export class DocumentationStore {
     const state = this.createDefaultState(input, docId, timestamp);
     return this.upsertCanonicalRecord(
       await this.buildCanonicalRecord({
-        state: { ...state, summary: state.summary || summarizeDocument(input.document?.trim() || this.defaultDocumentBody(state)) },
+        state: {
+          ...state,
+          summary: state.summary || summarizeDocument(input.document?.trim() || this.defaultDocumentBody(state)),
+        },
         revisions: [],
         documentBody: input.document?.trim() || this.defaultDocumentBody(state),
       }),
@@ -667,7 +736,10 @@ export class DocumentationStore {
 
   async updateDoc(ref: string, input: UpdateDocumentationInput): Promise<DocumentationReadResult> {
     const current = await this.readDoc(ref);
-    const documentBody = input.document?.trim() || this.extractDocumentBody(current.document, current.dashboard.documentRef) || this.defaultDocumentBody(current.state);
+    const documentBody =
+      input.document?.trim() ||
+      this.extractDocumentBody(current.document, current.dashboard.documentRef) ||
+      this.defaultDocumentBody(current.state);
     const nextState: DocumentationState = {
       ...current.state,
       title: input.title?.trim() ?? current.state.title,
@@ -675,27 +747,36 @@ export class DocumentationStore {
       summary: input.summary?.trim() ?? (input.document ? summarizeDocument(documentBody) : current.state.summary),
       audience: input.audience ? normalizeAudience(input.audience) : current.state.audience,
       scopePaths: input.scopePaths ? normalizeStringList(input.scopePaths) : current.state.scopePaths,
-      contextRefs: input.contextRefs ? mergeContextRefs(current.state.contextRefs, input.contextRefs) : current.state.contextRefs,
+      contextRefs: input.contextRefs
+        ? mergeContextRefs(current.state.contextRefs, input.contextRefs)
+        : current.state.contextRefs,
       sourceTarget: input.sourceTarget
         ? { kind: normalizeSourceTargetKind(input.sourceTarget.kind), ref: input.sourceTarget.ref.trim() }
         : current.state.sourceTarget,
       updateReason: input.updateReason?.trim() ?? current.state.updateReason,
       guideTopics: input.guideTopics ? normalizeStringList(input.guideTopics) : current.state.guideTopics,
-      linkedOutputPaths: input.linkedOutputPaths ? normalizeStringList(input.linkedOutputPaths) : current.state.linkedOutputPaths,
+      linkedOutputPaths: input.linkedOutputPaths
+        ? normalizeStringList(input.linkedOutputPaths)
+        : current.state.linkedOutputPaths,
     };
     const revisions = !input.document
       ? current.revisions
       : [
           ...current.revisions,
           {
-            id: nextSequenceId(current.revisions.map((entry) => entry.id), "rev"),
+            id: nextSequenceId(
+              current.revisions.map((entry) => entry.id),
+              "rev",
+            ),
             docId: current.state.docId,
             createdAt: nextState.updatedAt,
             reason: nextState.updateReason,
             summary: nextState.summary || summarizeDocument(documentBody),
             sourceTarget: nextState.sourceTarget,
             packetHash: packetHash(current.packet),
-            changedSections: input.changedSections ? normalizeStringList(input.changedSections) : extractMarkdownSections(documentBody),
+            changedSections: input.changedSections
+              ? normalizeStringList(input.changedSections)
+              : extractMarkdownSections(documentBody),
             linkedContextRefs: nextState.contextRefs,
           },
         ];
@@ -713,7 +794,9 @@ export class DocumentationStore {
       await this.buildCanonicalRecord({
         state: { ...current.state, status: "archived", updatedAt: currentTimestamp() },
         revisions: current.revisions,
-        documentBody: this.extractDocumentBody(current.document, current.dashboard.documentRef) || this.defaultDocumentBody(current.state),
+        documentBody:
+          this.extractDocumentBody(current.document, current.dashboard.documentRef) ||
+          this.defaultDocumentBody(current.state),
       }),
     );
   }

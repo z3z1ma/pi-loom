@@ -1,4 +1,4 @@
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { ConstitutionalRecord } from "@pi-loom/pi-constitution/extensions/domain/models.js";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import type { InitiativeRecord } from "@pi-loom/pi-initiatives/extensions/domain/models.js";
@@ -6,14 +6,13 @@ import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain
 import type { ResearchRecord } from "@pi-loom/pi-research/extensions/domain/models.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
-import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
+import type { LoomEntityKind, LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
+import { findEntityByDisplayId, upsertEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
-import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
-import {
-  findEntityByDisplayId,
-  upsertEntityByDisplayId,
-} from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
+import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { CreateTicketInput, TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
@@ -56,17 +55,11 @@ import {
   normalizeVerdict,
   slugifyTitle,
 } from "./normalize.js";
-import {
-  getCritiqueDir,
-  getCritiqueFindingsPath,
-  getCritiqueMarkdownPath,
-  getCritiquePaths,
-  getCritiqueRunsPath,
-  getCritiqueStatePath,
-} from "./paths.js";
+import { getCritiqueDir } from "./paths.js";
 import { renderCritiqueMarkdown, renderLaunchDescriptor } from "./render.js";
 
 const ENTITY_KIND = "critique" as const;
+const CRITIQUE_LINK_PROJECTION_OWNER = "critique-store";
 
 interface CritiqueEntityAttributes {
   record: CritiqueReadResult;
@@ -154,11 +147,6 @@ function excerpt(value: string, limit = 280): string {
   return `${normalized.slice(0, limit - 1)}…`;
 }
 
-function relativeToWorkspace(cwd: string, filePath: string): string {
-  const relativePath = relative(cwd, filePath);
-  return relativePath || ".";
-}
-
 function toCritiquePacketRef(critiqueId: string): string {
   return `critique:${critiqueId}:packet`;
 }
@@ -223,6 +211,77 @@ function deriveContextRefsFromConstitution(constitution: ConstitutionalRecord): 
     researchIds: constitution.state.researchIds,
     specChangeIds: constitution.state.specChangeIds,
   });
+}
+
+function critiqueTargetEntityKind(targetKind: CritiqueTargetRef["kind"]): LoomEntityKind | null {
+  switch (targetKind) {
+    case "ticket":
+      return "ticket";
+    case "spec":
+      return "spec_change";
+    case "initiative":
+      return "initiative";
+    case "research":
+      return "research";
+    case "constitution":
+      return "constitution";
+    case "artifact":
+      return "artifact";
+    case "workspace":
+      return null;
+  }
+}
+
+function buildProjectedCritiqueLinks(state: CritiqueState): ProjectedEntityLinkInput[] {
+  const desired: ProjectedEntityLinkInput[] = [
+    ...state.contextRefs.initiativeIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "initiative",
+        targetDisplayId,
+      }),
+    ),
+    ...state.contextRefs.researchIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "research",
+        targetDisplayId,
+      }),
+    ),
+    ...state.contextRefs.specChangeIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "spec_change",
+        targetDisplayId,
+      }),
+    ),
+    ...state.contextRefs.ticketIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "ticket",
+        targetDisplayId,
+      }),
+    ),
+    ...state.followupTicketIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "ticket",
+        targetDisplayId,
+      }),
+    ),
+  ];
+
+  const targetKind = critiqueTargetEntityKind(state.target.kind);
+  if (targetKind) {
+    desired.unshift({
+      kind: "critiques",
+      // Critique targets still use the legacy "spec" label in aggregates; canonical links project the real entity kind.
+      targetKind,
+      targetDisplayId: state.target.ref,
+    });
+  }
+
+  return desired;
 }
 
 function ticketTypeForFinding(kind: CritiqueFindingRecord["kind"]): CreateTicketInput["type"] {
@@ -402,20 +461,6 @@ export class CritiqueStore {
     return hasStructuredCritiqueAttributes(attributes) ? attributes.record.launch : null;
   }
 
-  private writeState(critiqueId: string, state: CritiqueState): void {
-    void critiqueId;
-    void state;
-  }
-
-  private writeLaunch(critiqueId: string, launch: CritiqueLaunchDescriptor): void {
-    void critiqueId;
-    void launch;
-  }
-
-  private constitutionExists(): boolean {
-    return this.readConstitutionIfPresent() !== null;
-  }
-
   private readConstitutionIfPresent(): ConstitutionalRecord | null {
     const attributes = readStructuredEntityAttributesSync<{ state: ConstitutionalRecord["state"] }>(
       this.cwd,
@@ -434,7 +479,11 @@ export class CritiqueStore {
   }
 
   private safeReadInitiative(id: string): InitiativeRecord | null {
-    const attributes = readStructuredEntityAttributesSync<{ state: InitiativeRecord["state"] }>(this.cwd, "initiative", id);
+    const attributes = readStructuredEntityAttributesSync<{ state: InitiativeRecord["state"] }>(
+      this.cwd,
+      "initiative",
+      id,
+    );
     return attributes
       ? ({
           state: attributes.state,
@@ -1136,7 +1185,9 @@ export class CritiqueStore {
     const { storage, identity } = openCritiqueCatalogSync(this.cwd);
     const existing = findStoredCritiqueRow(this.cwd, critiqueId);
     void storage.upsertEntity({
-      id: existing?.id ?? createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+      id:
+        existing?.id ??
+        createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -1150,6 +1201,17 @@ export class CritiqueStore {
       createdAt: existing?.created_at ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
     });
+    void syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId:
+        existing?.id ??
+        createEntityId(ENTITY_KIND, identity.space.id, record.summary.id, `${ENTITY_KIND}:${record.summary.id}`),
+      projectionOwner: CRITIQUE_LINK_PROJECTION_OWNER,
+      // Context roadmap refs resolve to embedded constitution items, so phase 1 projects only canonical entity relationships.
+      desired: buildProjectedCritiqueLinks(record.state),
+      timestamp: record.state.updatedAt,
+    }).catch(() => undefined);
     return record;
   }
   private createDefaultState(input: CreateCritiqueInput, critiqueId: string, timestamp: string): CritiqueState {
@@ -1221,7 +1283,11 @@ export class CritiqueStore {
     if (!hasStructuredCritiqueAttributes(attributes)) {
       throw new Error(`Critique ${critiqueId} is missing structured attributes`);
     }
-    return this.writeArtifacts(attributes.record.state, attributes.record.runs, latestFindings(attributes.record.findings));
+    return this.writeArtifacts(
+      attributes.record.state,
+      attributes.record.runs,
+      latestFindings(attributes.record.findings),
+    );
   }
 
   createCritique(input: CreateCritiqueInput): CritiqueReadResult {
@@ -1446,19 +1512,29 @@ export class CritiqueStore {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
     const version = (existing?.version ?? 0) + 1;
-    await upsertEntityByDisplayId(storage, {
+    const entity = await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
       displayId: canonicalRecord.summary.id,
       title: canonicalRecord.summary.title,
-      summary: canonicalRecord.state.reviewQuestion || canonicalRecord.state.packetSummary || canonicalRecord.summary.title,
+      summary:
+        canonicalRecord.state.reviewQuestion || canonicalRecord.state.packetSummary || canonicalRecord.summary.title,
       status: canonicalRecord.summary.status,
       version,
       tags: canonicalRecord.summary.focusAreas,
       attributes: { record: canonicalRecord },
       createdAt: existing?.createdAt ?? canonicalRecord.state.createdAt,
       updatedAt: canonicalRecord.state.updatedAt,
+    });
+    await syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId: entity.id,
+      projectionOwner: CRITIQUE_LINK_PROJECTION_OWNER,
+      // Context roadmap refs resolve to embedded constitution items, so phase 1 projects only canonical entity relationships.
+      desired: buildProjectedCritiqueLinks(canonicalRecord.state),
+      timestamp: canonicalRecord.state.updatedAt,
     });
     return canonicalRecord;
   }

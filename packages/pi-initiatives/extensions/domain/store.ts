@@ -1,13 +1,18 @@
 import { resolve } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
+import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
+import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import {
   appendEntityEvent,
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildInitiativeDashboard } from "./dashboard.js";
 import type {
@@ -34,14 +39,23 @@ import {
   normalizeStringList,
   slugifyTitle,
 } from "./normalize.js";
-import { getInitiativeDir, getInitiativesPaths } from "./paths.js";
+import { getInitiativeDir } from "./paths.js";
 import { renderInitiativeMarkdown } from "./render.js";
 
 const ENTITY_KIND = "initiative" as const;
+const INITIATIVE_LINK_PROJECTION_OWNER = "initiative-store";
 
 interface InitiativeEntityAttributes {
   state: InitiativeState;
   decisions: InitiativeDecisionRecord[];
+}
+
+interface SqliteMutationTarget {
+  db: {
+    prepare(sql: string): {
+      run(...params: unknown[]): unknown;
+    };
+  };
 }
 
 function hasStructuredInitiativeAttributes(attributes: unknown): attributes is InitiativeEntityAttributes {
@@ -79,6 +93,32 @@ function normalizeMilestone(input: InitiativeMilestoneInput, existingIds: string
   };
 }
 
+function buildProjectedReferenceLinks(state: InitiativeState): ProjectedEntityLinkInput[] {
+  return [
+    ...state.researchIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "research",
+        targetDisplayId,
+      }),
+    ),
+    ...state.specChangeIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "spec_change",
+        targetDisplayId,
+      }),
+    ),
+    ...state.ticketIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "ticket",
+        targetDisplayId,
+      }),
+    ),
+  ];
+}
+
 export class InitiativeStore {
   readonly cwd: string;
 
@@ -112,7 +152,7 @@ export class InitiativeStore {
       targetWindow: normalizeOptionalString(input.targetWindow),
       owners: normalizeStringList(input.owners),
       tags: normalizeStringList(input.tags),
-      researchIds: [],
+      researchIds: normalizeStringList(input.researchIds),
       specChangeIds: normalizeStringList(input.specChangeIds),
       ticketIds: normalizeStringList(input.ticketIds),
       capabilityIds: normalizeStringList(input.capabilityIds),
@@ -121,10 +161,7 @@ export class InitiativeStore {
     };
   }
 
-  private async buildRecord(
-    state: InitiativeState,
-    decisions: InitiativeDecisionRecord[],
-  ): Promise<InitiativeRecord> {
+  private async buildRecord(state: InitiativeState, decisions: InitiativeDecisionRecord[]): Promise<InitiativeRecord> {
     const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
     const dashboard = await buildInitiativeDashboard(this.cwd, state);
     return {
@@ -177,19 +214,36 @@ export class InitiativeStore {
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.initiativeId);
     const version = (existing?.version ?? 0) + 1;
     const record = await this.buildRecord(state, decisions);
-    await upsertEntityByDisplayId(storage, {
-      kind: ENTITY_KIND,
+    await assertProjectedEntityLinksResolvable({
+      storage,
       spaceId: identity.space.id,
-      owningRepositoryId: identity.repository.id,
-      displayId: record.state.initiativeId,
-      title: record.state.title,
-      summary: record.state.statusSummary || record.state.objective,
-      status: record.state.status,
-      version,
-      tags: record.state.tags,
-      attributes: { state: record.state, decisions: record.decisions },
-      createdAt: existing?.createdAt ?? record.state.createdAt,
-      updatedAt: record.state.updatedAt,
+      projectionOwner: INITIATIVE_LINK_PROJECTION_OWNER,
+      desired: buildProjectedReferenceLinks(record.state),
+    });
+    await storage.transact(async (tx) => {
+      const entity = await upsertEntityByDisplayId(tx, {
+        kind: ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: record.state.initiativeId,
+        title: record.state.title,
+        summary: record.state.statusSummary || record.state.objective,
+        status: record.state.status,
+        version,
+        tags: record.state.tags,
+        attributes: { state: record.state, decisions: record.decisions },
+        createdAt: existing?.createdAt ?? record.state.createdAt,
+        updatedAt: record.state.updatedAt,
+      });
+      await syncProjectedEntityLinks({
+        storage: tx,
+        spaceId: identity.space.id,
+        fromEntityId: entity.id,
+        projectionOwner: INITIATIVE_LINK_PROJECTION_OWNER,
+        // Roadmap refs point at embedded constitution items, so phase 1 projects only canonical entity relationships.
+        desired: buildProjectedReferenceLinks(record.state),
+        timestamp: record.state.updatedAt,
+      });
     });
     return record;
   }
@@ -198,8 +252,16 @@ export class InitiativeStore {
     const store = createSpecStore(this.cwd);
     const impactedIds = normalizeStringList([...previousIds, ...nextIds]);
     for (const changeId of impactedIds) {
-      const change = await store.readChange(changeId);
       const shouldLink = nextIds.includes(changeId);
+      let change: SpecChangeRecord;
+      try {
+        change = await store.readChange(changeId);
+      } catch (error) {
+        if (!shouldLink && error instanceof Error && error.message.startsWith("Unknown spec change:")) {
+          continue;
+        }
+        throw error;
+      }
       const nextInitiativeIds = shouldLink
         ? normalizeStringList([...change.state.initiativeIds, initiativeId])
         : change.state.initiativeIds.filter((id) => id !== initiativeId);
@@ -213,8 +275,16 @@ export class InitiativeStore {
     const store = createTicketStore(this.cwd);
     const impactedIds = normalizeStringList([...previousIds, ...nextIds]);
     for (const ticketId of impactedIds) {
-      const ticket = await store.readTicketAsync(ticketId);
       const shouldLink = nextIds.includes(ticketId);
+      let ticket: TicketReadResult;
+      try {
+        ticket = await store.readTicketAsync(ticketId);
+      } catch (error) {
+        if (!shouldLink && error instanceof Error && error.message.startsWith("Unknown ticket:")) {
+          continue;
+        }
+        throw error;
+      }
       const nextInitiativeIds = shouldLink
         ? normalizeStringList([...ticket.summary.initiativeIds, initiativeId])
         : ticket.summary.initiativeIds.filter((id) => id !== initiativeId);
@@ -251,6 +321,53 @@ export class InitiativeStore {
     await this.syncRoadmapMembership(initiativeId, previousRoadmapRefs, nextRoadmapRefs);
     await this.syncSpecMembership(initiativeId, previousSpecIds, nextSpecIds);
     await this.syncTicketMembership(initiativeId, previousTicketIds, nextTicketIds);
+  }
+
+  private async validateLinkedTargets(
+    researchIds: string[],
+    specChangeIds: string[],
+    ticketIds: string[],
+  ): Promise<void> {
+    const researchStore = createResearchStore(this.cwd);
+    const specStore = createSpecStore(this.cwd);
+    const ticketStore = createTicketStore(this.cwd);
+    await Promise.all([
+      ...normalizeStringList(researchIds).map((researchId) => researchStore.readResearch(researchId)),
+      ...normalizeStringList(specChangeIds).map((specChangeId) => specStore.readChange(specChangeId)),
+      ...normalizeStringList(ticketIds).map((ticketId) => ticketStore.readTicketAsync(ticketId)),
+    ]);
+  }
+
+  private async persistAndSyncMemberships(
+    previous: InitiativeState,
+    next: InitiativeState,
+    decisions: InitiativeDecisionRecord[],
+  ): Promise<InitiativeRecord> {
+    const persisted = await this.persistRecord(next, decisions);
+    try {
+      await this.syncLinkedEntities(
+        next.initiativeId,
+        previous.roadmapRefs,
+        previous.specChangeIds,
+        previous.ticketIds,
+        next.roadmapRefs,
+        next.specChangeIds,
+        next.ticketIds,
+      );
+      return persisted;
+    } catch (error) {
+      await this.syncLinkedEntities(
+        next.initiativeId,
+        next.roadmapRefs,
+        next.specChangeIds,
+        next.ticketIds,
+        previous.roadmapRefs,
+        previous.specChangeIds,
+        previous.ticketIds,
+      );
+      await this.persistRecord(previous, decisions);
+      throw error;
+    }
   }
 
   async listInitiatives(filter: InitiativeListFilter = {}): Promise<InitiativeSummary[]> {
@@ -292,24 +409,42 @@ export class InitiativeStore {
     const timestamp = currentTimestamp();
     const state = this.defaultState(input, timestamp);
     state.roadmapRefs = await createConstitutionalStore(this.cwd).validateRoadmapRefs(input.roadmapRefs ?? []);
-    await this.syncLinkedEntities(
-      state.initiativeId,
-      [],
-      [],
-      [],
-      state.roadmapRefs,
-      state.specChangeIds,
-      state.ticketIds,
-    );
-    return this.persistRecord(state, []);
+    await this.validateLinkedTargets(state.researchIds, state.specChangeIds, state.ticketIds);
+    const created = await this.persistRecord(state, []);
+    try {
+      await this.syncLinkedEntities(
+        state.initiativeId,
+        [],
+        [],
+        [],
+        state.roadmapRefs,
+        state.specChangeIds,
+        state.ticketIds,
+      );
+      return created;
+    } catch (error) {
+      await this.syncLinkedEntities(
+        state.initiativeId,
+        state.roadmapRefs,
+        state.specChangeIds,
+        state.ticketIds,
+        [],
+        [],
+        [],
+      );
+      const { storage, identity } = await openWorkspaceStorage(this.cwd);
+      const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, created.state.initiativeId);
+      if (entity) {
+        (storage as unknown as SqliteMutationTarget).db.prepare("DELETE FROM entities WHERE id = ?").run(entity.id);
+      }
+      throw error;
+    }
   }
 
   async updateInitiative(ref: string, updates: UpdateInitiativeInput): Promise<InitiativeRecord> {
     const record = await this.loadRecord(ref);
     const state = { ...record.state };
-    const previousRoadmapRefs = [...state.roadmapRefs];
-    const previousSpecIds = [...state.specChangeIds];
-    const previousTicketIds = [...state.ticketIds];
+    const previousState = { ...state };
     if (updates.title !== undefined) state.title = updates.title.trim();
     if (updates.status !== undefined) {
       state.status = normalizeStatus(updates.status);
@@ -326,6 +461,7 @@ export class InitiativeStore {
     if (updates.targetWindow !== undefined) state.targetWindow = normalizeOptionalString(updates.targetWindow);
     if (updates.owners !== undefined) state.owners = normalizeStringList(updates.owners);
     if (updates.tags !== undefined) state.tags = normalizeStringList(updates.tags);
+    if (updates.researchIds !== undefined) state.researchIds = normalizeStringList(updates.researchIds);
     if (updates.specChangeIds !== undefined) state.specChangeIds = normalizeStringList(updates.specChangeIds);
     if (updates.ticketIds !== undefined) state.ticketIds = normalizeStringList(updates.ticketIds);
     if (updates.capabilityIds !== undefined) state.capabilityIds = normalizeStringList(updates.capabilityIds);
@@ -333,17 +469,9 @@ export class InitiativeStore {
     if (updates.roadmapRefs !== undefined) {
       state.roadmapRefs = await createConstitutionalStore(this.cwd).validateRoadmapRefs(updates.roadmapRefs);
     }
+    await this.validateLinkedTargets(state.researchIds, state.specChangeIds, state.ticketIds);
     state.updatedAt = currentTimestamp();
-    await this.syncLinkedEntities(
-      state.initiativeId,
-      previousRoadmapRefs,
-      previousSpecIds,
-      previousTicketIds,
-      state.roadmapRefs,
-      state.specChangeIds,
-      state.ticketIds,
-    );
-    return this.persistRecord(state, record.decisions);
+    return this.persistAndSyncMemberships(previousState, state, record.decisions);
   }
 
   async setResearchIds(ref: string, researchIds: string[]): Promise<InitiativeRecord> {
@@ -390,50 +518,44 @@ export class InitiativeStore {
 
   async linkSpec(ref: string, specChangeId: string): Promise<InitiativeRecord> {
     const record = await this.loadRecord(ref);
-    const previousSpecIds = [...record.state.specChangeIds];
     const state = {
       ...record.state,
       specChangeIds: normalizeStringList([...record.state.specChangeIds, specChangeId]),
       updatedAt: currentTimestamp(),
     };
-    await this.syncSpecMembership(record.state.initiativeId, previousSpecIds, state.specChangeIds);
-    return this.persistRecord(state, record.decisions);
+    await this.validateLinkedTargets(state.researchIds, state.specChangeIds, state.ticketIds);
+    return this.persistAndSyncMemberships(record.state, state, record.decisions);
   }
 
   async unlinkSpec(ref: string, specChangeId: string): Promise<InitiativeRecord> {
     const record = await this.loadRecord(ref);
-    const previousSpecIds = [...record.state.specChangeIds];
     const state = {
       ...record.state,
       specChangeIds: record.state.specChangeIds.filter((id) => id !== specChangeId.trim()),
       updatedAt: currentTimestamp(),
     };
-    await this.syncSpecMembership(record.state.initiativeId, previousSpecIds, state.specChangeIds);
-    return this.persistRecord(state, record.decisions);
+    return this.persistAndSyncMemberships(record.state, state, record.decisions);
   }
 
   async linkTicket(ref: string, ticketId: string): Promise<InitiativeRecord> {
     const record = await this.loadRecord(ref);
-    const previousTicketIds = [...record.state.ticketIds];
     const state = {
       ...record.state,
       ticketIds: normalizeStringList([...record.state.ticketIds, ticketId]),
       updatedAt: currentTimestamp(),
     };
-    this.syncTicketMembership(record.state.initiativeId, previousTicketIds, state.ticketIds);
-    return this.persistRecord(state, record.decisions);
+    await this.validateLinkedTargets(state.researchIds, state.specChangeIds, state.ticketIds);
+    return this.persistAndSyncMemberships(record.state, state, record.decisions);
   }
 
   async unlinkTicket(ref: string, ticketId: string): Promise<InitiativeRecord> {
     const record = await this.loadRecord(ref);
-    const previousTicketIds = [...record.state.ticketIds];
     const state = {
       ...record.state,
       ticketIds: record.state.ticketIds.filter((id) => id !== ticketId.trim()),
       updatedAt: currentTimestamp(),
     };
-    this.syncTicketMembership(record.state.initiativeId, previousTicketIds, state.ticketIds);
-    return this.persistRecord(state, record.decisions);
+    return this.persistAndSyncMemberships(record.state, state, record.decisions);
   }
 
   async upsertMilestone(ref: string, input: InitiativeMilestoneInput): Promise<InitiativeRecord> {

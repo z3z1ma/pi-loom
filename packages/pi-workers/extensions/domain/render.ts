@@ -135,7 +135,7 @@ export function renderLaunchDescriptor(launch: WorkerRuntimeDescriptor): string 
   return [
     `Worker ${launch.workerId} launch`,
     `Runtime: ${launch.runtime}`,
-    `Workspace path: ${launch.workspacePath}`,
+    `Workspace path: ${launch.workspaceDir}`,
     `Branch/base: ${launch.branch} / ${launch.baseRef}`,
     `Resume: ${launch.resume ? "yes" : "no"}`,
     `Status: ${launch.status}`,

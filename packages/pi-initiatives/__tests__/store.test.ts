@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createResearchStore } from "../../pi-research/extensions/domain/store.js";
 import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
+import { findEntityByDisplayId } from "../../pi-storage/storage/entities.js";
+import { openWorkspaceStorage } from "../../pi-storage/storage/workspace.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { createInitiativeStore } from "../extensions/domain/store.js";
 
@@ -74,6 +76,21 @@ describe("InitiativeStore durable memory", () => {
     expect((await ticketStore.readTicketAsync(blocker.summary.id)).summary.initiativeIds).toEqual([
       "platform-modernization",
     ]);
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const blockerEntity = await findEntityByDisplayId(storage, identity.space.id, "ticket", blocker.summary.id);
+    const initiativeEntity = await findEntityByDisplayId(
+      storage,
+      identity.space.id,
+      "initiative",
+      created.state.initiativeId,
+    );
+    expect(blockerEntity).toBeTruthy();
+    expect(initiativeEntity).toBeTruthy();
+    expect(
+      (await storage.listLinks(blockerEntity?.id ?? "missing")).filter(
+        (link) => link.fromEntityId === blockerEntity?.id && link.toEntityId === initiativeEntity?.id,
+      ),
+    ).toEqual([expect.objectContaining({ kind: "belongs_to" })]);
 
     const linkedResearch = await researchStore.linkInitiative("investigate-theme-migration", "platform-modernization");
     expect(linkedResearch.state.initiativeIds).toEqual(["platform-modernization"]);
@@ -115,4 +132,100 @@ describe("InitiativeStore durable memory", () => {
     expect(archived.brief).toContain("Coordinate the long-horizon modernization program.");
     expect(archived.brief).toContain("## Milestones");
   }, 120000);
+
+  it("awaits ticket membership synchronization before resolving ticket link mutations", async () => {
+    const initiativeStore = createInitiativeStore(workspace);
+    const ticketStore = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T13:00:00.000Z"));
+    const ticket = await ticketStore.createTicketAsync({ title: "Await linkage" });
+    const initiative = await initiativeStore.createInitiative({ title: "Await sync" });
+
+    const storeWithPrivateSync = initiativeStore as unknown as {
+      syncTicketMembership: (initiativeId: string, previousIds: string[], nextIds: string[]) => Promise<void>;
+    };
+    const originalSync = storeWithPrivateSync.syncTicketMembership.bind(initiativeStore);
+
+    let releaseLinkSync: (() => void) | undefined;
+    storeWithPrivateSync.syncTicketMembership = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        releaseLinkSync = resolve;
+      });
+    });
+
+    let linkedSettled = false;
+    const linkedPromise = initiativeStore
+      .linkTicket(initiative.state.initiativeId, ticket.summary.id)
+      .then((result) => {
+        linkedSettled = true;
+        return result;
+      });
+
+    await vi.waitFor(() => expect(storeWithPrivateSync.syncTicketMembership).toHaveBeenCalledTimes(1));
+    expect(linkedSettled).toBe(false);
+    releaseLinkSync?.();
+    await linkedPromise;
+    expect(linkedSettled).toBe(true);
+
+    storeWithPrivateSync.syncTicketMembership = originalSync;
+
+    let releaseUnlinkSync: (() => void) | undefined;
+    storeWithPrivateSync.syncTicketMembership = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        releaseUnlinkSync = resolve;
+      });
+    });
+
+    let unlinkedSettled = false;
+    const unlinkPromise = initiativeStore
+      .unlinkTicket(initiative.state.initiativeId, ticket.summary.id)
+      .then((result) => {
+        unlinkedSettled = true;
+        return result;
+      });
+
+    await vi.waitFor(() => expect(storeWithPrivateSync.syncTicketMembership).toHaveBeenCalledTimes(1));
+    expect(unlinkedSettled).toBe(false);
+    releaseUnlinkSync?.();
+    await unlinkPromise;
+    expect(unlinkedSettled).toBe(true);
+
+    storeWithPrivateSync.syncTicketMembership = originalSync;
+  }, 120000);
+
+  it("rolls back staged initiative membership when create fails after backlink sync starts", async () => {
+    const initiativeStore = createInitiativeStore(workspace);
+    const ticketStore = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T14:00:00.000Z"));
+    const ticket = await ticketStore.createTicketAsync({ title: "Rollback ticket" });
+
+    await expect(
+      initiativeStore.createInitiative({
+        title: "Broken initiative",
+        ticketIds: [ticket.summary.id],
+        specChangeIds: ["missing-spec"],
+      }),
+    ).rejects.toThrow("Unknown spec change: missing-spec");
+
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    expect(await findEntityByDisplayId(storage, identity.space.id, "initiative", "broken-initiative")).toBeNull();
+    expect((await ticketStore.readTicketAsync(ticket.summary.id)).summary.initiativeIds).toEqual([]);
+  });
+
+  it("updates linked research ids through updateInitiative", async () => {
+    const initiativeStore = createInitiativeStore(workspace);
+    const researchStore = createResearchStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T15:00:00.000Z"));
+    const initiative = await initiativeStore.createInitiative({ title: "Research updates" });
+    const researchA = await researchStore.createResearch({ title: "First research" });
+    const researchB = await researchStore.createResearch({ title: "Second research" });
+
+    const updated = await initiativeStore.updateInitiative(initiative.state.initiativeId, {
+      researchIds: [researchA.state.researchId, researchB.state.researchId],
+    });
+
+    expect(updated.state.researchIds).toEqual([researchA.state.researchId, researchB.state.researchId]);
+  });
 });

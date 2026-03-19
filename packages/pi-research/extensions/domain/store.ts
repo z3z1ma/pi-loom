@@ -6,6 +6,8 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
@@ -37,10 +39,10 @@ import {
   normalizeStringList,
   slugifyTitle,
 } from "./normalize.js";
-import { getResearchPaths } from "./paths.js";
 import { renderResearchMarkdown } from "./render.js";
 
 const ENTITY_KIND = "research" as const;
+const RESEARCH_LINK_PROJECTION_OWNER = "research-store";
 
 interface ResearchEntityAttributes {
   state: ResearchState;
@@ -50,6 +52,14 @@ interface ResearchEntityAttributes {
 
 interface ResearchSummaryWithSynthesis extends ResearchSummary {
   synthesis: string;
+}
+
+interface SqliteMutationTarget {
+  db: {
+    prepare(sql: string): {
+      run(...params: unknown[]): unknown;
+    };
+  };
 }
 
 function hasStructuredResearchAttributes(attributes: unknown): attributes is ResearchEntityAttributes {
@@ -101,6 +111,40 @@ function stripDynamicState(state: ResearchState): ResearchState {
     ...state,
     artifactIds: normalizeStringList(state.artifactIds),
   };
+}
+
+function buildProjectedReferenceLinks(state: ResearchState): ProjectedEntityLinkInput[] {
+  return [
+    ...state.initiativeIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "initiative",
+        targetDisplayId,
+      }),
+    ),
+    ...state.specChangeIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "spec_change",
+        targetDisplayId,
+      }),
+    ),
+    ...state.ticketIds.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "ticket",
+        targetDisplayId,
+      }),
+    ),
+    ...state.supersedes.map(
+      (targetDisplayId): ProjectedEntityLinkInput => ({
+        kind: "references",
+        targetKind: "research",
+        targetDisplayId,
+        required: false,
+      }),
+    ),
+  ];
 }
 
 export class ResearchStore {
@@ -212,7 +256,7 @@ export class ResearchStore {
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.researchId);
     const version = (existing?.version ?? 0) + 1;
     const record = await this.materializeCanonicalArtifacts(stripDynamicState(state), hypothesisHistory, artifacts);
-    await upsertEntityByDisplayId(storage, {
+    const entity = await upsertEntityByDisplayId(storage, {
       kind: ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -229,6 +273,14 @@ export class ResearchStore {
       },
       createdAt: existing?.createdAt ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
+    });
+    await syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId: entity.id,
+      projectionOwner: RESEARCH_LINK_PROJECTION_OWNER,
+      desired: buildProjectedReferenceLinks(record.state),
+      timestamp: record.state.updatedAt,
     });
     return record;
   }
@@ -339,16 +391,32 @@ export class ResearchStore {
   async createResearch(input: CreateResearchInput): Promise<ResearchRecord> {
     const timestamp = currentTimestamp();
     const state = this.defaultState(input, timestamp);
-    await this.syncLinkedEntities(
-      state.researchId,
-      [],
-      [],
-      [],
-      state.initiativeIds,
-      state.specChangeIds,
-      state.ticketIds,
-    );
-    return this.persistRecord(state, [], []);
+    const stagedState: ResearchState = {
+      ...state,
+      initiativeIds: [],
+      specChangeIds: [],
+      ticketIds: [],
+    };
+    const staged = await this.persistRecord(stagedState, [], []);
+    try {
+      await this.syncLinkedEntities(
+        state.researchId,
+        [],
+        [],
+        [],
+        state.initiativeIds,
+        state.specChangeIds,
+        state.ticketIds,
+      );
+      return this.persistRecord(state, [], []);
+    } catch (error) {
+      const { storage, identity } = await openWorkspaceStorage(this.cwd);
+      const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, staged.state.researchId);
+      if (entity) {
+        (storage as unknown as SqliteMutationTarget).db.prepare("DELETE FROM entities WHERE id = ?").run(entity.id);
+      }
+      throw error;
+    }
   }
 
   async updateResearch(ref: string, updates: UpdateResearchInput): Promise<ResearchRecord> {

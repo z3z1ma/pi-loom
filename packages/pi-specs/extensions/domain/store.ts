@@ -3,6 +3,8 @@ import {
   findEntityByDisplayId,
   upsertEntityByDisplayId,
 } from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { analyzeSpecChange } from "./analysis.js";
@@ -32,7 +34,6 @@ import {
   normalizeTaskId,
   slugifyTitle,
 } from "./normalize.js";
-import { getSpecsPaths } from "./paths.js";
 import {
   renderAnalysisMarkdown,
   renderChecklistMarkdown,
@@ -43,6 +44,7 @@ import {
 
 const SPEC_CHANGE_ENTITY_KIND = "spec_change" as const;
 const SPEC_CAPABILITY_ENTITY_KIND = "spec_capability" as const;
+const SPEC_LINK_PROJECTION_OWNER = "spec-store" as const;
 
 interface SpecChangeEntityAttributes {
   state: SpecChangeState;
@@ -157,6 +159,35 @@ function capabilityFromState(state: SpecChangeState, capabilityId: string): Cano
     updatedAt: state.updatedAt,
     ref: capabilityRef(capability.id),
   };
+}
+
+function projectedSpecChangeLinks(record: SpecChangeRecord): ProjectedEntityLinkInput[] {
+  return [
+    ...normalizeStringList(record.state.initiativeIds).map((initiativeId) => ({
+      kind: "belongs_to" as const,
+      targetKind: "initiative" as const,
+      targetDisplayId: initiativeId,
+    })),
+    ...normalizeStringList(record.state.researchIds).map((researchId) => ({
+      kind: "references" as const,
+      targetKind: "research" as const,
+      targetDisplayId: researchId,
+    })),
+    // Linked tickets stay embedded on the aggregate record and also project canonical references.
+    ...normalizeStringList(record.linkedTickets?.links.map((link) => link.ticketId) ?? []).map((ticketId) => ({
+      kind: "references" as const,
+      targetKind: "ticket" as const,
+      targetDisplayId: ticketId,
+    })),
+  ];
+}
+
+function projectedSpecCapabilityLinks(record: CanonicalCapabilityRecord): ProjectedEntityLinkInput[] {
+  return normalizeStringList(record.sourceChanges).map((changeId) => ({
+    kind: "references" as const,
+    targetKind: "spec_change" as const,
+    targetDisplayId: changeId,
+  }));
 }
 
 export class SpecStore {
@@ -311,7 +342,7 @@ export class SpecStore {
     const existing = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId);
     const version = (existing?.version ?? 0) + 1;
     const record = this.materializeChangeRecord(state, decisions, analysis, checklist, linkedTickets);
-    await upsertEntityByDisplayId(storage, {
+    const entity = await upsertEntityByDisplayId(storage, {
       kind: SPEC_CHANGE_ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -330,6 +361,14 @@ export class SpecStore {
       },
       createdAt: existing?.createdAt ?? record.state.createdAt,
       updatedAt: record.state.updatedAt,
+    });
+    await syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId: entity.id,
+      projectionOwner: SPEC_LINK_PROJECTION_OWNER,
+      desired: projectedSpecChangeLinks(record),
+      timestamp: record.state.updatedAt,
     });
     return record;
   }
@@ -350,7 +389,7 @@ export class SpecStore {
       updatedAt: currentTimestamp(),
       ref: capabilityRef(capabilityId),
     };
-    await upsertEntityByDisplayId(storage, {
+    const entity = await upsertEntityByDisplayId(storage, {
       kind: SPEC_CAPABILITY_ENTITY_KIND,
       spaceId: identity.space.id,
       owningRepositoryId: identity.repository.id,
@@ -363,6 +402,15 @@ export class SpecStore {
       attributes: { record: merged },
       createdAt: existing?.createdAt ?? merged.updatedAt,
       updatedAt: merged.updatedAt,
+    });
+    // Archived capabilities preserve provenance via canonical links back to source spec changes.
+    await syncProjectedEntityLinks({
+      storage,
+      spaceId: identity.space.id,
+      fromEntityId: entity.id,
+      projectionOwner: SPEC_LINK_PROJECTION_OWNER,
+      desired: projectedSpecCapabilityLinks(merged),
+      timestamp: merged.updatedAt,
     });
   }
 
@@ -531,7 +579,13 @@ export class SpecStore {
 
     state.updatedAt = currentTimestamp();
     state.status = state.tasks.length > 0 ? "tasked" : "planned";
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
+    return this.persistCanonicalChange(
+      state,
+      record.decisions,
+      record.analysis,
+      record.checklist,
+      record.linkedTickets,
+    );
   }
 
   async updateTasks(ref: string, input: SpecTasksInput): Promise<SpecChangeRecord> {
@@ -575,7 +629,13 @@ export class SpecStore {
     state.tasks = nextTasks.sort((left, right) => left.id.localeCompare(right.id));
     state.updatedAt = currentTimestamp();
     state.status = "tasked";
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
+    return this.persistCanonicalChange(
+      state,
+      record.decisions,
+      record.analysis,
+      record.checklist,
+      record.linkedTickets,
+    );
   }
 
   async setInitiativeIds(ref: string, initiativeIds: string[]): Promise<SpecChangeRecord> {
@@ -585,7 +645,13 @@ export class SpecStore {
       initiativeIds: normalizeStringList(initiativeIds),
       updatedAt: currentTimestamp(),
     });
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
+    return this.persistCanonicalChange(
+      state,
+      record.decisions,
+      record.analysis,
+      record.checklist,
+      record.linkedTickets,
+    );
   }
 
   async setResearchIds(ref: string, researchIds: string[]): Promise<SpecChangeRecord> {
@@ -595,7 +661,13 @@ export class SpecStore {
       researchIds: normalizeStringList(researchIds),
       updatedAt: currentTimestamp(),
     });
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
+    return this.persistCanonicalChange(
+      state,
+      record.decisions,
+      record.analysis,
+      record.checklist,
+      record.linkedTickets,
+    );
   }
 
   async analyzeChange(ref: string): Promise<SpecChangeRecord> {
@@ -614,7 +686,7 @@ export class SpecStore {
 
   async finalizeChange(ref: string): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
-    let state = this.normalizeState({ ...record.state });
+    const state = this.normalizeState({ ...record.state });
     const analysis = renderAnalysisMarkdown(analyzeSpecChange(state));
     const checklist = renderChecklistMarkdown(buildSpecChecklist(state));
     const analysisArtifact = parseMarkdownArtifact(analysis, `${state.changeId}/analysis.md`);
@@ -644,7 +716,13 @@ export class SpecStore {
       archivedRef: archivedSpecRef(record.state.changeId, archivedAt.slice(0, 10)),
       updatedAt: archivedAt,
     });
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist, record.linkedTickets);
+    return this.persistCanonicalChange(
+      state,
+      record.decisions,
+      record.analysis,
+      record.checklist,
+      record.linkedTickets,
+    );
   }
 }
 
