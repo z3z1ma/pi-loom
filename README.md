@@ -1,8 +1,8 @@
 # pi-loom
 
-A `pi-packages`-style workspace for durable, AI-native extensions.
+A `pi-packages`-style workspace for Loom's durable, AI-native memory and execution extensions.
 
-This repository ships extension packages including `pi-constitution`, `pi-research`, `pi-initiatives`, `pi-specs`, `pi-plans`, `pi-ticketing`, `pi-workers`, `pi-critique`, `pi-ralph`, and `pi-docs`. Canonical state for all these extensions is persisted in SQLite via `pi-storage` and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` without attempting compatibility with either `agent-loom`.
+This repository ships extension packages including `pi-constitution`, `pi-research`, `pi-initiatives`, `pi-specs`, `pi-plans`, `pi-ticketing`, `pi-workers`, `pi-critique`, `pi-ralph`, and `pi-docs`. Canonical state for all of them is persisted in SQLite via `pi-storage` and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` while defining its own Loom architecture.
 
 Constitutional memory is the highest-order project context in this workspace. It captures durable vision, principles, constraints, roadmap items, and decisions that shape every lower layer. It is intentionally separate from `AGENTS.md`: constitutional state persisted in SQLite via pi-storage defines enduring project truth, while `AGENTS.md` remains operational guidance for how the harness or a directory should behave during execution.
 
@@ -65,13 +65,13 @@ The current Loom stack is:
 - critique for durable adversarial review packets, verdicts, findings, and follow-up work
 - docs for durable high-level architecture, workflow, concept, and operations understanding after completed work changes the system narrative
 
-Specs capture the intended behavior of the system independent of the current code shape. Plans sit between specs (or broader initiative/workspace context) and tickets: they translate declarative contracts into implementation strategy against the current codebase, keep a thin execution narrative plus a linked ticket set, and avoid forcing the spec itself to become a migration or rollout document. Specs do not own ticket linkage; plans are the bridge into ticket execution.
+Specs capture the intended behavior of the system independent of the current code shape. Plans sit between specs (or broader initiative/workspace context) and tickets: they translate declarative contracts into implementation strategy against the current codebase, keep a thin execution narrative plus a linked ticket set, and carry ticket linkage so specs can stay declarative rather than turning into rollout documents.
 
 Initiatives should link back to constitutional roadmap items where applicable so strategic work can be traced to explicit constitutional commitments rather than only to local execution metadata.
 
-Critique is not merely a ticket review note and not the same thing as Ralph looping. It is the durable review layer that can judge a ticket, spec, initiative, research artifact, constitutional change, or broader workspace target against the surrounding project context.
+Critique is the durable review layer for judging a ticket, spec, initiative, research artifact, constitutional change, or broader workspace target against the surrounding project context.
 
-Documentation is the post-completion explanatory layer. It keeps architecture overviews, usage guides, conceptual docs, and operational procedures truthful after tangible codebase changes are actually complete. It remains distinct from critique and from plans: critique tries to find flaws before sign-off, plans sequence the work while it is still live, and documentation updates the durable system narrative after the accepted reality is known.
+Documentation is the post-completion explanatory layer. It keeps architecture overviews, usage guides, conceptual docs, and operational procedures truthful after tangible codebase changes are actually complete. Critique tests the work before sign-off, plans sequence the live work, and documentation updates the durable system narrative after the accepted reality is known.
 
 ## Execution ledger layer
 
@@ -81,7 +81,7 @@ The execution layer focuses on durable ticket state:
 - dependency graph queries for ready/blocked work
 - AI-facing tools plus built-in ticketing guidance
 
-Broader general-purpose worker coordination beyond the bounded local manager-worker substrate remains intentionally deferred. The current orchestration surface is still Ralph-specific and composes with plans, tickets, workers, critique, and related Loom artifacts rather than replacing them with a generic workflow engine.
+Worker coordination currently centers on the bounded local manager-worker substrate. Ralph composes with plans, tickets, workers, critique, and related Loom artifacts as the orchestration surface instead of acting as a generic workflow engine.
 
 Workers are the local execution substrate: they keep control-plane and runtime-adjacent scratch state local to a worktree, but they are not themselves the shared execution ledger. Tickets are synchronized from the SQLite-backed execution layer via pi-storage.
 
@@ -92,7 +92,7 @@ Pi Loom persists canonical operational state in SQLite via pi-storage. The stead
 - canonical operational Loom state lives in SQLite, the shared persistent catalog
 - packets, plans, and other human-facing renderings are generated from canonical records rather than treated as durable repo state
 - runtime-local worktree control-plane state remains clone-local scratch space and is not persisted as shared truth
-- historical `.loom/...` paths may still appear in examples or local tooling, but they are not the system of record
+- generated or local `.loom/...` paths may appear in examples or tooling, but SQLite-backed records remain the system of record
 
 Before applying breaking catalog-schema changes, back up the current SQLite catalog manually. The standard backup command is:
 
@@ -130,7 +130,7 @@ The critique layer provides durable adversarial review memory:
 - `/critique launch` opens a fresh session handoff, while `critique_launch` executes the same packet in a separate fresh `pi` process and returns the review result synchronously; callers should allow a long timeout because the tool blocks until the critic exits and must land a durable `critique_run`
 - runs and findings append durably instead of being flattened into chat
 - accepted findings can create follow-up tickets without collapsing critique into ticket metadata
-- critique remains reusable by loop orchestration without being equivalent to Ralph loop mode
+- critique remains reusable by loop orchestration as an independent review layer
 
 ## Ralph orchestration layer
 
@@ -154,12 +154,12 @@ The final Loom memory layer is durable documentation memory:
 
 ## Spec-driven workflow layer
 
-The Loom layer between research and ticketing is durable specification memory:
+The Loom layer between research and planning is durable specification memory:
 
 - spec state is persisted in SQLite via pi-storage
 - spec renderings may be generated for review, but SQLite remains the canonical store
 - specs translate research and initiative context into declarative behavior contracts that remain valid even if the implementation changes
-- plans are the execution bridge from finalized specs into linked ticket execution, while specs remain declarative contracts instead of execution ledgers
+- plans are the execution bridge from finalized specs and broader context into linked ticket execution, while specs remain declarative contracts instead of execution ledgers
 
 ## Initiative memory layer
 

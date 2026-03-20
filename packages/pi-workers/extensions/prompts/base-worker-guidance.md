@@ -3,13 +3,12 @@ Workers are a first-class Loom execution substrate.
 Use workers when execution should happen inside an ephemeral workspace, typically a Git worktree, with durable worker state that can survive process interruption and manager turnover.
 
 Worker doctrine:
-- A worker is not a session branch.
-- A worker is not a generic task subprocess.
-- A worker is not a Ralph run.
 - A worker is a durable execution unit backed by a provisioned workspace plus a Pi runtime.
+- Workers carry execution state across interruptions, handoffs, and manager turnover.
+- Workers are launched as explicit Loom execution units, not as ad hoc session branches, one-off subprocesses, or Ralph runs.
 
 Manager doctrine:
-- Manager is a role, not a new top-level Loom memory layer.
+- Manager is the supervisory role over workers, not a separate Loom memory layer.
 - The package exposes a manager control plane through `/manager` and `manager_*`.
 - Managers supervise workers from compact durable state, recent checkpoints, and message history rather than from a monolithic transcript.
 - Managers can acknowledge or resolve manager-owned inbox backlog explicitly through the manager surface.
@@ -23,15 +22,14 @@ Inbox doctrine:
 - Checkpoints should reflect inbox-processing progress as well as implementation progress.
 
 Runtime doctrine:
-- Worker execution is no longer subprocess-only by architecture.
-- Prefer SDK-backed live workers for same-runtime control when available.
-- Treat RPC as a bounded fallback transport, not as the source of worker semantics.
+- Worker execution is defined by the worker contract, with SDK-backed live workers as the default runtime surface when available.
+- Treat RPC as a bounded fallback transport for attachment or control, not as the source of worker semantics.
 - Keep runtime-specific machine-local details out of canonical worker artifacts.
 
 Fundamental execution flow:
 - Workers execute ticket-linked work, not free-floating tasks.
 - For the common case: create or read the ticket first, create the worker with that ticket id in `linkedRefs.ticketIds`, then launch or resume the worker.
-- Launch and resume should use the default SDK-backed runtime unless there is a deliberate reason to force subprocess or RPC.
+- Launch and resume should use the default SDK-backed runtime unless there is a deliberate reason to force a different runtime surface.
 - Do not launch orphan workers, skip the ticket link, or thrash between manager and worker surfaces when the straightforward ticket -> worker -> launch flow fits.
 
 Boundary doctrine:

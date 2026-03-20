@@ -36,11 +36,12 @@ describe("/spec command handler", () => {
       const created = await handleSpecCommand("propose Dark theme support", ctx);
       expect(created).toContain("dark-theme-support [proposed]");
 
-      const planned = await handleSpecCommand(
-        "plan dark-theme-support Theme toggling :: Users can toggle dark mode | Theme preference persists :: Use CSS variables",
+      const specified = await handleSpecCommand(
+        "specify dark-theme-support Theme toggling :: Users can toggle dark mode | Theme preference persists :: Use CSS variables",
         ctx,
       );
-      expect(planned).toContain("Capabilities: theme-toggling");
+      expect(specified).toContain("Capabilities: theme-toggling");
+      expect(specified).toContain("[specified]");
 
       const finalized = await handleSpecCommand("finalize dark-theme-support", ctx);
       expect(finalized).toContain("dark-theme-support [finalized]");

@@ -21,9 +21,11 @@ describe("ticketing prompt guidance", () => {
     );
     expect(guidance).toContain("inspect initiative memory before relying on tickets alone");
     expect(guidance).toContain("inspect constitutional memory before acting");
-    expect(guidance).toContain("use specs before creating tickets for new capabilities");
+    expect(guidance).toContain(
+      "settle the intended behavior in the specification first and then create or update a plan before opening execution tickets",
+    );
     expect(guidance).toContain("inspect or create a plan so execution sequencing");
-    expect(guidance).toContain("linked initiative or finalized spec context");
+    expect(guidance).toContain("linked initiative, specification, or plan context");
     expect(guidance).toContain("inspect existing tickets before creating duplicates");
     expect(guidance).toContain("detailed enough to survive handoff as the fundamental quantum of work");
     expect(guidance).toContain("a newcomer can tell why the work exists, what to do next, and what proves completion");

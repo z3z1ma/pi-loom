@@ -1,8 +1,8 @@
 # @pi-loom/pi-docs
 
-SQLite-backed documentation records for pi.
+SQLite-backed documentation records for Loom.
 
-This package adds a first-class documentation layer with canonical records stored in SQLite via pi-storage, allowing high-level system overviews, guides, concepts, and operational procedures to remain truthful after completed code changes.
+This package adds a first-class documentation layer with canonical records stored in SQLite via pi-storage, allowing high-level Loom overviews, guides, concepts, and operational procedures to remain truthful after completed code changes.
 
 ## Capabilities
 
@@ -14,9 +14,9 @@ This package adds a first-class documentation layer with canonical records store
 
 ## Update semantics
 
-`pi-docs` keeps documentation maintenance distinct from critique and from planning.
+`pi-docs` keeps documentation maintenance as the post-completion explanatory layer, distinct from critique and planning.
 
-- documentation records are high-level explanatory memory, not API reference material
+- documentation records are high-level explanatory memory for architecture, workflows, concepts, and operations, not API reference material
 - `docs_update` compiles the packet, launches a fresh `pi` process, and expects that fresh maintainer session to persist a revision through `docs_write`
 - interactive `/docs update` opens a fresh session handoff when session APIs are available
 - revisions append to the canonical SQLite store; maintained document views are rendered from those records and remain accessible through queries and explicit export

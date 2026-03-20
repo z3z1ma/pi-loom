@@ -15,7 +15,7 @@ Ralph is distinct from the other Loom layers:
 - tickets remain the live execution ledger and the comprehensive definition of each unit of work
 - critique remains the durable review layer
 - docs remain the post-completion explanatory layer
-- Ralph orchestrates over those artifacts; it does not replace them
+- Ralph orchestrates over those artifacts as the bounded loop layer
 
 Default Ralph posture:
 - treat long transcripts as a liability; prefer fresh-context iterations, but make the durable packet detailed enough to stand on its own between launches

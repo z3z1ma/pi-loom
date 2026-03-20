@@ -280,10 +280,10 @@ export class SpecStore {
     const changeId = parseSpecChangeId(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, changeId);
     if (!entity) {
-      throw new Error(`Unknown spec change: ${ref}`);
+      throw new Error(`Unknown spec: ${ref}`);
     }
     if (!hasStructuredSpecChangeAttributes(entity.attributes)) {
-      throw new Error(`Spec change entity ${changeId} is missing structured attributes`);
+      throw new Error(`Spec entity ${changeId} is missing structured attributes`);
     }
     const attributes = entity.attributes;
     return this.materializeChangeRecord(
@@ -380,7 +380,7 @@ export class SpecStore {
         updatedPayload: { change: "spec_capability_merged" },
       },
     );
-    // Archived capabilities preserve provenance via canonical links back to source spec changes.
+    // Archived capabilities preserve provenance via canonical links back to source specifications.
     await syncProjectedEntityLinks({
       storage,
       spaceId: identity.space.id,
@@ -400,7 +400,7 @@ export class SpecStore {
         summaries.push({ summary: summarizeChange(state, Boolean(state.archivedRef)), state });
         continue;
       }
-      throw new Error(`Spec change entity ${entity.displayId} is missing structured attributes`);
+      throw new Error(`Spec entity ${entity.displayId} is missing structured attributes`);
     }
     return filterAndSortListEntries(
       summaries
@@ -506,7 +506,7 @@ export class SpecStore {
     const state = this.defaultState(input, timestamp);
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     if (await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId)) {
-      throw new Error(`Spec change already exists: ${state.changeId}`);
+      throw new Error(`Spec already exists: ${state.changeId}`);
     }
     return this.persistCanonicalChange(state, [], "", "");
   }
@@ -610,7 +610,7 @@ export class SpecStore {
     }
 
     state.updatedAt = currentTimestamp();
-    state.status = "planned";
+    state.status = "specified";
     return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
   }
 
@@ -656,7 +656,7 @@ export class SpecStore {
     const analysisArtifact = parseMarkdownArtifact(analysis, `${state.changeId}/analysis.md`);
     const ready = analysisArtifact.frontmatter.ready === "true";
     if (!ready) {
-      throw new Error(`Spec change ${state.changeId} failed analysis and cannot be finalized.`);
+      throw new Error(`Spec ${state.changeId} failed analysis and cannot be finalized.`);
     }
     state.status = "finalized";
     state.finalizedAt = currentTimestamp();
@@ -667,7 +667,7 @@ export class SpecStore {
   async archiveChange(ref: string): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
     if (record.state.status !== "finalized") {
-      throw new Error(`Spec change ${record.state.changeId} must be finalized before archive.`);
+      throw new Error(`Spec ${record.state.changeId} must be finalized before archive.`);
     }
     for (const capability of record.state.capabilities) {
       await this.mergeCanonicalCapability(record.state, capability.id);

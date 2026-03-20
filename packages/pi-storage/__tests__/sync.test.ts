@@ -58,10 +58,10 @@ async function seedCanonicalCatalog(
     displayId: "db-migration",
     title: "DB Migration",
     summary: "Main proposal body.",
-    status: "planned",
+    status: "specified",
     version: 1,
     tags: ["spec_change"],
-    attributes: { stage: "planned" },
+    attributes: { stage: "specified" },
     ...timestamps,
   });
 
@@ -72,7 +72,7 @@ async function seedCanonicalCatalog(
     sequence: 1,
     createdAt: timestamps.createdAt,
     actor: "test",
-    payload: { status: "planned" },
+    payload: { status: "specified" },
   });
 
   const runtimeAttachment: LoomRuntimeAttachment = {

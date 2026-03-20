@@ -76,16 +76,16 @@ describe("spec tools", () => {
     }
 
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
-      "Capture enough bounded detail for the spec layer: problem framing, desired behavior, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
+      "Capture enough bounded detail for the specification layer: problem framing, desired behavior, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
     );
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
-      "When proposing a spec, title it around the behavior or capability being specified rather than a change verb or migration delta.",
+      "When proposing a specification, title it around the behavior or capability being specified rather than an implementation-task verb or migration delta.",
     );
     expect(getTool(mockPi, "spec_write").description).toContain(
-      "keeping specs declarative and implementation-decoupled while plans and tickets stay execution-aware",
+      "keeping specifications declarative and implementation-decoupled while plans and tickets stay execution-aware",
     );
     expect(getTool(mockPi, "spec_read").promptGuidelines).toContain(
-      "Treat plans as the implementation bridge and tickets as the execution ledger; the spec is the declarative behavior contract they must honor.",
+      "Treat plans as the implementation bridge and tickets as the execution ledger; the specification defines the behavior they must honor.",
     );
   });
 
@@ -117,10 +117,10 @@ describe("spec tools", () => {
         },
       });
 
-      const planned = await specWrite.execute(
+      const specified = await specWrite.execute(
         "call-2",
         {
-          action: "plan",
+          action: "specify",
           ref: "dark-theme-support",
           designNotes: "Use CSS variables and persistence.",
           capabilities: [
@@ -137,10 +137,10 @@ describe("spec tools", () => {
         undefined,
         ctx,
       );
-      expect(planned.details).toMatchObject({
-        action: "plan",
+      expect(specified.details).toMatchObject({
+        action: "specify",
         change: {
-          state: { capabilities: [expect.objectContaining({ id: "theme-toggling" })] },
+          state: { status: "specified", capabilities: [expect.objectContaining({ id: "theme-toggling" })] },
         },
       });
 

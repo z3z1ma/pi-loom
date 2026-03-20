@@ -18,10 +18,10 @@ Durable critique artifacts must be self-contained and detail-first at the critiq
 - findings should capture the exact problem, why it matters, the evidence trail, affected scope, failure mode, and actionable next step
 - if important information is unknown, record the open question and what evidence would resolve it instead of hiding uncertainty behind a verdict
 
-Critique is distinct from execution and distinct from Ralph looping:
+Critique is distinct from execution and from Ralph looping:
 - Ralph looping may call critique repeatedly
-- critique itself is the durable review primitive and memory layer
-- findings and verdicts must remain useful even when no Ralph loop is active
+- critique is the durable review primitive and memory layer
+- findings and verdicts must remain useful whether or not a Ralph loop is active
 
 Default critique posture:
 - assume plausible output may still be wrong

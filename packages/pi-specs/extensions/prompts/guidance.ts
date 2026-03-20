@@ -11,5 +11,5 @@ export function getBaseSpecGuidance(): string {
 }
 
 export function buildSpecSystemPrompt(_cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nSpecification state is persisted in SQLite via pi-storage. Prefer spec tools before planning or ticketing non-trivial feature work, and use plans as the primary bridge from specs into tickets.`;
+  return `${BASE_GUIDANCE}\n\nSpecification state is persisted in SQLite via pi-storage. Prefer spec tools before implementation on non-trivial feature work, and use plans to translate accepted behavior into ticketed execution.`;
 }

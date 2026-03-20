@@ -6,7 +6,7 @@ function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
   return {
     changeId: "dark-theme-support",
     title: "Dark theme support",
-    status: "planned",
+    status: "specified",
     createdAt: "2026-03-15T00:00:00.000Z",
     updatedAt: "2026-03-15T00:00:00.000Z",
     finalizedAt: null,

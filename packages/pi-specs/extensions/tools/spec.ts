@@ -9,12 +9,12 @@ import { createSpecStore } from "../domain/store.js";
 const SpecStatusEnum = StringEnum([
   "proposed",
   "clarifying",
-  "planned",
+  "specified",
   "finalized",
   "archived",
   "superseded",
 ] as const);
-const SpecWriteActionEnum = StringEnum(["init", "propose", "clarify", "plan", "finalize", "archive"] as const);
+const SpecWriteActionEnum = StringEnum(["init", "propose", "clarify", "specify", "finalize", "archive"] as const);
 const SpecAnalyzeModeEnum = StringEnum(["analysis", "checklist", "both"] as const);
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 
@@ -26,31 +26,31 @@ const SpecListParams = Type.Object({
   status: Type.Optional(
     withDescription(
       SpecStatusEnum,
-      "Optional exact spec-change status filter. Leave it unset on the first pass unless you intentionally want one change-state slice.",
+      "Optional exact spec status filter. Leave it unset on the first pass unless you intentionally want one status slice.",
     ),
   ),
   includeArchived: Type.Optional(
     Type.Boolean({
       description:
-        "Include archived spec changes. Archived changes are hidden unless this is true; capability summaries are still listed separately.",
+        "Include archived specifications. Archived specifications are hidden unless this is true; capability summaries are still listed separately.",
     }),
   ),
   text: Type.Optional(
     Type.String({
       description:
-        "Broad text search across spec changes. Leave `sort` unset to rank by relevance when text is present; capability summaries are returned separately.",
+        "Broad text search across specifications. Leave `sort` unset to rank by relevance when text is present; capability summaries are returned separately.",
     }),
   ),
   sort: Type.Optional(
     withDescription(
       LoomListSortEnum,
-      "Optional change-list ordering override. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Set this only when you need recency, creation time, or id ordering instead of the default ranking. Capability summaries are still returned separately.",
+      "Optional specification-list ordering override. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Set this only when you need recency, creation time, or id ordering instead of the default ranking. Capability summaries are still returned separately.",
     ),
   ),
 });
 
 const SpecReadParams = Type.Object({
-  ref: Type.String({ description: "Spec change id or canonical capability id." }),
+  ref: Type.String({ description: "Specification id or canonical capability id." }),
   kind: Type.Optional(StringEnum(["change", "capability"] as const)),
 });
 
@@ -69,7 +69,7 @@ const SpecWriteParams = Type.Object({
   title: Type.Optional(
     Type.String({
       description:
-        "Spec change title. Name the intended behavior or capability, not an implementation delta; prefer `Dark theme support` over `Add dark mode`.",
+        "Specification title. Name the intended behavior or capability, not an implementation-task verb; prefer `Dark theme support` over `Add dark mode`.",
     }),
   ),
   summary: Type.Optional(
@@ -110,14 +110,14 @@ function machineResult(details: Record<string, unknown>, text: string) {
 
 function requireRef(ref: string | undefined): string {
   if (!ref) {
-    throw new Error("Spec change reference is required for this action");
+    throw new Error("Specification reference is required for this action");
   }
   return ref;
 }
 
-function toPlanInput(params: SpecWriteParamsValue): SpecPlanInput {
+function toSpecifyInput(params: SpecWriteParamsValue): SpecPlanInput {
   if (!params.capabilities || params.capabilities.length === 0) {
-    throw new Error("capabilities are required for plan");
+    throw new Error("capabilities are required for specify");
   }
   return {
     designNotes: params.designNotes,
@@ -131,16 +131,16 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     name: "spec_list",
     label: "spec_list",
     description:
-      "List spec changes plus the separate capability summary set from durable local spec memory. Leave `sort` unset for the default change ordering: `updated_desc` without `text`, `relevance` with `text`. `status` and `includeArchived` narrow only the change list.",
+      "List specifications plus the separate capability summary set from durable local spec memory. Leave `sort` unset for the default specification ordering: `updated_desc` without `text`, `relevance` with `text`. `status` and `includeArchived` narrow only the specification list.",
     promptSnippet:
-      "Inspect relevant existing specs before opening a new change or downstream plan so the new spec can inherit existing behavioral intent instead of re-inventing it; broad text search with the default relevance ranking is the safest first pass when you are rediscovering prior spec work.",
+      "Inspect relevant existing specifications before opening a new specification or downstream plan so the work can inherit existing behavioral intent instead of re-inventing it; broad text search with the default relevance ranking is the safest first pass when you are rediscovering prior spec work.",
     promptGuidelines: [
-      "Use this tool before creating a new spec so you do not duplicate existing capability work or re-state behavior that is already specified.",
+      "Use this tool before creating a new specification so you do not duplicate existing capability work or re-state behavior that is already specified.",
       "Start with `text` when rediscovering prior spec work by capability, title, or phrase; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
       "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
-      "`status` and `includeArchived` apply only to spec changes. Capability summaries are still returned separately and are not filtered by those change filters.",
-      "`sort` applies only to the spec change list. Capability summaries are still returned separately as an unranked companion set.",
-      "Archived spec changes are hidden by default; set `includeArchived` when checking whether older finalized or superseded changes already cover the capability.",
+      "`status` and `includeArchived` apply only to specifications. Capability summaries are still returned separately and are not filtered by those specification filters.",
+      "`sort` applies only to the specification list. Capability summaries are still returned separately as an unranked companion set.",
+      "Archived specifications are hidden by default; set `includeArchived` when checking whether older finalized or superseded specifications already cover the capability.",
     ],
     parameters: SpecListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -154,7 +154,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
       return machineResult(
         { changes, capabilities },
         [
-          changes.length > 0 ? changes.map(renderSpecSummary).join("\n") : "No spec changes.",
+          changes.length > 0 ? changes.map(renderSpecSummary).join("\n") : "No specifications.",
           capabilities.length > 0
             ? `Capabilities: ${capabilities.map((capability) => capability.id).join(", ")}`
             : "Capabilities: none",
@@ -166,13 +166,13 @@ export function registerSpecTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "spec_read",
     label: "spec_read",
-    description: "Read a spec change or canonical capability spec from durable local spec memory.",
+    description: "Read a specification or canonical capability spec from durable local spec memory.",
     promptSnippet:
-      "Load the current spec truth before planning work or implementation so intended behavior, rationale, and edge cases stay explicit.",
+      "Load the current specification before planning work or implementation so intended behavior, rationale, and edge cases stay explicit.",
     promptGuidelines: [
-      "Read the active or finalized spec before implementation when it is the durable source of intended behavior.",
-      "Use the loaded spec to recover detailed requirements, rationale, dependencies, risks, edge cases, and acceptance instead of reconstructing them from memory or inferring them from current code.",
-      "Treat plans as the implementation bridge and tickets as the execution ledger; the spec is the declarative behavior contract they must honor.",
+      "Read the active or finalized specification before implementation when it is the durable source of intended behavior.",
+      "Use the loaded specification to recover detailed requirements, rationale, dependencies, risks, edge cases, and acceptance instead of reconstructing them from memory or inferring them from current code.",
+      "Treat plans as the implementation bridge and tickets as the execution ledger; the specification defines the behavior they must honor.",
     ],
     parameters: SpecReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -194,16 +194,15 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     name: "spec_write",
     label: "spec_write",
     description:
-      "Create or update durable spec state in the local spec memory layer, keeping specs declarative and implementation-decoupled while plans and tickets stay execution-aware.",
+      "Create or update durable specification state in the local spec memory layer, keeping specifications declarative and implementation-decoupled while plans and tickets stay execution-aware.",
     promptSnippet:
-      "Persist proposal, clarification, and behavior contract durably instead of leaving product intent skeletal, implementation-coupled, or trapped in chat.",
+      "Persist proposal, clarification, and specification detail durably so product intent remains explicit, behavior-first, and reusable.",
     promptGuidelines: [
       "Use this tool to formalize product intent before implementation when the work exceeds a narrow localized fix.",
-      "Write clarifications back into the spec so future turns and agents can rely on them.",
-      "Capture enough bounded detail for the spec layer: problem framing, desired behavior, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
-      "When proposing a spec, title it around the behavior or capability being specified rather than a change verb or migration delta.",
-      "Keep specs declarative and implementation-decoupled; use plans for rollout strategy and tickets for concrete execution work.",
-      "Do not treat a spec as the place that owns ticket linkage or direct execution choreography; create or update a plan when the spec is ready to drive implementation.",
+      "Write clarifications back into the specification so future turns and agents can rely on them.",
+      "Capture enough bounded detail for the specification layer: problem framing, desired behavior, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
+      "When proposing a specification, title it around the behavior or capability being specified rather than an implementation-task verb or migration delta.",
+      "Keep specifications declarative and implementation-decoupled; use `specify` to record capabilities and design notes, then create or update a plan when the specification is ready to drive implementation.",
     ],
     parameters: SpecWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -228,8 +227,8 @@ export function registerSpecTools(pi: ExtensionAPI): void {
           const change = await store.recordClarification(requireRef(params.ref), params.question, params.answer);
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
-        case "plan": {
-          const change = await store.updatePlan(requireRef(params.ref), toPlanInput(params));
+        case "specify": {
+          const change = await store.updatePlan(requireRef(params.ref), toSpecifyInput(params));
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "finalize": {
@@ -247,11 +246,11 @@ export function registerSpecTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "spec_analyze",
     label: "spec_analyze",
-    description: "Run spec-quality analysis or checklist generation over a spec change.",
+    description: "Run specification-quality analysis or checklist generation over a specification.",
     promptSnippet:
-      "Validate that the spec is clear, complete, behavior-first, and detailed enough to stand as the contract before turning it into plans and execution work.",
+      "Validate that the specification is clear, complete, behavior-first, and detailed enough to stand as the contract before turning it into plans and execution work.",
     promptGuidelines: [
-      "Use this tool to validate the specification itself, not to claim the code is correct.",
+      "Use this tool to validate the specification itself.",
       "Run analysis before finalizing and before handing the spec off to plans or other execution artifacts.",
       "Treat implementation-coupled wording, missing rationale, edge cases, dependencies, or verification detail as a spec-quality failure to fix before planning execution.",
     ],

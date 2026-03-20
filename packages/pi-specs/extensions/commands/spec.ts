@@ -17,26 +17,26 @@ function parseDoubleColonArgs(args: string): string[] {
 function parseClarifyArgs(args: string): { ref: string; question: string; answer: string } {
   const [left, answer] = parseDoubleColonArgs(args);
   if (!left || !answer) {
-    throw new Error("Usage: /spec clarify <change> <question> :: <answer>");
+    throw new Error("Usage: /spec clarify <spec> <question> :: <answer>");
   }
   const [ref, ...questionParts] = splitArgs(left);
   if (!ref || questionParts.length === 0) {
-    throw new Error("Usage: /spec clarify <change> <question> :: <answer>");
+    throw new Error("Usage: /spec clarify <spec> <question> :: <answer>");
   }
   return { ref, question: questionParts.join(" "), answer };
 }
 
-function parsePlanArgs(args: string): { ref: string; input: SpecPlanInput } {
+function parseSpecifyArgs(args: string): { ref: string; input: SpecPlanInput } {
   const [left, requirementsPart, designNotes] = parseDoubleColonArgs(args);
   if (!left || !requirementsPart) {
     throw new Error(
-      "Usage: /spec plan <change> <capability title> :: <requirement 1> | <requirement 2> [:: <design notes>]",
+      "Usage: /spec specify <spec> <capability title> :: <requirement 1> | <requirement 2> [:: <design notes>]",
     );
   }
   const [ref, ...capabilityTitleParts] = splitArgs(left);
   if (!ref || capabilityTitleParts.length === 0) {
     throw new Error(
-      "Usage: /spec plan <change> <capability title> :: <requirement 1> | <requirement 2> [:: <design notes>]",
+      "Usage: /spec specify <spec> <capability title> :: <requirement 1> | <requirement 2> [:: <design notes>]",
     );
   }
   return {
@@ -60,7 +60,7 @@ export async function handleSpecCommand(args: string, ctx: ExtensionCommandConte
   const store = createSpecStore(ctx.cwd);
   const [subcommand, ...rest] = splitArgs(args);
   if (!subcommand) {
-    return "Usage: /spec <init|propose|list|show|clarify|plan|analyze|checklist|finalize|archive>";
+    return "Usage: /spec <init|propose|list|show|clarify|specify|analyze|checklist|finalize|archive>";
   }
 
   switch (subcommand) {
@@ -75,11 +75,11 @@ export async function handleSpecCommand(args: string, ctx: ExtensionCommandConte
     }
     case "list": {
       const changes = await store.listChanges({ includeArchived: true });
-      return changes.length > 0 ? changes.map(renderSpecSummary).join("\n") : "No spec changes.";
+      return changes.length > 0 ? changes.map(renderSpecSummary).join("\n") : "No specifications.";
     }
     case "show": {
       const ref = rest[0];
-      if (!ref) throw new Error("Usage: /spec show <change-or-capability>");
+      if (!ref) throw new Error("Usage: /spec show <spec-or-capability>");
       try {
         return renderSpecDetail(await store.readChange(ref));
       } catch {
@@ -90,28 +90,28 @@ export async function handleSpecCommand(args: string, ctx: ExtensionCommandConte
       const { ref, question, answer } = parseClarifyArgs(rest.join(" "));
       return renderSpecDetail(await store.recordClarification(ref, question, answer));
     }
-    case "plan": {
-      const { ref, input } = parsePlanArgs(rest.join(" "));
+    case "specify": {
+      const { ref, input } = parseSpecifyArgs(rest.join(" "));
       return renderSpecDetail(await store.updatePlan(ref, input));
     }
     case "analyze": {
       const ref = rest[0];
-      if (!ref) throw new Error("Usage: /spec analyze <change>");
+      if (!ref) throw new Error("Usage: /spec analyze <spec>");
       return renderSpecDetail(await store.analyzeChange(ref));
     }
     case "checklist": {
       const ref = rest[0];
-      if (!ref) throw new Error("Usage: /spec checklist <change>");
+      if (!ref) throw new Error("Usage: /spec checklist <spec>");
       return renderSpecDetail(await store.generateChecklist(ref));
     }
     case "finalize": {
       const ref = rest[0];
-      if (!ref) throw new Error("Usage: /spec finalize <change>");
+      if (!ref) throw new Error("Usage: /spec finalize <spec>");
       return renderSpecDetail(await store.finalizeChange(ref));
     }
     case "archive": {
       const ref = rest[0];
-      if (!ref) throw new Error("Usage: /spec archive <change>");
+      if (!ref) throw new Error("Usage: /spec archive <spec>");
       return renderSpecDetail(await store.archiveChange(ref));
     }
     default:

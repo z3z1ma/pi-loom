@@ -2,16 +2,15 @@
 
 `pi-ticketing` adds a durable, local ticket ledger to pi-compatible runtimes.
 
-When active, the extension teaches the model to create, update, query, and rely on tickets for non-trivial work. Ticket state is persisted durably in SQLite via pi-storage, with journal history, checkpoint metadata, inline attachment data, explicit initiative/spec provenance, and an audit trail. Rendered ticket markdown and other outputs are generated from canonical SQLite records in memory or exported explicitly when needed; they are snapshots, not durable repo state.
+When active, the extension teaches the model to create, update, query, and rely on tickets for non-trivial work. Ticket state is persisted durably in SQLite via pi-storage, with journal history, checkpoint metadata, inline attachment data, linked upstream context, and an audit trail. Rendered ticket markdown and other outputs are generated from canonical SQLite records in memory or exported explicitly when needed; they are snapshots, not durable repo state.
 
-Tickets are intended to be detail-first execution records and complete units of work, not blurbs. A good ticket captures enough self-contained context for truthful resumption at the execution layer that a capable newcomer can understand what problem is being solved, why it matters now, what generally needs to happen, and what evidence means the work is done: relevant assumptions and constraints, scope and non-goals, concrete acceptance criteria, implementation plan, dependencies, risks, edge cases, verification expectations, and durable journal updates as reality changes. Keep that detail at the ticket layer without turning tickets into replacement specs, plans, or docs.
+Tickets are intended to be detail-first execution records and complete units of work, not blurbs. A good ticket captures enough self-contained context for truthful resumption at the execution layer that a capable newcomer can understand what problem is being solved, why it matters now, what generally needs to happen, and what evidence means the work is done: relevant assumptions and constraints, scope and non-goals, concrete acceptance criteria, plan-aligned implementation detail, dependencies, risks, edge cases, verification expectations, and durable journal updates as reality changes. Keep that detail at the ticket layer without turning tickets into replacement specs, plans, or docs.
 
 ## Features
 
 - durable ticket records in SQLite via pi-storage
 - dependency graph queries for ready and blocked work
-- explicit initiative membership fields for strategic traceability
-- explicit spec provenance fields for spec-derived work
+- explicit initiative membership and durable upstream links for cross-layer traceability
 - prompt guidance that pushes agents toward fully detailed ticket bodies, concrete acceptance criteria, and truthful ongoing updates
 - a widget-first `/ticket` surface for humans
 - AI-facing `ticket_*` tools with built-in prompt guidance
@@ -25,13 +24,13 @@ Use:
 
 - `/ticket`
 
-That command opens the ticket workbench. Human interaction should start there and stay there. The workbench owns navigation, review flows, direct ticket operations, and detail inspection. We intentionally do not mirror AI tool operations back out as a sprawling human slash subcommand tree.
+That command opens the ticket workbench. Human interaction should start there and stay there. The workbench owns navigation, review flows, direct ticket operations, and detail inspection.
 
 ## Focused views and fallbacks
 
 In an interactive UI, `/ticket` enters a centered overlay workbench rendered through `ctx.ui.custom(...)`.
 
-That workbench is intentionally selector-shaped rather than command-shaped:
+That workbench is intentionally selector-shaped:
 
 - a bounded shell instead of a full-screen text dump
 - a fixed-size centered overlay tuned for readable backlog browsing instead of a panel that sprawls with content
@@ -42,7 +41,7 @@ That workbench is intentionally selector-shaped rather than command-shaped:
 - Esc-to-back behavior inside the shell before Esc closes it entirely
 - light expressive styling and iconography so state changes and navigation read at a glance
 
-The persistent home widget is still textual. That is deliberate and truthful: current runtimes need a string-safe summary that works in RPC and other non-custom contexts. When custom UI is unavailable, `/ticket` falls back to a textual overview instead of pretending the overlay workbench exists.
+The persistent home widget is textual so current runtimes always have a string-safe summary that works in RPC and other non-custom contexts. When custom UI is unavailable, `/ticket` falls back to a textual overview.
 
 Current interactive workbench surfaces:
 
@@ -62,9 +61,9 @@ Current direct workspace operations:
 - add or remove dependencies
 - inspect ticket detail together with journal, checkpoint, and attachment context
 
-In interactive mode those operations are launched from contextual action menus inside the workbench. The human slash layer no longer exposes separate verbs for them.
+In interactive mode those operations are launched from contextual action menus inside the workbench.
 
-The durable ticket ledger remains the source of truth. The workspace is a lens over tickets, not a shadow store.
+The durable ticket ledger remains the source of truth for execution state. The workspace is a lens over that ledger.
 
 ## Machine-facing tools
 

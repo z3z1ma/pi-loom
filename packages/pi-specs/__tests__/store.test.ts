@@ -34,7 +34,7 @@ describe("SpecStore durable memory", () => {
     expect(clarified.decisions.at(-1)?.question).toBe("Should the choice persist?");
 
     vi.setSystemTime(new Date("2026-03-15T10:10:00.000Z"));
-    const planned = await store.updatePlan(changeRef, {
+    const specified = await store.updatePlan(changeRef, {
       designNotes: "Use CSS variables and persist user choice.",
       capabilities: [
         {
@@ -46,23 +46,23 @@ describe("SpecStore durable memory", () => {
         },
       ],
     });
-    expect(planned.state.capabilities[0]?.id).toBe("theme-toggling");
+    expect(specified.state.capabilities[0]?.id).toBe("theme-toggling");
 
     vi.setSystemTime(new Date("2026-03-15T10:15:00.000Z"));
     const linked = await store.setInitiativeIds(changeRef, ["platform-modernization", "ui-foundation"]);
     expect(linked.state.initiativeIds).toEqual(["platform-modernization", "ui-foundation"]);
 
     vi.setSystemTime(new Date("2026-03-15T10:20:00.000Z"));
-    const plannedSnapshot = await store.readChange(changeRef);
-    expect(plannedSnapshot.summary.ref).toBe("spec:dark-theme-support");
-    expect(plannedSnapshot.artifacts.map((artifact) => artifact.ref)).toEqual([
+    const specifiedSnapshot = await store.readChange(changeRef);
+    expect(specifiedSnapshot.summary.ref).toBe("spec:dark-theme-support");
+    expect(specifiedSnapshot.artifacts.map((artifact) => artifact.ref)).toEqual([
       "spec:dark-theme-support:artifact:proposal",
       "spec:dark-theme-support:artifact:design",
       "spec:dark-theme-support:artifact:analysis",
       "spec:dark-theme-support:artifact:checklist",
     ]);
-    expect(plannedSnapshot.capabilitySpecs[0]?.ref).toBe("capability:theme-toggling");
-    expect(plannedSnapshot.state.status).toBe("planned");
+    expect(specifiedSnapshot.capabilitySpecs[0]?.ref).toBe("capability:theme-toggling");
+    expect(specifiedSnapshot.state.status).toBe("specified");
 
     const analyzed = await store.analyzeChange(changeRef);
     expect(analyzed.analysis).toContain("Specification quality gates passed");
@@ -82,7 +82,7 @@ describe("SpecStore durable memory", () => {
       "archive:spec:2026-03-15:dark-theme-support:artifact:checklist",
     ]);
     const canonicalCapability = await store.readCapability(
-      plannedSnapshot.capabilitySpecs[0]?.ref ?? "capability:theme-toggling",
+      specifiedSnapshot.capabilitySpecs[0]?.ref ?? "capability:theme-toggling",
     );
     expect(canonicalCapability.ref).toBe("capability:theme-toggling");
     expect(canonicalCapability.requirements).toContain("Users can toggle dark mode.");

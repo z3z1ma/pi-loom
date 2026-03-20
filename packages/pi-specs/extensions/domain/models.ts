@@ -1,6 +1,6 @@
 import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 
-export const SPEC_STATUSES = ["proposed", "clarifying", "planned", "finalized", "archived", "superseded"] as const;
+export const SPEC_STATUSES = ["proposed", "clarifying", "specified", "finalized", "archived", "superseded"] as const;
 export const SPEC_ARTIFACT_NAMES = ["proposal", "design", "analysis", "checklist"] as const;
 export const SPEC_DECISION_KINDS = ["clarification", "decision"] as const;
 export const SPEC_ANALYSIS_SEVERITIES = ["info", "warning", "error"] as const;
