@@ -11,7 +11,6 @@ When active, the extension teaches the model to preserve exploratory work as fir
 - canonical note, experiment, and source artifacts with machine-usable inventory
 - explicit links to initiatives, specs, and tickets
 - AI-facing `research_*` tools with built-in prompt guidance
-- `/research` slash command namespace for human entrypoints
 - system-prompt augmentation via `before_agent_start`
 - computed dashboard and map views over linked work (generated from SQLite, not filesystem-backed)
 

@@ -4,9 +4,7 @@ import { join } from "node:path";
 import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
-  RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
@@ -36,10 +34,8 @@ type RegisteredHandlers = Map<string, (event: unknown, ctx: ExtensionContext) =>
 type RegisteredTools = Map<string, ToolDefinition>;
 
 type MockPi = {
-  commands: Map<string, Omit<RegisteredCommand, "name">>;
   tools: RegisteredTools;
   handlers: RegisteredHandlers;
-  registerCommand: ReturnType<typeof vi.fn>;
   registerTool: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
 };
@@ -57,17 +53,12 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 function createMockPi(): MockPi {
-  const commands = new Map<string, Omit<RegisteredCommand, "name">>();
   const tools: RegisteredTools = new Map();
   const handlers: RegisteredHandlers = new Map();
 
   return {
-    commands,
     tools,
     handlers,
-    registerCommand: vi.fn((name: string, options: Omit<RegisteredCommand, "name">) => {
-      commands.set(name, options);
-    }),
     registerTool: vi.fn((definition: ToolDefinition) => {
       tools.set(definition.name, definition);
     }),
@@ -77,13 +68,6 @@ function createMockPi(): MockPi {
   };
 }
 
-function getCommand(mockPi: MockPi, name: string): Omit<RegisteredCommand, "name"> {
-  const command = mockPi.commands.get(name);
-  expect(command).toBeDefined();
-  if (!command) throw new Error(`Missing command ${name}`);
-  return command;
-}
-
 function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: ExtensionContext) => unknown {
   const handler = mockPi.handlers.get(eventName);
   expect(handler).toBeDefined();
@@ -91,22 +75,14 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
   return handler;
 }
 
-function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notify: ReturnType<typeof vi.fn> } } {
-  const ui = { notify: vi.fn() };
-  return { ctx: { cwd, ui } as unknown as ExtensionCommandContext, ui };
-}
-
 describe("pi-workers extension", () => {
-  it("registers the /worker and /manager commands, worker tools, and lifecycle hooks", async () => {
+  it("registers worker tools and lifecycle hooks without slash commands", async () => {
     const mockPi = createMockPi();
     const { default: piWorkers } = await import("../extensions/index.js");
 
     piWorkers(mockPi as unknown as ExtensionAPI);
 
-    expect(mockPi.commands.has("worker")).toBe(true);
-    expect(mockPi.commands.has("manager")).toBe(true);
-    expect(getCommand(mockPi, "manager").description).toContain("worker fleets");
-    expect(getCommand(mockPi, "worker").description).toContain("workspace-backed workers");
+    expect((mockPi as { registerCommand?: ReturnType<typeof vi.fn> }).registerCommand).toBeUndefined();
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "manager_overview",
       "manager_schedule",
@@ -124,7 +100,7 @@ describe("pi-workers extension", () => {
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
 
-  it("routes /worker and /manager output and initializes worker storage", async () => {
+  it("initializes worker storage on session start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
@@ -138,16 +114,7 @@ describe("pi-workers extension", () => {
       const ticketStore = createTicketStore(cwd);
       await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
-
-      const command = getCommand(mockPi, "worker");
-      const managerCommand = getCommand(mockPi, "manager");
-      const { ctx, ui } = createCommandContext(cwd);
-      await command.handler("create Worker foundation :: Create worker package :: t-0001", ctx);
-      await managerCommand.handler("overview", ctx);
-
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("worker-foundation [requested]"), "info");
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Tickets:"), "info");
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Workers: 1"), "info");
+      expect(await ticketStore.listTicketsAsync()).toHaveLength(1);
     } finally {
       cleanup();
     }

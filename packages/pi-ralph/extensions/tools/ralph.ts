@@ -2,17 +2,9 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
-import type {
-  AppendRalphIterationInput,
-  CreateRalphRunInput,
-  DecideRalphRunInput,
-  LinkRalphCritiqueInput,
-  RalphContinuationDecision,
-  RalphCritiqueLink,
-  UpdateRalphRunInput,
-} from "../domain/models.js";
-import { renderDashboard, renderLaunchDescriptor, renderRalphDetail } from "../domain/render.js";
-import { runRalphLaunch } from "../domain/runtime.js";
+import { executeRalphLoop, renderLoopResult, type ExecuteRalphLoopInput } from "../domain/loop.js";
+import type { DecideRalphRunInput, RalphCritiqueLink } from "../domain/models.js";
+import { renderDashboard, renderRalphDetail } from "../domain/render.js";
 import { createRalphStore } from "../domain/store.js";
 
 function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
@@ -52,17 +44,7 @@ const RalphVerifierSourceKindEnum = StringEnum(["manual", "plan", "ticket", "tes
 const RalphVerifierVerdictEnum = StringEnum(["not_run", "pass", "concerns", "fail"] as const);
 const RalphCritiqueLinkKindEnum = StringEnum(["context", "launched", "blocking", "accepted", "followup"] as const);
 const RalphCritiqueVerdictEnum = StringEnum(["pass", "concerns", "blocked", "needs_revision"] as const);
-const RalphWriteActionEnum = StringEnum([
-  "init",
-  "create",
-  "update",
-  "append_iteration",
-  "set_verifier",
-  "link_critique",
-  "decide",
-  "archive",
-] as const);
-const RalphReadModeEnum = StringEnum(["full", "state", "packet", "run"] as const);
+const RalphReadModeEnum = StringEnum(["full", "state", "packet", "run", "dashboard"] as const);
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 
 const LinkedRefsSchema = Type.Object({
@@ -123,19 +105,6 @@ const DecisionInputSchema = Type.Object({
   blockingRefs: Type.Optional(Type.Array(Type.String())),
 });
 
-const IterationInputSchema = Type.Object({
-  id: Type.Optional(Type.String()),
-  status: Type.Optional(RalphIterationStatusEnum),
-  startedAt: Type.Optional(Type.String()),
-  completedAt: Type.Optional(Type.String()),
-  focus: Type.Optional(Type.String()),
-  summary: Type.Optional(Type.String()),
-  workerSummary: Type.Optional(Type.String()),
-  verifier: Type.Optional(VerifierSummarySchema),
-  critiqueLinks: Type.Optional(Type.Array(CritiqueLinkSchema)),
-  notes: Type.Optional(Type.Array(Type.String())),
-});
-
 const RalphListParams = Type.Object({
   status: Type.Optional(
     withDescription(
@@ -170,7 +139,7 @@ const RalphListParams = Type.Object({
   sort: Type.Optional(
     withDescription(
       LoomListSortEnum,
-      "Optional result ordering. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Override this only when you intentionally need chronological or id-based ordering after filtering.",
+      "Optional result ordering. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Override this only when you intentionally need chronology or id-based ordering after filtering.",
     ),
   ),
 });
@@ -180,65 +149,30 @@ const RalphReadParams = Type.Object({
   mode: Type.Optional(RalphReadModeEnum),
 });
 
-const RalphWriteParams = Type.Object({
-  action: RalphWriteActionEnum,
+const RalphRunParams = Type.Object({
   ref: Type.Optional(Type.String()),
+  prompt: Type.Optional(Type.String()),
   title: Type.Optional(Type.String()),
-  objective: Type.Optional(Type.String()),
-  summary: Type.Optional(Type.String()),
+  iterations: Type.Optional(Type.Number()),
   linkedRefs: Type.Optional(LinkedRefsSchema),
   policySnapshot: Type.Optional(PolicySnapshotSchema),
+});
+
+const RalphCheckpointParams = Type.Object({
+  ref: Type.String(),
+  status: RalphIterationStatusEnum,
+  focus: Type.Optional(Type.String()),
+  summary: Type.Optional(Type.String()),
+  workerSummary: Type.Optional(Type.String()),
+  startedAt: Type.Optional(Type.String()),
+  completedAt: Type.Optional(Type.String()),
   verifierSummary: Type.Optional(VerifierSummarySchema),
-  critiqueLink: Type.Optional(CritiqueLinkSchema),
-  latestDecision: Type.Optional(
-    Type.Object({
-      kind: RalphDecisionKindEnum,
-      reason: StringEnum([
-        "goal_reached",
-        "verifier_blocked",
-        "critique_blocked",
-        "manual_review_required",
-        "iteration_limit_reached",
-        "policy_blocked",
-        "operator_requested",
-        "runtime_unavailable",
-        "runtime_failure",
-        "timeout_exceeded",
-        "budget_exceeded",
-        "worker_requested_completion",
-        "unknown",
-      ] as const),
-      summary: Type.Optional(Type.String()),
-      decidedAt: Type.Optional(Type.String()),
-      decidedBy: Type.Optional(StringEnum(["policy", "verifier", "critique", "operator", "runtime"] as const)),
-      blockingRefs: Type.Optional(Type.Array(Type.String())),
-    }),
-  ),
-  waitingFor: Type.Optional(RalphWaitingForEnum),
-  status: Type.Optional(RalphRunStatusEnum),
-  phase: Type.Optional(RalphRunPhaseEnum),
-  iteration: Type.Optional(IterationInputSchema),
-  decisionInput: Type.Optional(DecisionInputSchema),
-  launchInstructions: Type.Optional(Type.Array(Type.String())),
+  critiqueLinks: Type.Optional(Type.Array(CritiqueLinkSchema)),
+  notes: Type.Optional(Type.Array(Type.String())),
+  decisionInput: DecisionInputSchema,
 });
 
-const RalphLaunchParams = Type.Object({
-  ref: Type.String(),
-  focus: Type.Optional(Type.String()),
-  instructions: Type.Optional(Type.Array(Type.String())),
-});
-
-const RalphResumeParams = Type.Object({
-  ref: Type.String(),
-  focus: Type.Optional(Type.String()),
-  instructions: Type.Optional(Type.Array(Type.String())),
-});
-
-const RalphDashboardParams = Type.Object({
-  ref: Type.String(),
-});
-
-type RalphWriteParamsValue = Static<typeof RalphWriteParams>;
+type RalphCheckpointParamsValue = Static<typeof RalphCheckpointParams>;
 
 function getStore(ctx: ExtensionContext) {
   return createRalphStore(ctx.cwd);
@@ -251,14 +185,7 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
-function requireRef(ref: string | undefined): string {
-  if (!ref) {
-    throw new Error("Ralph run reference is required for this action");
-  }
-  return ref;
-}
-
-function materializeCritiqueLink(link: NonNullable<RalphWriteParamsValue["critiqueLink"]>): RalphCritiqueLink {
+function materializeCritiqueLink(link: NonNullable<RalphCheckpointParamsValue["critiqueLinks"]>[number]): RalphCritiqueLink {
   return {
     critiqueId: link.critiqueId,
     kind: link.kind ?? "context",
@@ -271,87 +198,63 @@ function materializeCritiqueLink(link: NonNullable<RalphWriteParamsValue["critiq
   };
 }
 
-function materializeDecision(
-  decision: RalphWriteParamsValue["latestDecision"] | undefined,
-): RalphContinuationDecision | null | undefined {
-  if (decision === undefined) {
-    return undefined;
-  }
-  if (decision === null) {
-    return null;
-  }
-  return {
-    kind: decision.kind,
-    reason: decision.reason,
-    summary: decision.summary ?? "",
-    decidedAt: decision.decidedAt ?? new Date().toISOString(),
-    decidedBy: decision.decidedBy ?? "policy",
-    blockingRefs: decision.blockingRefs ?? [],
-  };
-}
-
-function createInput(params: RalphWriteParamsValue): CreateRalphRunInput {
-  if (!params.title?.trim()) {
-    throw new Error("title is required for create");
-  }
-  return {
-    title: params.title,
-    objective: params.objective,
-    summary: params.summary,
-    linkedRefs: params.linkedRefs,
-    policySnapshot: params.policySnapshot,
-    verifierSummary: params.verifierSummary,
-    critiqueLinks: params.critiqueLink ? [materializeCritiqueLink(params.critiqueLink)] : undefined,
-    latestDecision: materializeDecision(params.latestDecision),
-    launchInstructions: params.launchInstructions,
-  };
-}
-
-function updateInput(params: RalphWriteParamsValue): UpdateRalphRunInput {
-  return {
-    title: params.title,
-    objective: params.objective,
-    summary: params.summary,
-    linkedRefs: params.linkedRefs,
-    policySnapshot: params.policySnapshot,
-    verifierSummary: params.verifierSummary,
-    critiqueLinks: params.critiqueLink ? [materializeCritiqueLink(params.critiqueLink)] : undefined,
-    latestDecision: materializeDecision(params.latestDecision),
-    waitingFor: params.waitingFor,
+async function checkpointRun(
+  store: ReturnType<typeof getStore>,
+  params: {
+    ref: string;
+    status: "pending" | "running" | "reviewing" | "accepted" | "rejected" | "failed" | "cancelled";
+    focus?: string;
+    summary?: string;
+    workerSummary?: string;
+    startedAt?: string;
+    completedAt?: string;
+    verifierSummary?: {
+      sourceKind?: "manual" | "plan" | "ticket" | "test" | "diagnostic" | "runtime";
+      sourceRef?: string;
+      verdict?: "not_run" | "pass" | "concerns" | "fail";
+      summary?: string;
+      required?: boolean;
+      blocker?: boolean;
+      checkedAt?: string;
+      evidence?: string[];
+    };
+    critiqueLinks?: Array<{
+      critiqueId: string;
+      kind?: "context" | "launched" | "blocking" | "accepted" | "followup";
+      verdict?: "pass" | "concerns" | "blocked" | "needs_revision";
+      required?: boolean;
+      blocking?: boolean;
+      reviewedAt?: string;
+      findingIds?: string[];
+      summary?: string;
+    }>;
+    notes?: string[];
+    decisionInput: DecideRalphRunInput;
+  },
+) {
+  let run = await store.appendIterationAsync(params.ref, {
     status: params.status,
-    phase: params.phase,
-  };
-}
+    focus: params.focus,
+    summary: params.summary,
+    workerSummary: params.workerSummary,
+    startedAt: params.startedAt,
+    completedAt: params.completedAt,
+    verifier: params.verifierSummary,
+    critiqueLinks: params.critiqueLinks?.map((link) => materializeCritiqueLink(link)),
+    notes: params.notes,
+  });
 
-function iterationInput(params: RalphWriteParamsValue): AppendRalphIterationInput {
-  if (!params.iteration) {
-    throw new Error("iteration is required for append_iteration");
-  }
-  return {
-    ...params.iteration,
-    critiqueLinks: params.iteration.critiqueLinks?.map((link) => materializeCritiqueLink(link)),
-  };
-}
+  const iterationId = run.state.postIteration?.iterationId ?? run.state.nextIterationId ?? run.iterations.at(-1)?.id ?? null;
+  run = await store.decideRunAsync(params.ref, params.decisionInput);
 
-function verifierInput(params: RalphWriteParamsValue) {
-  if (!params.verifierSummary) {
-    throw new Error("verifierSummary is required for set_verifier");
+  if (iterationId && run.state.latestDecision) {
+    run = await store.appendIterationAsync(params.ref, {
+      id: iterationId,
+      decision: run.state.latestDecision,
+    });
   }
-  return params.verifierSummary;
-}
 
-function critiqueInput(params: RalphWriteParamsValue): LinkRalphCritiqueInput {
-  if (!params.critiqueLink) {
-    throw new Error("critiqueLink is required for link_critique");
-  }
-  return params.critiqueLink;
-}
-
-function decisionInput(params: RalphWriteParamsValue): DecideRalphRunInput {
-  if (!params.decisionInput) {
-    throw new Error("decisionInput is required for decide");
-  }
-  return params.decisionInput;
+  return run;
 }
 
 export function registerRalphTools(pi: ExtensionAPI): void {
@@ -361,12 +264,10 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     description:
       "List durable Ralph runs. Start broad with `text` when rediscovering a run by title, objective, or recent context; add exact filters such as `status`, `phase`, `decision`, or `waitingFor` only when you intentionally want a narrower slice. Results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
-      "Inspect existing Ralph runs before starting a new long-horizon loop so orchestration state does not fork; broad text search is the safest first pass when you do not yet know the exact run state, and the default relevance ordering is usually the right first view.",
+      "Inspect existing Ralph runs before starting or continuing a loop so orchestration state does not fork; broad text search is the safest first pass when you do not yet know the exact run state.",
     promptGuidelines: [
-      "Use this tool to rediscover the run that should absorb new iteration work.",
-      "When rediscovering a run, start with `text` and no exact filters; `status`, `phase`, `decision`, and `waitingFor` all narrow by exact stored values and can hide valid runs if guessed wrong.",
-      "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need chronology or id order after filtering.",
-      "Use `waitingFor` when intentionally triaging paused or review-gated runs after the broad search, not as the default discovery path.",
+      "Use this tool to rediscover the run that should absorb new bounded iteration work.",
+      "When rediscovering a run, start with `text` and no exact filters; exact lifecycle filters can hide valid runs if guessed wrong.",
     ],
     parameters: RalphListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -380,9 +281,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       });
       return machineResult(
         { runs },
-        runs.length > 0
-          ? runs.map((run) => `${run.id} [${run.status}/${run.phase}] ${run.title}`).join("\n")
-          : "No Ralph runs.",
+        runs.length > 0 ? runs.map((run) => `${run.id} [${run.status}/${run.phase}] ${run.title}`).join("\n") : "No Ralph runs.",
       );
     },
   });
@@ -390,11 +289,11 @@ export function registerRalphTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "ralph_read",
     label: "ralph_read",
-    description: "Read Ralph state, packet, or rendered run artifacts from durable Loom orchestration memory.",
-    promptSnippet:
-      "Read the Ralph packet or run state before continuing a long-horizon loop from memory or chat residue.",
+    description: "Read Ralph state, packet, dashboard, or rendered run artifacts from durable Loom orchestration memory.",
+    promptSnippet: "Read the Ralph packet or run state before deciding whether to launch another bounded iteration.",
     promptGuidelines: [
       "Read packet mode when preparing a fresh Ralph worker context.",
+      "Read dashboard mode for a concise between-iteration view of state, blockers, and latest decisions.",
       "Read full mode when you need the latest iterations, launch descriptor, and dashboard together.",
     ],
     parameters: RalphReadParams,
@@ -409,132 +308,70 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       if (params.mode === "state") {
         return machineResult({ state: result.state, summary: result.summary }, JSON.stringify(result.state, null, 2));
       }
+      if (params.mode === "dashboard") {
+        return machineResult({ dashboard: result.dashboard }, renderDashboard(result.dashboard));
+      }
       return machineResult({ run: result }, renderRalphDetail(result));
     },
   });
 
   pi.registerTool({
-    name: "ralph_write",
-    label: "ralph_write",
-    description: "Create, update, and evolve durable Ralph run state in local Loom memory.",
+    name: "ralph_checkpoint",
+    label: "ralph_checkpoint",
+    description: "Persist one bounded Ralph iteration checkpoint, including verifier evidence, critique links, and an explicit continuation decision, in a single safe tool call.",
     promptSnippet:
-      "Persist detailed Ralph iteration state, verifier evidence, critique links, blockers, and policy decisions durably instead of keeping loop progress only in chat.",
+      "Use one Ralph checkpoint call per bounded iteration so the durable state stays coherent and the next caller can inspect a complete outcome.",
     promptGuidelines: [
-      "Use create before a long-horizon loop starts so packet, dashboard, and launch state have a durable home.",
-      "Do not write shallow status blurbs; each update should leave the run resume-ready with objective context, what changed, verifier or critique outcomes, and the rationale for the next decision.",
-      "Record explicit decisions after each iteration so future workers can see why the loop continued, paused, or stopped.",
+      "This is the safe way for a fresh Ralph worker session to commit its bounded iteration outcome.",
+      "Always provide an explicit `decisionInput`; a clean exit without a durable checkpoint and decision is treated as failure.",
+      "Prefer this tool over piecemeal low-level writes so verifier, critique, iteration, and decision state stay in sync.",
     ],
-    parameters: RalphWriteParams,
+    parameters: RalphCheckpointParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
-      switch (params.action) {
-        case "init": {
-          const result = await store.initLedgerAsync();
-          return machineResult(
-            { action: params.action, initialized: result },
-            `Initialized Ralph memory at ${result.root}`,
-          );
-        }
-        case "create": {
-          const run = await store.createRunAsync(createInput(params));
-          return machineResult({ action: params.action, run }, renderRalphDetail(run));
-        }
-        case "update": {
-          const run = await store.updateRunAsync(requireRef(params.ref), updateInput(params));
-          return machineResult({ action: params.action, run }, renderRalphDetail(run));
-        }
-        case "append_iteration": {
-          const run = await store.appendIterationAsync(requireRef(params.ref), iterationInput(params));
-          return machineResult({ action: params.action, run }, renderRalphDetail(run));
-        }
-        case "set_verifier": {
-          const run = await store.setVerifierAsync(requireRef(params.ref), verifierInput(params));
-          return machineResult({ action: params.action, run }, renderRalphDetail(run));
-        }
-        case "link_critique": {
-          const run = await store.linkCritiqueAsync(requireRef(params.ref), critiqueInput(params));
-          return machineResult({ action: params.action, run }, renderRalphDetail(run));
-        }
-        case "decide": {
-          const run = await store.decideRunAsync(requireRef(params.ref), decisionInput(params));
-          return machineResult({ action: params.action, run }, renderRalphDetail(run));
-        }
-        case "archive": {
-          const run = await store.archiveRunAsync(requireRef(params.ref));
-          return machineResult({ action: params.action, run }, renderRalphDetail(run));
-        }
-      }
+      const run = await checkpointRun(getStore(ctx), {
+        ref: params.ref,
+        status: params.status,
+        focus: params.focus,
+        summary: params.summary,
+        workerSummary: params.workerSummary,
+        startedAt: params.startedAt,
+        completedAt: params.completedAt,
+        verifierSummary: params.verifierSummary,
+        critiqueLinks: params.critiqueLinks,
+        notes: params.notes,
+        decisionInput: params.decisionInput,
+      });
+      return machineResult({ run }, renderRalphDetail(run));
     },
   });
 
   pi.registerTool({
-    name: "ralph_launch",
-    label: "ralph_launch",
+    name: "ralph_run",
+    label: "ralph_run",
     description:
-      "Prepare a fresh-context Ralph iteration and execute it through the default subprocess runtime adapter.",
+      "Create or continue a Ralph run, execute up to N bounded fresh-context subprocess iterations under the hood, and return the resulting durable state for the next caller to inspect.",
     promptSnippet:
-      "Use fresh-context launch descriptors instead of continuing a Ralph loop through one ever-growing transcript.",
+      "Use this as the primary Ralph loop tool: it handles the create or resume, one-bounded-iteration subprocess execution, durable-state inspection, and repeat logic for you.",
     promptGuidelines: [
-      "Launch only after the run packet reflects the latest objective framing, verifier evidence, critique outcomes, blockers, and decision state.",
-      "Treat non-zero launch exit codes as runtime failures that should be persisted back into the Ralph run.",
+      "For a new loop, provide a prompt and optional iteration count; the run will be initialized from the prompt plus current conversation context.",
+      "For an existing loop, provide `ref` and optionally a steering prompt, then inspect the returned durable state before deciding whether to call `ralph_run` again.",
+      "This tool intentionally executes bounded subprocess iterations; it does not keep a hidden long-running transcript alive.",
     ],
-    parameters: RalphLaunchParams,
+    parameters: RalphRunParams,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
-      let run = await store.prepareLaunchAsync(params.ref, { focus: params.focus, instructions: params.instructions });
-      const execution = await runRalphLaunch(ctx.cwd, run.launch, signal, undefined);
-      if (execution.exitCode !== 0) {
-        run = await store.decideRunAsync(params.ref, {
-          runtimeFailure: true,
-          summary: execution.stderr || execution.output || "Ralph launch subprocess exited unsuccessfully.",
-          decidedBy: "runtime",
-        });
-      }
-      const text = execution.output || renderLaunchDescriptor(ctx.cwd, run.launch);
-      return machineResult({ run, launch: run.launch, execution }, text);
-    },
-  });
-
-  pi.registerTool({
-    name: "ralph_resume",
-    label: "ralph_resume",
-    description: "Resume a paused or review-gated Ralph run through the default fresh-context runtime adapter.",
-    promptSnippet:
-      "Resume Ralph from durable run state and packet context instead of reconstructing loop intent from memory.",
-    promptGuidelines: [
-      "Resume only after required critique or verifier artifacts are linked into the run and the packet explains the latest blockers, rationale, and next-step expectations.",
-      "Use this after pauses, review gates, or operator intervention to keep the loop history truthful.",
-    ],
-    parameters: RalphResumeParams,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
-      let run = await store.resumeRunAsync(params.ref, { focus: params.focus, instructions: params.instructions });
-      const execution = await runRalphLaunch(ctx.cwd, run.launch, signal, undefined);
-      if (execution.exitCode !== 0) {
-        run = await store.decideRunAsync(params.ref, {
-          runtimeFailure: true,
-          summary: execution.stderr || execution.output || "Ralph resume subprocess exited unsuccessfully.",
-          decidedBy: "runtime",
-        });
-      }
-      const text = execution.output || renderLaunchDescriptor(ctx.cwd, run.launch);
-      return machineResult({ run, launch: run.launch, execution }, text);
-    },
-  });
-
-  pi.registerTool({
-    name: "ralph_dashboard",
-    label: "ralph_dashboard",
-    description: "Read the machine-usable Ralph dashboard rollup for run state, latest decision, and iteration counts.",
-    promptSnippet: "Use the Ralph dashboard for observability when you need the loop state and blockers at a glance.",
-    promptGuidelines: [
-      "Prefer the dashboard for quick status inspection; prefer ralph_read when you need the packet or full run record.",
-      "Check waiting state and latest decision before deciding whether to launch, resume, or stop a run.",
-    ],
-    parameters: RalphDashboardParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const dashboard = (await getStore(ctx).readRunAsync(params.ref)).dashboard;
-      return machineResult({ dashboard }, renderDashboard(dashboard));
+      const result = await executeRalphLoop(
+        ctx,
+        {
+          ref: params.ref,
+          prompt: params.prompt,
+          title: params.title,
+          iterations: params.iterations,
+          linkedRefs: params.linkedRefs as ExecuteRalphLoopInput["linkedRefs"],
+          policySnapshot: params.policySnapshot as ExecuteRalphLoopInput["policySnapshot"],
+        },
+        signal,
+      );
+      return machineResult({ result }, renderLoopResult(result));
     },
   });
 }

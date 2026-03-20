@@ -16,8 +16,8 @@ export const WORKER_STATUSES = [
   "archived",
 ] as const;
 export const WORKSPACE_STRATEGIES = ["git-worktree"] as const;
-export const WORKER_RUNTIME_KINDS = ["subprocess", "sdk", "rpc"] as const;
-export const DEFAULT_WORKER_RUNTIME_KIND = "sdk" as const;
+export const WORKER_RUNTIME_KINDS = ["subprocess", "descriptor_only"] as const;
+export const DEFAULT_WORKER_RUNTIME_KIND = "subprocess" as const;
 export const WORKER_TELEMETRY_STATES = [
   "unknown",
   "busy",
@@ -26,7 +26,7 @@ export const WORKER_TELEMETRY_STATES = [
   "waiting_for_review",
   "finished",
 ] as const;
-export const MANAGER_REF_KINDS = ["operator", "manual", "plan", "ticket", "ralph", "runtime"] as const;
+export const MANAGER_REF_KINDS = ["operator", "manual", "plan", "ticket", "ralph"] as const;
 export const MESSAGE_DIRECTIONS = ["manager_to_worker", "worker_to_manager", "broadcast"] as const;
 export const MESSAGE_AWAITING = ["none", "worker", "manager"] as const;
 export const MESSAGE_KINDS = [
@@ -225,6 +225,9 @@ export interface WorkerCheckpointRecord {
 
 export interface WorkerRuntimeDescriptor {
   workerId: string;
+  ralphRunId: string;
+  iterationId: string;
+  iteration: number;
   createdAt: string;
   updatedAt: string;
   runtime: WorkerRuntimeKind;
@@ -232,6 +235,9 @@ export interface WorkerRuntimeDescriptor {
   workspaceDir: string;
   branch: string;
   baseRef: string;
+  packetRef: string;
+  ralphLaunchRef: string;
+  instructions: string[];
   launchPrompt: string;
   command: string[];
   pid: number | null;
@@ -404,5 +410,4 @@ export interface PrepareWorkerLaunchInput {
   resume?: boolean;
   note?: string;
   prompt?: string;
-  runtime?: WorkerRuntimeKind;
 }

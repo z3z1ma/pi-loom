@@ -1,128 +1,21 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { createRalphStore } from "@pi-loom/pi-ralph/extensions/domain/store.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
-import { commitWorkspaceFiles, createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
-import {
-  buildInheritedWorkerSdkSessionConfig,
-  resolveCliExtensionPathsFromArgv,
-  resolveWorkspaceExtensionPaths,
-  runWorkerLaunch,
-} from "../extensions/domain/runtime.js";
+import { createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
+import { runWorkerLaunch } from "../extensions/domain/runtime.js";
 import { createWorkerStore } from "../extensions/domain/store.js";
 
-vi.mock("@mariozechner/pi-coding-agent", () => ({
-  buildSessionContext: (entries: Array<{ type?: string; thinkingLevel?: string }>) => {
-    let thinkingLevel = "off";
-    for (const entry of entries) {
-      if (entry.type === "thinking_level_change" && entry.thinkingLevel) {
-        thinkingLevel = entry.thinkingLevel;
-      }
-    }
-    return { messages: [], thinkingLevel, model: null };
-  },
-  createCodingTools: vi.fn((cwd: string) => [
-    { name: "read", cwd },
-    { name: "bash", cwd },
-    { name: "edit", cwd },
-    { name: "write", cwd },
-  ]),
-  DefaultResourceLoader: class {
-    additionalExtensionPaths: string[];
-
-    constructor(options?: { additionalExtensionPaths?: string[] }) {
-      this.additionalExtensionPaths = options?.additionalExtensionPaths ?? [];
-    }
-
-    async reload() {}
-
-    getExtensions() {
-      return {
-        extensions: this.additionalExtensionPaths.map((resolvedPath) => ({ resolvedPath })),
-        errors: [],
-        runtime: {},
-      };
-    }
-  },
-  createAgentSession: vi.fn(),
-  SessionManager: {
-    inMemory: vi.fn(() => ({ kind: "memory" })),
-  },
+vi.mock("@pi-loom/pi-ralph/extensions/domain/runtime.js", () => ({
+  runRalphLaunch: vi.fn(),
 }));
-
-function createWorkspace(): { cwd: string; cleanup: () => void } {
-  const cwd = mkdtempSync(join(tmpdir(), "pi-workers-runtime-"));
-  process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
-  return {
-    cwd,
-    cleanup: () => {
-      delete process.env.PI_LOOM_ROOT;
-      rmSync(cwd, { recursive: true, force: true });
-    },
-  };
-}
 
 function createGitWorkspace(): { cwd: string; cleanup: () => void } {
   return createSeededGitWorkspace({ prefix: "pi-workers-runtime-" });
 }
 
-function writeWorkspaceFile(cwd: string, relativePath: string, content: string): void {
-  const filePath = join(cwd, relativePath);
-  mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, content, "utf-8");
-}
-
 describe("worker runtime", () => {
-  it("parses inherited -e extension paths from argv", () => {
-    const { cwd, cleanup } = createWorkspace();
-    try {
-      writeWorkspaceFile(cwd, "extensions/alpha.ts", "export default {}\n");
-      writeWorkspaceFile(cwd, "beta.ts", "export default {}\n");
-
-      expect(
-        resolveCliExtensionPathsFromArgv(cwd, [
-          "omp",
-          "-e",
-          "./extensions/alpha.ts",
-          "--extension",
-          join(cwd, "beta.ts"),
-        ]),
-      ).toEqual([join(cwd, "extensions", "alpha.ts"), join(cwd, "beta.ts")]);
-    } finally {
-      cleanup();
-    }
-  }, 30000);
-
-  it("builds inherited sdk session config from the active extension context", () => {
-    const model = { provider: "openai", id: "gpt-5.4" } as never;
-    const modelRegistry = { modelsJsonPath: "/tmp/omp-agent/models.json" };
-
-    const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig({
-      cwd: "/workspace/root",
-      model,
-      modelRegistry: modelRegistry as never,
-      sessionManager: {
-        getEntries: () => [{ type: "thinking_level_change", thinkingLevel: "high" }],
-        getLeafId: () => "leaf-1",
-        getSessionFile: () => undefined,
-        getSessionDir: () => "/tmp/omp-agent/sessions/current-workspace",
-      } as never,
-    });
-
-    expect(sdkSessionConfig).toEqual(
-      expect.objectContaining({
-        ledgerRoot: "/workspace/root",
-        extensionRoot: "/workspace/root",
-        agentDir: "/tmp/omp-agent",
-        model,
-        modelRegistry,
-        thinkingLevel: "high",
-      }),
-    );
-  });
-
   it("builds an explicit launch prompt instead of reusing the raw packet dump", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {
@@ -137,7 +30,7 @@ describe("worker runtime", () => {
         text: "Durably process the inbox",
       });
 
-      const prepared = store.prepareLaunch("prompt-worker", false, "sdk launch", "sdk");
+      const prepared = store.prepareLaunch("prompt-worker", false, "launch prompt");
       expect(prepared.launch?.launchPrompt).toContain(
         "Act as this Pi worker now. Process the worker inbox, execute the requested work, and leave durable state updates behind.",
       );
@@ -160,7 +53,7 @@ describe("worker runtime", () => {
       store.createWorker({ title: "Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } });
       const launched = store.prepareLaunch("runtime-worker", false, "prepare launch");
       expect(launched.launch).not.toBeNull();
-      expect(launched.launch?.runtime).toBe("sdk");
+      expect(launched.launch?.runtime).toBe("subprocess");
       expect(existsSync(launched.launch?.workspaceDir ?? "")).toBe(true);
       expect(launched.launch?.status).toBe("prepared");
 
@@ -183,7 +76,7 @@ describe("worker runtime", () => {
 
       const firstLaunch = store.prepareLaunch("runtime-worker", false, "initial launch");
       expect(firstLaunch.launch?.workspaceDir).toBeTruthy();
-      expect(firstLaunch.launch?.runtime).toBe("sdk");
+      expect(firstLaunch.launch?.runtime).toBe("subprocess");
       expect(
         execFileSync("git", ["-C", firstLaunch.launch?.workspaceDir ?? "", "branch", "--show-current"], {
           encoding: "utf-8",
@@ -207,107 +100,168 @@ describe("worker runtime", () => {
     }
   }, 60000);
 
-  it("records runtime kind for SDK launches and can execute through the SDK runtime path", async () => {
+  it("prepares linked Ralph iteration metadata and records durable post-iteration outcomes", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {
-      writeWorkspaceFile(cwd, "packages/demo-extension/index.ts", "export default {}\n");
-      writeFileSync(
-        join(cwd, "package.json"),
-        `${JSON.stringify({ name: "runtime-fixture", pi: { extensions: ["./packages/demo-extension/index.ts"] } }, null, 2)}\n`,
-        "utf-8",
-      );
-      commitWorkspaceFiles(cwd, "add sdk extension fixture", "package.json", "packages/demo-extension/index.ts");
-
       const ticketStore = createTicketStore(cwd);
       await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
       const store = createWorkerStore(cwd);
-      store.createWorker({ title: "SDK Worker", linkedRefs: { ticketIds: ["t-0001"] } });
-      store.appendMessage("sdk-worker", {
+      store.createWorker({ title: "Linked Ralph Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      store.appendMessage("linked-ralph-worker", {
         direction: "manager_to_worker",
         kind: "assignment",
         text: "Complete the assigned work and resolve this inbox item",
       });
 
-      const launched = store.prepareLaunch("sdk-worker", false, "sdk launch", "sdk");
-      expect(launched.launch?.runtime).toBe("sdk");
+      const launched = store.prepareLaunch("linked-ralph-worker", false, "linked launch");
+      expect(launched.launch?.runtime).toBe("subprocess");
       expect(launched.state.lastRuntimeKind).toBeNull();
-
-      const { createAgentSession } = await import("@mariozechner/pi-coding-agent");
-      const createAgentSessionMock = vi.mocked(createAgentSession);
-      const sessionMock: {
-        listener?: (event: unknown) => void;
-        subscribe: (listener: (event: unknown) => void) => () => void;
-        prompt: (_text: string) => Promise<void>;
-        abort: () => void;
-        dispose: () => Promise<void>;
-      } = {
-        subscribe(listener: (event: unknown) => void) {
-          sessionMock.listener = listener;
-          return () => undefined;
-        },
-        async prompt(_text: string) {
-          sessionMock.listener?.({
-            type: "message_update",
-            assistantMessageEvent: { type: "text_delta", delta: "SDK output" },
-          });
-        },
-        abort() {},
-        async dispose() {},
-      };
-      createAgentSessionMock.mockResolvedValueOnce({
-        session: sessionMock,
-      } as never);
 
       const launch = launched.launch;
       expect(launch).not.toBeNull();
-      if (!launch) throw new Error("Expected SDK launch descriptor");
-      const sdkSessionConfig = {
-        ledgerRoot: cwd,
-        extensionRoot: cwd,
-        agentDir: "/tmp/omp-agent",
-        modelRegistry: { kind: "registry" } as never,
-        model: { provider: "openai", id: "gpt-5.4" } as never,
-        thinkingLevel: "high" as const,
-      };
-      store.startLaunchExecution("sdk-worker");
+      if (!launch) throw new Error("Expected linked Ralph launch descriptor");
+      expect(launch.ralphRunId).toBe(launched.state.linkedRefs.ralphRunIds[0]);
+      expect(launch.iterationId).toBe("iter-001");
+      expect(launch.iteration).toBe(1);
+      expect(launch.packetRef).toBe(`ralph-run:${launch.ralphRunId}:packet`);
+      expect(launch.ralphLaunchRef).toBe(`ralph-run:${launch.ralphRunId}:launch`);
+      expect(launch.command).toEqual(["pi", "ralph", "launch", launch.ralphRunId]);
+      expect(launch.instructions).toEqual(
+        expect.arrayContaining([
+          `Execute the next Ralph iteration in worktree ${launch.branch}.`,
+          `Use worker linked-ralph-worker as the manager-facing wrapper for run ${launch.ralphRunId}.`,
+        ]),
+      );
+
+      const { runRalphLaunch } = await import("@pi-loom/pi-ralph/extensions/domain/runtime.js");
+      const runRalphLaunchMock = vi.mocked(runRalphLaunch);
+      runRalphLaunchMock.mockResolvedValueOnce({
+        command: "pi",
+        args: ["ralph"],
+        exitCode: 0,
+        output: "Ralph iteration output",
+        stderr: "",
+      });
+
+      store.startLaunchExecution("linked-ralph-worker");
       store.resolveMessage(
-        "sdk-worker",
+        "linked-ralph-worker",
         launched.dashboard.unresolvedInbox[0]?.id ?? "",
         "worker",
         "Handled the inbox item",
       );
-      const execution = await runWorkerLaunch(launch, undefined, undefined, sdkSessionConfig);
+      const execution = await runWorkerLaunch(launch);
       expect(execution.status).toBe("completed");
-      expect(execution.output).toContain("SDK output");
-      expect(createAgentSessionMock).toHaveBeenCalledTimes(1);
-      const sdkOptions = createAgentSessionMock.mock.calls[0]?.[0];
-      expect(sdkOptions?.cwd).toBe(cwd);
-      expect(sdkOptions?.agentDir).toBe("/tmp/omp-agent");
-      expect(sdkOptions?.modelRegistry).toBe(sdkSessionConfig.modelRegistry);
-      expect(sdkOptions?.model).toBe(sdkSessionConfig.model);
-      expect(sdkOptions?.thinkingLevel).toBe("high");
-      expect(sdkOptions?.tools).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ name: "read", cwd: launch.workspaceDir }),
-          expect.objectContaining({ name: "bash", cwd: launch.workspaceDir }),
-        ]),
+      expect(execution.output).toContain("Ralph iteration output");
+      expect(runRalphLaunchMock).toHaveBeenCalledWith(
+        launch.workspaceDir,
+        expect.objectContaining({
+          runId: launch.ralphRunId,
+          iterationId: launch.iterationId,
+          iteration: launch.iteration,
+          runtime: launch.runtime,
+          packetRef: launch.packetRef,
+          launchRef: launch.ralphLaunchRef,
+          resume: false,
+        }),
+        undefined,
+        undefined,
       );
-      const loadedExtensions =
-        sdkOptions?.resourceLoader?.getExtensions().extensions.map((extension) => extension.resolvedPath) ?? [];
-      expect(loadedExtensions).toContain(join(cwd, "packages", "demo-extension", "index.ts"));
-      const finished = store.finishLaunchExecution("sdk-worker", execution);
-      expect(finished.state.lastRuntimeKind).toBe("sdk");
+
+      createRalphStore(cwd).appendIteration(launch.ralphRunId, {
+        id: launch.iterationId,
+        status: "accepted",
+        summary: "Processed the inbox assignment",
+        workerSummary: "Resolved manager instruction durably",
+        decision: {
+          kind: "continue",
+          reason: "unknown",
+          summary: "Manager can inspect the durable worker state between iterations.",
+          decidedAt: new Date().toISOString(),
+          decidedBy: "runtime",
+          blockingRefs: [],
+        },
+      });
+
+      const finished = store.finishLaunchExecution("linked-ralph-worker", execution);
+      expect(finished.state.lastRuntimeKind).toBe("subprocess");
       expect(finished.state.status).toBe("ready");
       expect(finished.state.latestTelemetry.state).toBe("idle");
       expect(finished.launch?.status).toBe("completed");
-      expect(finished.launch?.note).toContain("SDK output");
+      expect(finished.launch?.note).toContain("Processed the inbox assignment");
+      expect(finished.launch?.note).toContain("Resolved manager instruction durably");
     } finally {
       cleanup();
     }
   }, 90000);
 
-  it("fails a completed launch that leaves no durable worker progress behind", async () => {
+  it("fails worker launches when the linked Ralph metadata is incomplete", async () => {
+    const result = await runWorkerLaunch({
+      workerId: "metadata-worker",
+      ralphRunId: "",
+      iterationId: "",
+      iteration: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      runtime: "subprocess",
+      resume: false,
+      workspaceDir: ".",
+      branch: "metadata-worker",
+      baseRef: "HEAD",
+      packetRef: "",
+      ralphLaunchRef: "",
+      instructions: [],
+      launchPrompt: "Prompt",
+      command: ["pi", "ralph", "launch", "run-001"],
+      pid: null,
+      status: "prepared",
+      note: "metadata test",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe("Worker launch descriptor is missing linked Ralph run metadata.");
+  });
+
+  it("propagates linked Ralph runtime failures instead of inventing worker-local fallback behavior", async () => {
+    const { runRalphLaunch } = await import("@pi-loom/pi-ralph/extensions/domain/runtime.js");
+    const runRalphLaunchMock = vi.mocked(runRalphLaunch);
+    runRalphLaunchMock.mockResolvedValueOnce({
+      command: "pi",
+      args: ["ralph"],
+      exitCode: 17,
+      output: "",
+      stderr: "linked run failed",
+    });
+
+    const result = await runWorkerLaunch({
+      workerId: "failing-worker",
+      ralphRunId: "run-001",
+      iterationId: "iter-001",
+      iteration: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      runtime: "subprocess",
+      resume: true,
+      workspaceDir: ".",
+      branch: "failing-worker",
+      baseRef: "HEAD",
+      packetRef: "ralph-run:run-001:packet",
+      ralphLaunchRef: "ralph-run:run-001:launch",
+      instructions: ["Inspect durable state"],
+      launchPrompt: "Prompt",
+      command: ["pi", "ralph", "resume", "run-001"],
+      pid: null,
+      status: "prepared",
+      note: "failure test",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.output).toBe("");
+    expect(result.error).toBe("linked run failed");
+  });
+
+  it("fails a completed launch that leaves no durable Ralph post-iteration evidence behind", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
@@ -321,7 +275,7 @@ describe("worker runtime", () => {
         text: "Process this assignment durably",
       });
 
-      store.prepareLaunch("no-progress-worker", true, "resume", "sdk");
+      store.prepareLaunch("no-progress-worker", true, "resume");
       store.startLaunchExecution("no-progress-worker");
       const finished = store.finishLaunchExecution("no-progress-worker", {
         status: "completed",
@@ -332,186 +286,16 @@ describe("worker runtime", () => {
       expect(finished.state.status).toBe("failed");
       expect(finished.state.latestTelemetry.state).toBe("blocked");
       expect(finished.launch?.status).toBe("failed");
-      expect(finished.launch?.note).toContain("made no durable progress");
-      expect(finished.launch?.note).toContain("1 actionable inbox item(s)");
+      expect(finished.launch?.note).toContain(
+        "Linked Ralph iteration exited without durable post-iteration state and explicit decision for the prepared iteration.",
+      );
       expect(finished.dashboard.unresolvedInbox).toHaveLength(1);
     } finally {
       cleanup();
     }
   }, 90000);
 
-  it("keeps rpc runtime as a bounded fallback seam", async () => {
-    const result = await runWorkerLaunch({
-      workerId: "rpc-worker",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      runtime: "rpc",
-      resume: false,
-      workspaceDir: ".",
-      branch: "rpc-worker",
-      baseRef: "HEAD",
-      launchPrompt: "Prompt",
-      command: ["rpc-session", "--mode", "rpc"],
-      pid: null,
-      status: "prepared",
-      note: "rpc seam",
-    });
-    expect(result.status).toBe("failed");
-    expect(result.error).toContain("RPC worker runtime fallback is not implemented yet");
-  });
-
-  it("returns a failed execution result when sdk session setup fails", async () => {
-    const { createAgentSession } = await import("@mariozechner/pi-coding-agent");
-    const createAgentSessionMock = vi.mocked(createAgentSession);
-    createAgentSessionMock.mockRejectedValueOnce(new Error("SDK setup failed"));
-
-    const result = await runWorkerLaunch({
-      workerId: "sdk-failure-worker",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      runtime: "sdk",
-      resume: false,
-      workspaceDir: ".",
-      branch: "sdk-failure-worker",
-      baseRef: "HEAD",
-      launchPrompt: "Prompt",
-      command: ["sdk-session", "Prompt"],
-      pid: null,
-      status: "prepared",
-      note: "sdk setup test",
-    });
-    expect(result.status).toBe("failed");
-    expect(result.error).toContain("SDK setup failed");
-  });
-
-  it("surfaces sdk assistant error turns instead of reporting empty completion", async () => {
-    const { createAgentSession } = await import("@mariozechner/pi-coding-agent");
-    const createAgentSessionMock = vi.mocked(createAgentSession);
-    const sessionMock: {
-      listener?: (event: unknown) => void;
-      subscribe: (listener: (event: unknown) => void) => () => void;
-      prompt: (_text: string) => Promise<void>;
-      abort: () => void;
-      dispose: () => Promise<void>;
-    } = {
-      subscribe(listener: (event: unknown) => void) {
-        sessionMock.listener = listener;
-        return () => undefined;
-      },
-      async prompt(_text: string) {
-        sessionMock.listener?.({
-          type: "message_end",
-          message: {
-            role: "assistant",
-            content: [],
-            stopReason: "error",
-            errorMessage: "Provider quota exceeded",
-          },
-        });
-      },
-      abort() {},
-      async dispose() {},
-    };
-    createAgentSessionMock.mockResolvedValueOnce({ session: sessionMock } as never);
-
-    const result = await runWorkerLaunch({
-      workerId: "sdk-error-worker",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      runtime: "sdk",
-      resume: true,
-      workspaceDir: ".",
-      branch: "sdk-error-worker",
-      baseRef: "HEAD",
-      launchPrompt: "Prompt",
-      command: ["sdk-session", "Prompt"],
-      pid: null,
-      status: "prepared",
-      note: "sdk error test",
-    });
-
-    expect(result.status).toBe("failed");
-    expect(result.output).toBe("");
-    expect(result.error).toBe("Provider quota exceeded");
-  });
-
-  it("fails sdk launches that end with an empty assistant turn and no tool activity", async () => {
-    const { createAgentSession } = await import("@mariozechner/pi-coding-agent");
-    const createAgentSessionMock = vi.mocked(createAgentSession);
-    const sessionMock: {
-      listener?: (event: unknown) => void;
-      subscribe: (listener: (event: unknown) => void) => () => void;
-      prompt: (_text: string) => Promise<void>;
-      abort: () => void;
-      dispose: () => Promise<void>;
-    } = {
-      subscribe(listener: (event: unknown) => void) {
-        sessionMock.listener = listener;
-        return () => undefined;
-      },
-      async prompt(_text: string) {
-        sessionMock.listener?.({
-          type: "message_end",
-          message: {
-            role: "assistant",
-            content: [],
-            stopReason: "end_turn",
-          },
-        });
-      },
-      abort() {},
-      async dispose() {},
-    };
-    createAgentSessionMock.mockResolvedValueOnce({ session: sessionMock } as never);
-
-    const result = await runWorkerLaunch({
-      workerId: "sdk-empty-turn-worker",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      runtime: "sdk",
-      resume: true,
-      workspaceDir: ".",
-      branch: "sdk-empty-turn-worker",
-      baseRef: "HEAD",
-      launchPrompt: "Prompt",
-      command: ["sdk-session", "Prompt"],
-      pid: null,
-      status: "prepared",
-      note: "sdk empty turn test",
-    });
-
-    expect(result.status).toBe("failed");
-    expect(result.output).toBe("");
-    expect(result.error).toBe("SDK worker session ended with an empty assistant turn (stopReason: end_turn)");
-  });
-
-  it("resolves workspace extension entries from the worker manifest and ignores missing files", () => {
-    const { cwd, cleanup } = createWorkspace();
-    try {
-      writeWorkspaceFile(cwd, "packages/present-extension/index.ts", "export default {}\n");
-      writeFileSync(
-        join(cwd, "package.json"),
-        `${JSON.stringify(
-          {
-            name: "runtime-fixture",
-            pi: {
-              extensions: ["./packages/present-extension/index.ts", "./packages/missing-extension/index.ts", 42],
-            },
-          },
-          null,
-          2,
-        )}\n`,
-        "utf-8",
-      );
-
-      expect(resolveWorkspaceExtensionPaths(cwd)).toEqual([join(cwd, "packages", "present-extension", "index.ts")]);
-      expect(resolveWorkspaceExtensionPaths(join(cwd, "missing-workspace"))).toEqual([]);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it("reconstructs runtime kind and scheduler visibility from durable state", async () => {
+  it("reconstructs linked Ralph resume readiness from durable state", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {
       const ticketStore = createTicketStore(cwd);
@@ -520,19 +304,36 @@ describe("worker runtime", () => {
 
       const store = createWorkerStore(cwd);
       store.createWorker({ title: "Recovery Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      const linkedRunId = store.readWorker("recovery-worker").state.linkedRefs.ralphRunIds[0];
+      expect(linkedRunId).toBeTruthy();
       store.appendMessage("recovery-worker", {
         direction: "manager_to_worker",
         kind: "assignment",
         text: "Resume me when ready",
       });
-      store.prepareLaunch("recovery-worker", false, "sdk prepare", "sdk");
+      const prepared = store.prepareLaunch("recovery-worker", false, "prepare linked iteration");
+      createRalphStore(cwd).appendIteration(prepared.state.linkedRefs.ralphRunIds[0] ?? "", {
+        id: prepared.launch?.iterationId,
+        status: "accepted",
+        summary: "Iteration persisted durable worker evidence.",
+        workerSummary: "Worker stopped with inbox state captured for manager review.",
+        decision: {
+          kind: "continue",
+          reason: "unknown",
+          summary: "Another bounded iteration may run once the manager decides to continue.",
+          decidedAt: new Date().toISOString(),
+          decidedBy: "runtime",
+          blockingRefs: [],
+        },
+      });
       await store.runManagerSchedulerPass();
 
       const reread = createWorkerStore(cwd).readWorker("recovery-worker");
-      expect(reread.launch?.runtime).toBe("sdk");
+      expect(reread.launch?.runtime).toBe("subprocess");
+      expect(reread.launch?.ralphRunId).toBe(linkedRunId);
       expect(reread.state.lastRuntimeKind).toBeNull();
       expect(reread.summary.runtimeKind).toBeNull();
-      expect(reread.state.lastSchedulerSummary).toContain("resume candidate");
+      expect(reread.state.lastSchedulerSummary).toContain(`linked Ralph run ${linkedRunId} is ready for another iteration`);
       expect(reread.packet).toContain("Pending approval:");
     } finally {
       cleanup();

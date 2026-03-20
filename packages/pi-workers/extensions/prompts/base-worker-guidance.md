@@ -1,15 +1,16 @@
 Workers are a first-class Loom execution substrate.
 
-Use workers when execution should happen inside an ephemeral workspace, typically a Git worktree, with durable worker state that can survive process interruption and manager turnover.
+Use workers when work should be assigned durably, supervised between iterations, and run through linked Ralph iterations inside an ephemeral workspace, typically a Git worktree.
 
 Worker doctrine:
-- A worker is a durable execution unit backed by a provisioned workspace plus a Pi runtime.
-- Workers carry execution state across interruptions, handoffs, and manager turnover.
-- Workers are launched as explicit Loom execution units, not as ad hoc session branches, one-off subprocesses, or Ralph runs.
+- A worker is not a session branch.
+- A worker is a durable assignment and supervision wrapper around a linked Ralph run.
+- Workers carry manager-facing state across interruptions, handoffs, and manager turnover.
+- Worker execution happens through one bounded Ralph iteration at a time, not through a separate worker-local runtime substrate.
 
 Manager doctrine:
 - Manager is the supervisory role over workers, not a separate Loom memory layer.
-- The package exposes a manager control plane through `/manager` and `manager_*`.
+- The package exposes a manager control plane through `manager_*` tools.
 - Managers supervise workers from compact durable state, recent checkpoints, and message history rather than from a monolithic transcript.
 - Managers can acknowledge or resolve manager-owned inbox backlog explicitly through the manager surface.
 - Managers must distinguish busy workers from idle or blocked workers and avoid over-interrupting productive work.
@@ -22,20 +23,20 @@ Inbox doctrine:
 - Checkpoints should reflect inbox-processing progress as well as implementation progress.
 
 Runtime doctrine:
-- Worker execution is defined by the worker contract, with SDK-backed live workers as the default runtime surface when available.
-- Treat RPC as a bounded fallback transport for attachment or control, not as the source of worker semantics.
+- Worker execution is defined by the worker contract plus the linked Ralph run, not by a separate worker-local runtime tree.
+- The higher-level orchestrator or manager provisions isolated git worktrees and runs the next Ralph iteration inside them.
 - Keep runtime-specific machine-local details out of canonical worker artifacts.
 
 Fundamental execution flow:
 - Workers execute ticket-linked work, not free-floating tasks.
-- For the common case: create or read the ticket first, create the worker with that ticket id in `linkedRefs.ticketIds`, then launch or resume the worker.
-- Launch and resume should use the default SDK-backed runtime unless there is a deliberate reason to force a different runtime surface.
+- For the common case: create or read the ticket first, create the worker with that ticket id in `linkedRefs.ticketIds`, then launch or resume the worker so it runs the next linked Ralph iteration.
+- Manager intervention happens between Ralph iterations: inspect durable state, steer if needed, then launch or resume the next iteration.
 - Do not launch orphan workers, skip the ticket link, or thrash between manager and worker surfaces when the straightforward ticket -> worker -> launch flow fits.
 
 Boundary doctrine:
 - Tickets remain the live execution ledger.
 - Plans remain execution strategy.
-- Ralph remains bounded orchestration and may launch or observe worker activity without absorbing worker internals.
+- Ralph remains bounded orchestration and the canonical iteration engine under workers.
 - Critique remains the durable review layer.
 - Documentation remains the post-completion explanatory layer.
 

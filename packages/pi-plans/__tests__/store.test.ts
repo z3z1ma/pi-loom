@@ -205,8 +205,8 @@ describe("PlanStore durable memory", () => {
       ],
       decisions: [
         {
-          decision: "Use /workplan instead of /plan.",
-          rationale: "Built-in plan-mode surfaces already use the plain plan name.",
+          decision: "Use the explicit workplan naming consistently.",
+          rationale: "The plan layer should use its own unambiguous name instead of collapsing into a generic plan label.",
           date: "2026-03-15",
           author: "ChatGPT",
         },

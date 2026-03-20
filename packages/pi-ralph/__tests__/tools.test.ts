@@ -3,36 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-
-const runRalphLaunch = vi
-  .fn(async () => ({
-    command: "pi",
-    args: ["--mode", "json"],
-    exitCode: 0,
-    output: "Fresh Ralph worker persisted iteration evidence.",
-    stderr: "",
-  }))
-  .mockImplementationOnce(async () => ({
-    command: "pi",
-    args: ["--mode", "json"],
-    exitCode: 0,
-    output: "Fresh Ralph worker persisted iteration evidence.",
-    stderr: "",
-  }))
-  .mockImplementationOnce(async () => ({
-    command: "pi",
-    args: ["--mode", "json"],
-    exitCode: 17,
-    output: "",
-    stderr: "Fresh Ralph resume failed.",
-  }));
+import { createRalphStore } from "../extensions/domain/store.js";
+import { runRalphLaunch } from "../extensions/domain/runtime.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
-}));
-
-vi.mock("../extensions/domain/runtime.js", () => ({
-  runRalphLaunch,
 }));
 
 vi.mock("@sinclair/typebox", () => ({
@@ -48,6 +23,10 @@ vi.mock("@sinclair/typebox", () => ({
     Optional: (value: unknown) => ({ ...((value as Record<string, unknown>) ?? {}), optional: true }),
     String: (options?: Record<string, unknown>) => ({ type: "string", ...(options ?? {}) }),
   },
+}));
+
+vi.mock("../extensions/domain/runtime.js", () => ({
+  runRalphLaunch: vi.fn(),
 }));
 
 type MockPi = {
@@ -83,212 +62,127 @@ function getTool(mockPi: MockPi, name: string): ToolDefinition {
 }
 
 function createContext(cwd: string): ExtensionContext {
-  return { cwd } as ExtensionContext;
+  return {
+    cwd,
+    sessionManager: {
+      getBranch: () => [
+        { type: "message", message: { role: "user", content: [{ type: "text", text: "Drive a careful Ralph loop." }] } },
+      ],
+    },
+  } as unknown as ExtensionContext;
 }
 
 describe("ralph tools", () => {
-  it("registers tool definitions with prompt snippets and guidelines", async () => {
+  it("registers the minimal Ralph AI tool set", async () => {
     const mockPi = createMockPi();
     const { registerRalphTools } = await import("../extensions/tools/ralph.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
 
-    expect([...mockPi.tools.keys()].sort()).toEqual([
-      "ralph_dashboard",
-      "ralph_launch",
-      "ralph_list",
-      "ralph_read",
-      "ralph_resume",
-      "ralph_write",
-    ]);
-
-    for (const tool of mockPi.tools.values()) {
-      expect(tool.promptSnippet).toEqual(expect.any(String));
-      expect(tool.promptSnippet?.length).toBeGreaterThan(20);
-      expect(tool.promptGuidelines).toEqual(expect.arrayContaining([expect.any(String)]));
-    }
-
-    expect(getTool(mockPi, "ralph_launch").promptSnippet).toContain("fresh-context launch descriptors");
+    expect([...mockPi.tools.keys()].sort()).toEqual(["ralph_checkpoint", "ralph_list", "ralph_read", "ralph_run"]);
+    expect(getTool(mockPi, "ralph_run").promptSnippet).toContain("primary Ralph loop tool");
+    expect(getTool(mockPi, "ralph_checkpoint").promptGuidelines).toContain(
+      "This is the safe way for a fresh Ralph worker session to commit its bounded iteration outcome.",
+    );
   });
 
-  it("returns machine-usable shapes for create, read, update, launch, resume, dashboard, and list flows", async () => {
+  it("supports run, read, and checkpoint flows with durable state", async () => {
     const { cwd, cleanup } = createTempWorkspace();
+    const runRalphLaunchMock = vi.mocked(runRalphLaunch);
+    runRalphLaunchMock.mockReset();
     try {
       const mockPi = createMockPi();
       const { registerRalphTools } = await import("../extensions/tools/ralph.js");
       registerRalphTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 
-      const ralphWrite = getTool(mockPi, "ralph_write");
-      const ralphRead = getTool(mockPi, "ralph_read");
-      const ralphLaunch = getTool(mockPi, "ralph_launch");
-      const ralphResume = getTool(mockPi, "ralph_resume");
-      const ralphDashboard = getTool(mockPi, "ralph_dashboard");
+      runRalphLaunchMock.mockImplementationOnce(async (_cwd, launch) => {
+        createRalphStore(cwd).appendIteration(launch.runId, {
+          id: launch.iterationId,
+          status: "accepted",
+          summary: "Completed one bounded Ralph iteration.",
+          workerSummary: "Durable checkpoint persisted from the subprocess.",
+          decision: {
+            kind: "continue",
+            reason: "unknown",
+            summary: "The next caller may choose whether to continue.",
+            decidedAt: new Date().toISOString(),
+            decidedBy: "runtime",
+            blockingRefs: [],
+          },
+        });
+        return { command: "pi", args: ["--mode", "json"], exitCode: 0, output: "iteration output", stderr: "" };
+      });
 
-      const created = await ralphWrite.execute(
+      const runTool = getTool(mockPi, "ralph_run");
+      const readTool = getTool(mockPi, "ralph_read");
+      const checkpointTool = getTool(mockPi, "ralph_checkpoint");
+
+      const runResult = await runTool.execute(
         "call-1",
-        {
-          action: "create",
-          title: "Ralph tool coverage",
-          objective: "Keep orchestration state durable across launch and resume flows.",
-          summary: "Exercise durable Ralph tool state transitions.",
-          linkedRefs: { planIds: ["planning-layer"] },
-          policySnapshot: { maxIterations: 3, verifierRequired: true },
-        },
+        { prompt: "Investigate a bounded loop", iterations: 1 },
         undefined,
         undefined,
         ctx,
       );
-      expect(created.details).toMatchObject({
-        action: "create",
-        run: {
-          summary: { id: "ralph-tool-coverage", status: "planned", phase: "preparing" },
+      expect(runResult.details).toMatchObject({
+        result: {
+          created: true,
+          steps: [
+            {
+              exitCode: 0,
+              output: "iteration output",
+            },
+          ],
         },
       });
+      expect(runResult.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("Iterations executed this call: 1") });
 
-      const updated = await ralphWrite.execute(
-        "call-2",
-        {
-          action: "update",
-          ref: "ralph-tool-coverage",
-          summary: "Refresh linked orchestration context before launching a worker.",
-          linkedRefs: { critiqueIds: ["critique-001"], ticketIds: ["t-0001"] },
-          policySnapshot: { critiqueRequired: true },
-          waitingFor: "operator",
-          status: "paused",
-          phase: "reviewing",
-        },
-        undefined,
-        undefined,
-        ctx,
-      );
-      expect(updated.details).toMatchObject({
-        action: "update",
-        run: {
-          state: {
-            waitingFor: "operator",
-            status: "paused",
-            phase: "reviewing",
-          },
-        },
-      });
+      const list = await getTool(mockPi, "ralph_list").execute("call-2", {}, undefined, undefined, ctx);
+      expect(JSON.stringify(list)).toContain("investigate-a-bounded-loop");
 
-      const read = await ralphRead.execute(
+      const dashboard = await readTool.execute(
         "call-3",
-        { ref: "ralph-tool-coverage", mode: "state" },
+        { ref: "investigate-a-bounded-loop", mode: "dashboard" },
         undefined,
         undefined,
         ctx,
       );
-      expect(read.details).toMatchObject({
-        summary: { id: "ralph-tool-coverage", waitingFor: "operator" },
-        state: {
-          linkedRefs: {
-            planIds: ["planning-layer"],
-            critiqueIds: ["critique-001"],
-            ticketIds: ["t-0001"],
-          },
-          policySnapshot: { critiqueRequired: true, verifierRequired: true },
-        },
-      });
-      expect(read.content[0]).toMatchObject({ type: "text" });
-      if (read.content[0]?.type !== "text") {
-        throw new Error("Expected state text content");
-      }
-      expect(read.content[0].text).toContain('"waitingFor": "operator"');
+      expect(JSON.stringify(dashboard)).toContain("Post-iteration checkpoint");
 
-      await ralphWrite.execute(
-        "call-3b",
-        {
-          action: "update",
-          ref: "ralph-tool-coverage",
-          waitingFor: "none",
-          status: "paused",
-          phase: "deciding",
-        },
-        undefined,
-        undefined,
-        ctx,
-      );
-
-      const launched = await ralphLaunch.execute(
+      const checkpointed = await checkpointTool.execute(
         "call-4",
         {
-          ref: "ralph-tool-coverage",
-          focus: "Add durable launch assertions",
-          instructions: ["Read the Ralph packet before writing evidence."],
+          ref: "investigate-a-bounded-loop",
+          status: "accepted",
+          focus: "Record a follow-up checkpoint",
+          summary: "Second checkpoint stored.",
+          workerSummary: "Verifier evidence and explicit decision were persisted together.",
+          verifierSummary: {
+            sourceKind: "test",
+            sourceRef: "vitest",
+            verdict: "pass",
+            summary: "Focused verification passed.",
+            required: true,
+          },
+          decisionInput: {
+            workerRequestedCompletion: true,
+            summary: "Stop after the second checkpoint.",
+          },
         },
         undefined,
         undefined,
         ctx,
       );
-      expect(launched.details).toMatchObject({
-        launch: {
-          runId: "ralph-tool-coverage",
-          runtime: "subprocess",
-          resume: false,
-          instructions: ["Read the Ralph packet before writing evidence."],
-        },
-        execution: { command: "pi", exitCode: 0 },
+      expect(checkpointed.details).toMatchObject({
         run: {
-          summary: { id: "ralph-tool-coverage", status: "active", phase: "executing" },
-          state: { launchCount: 1, currentIterationId: "iter-001" },
-        },
-      });
-      expect(runRalphLaunch).toHaveBeenCalledTimes(1);
-      expect(launched.content).toEqual([{ type: "text", text: "Fresh Ralph worker persisted iteration evidence." }]);
-
-      const resumed = await ralphResume.execute(
-        "call-5",
-        {
-          ref: "ralph-tool-coverage",
-          focus: "Retry after runtime failure",
-        },
-        undefined,
-        undefined,
-        ctx,
-      );
-      expect(resumed.details).toMatchObject({
-        launch: {
-          runId: "ralph-tool-coverage",
-          runtime: "descriptor_only",
-          resume: false,
-        },
-        execution: { command: "pi", exitCode: 17, stderr: "Fresh Ralph resume failed." },
-        run: {
-          summary: { id: "ralph-tool-coverage", status: "failed", phase: "halted", decision: "halt" },
           state: {
-            latestDecision: {
-              reason: "runtime_failure",
-              decidedBy: "runtime",
-              summary: "Fresh Ralph resume failed.",
-            },
-            stopReason: "runtime_failure",
+            latestDecision: { kind: "complete" },
           },
         },
       });
-      expect(runRalphLaunch).toHaveBeenCalledTimes(2);
-      expect(resumed.content[0]).toMatchObject({ type: "text" });
-      if (resumed.content[0]?.type !== "text") {
-        throw new Error("Expected resume text content");
-      }
-      expect(resumed.content[0].text).toContain("Resume: no");
-
-      const dashboard = await ralphDashboard.execute(
-        "call-6",
-        { ref: "ralph-tool-coverage" },
-        undefined,
-        undefined,
-        ctx,
-      );
-      expect(dashboard.details).toMatchObject({
-        dashboard: {
-          run: { id: "ralph-tool-coverage", status: "failed", phase: "halted" },
-          latestDecision: { reason: "runtime_failure", kind: "halt" },
-          counts: { iterations: 1 },
-        },
-      });
+      expect(checkpointed.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("Latest decision: complete") });
     } finally {
       cleanup();
     }
-  }, 240000);
+  });
 });

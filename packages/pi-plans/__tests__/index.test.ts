@@ -4,13 +4,11 @@ import { join } from "node:path";
 import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
   RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createPlanStore } from "../extensions/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -71,15 +69,6 @@ function createMockPi(): MockPi {
   };
 }
 
-function getCommand(mockPi: MockPi, name: string): Omit<RegisteredCommand, "name"> {
-  const command = mockPi.commands.get(name);
-  expect(command).toBeDefined();
-  if (!command) {
-    throw new Error(`Missing command ${name}`);
-  }
-  return command;
-}
-
 function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: ExtensionContext) => unknown {
   const handler = mockPi.handlers.get(eventName);
   expect(handler).toBeDefined();
@@ -89,26 +78,14 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
   return handler;
 }
 
-function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notify: ReturnType<typeof vi.fn> } } {
-  const ui = { notify: vi.fn() };
-  return {
-    ctx: {
-      cwd,
-      ui,
-    } as unknown as ExtensionCommandContext,
-    ui,
-  };
-}
-
 describe("pi-plans extension", () => {
-  it("registers the /workplan command, plan tools, and lifecycle hooks", async () => {
+  it("registers plan tools and lifecycle hooks", async () => {
     const mockPi = createMockPi();
     const { default: piPlans } = await import("../extensions/index.js");
 
     piPlans(mockPi as unknown as ExtensionAPI);
 
-    expect(mockPi.commands.has("workplan")).toBe(true);
-    expect(getCommand(mockPi, "workplan").description).toContain("execution plans");
+    expect(mockPi.commands.size).toBe(0);
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "plan_dashboard",
       "plan_list",
@@ -119,37 +96,6 @@ describe("pi-plans extension", () => {
     ]);
     expect(mockPi.handlers.has("session_start")).toBe(true);
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
-  });
-
-  it("routes /workplan output through the registered command handler and initializes plan storage", async () => {
-    const { cwd, cleanup } = createTempWorkspace();
-    try {
-      const mockPi = createMockPi();
-      const { default: piPlans } = await import("../extensions/index.js");
-      piPlans(mockPi as unknown as ExtensionAPI);
-      const planStore = createPlanStore(cwd);
-
-      const command = getCommand(mockPi, "workplan");
-      const sessionStart = getHandler(mockPi, "session_start");
-      const { ctx, ui } = createCommandContext(cwd);
-
-      await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      await expect(planStore.listPlans()).resolves.toEqual([]);
-
-      await command.handler(
-        "create workspace repo Planning layer :: Bridge bounded specs into linked ticket execution",
-        ctx,
-      );
-
-      await expect(planStore.readPlan("planning-layer")).resolves.toMatchObject({
-        summary: { id: "planning-layer", status: "active" },
-      });
-
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("planning-layer [active] Planning layer"), "info");
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Source target: workspace:repo"), "info");
-    } finally {
-      cleanup();
-    }
   });
 
   it("augments the system prompt with planning doctrine before agent start", async () => {

@@ -30,7 +30,7 @@ import type {
   RalphListFilter,
   RalphPolicyMode,
   RalphPolicySnapshot,
-  RalphPreparedLaunchState,
+  RalphNextLaunchState,
   RalphReadResult,
   RalphRunPhase,
   RalphRunState,
@@ -220,14 +220,22 @@ function filterAndSortRalphSummaries(records: RalphReadResult[], filter: RalphLi
   );
 }
 
-function normalizePreparedLaunchState(
-  input: Partial<RalphPreparedLaunchState> | null | undefined,
-): RalphPreparedLaunchState {
+function normalizeNextLaunchState(input: Partial<RalphNextLaunchState> | null | undefined): RalphNextLaunchState {
   return {
     runtime: input?.runtime === "subprocess" || input?.runtime === "descriptor_only" ? input.runtime : null,
     resume: input?.resume === true,
+    preparedAt: normalizeOptionalString(input?.preparedAt),
     instructions: normalizeStringList(input?.instructions),
   };
+}
+
+function clearPreparedLaunchState(nextLaunch: RalphNextLaunchState, instructions?: string[]): RalphNextLaunchState {
+  return normalizeNextLaunchState({
+    runtime: null,
+    resume: false,
+    preparedAt: null,
+    instructions: instructions ?? nextLaunch.instructions,
+  });
 }
 
 function toRalphIterationArtifactDisplayId(runId: string, iterationId: string): string {
@@ -721,7 +729,33 @@ function completedAtForStatus(status: RalphIterationStatus, explicit: string | n
   if (normalized) {
     return normalized;
   }
-  return ["accepted", "rejected", "failed", "cancelled"].includes(status) ? currentTimestamp() : null;
+  return ["reviewing", "accepted", "rejected", "failed", "cancelled"].includes(status)
+    ? currentTimestamp()
+    : null;
+}
+
+function isPostIterationStatus(status: RalphIterationStatus): boolean {
+  return !["pending", "running"].includes(status);
+}
+
+function toPostIterationState(iteration: RalphIterationRecord | null) {
+  if (!iteration || !isPostIterationStatus(iteration.status)) {
+    return null;
+  }
+  return {
+    iterationId: iteration.id,
+    iteration: iteration.iteration,
+    status: iteration.status,
+    startedAt: iteration.startedAt,
+    completedAt: iteration.completedAt,
+    focus: iteration.focus,
+    summary: iteration.summary,
+    workerSummary: iteration.workerSummary,
+    verifier: iteration.verifier,
+    critiqueLinks: iteration.critiqueLinks,
+    decision: iteration.decision,
+    notes: iteration.notes,
+  };
 }
 
 function normalizeStoredRunState(state: RalphRunState): RalphRunState {
@@ -740,17 +774,37 @@ function normalizeStoredRunState(state: RalphRunState): RalphRunState {
     verifierSummary: normalizeVerifierSummary(state.verifierSummary),
     critiqueLinks: normalizeCritiqueLinks(state.critiqueLinks),
     latestDecision: normalizeDecision(state.latestDecision),
+    postIteration: state.postIteration
+      ? {
+          ...state.postIteration,
+          iterationId: state.postIteration.iterationId.trim(),
+          iteration: Math.max(1, Math.floor(state.postIteration.iteration)),
+          status: normalizeIterationStatus(state.postIteration.status),
+          startedAt: state.postIteration.startedAt,
+          completedAt: normalizeOptionalString(state.postIteration.completedAt),
+          focus: state.postIteration.focus.trim(),
+          summary: state.postIteration.summary.trim(),
+          workerSummary: state.postIteration.workerSummary.trim(),
+          verifier: normalizeVerifierSummary(state.postIteration.verifier),
+          critiqueLinks: normalizeCritiqueLinks(state.postIteration.critiqueLinks),
+          decision: normalizeDecision(state.postIteration.decision),
+          notes: normalizeStringList(state.postIteration.notes),
+        }
+      : null,
     lastIterationNumber:
       typeof state.lastIterationNumber === "number" && Number.isFinite(state.lastIterationNumber)
         ? Math.max(0, Math.floor(state.lastIterationNumber))
         : 0,
-    currentIterationId: normalizeOptionalString(state.currentIterationId),
-    lastLaunchAt: normalizeOptionalString(state.lastLaunchAt),
-    launchCount:
-      typeof state.launchCount === "number" && Number.isFinite(state.launchCount)
-        ? Math.max(0, Math.floor(state.launchCount))
-        : 0,
-    preparedLaunch: normalizePreparedLaunchState(state.preparedLaunch),
+    nextIterationId: normalizeOptionalString(
+      (state as RalphRunState & { nextIterationId?: string | null; currentIterationId?: string | null }).nextIterationId ??
+        (state as RalphRunState & { currentIterationId?: string | null }).currentIterationId,
+    ),
+    nextLaunch: normalizeNextLaunchState(
+      (state as RalphRunState & { preparedLaunch?: RalphNextLaunchState; lastLaunchAt?: string | null }).nextLaunch ?? {
+        ...(state as RalphRunState & { preparedLaunch?: RalphNextLaunchState }).preparedLaunch,
+        preparedAt: (state as RalphRunState & { lastLaunchAt?: string | null }).lastLaunchAt,
+      },
+    ),
     stopReason: normalizeOptionalString(state.stopReason) as RalphContinuationDecision["reason"] | null,
     packetSummary: state.packetSummary?.trim() ?? "",
   };
@@ -947,6 +1001,27 @@ export class RalphStore {
           `- verifier: ${latestIteration.verifier.verdict}`,
         ].join("\n")
       : "(none)";
+    const postIterationLines = state.postIteration
+      ? [
+          `- id: ${state.postIteration.iterationId}`,
+          `- iteration: ${state.postIteration.iteration}`,
+          `- status: ${state.postIteration.status}`,
+          `- completed at: ${state.postIteration.completedAt ?? "(not completed)"}`,
+          `- focus: ${state.postIteration.focus || "(none)"}`,
+          `- summary: ${state.postIteration.summary || "(none)"}`,
+          `- worker summary: ${state.postIteration.workerSummary || "(none)"}`,
+          `- verifier: ${state.postIteration.verifier.verdict}`,
+          `- critiques: ${state.postIteration.critiqueLinks.map((link) => link.critiqueId).join(", ") || "(none)"}`,
+          `- decision: ${state.postIteration.decision?.kind ?? "(none)"}`,
+        ].join("\n")
+      : "(none yet)";
+    const nextLaunchLines = [
+      `- next iteration id: ${state.nextIterationId ?? "(none prepared)"}`,
+      `- prepared at: ${state.nextLaunch.preparedAt ?? "(not prepared)"}`,
+      `- mode: ${state.nextLaunch.resume ? "resume" : "fresh launch"}`,
+      `- runtime: ${state.nextLaunch.runtime ?? "descriptor_only"}`,
+      `- instructions: ${state.nextLaunch.instructions.join(" | ") || "(none)"}`,
+    ].join("\n");
 
     return `${[
       `# Ralph Packet: ${state.title}`,
@@ -957,10 +1032,7 @@ export class RalphStore {
           `- status: ${state.status}`,
           `- phase: ${state.phase}`,
           `- waiting for: ${state.waitingFor}`,
-          `- current iteration id: ${state.currentIterationId ?? "(none)"}`,
           `- last iteration number: ${state.lastIterationNumber}`,
-          `- launch count: ${state.launchCount}`,
-          `- last launch at: ${state.lastLaunchAt ?? "(never)"}`,
           `- stop reason: ${state.stopReason ?? "(none)"}`,
         ].join("\n"),
       ),
@@ -1016,6 +1088,8 @@ export class RalphStore {
             ].join("\n")
           : "(none)",
       ),
+      renderSection("Post-Iteration Checkpoint", postIterationLines),
+      renderSection("Next Launch State", nextLaunchLines),
       renderSection("Latest Iteration", latestIterationLines),
       renderListSection("Linked Plans", context.plans),
       renderListSection("Linked Tickets", context.tickets),
@@ -1030,7 +1104,7 @@ export class RalphStore {
         [
           "- Perform one bounded iteration only.",
           "- Read the linked durable artifacts instead of relying on prior chat state.",
-          "- Persist verifier evidence, critique references, and the continuation decision back into the Ralph run.",
+          "- Persist verifier evidence, critique references, and the continuation decision back into the Ralph run so the next caller can inspect the post-iteration state after exit.",
           "- Do not report completion unless the policy gates actually permit completion.",
         ].join("\n"),
       ),
@@ -1078,25 +1152,25 @@ export class RalphStore {
   }
 
   private readLaunch(state: RalphRunState, iterations: RalphIterationRecord[]): RalphLaunchDescriptor | null {
-    const currentIteration = this.latestIterationById(iterations, state.currentIterationId);
-    if (!currentIteration) {
+    const nextIteration = this.latestIterationById(iterations, state.nextIterationId);
+    if (!nextIteration) {
       return null;
     }
     return {
       runId: state.runId,
-      iterationId: currentIteration.id,
-      iteration: currentIteration.iteration,
-      createdAt: state.lastLaunchAt ?? currentTimestamp(),
-      runtime: state.preparedLaunch.runtime ?? (state.lastLaunchAt ? "subprocess" : "descriptor_only"),
+      iterationId: nextIteration.id,
+      iteration: nextIteration.iteration,
+      createdAt: state.nextLaunch.preparedAt ?? currentTimestamp(),
+      runtime: state.nextLaunch.runtime ?? (state.nextLaunch.preparedAt ? "subprocess" : "descriptor_only"),
       packetRef: toRalphPacketRef(state.runId),
       launchRef: toRalphLaunchRef(state.runId),
-      resume: state.preparedLaunch.resume,
+      resume: state.nextLaunch.resume,
       instructions:
-        state.preparedLaunch.instructions.length > 0
-          ? state.preparedLaunch.instructions
+        state.nextLaunch.instructions.length > 0
+          ? state.nextLaunch.instructions
           : [
               `Read ${toRalphPacketRef(state.runId)} before acting.`,
-              `Persist iteration updates for ${currentIteration.id} through the Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
+              `Persist iteration updates for ${nextIteration.id} through the Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
               "Execute exactly one bounded iteration and record an explicit policy decision before exiting.",
             ],
     };
@@ -1111,9 +1185,9 @@ export class RalphStore {
       runtime: "descriptor_only",
       packetRef: toRalphPacketRef(state.runId),
       launchRef: toRalphLaunchRef(state.runId),
-      resume: false,
+      resume: state.nextLaunch.resume,
       instructions: [
-        "Runtime launch adapters are not implemented yet.",
+        "Prepare one fresh Ralph iteration at a time.",
         `Use ${toRalphPacketRef(state.runId)} as the canonical packet for the next iteration.`,
         `Persist iteration updates for ${iteration?.id ?? "iter-001"} through Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
       ],
@@ -1127,8 +1201,10 @@ export class RalphStore {
   ): RalphReadResult {
     const artifacts = getRalphArtifactPaths(this.cwd, state.runId);
     const iterations = iterationsOverride ?? this.readIterations(state.runId);
+    const postIteration = toPostIterationState([...iterations].reverse().find((iteration) => isPostIterationStatus(iteration.status)) ?? null);
     const normalizedState: RalphRunState = {
       ...state,
+      postIteration,
       lastIterationNumber: iterations.at(-1)?.iteration ?? state.lastIterationNumber,
       packetSummary: createPacketSummary(state),
     };
@@ -1222,11 +1298,10 @@ export class RalphStore {
       verifierSummary: normalizeVerifierSummary(input.verifierSummary),
       critiqueLinks: normalizeCritiqueLinks(input.critiqueLinks),
       latestDecision: normalizeDecision(input.latestDecision),
+      postIteration: null,
       lastIterationNumber: 0,
-      currentIterationId: null,
-      lastLaunchAt: null,
-      launchCount: 0,
-      preparedLaunch: normalizePreparedLaunchState({ instructions: input.launchInstructions }),
+      nextIterationId: null,
+      nextLaunch: normalizeNextLaunchState({ instructions: input.launchInstructions }),
       stopReason: null,
       packetSummary: "",
     };
@@ -1397,6 +1472,8 @@ export class RalphStore {
     const next: RalphRunState = {
       ...state,
       latestDecision: decision,
+      nextIterationId: null,
+      nextLaunch: clearPreparedLaunchState(state.nextLaunch),
       updatedAt: currentTimestamp(),
     };
 
@@ -1428,8 +1505,7 @@ export class RalphStore {
         next.phase = "completed";
         next.waitingFor = "none";
         next.stopReason = decision.reason;
-        next.currentIterationId = null;
-        next.preparedLaunch = normalizePreparedLaunchState(undefined);
+        next.nextLaunch = clearPreparedLaunchState(state.nextLaunch, []);
         return next;
       }
       case "halt": {
@@ -1437,8 +1513,7 @@ export class RalphStore {
         next.phase = "halted";
         next.waitingFor = "none";
         next.stopReason = decision.reason;
-        next.currentIterationId = null;
-        next.preparedLaunch = normalizePreparedLaunchState(undefined);
+        next.nextLaunch = clearPreparedLaunchState(state.nextLaunch, []);
         return next;
       }
       case "escalate": {
@@ -1460,14 +1535,14 @@ export class RalphStore {
       runId: state.runId,
       iterationId: iteration.id,
       iteration: iteration.iteration,
-      createdAt: currentTimestamp(),
+      createdAt: state.nextLaunch.preparedAt ?? currentTimestamp(),
       runtime: "subprocess",
       packetRef: toRalphPacketRef(state.runId),
       launchRef: toRalphLaunchRef(state.runId),
       resume: input.resume === true,
       instructions:
-        normalizeStringList(input.instructions).length > 0
-          ? normalizeStringList(input.instructions)
+        state.nextLaunch.instructions.length > 0
+          ? state.nextLaunch.instructions
           : [
               `Read ${toRalphPacketRef(state.runId)} before acting.`,
               `Persist iteration updates for ${iteration.id} through the Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
@@ -1535,7 +1610,7 @@ export class RalphStore {
     const latestIterations = this.readIterations(current.state.runId);
     const existing = input.id
       ? (latestIterations.find((iteration) => iteration.id === input.id) ?? null)
-      : this.latestIterationById(latestIterations, current.state.currentIterationId);
+      : this.latestIterationById(latestIterations, current.state.nextIterationId);
     const now = currentTimestamp();
     const id =
       input.id?.trim() ||
@@ -1573,6 +1648,7 @@ export class RalphStore {
     const nextIterations = latestById([...history, record]).sort((left, right) => left.iteration - right.iteration);
 
     const reviewWaitingFor = status === "reviewing" ? waitingForFromReviewSignals(verifier, critiqueLinks) : "none";
+    const remainsPrepared = ["pending", "running"].includes(status);
 
     const nextState: RalphRunState = {
       ...current.state,
@@ -1588,10 +1664,8 @@ export class RalphStore {
       critiqueLinks: mergeCritiqueLinks(current.state.critiqueLinks, critiqueLinks),
       latestDecision: decision ?? current.state.latestDecision,
       lastIterationNumber: Math.max(current.state.lastIterationNumber, iterationNumber),
-      currentIterationId: ["accepted", "rejected", "failed", "cancelled"].includes(status) ? null : id,
-      preparedLaunch: ["accepted", "rejected", "failed", "cancelled"].includes(status)
-        ? normalizePreparedLaunchState(undefined)
-        : current.state.preparedLaunch,
+      nextIterationId: remainsPrepared ? id : null,
+      nextLaunch: remainsPrepared ? current.state.nextLaunch : clearPreparedLaunchState(current.state.nextLaunch),
       updatedAt: now,
       stopReason: ["failed", "cancelled"].includes(status) ? "runtime_failure" : current.state.stopReason,
     };
@@ -1755,12 +1829,14 @@ export class RalphStore {
       );
     }
 
-    let latest = this.latestIterationById(current.iterations, current.state.currentIterationId);
-    if (!latest || ["accepted", "rejected", "failed", "cancelled"].includes(latest.status)) {
+    let latest = this.latestIterationById(current.iterations, current.state.nextIterationId);
+    if (!latest || isPostIterationStatus(latest.status)) {
       const prepared = this.appendIteration(ref, {
         status: "pending",
         focus: input.focus ?? current.state.objective,
-        summary: input.resume ? "Resuming a paused Ralph iteration." : "Prepared a fresh Ralph iteration.",
+        summary: input.resume
+          ? "Prepared the next Ralph resume iteration."
+          : "Prepared the next Ralph launch iteration.",
       });
       latest = prepared.iterations.at(-1) ?? null;
     }
@@ -1773,13 +1849,13 @@ export class RalphStore {
       status: "active",
       phase: "executing",
       waitingFor: "none",
-      currentIterationId: latest.id,
-      lastLaunchAt: currentTimestamp(),
-      launchCount: current.state.launchCount + 1,
-      preparedLaunch: normalizePreparedLaunchState({
+      nextIterationId: latest.id,
+      nextLaunch: normalizeNextLaunchState({
         runtime: "subprocess",
         resume: input.resume === true,
-        instructions: normalizeStringList(input.instructions),
+        preparedAt: currentTimestamp(),
+        instructions:
+          input.instructions !== undefined ? normalizeStringList(input.instructions) : current.state.nextLaunch.instructions,
       }),
       updatedAt: currentTimestamp(),
       stopReason: null,
@@ -1795,7 +1871,7 @@ export class RalphStore {
         iteration: latest.iteration,
         resume: launch.resume,
         runtime: launch.runtime,
-        launchCount: result.state.launchCount,
+        preparedAt: launch.createdAt,
       },
       launch.createdAt,
     );
@@ -1835,10 +1911,8 @@ export class RalphStore {
         previousState.lastIterationNumber,
         iteration?.iteration ?? previousState.lastIterationNumber,
       ),
-      currentIterationId: previousState.currentIterationId,
-      launchCount: previousState.launchCount,
-      lastLaunchAt: previousState.lastLaunchAt,
-      preparedLaunch: previousState.preparedLaunch,
+      nextIterationId: previousState.nextIterationId,
+      nextLaunch: previousState.nextLaunch,
       updatedAt: currentTimestamp(),
     };
     return this.writeArtifacts(nextState, undefined, nextIterations);
@@ -1851,8 +1925,8 @@ export class RalphStore {
       status: "archived",
       phase: "halted",
       waitingFor: "none",
-      currentIterationId: null,
-      preparedLaunch: normalizePreparedLaunchState(undefined),
+      nextIterationId: null,
+      nextLaunch: clearPreparedLaunchState(current.state.nextLaunch, []),
       updatedAt: currentTimestamp(),
     });
   }

@@ -7,7 +7,7 @@ A strong Ralph run should keep durable state for:
 - linked plan, ticket, critique, spec, research, and doc refs so the orchestration record stays grounded in neighboring Loom layers
 - verifier evidence, critique verdicts, acceptance signals, and unresolved blockers that materially inform the next step
 - decision rationale covering why the run continued, paused, escalated, stopped, or changed focus
-- fresh-context launch descriptors and bounded packets that are detailed enough for a later worker to resume truthfully without chat residue
+- fresh-context launch descriptors and bounded packets that are detailed enough for a later caller to resume truthfully without chat residue
 - assumptions, scope boundaries, risks, dependencies, edge cases, and open questions that still constrain the loop
 
 Ralph is distinct from the other Loom layers:
@@ -19,13 +19,22 @@ Ralph is distinct from the other Loom layers:
 
 Default Ralph posture:
 - treat long transcripts as a liability; prefer fresh-context iterations, but make the durable packet detailed enough to stand on its own between launches
+- execute one bounded iteration at a time, persist useful post-iteration state, then exit cleanly
 - require explicit stop policies; do not trust model confidence alone
 - ground continuation decisions in verifier outputs, critique findings, and linked acceptance signals
-- preserve why the run continued, paused, escalated, or stopped so later workers can resume truthfully
+- preserve why the run continued, paused, escalated, or stopped so later callers can resume truthfully
 - reject shallow run updates; each iteration record should capture substantive context, what changed, what was verified, what failed, and what remains unresolved
 
 Use Ralph tools to:
-- create and inspect bounded Ralph runs
-- persist iteration updates, verifier summaries, critique links, policy decisions, and resume-ready context after every meaningful loop step
-- compile fresh-context packets and launch descriptors
-- resume paused or review-gated runs from durable state instead of chat residue
+- list and inspect bounded Ralph runs
+- use `ralph_run` as the primary AI-facing loop tool for bounded subprocess execution
+- use `ralph_read` between iterations to inspect packets, dashboards, and durable run state
+- use `ralph_checkpoint` inside a fresh Ralph worker session to commit one complete bounded iteration outcome
+
+Ralph remains directly usable on its own. Its user-facing surfaces should stay Ralph-native even when higher-level orchestration layers choose to build on top of it.
+
+AI-direct Ralph usage should be explicit rather than inferred:
+- for a new loop, call `ralph_run` with a prompt (and optionally an iteration count)
+- inspect the durable result with `ralph_read` if you need more detail
+- if the latest decision is `continue`, call `ralph_run` again to execute more bounded iterations
+- do not manually reconstruct the low-level create/launch/read choreography unless you are implementing Ralph itself

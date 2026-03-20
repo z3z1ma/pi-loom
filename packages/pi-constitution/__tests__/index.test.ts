@@ -4,9 +4,7 @@ import * as path from "node:path";
 import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
-  RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
@@ -34,7 +32,6 @@ type RegisteredHandlers = Map<string, (event: unknown, ctx: ExtensionContext) =>
 type RegisteredTools = Map<string, ToolDefinition>;
 
 type MockPi = {
-  commands: Map<string, Omit<RegisteredCommand, "name">>;
   tools: RegisteredTools;
   handlers: RegisteredHandlers;
   registerCommand: ReturnType<typeof vi.fn>;
@@ -54,17 +51,13 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 function createMockPi(): MockPi {
-  const commands = new Map<string, Omit<RegisteredCommand, "name">>();
   const tools: RegisteredTools = new Map();
   const handlers: RegisteredHandlers = new Map();
 
   return {
-    commands,
     tools,
     handlers,
-    registerCommand: vi.fn((name: string, options: Omit<RegisteredCommand, "name">) => {
-      commands.set(name, options);
-    }),
+    registerCommand: vi.fn(),
     registerTool: vi.fn((definition: ToolDefinition) => {
       tools.set(definition.name, definition);
     }),
@@ -72,15 +65,6 @@ function createMockPi(): MockPi {
       handlers.set(event, handler);
     }),
   };
-}
-
-function getCommand(mockPi: MockPi, name: string): Omit<RegisteredCommand, "name"> {
-  const command = mockPi.commands.get(name);
-  expect(command).toBeDefined();
-  if (!command) {
-    throw new Error(`Missing command ${name}`);
-  }
-  return command;
 }
 
 function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: ExtensionContext) => unknown {
@@ -92,26 +76,14 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
   return handler;
 }
 
-function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notify: ReturnType<typeof vi.fn> } } {
-  const ui = { notify: vi.fn() };
-  return {
-    ctx: {
-      cwd,
-      ui,
-    } as unknown as ExtensionCommandContext,
-    ui,
-  };
-}
-
 describe("pi-constitution extension", () => {
-  it("registers the /constitution command, constitution tools, and lifecycle hooks", async () => {
+  it("registers constitution tools and lifecycle hooks without slash commands", async () => {
     const mockPi = createMockPi();
     const { default: piConstitution } = await import("../extensions/index.js");
 
     piConstitution(mockPi as unknown as ExtensionAPI);
 
-    expect(mockPi.commands.has("constitution")).toBe(true);
-    expect(getCommand(mockPi, "constitution").description).toContain("constitutional memory");
+    expect(mockPi.registerCommand).not.toHaveBeenCalled();
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "constitution_dashboard",
       "constitution_read",
@@ -121,34 +93,6 @@ describe("pi-constitution extension", () => {
     expect(mockPi.handlers.has("session_start")).toBe(true);
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
-
-  it("routes /constitution output through the registered command handler and initializes constitutional memory", async () => {
-    const { cwd, cleanup } = createTempWorkspace();
-    try {
-      process.env.PI_LOOM_ROOT = path.join(cwd, ".pi-loom-test");
-      const mockPi = createMockPi();
-      const { default: piConstitution } = await import("../extensions/index.js");
-      piConstitution(mockPi as unknown as ExtensionAPI);
-
-      const command = getCommand(mockPi, "constitution");
-      const sessionStart = getHandler(mockPi, "session_start");
-      const { ctx, ui } = createCommandContext(cwd);
-
-      await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-      const { storage, identity } = await openWorkspaceStorage(cwd);
-      expect(await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution")).toBeTruthy();
-
-      await command.handler(
-        "update vision Preserve durable project intent :: Ground agents with compiled constitutional memory",
-        ctx,
-      );
-
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Vision complete: yes"), "info");
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Preserve durable project intent"), "info");
-    } finally {
-      cleanup();
-    }
-  }, 30000);
 
   it("augments the system prompt with constitutional doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();

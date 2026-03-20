@@ -10,7 +10,6 @@ When active, the extension teaches the model to use initiatives as first-class s
 - explicit many-to-many links to spec changes and tickets
 - milestone, scope, outcome, risk, and status-summary tracking
 - AI-facing `initiative_*` tools with built-in prompt guidance
-- `/initiative` slash command namespace for human entrypoints
 - system-prompt augmentation via `before_agent_start`
 - computed dashboard views rendered from linked initiative state
 

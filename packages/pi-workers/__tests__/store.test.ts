@@ -66,6 +66,7 @@ describe("WorkerStore", () => {
       expect(created.state.workerId).toBe("worker-foundation");
       expect(created.state.workspace.repositoryRoot).toBe(".");
       expect(created.state.workspace.workspaceKey).toBe("worker-runtime:worker-foundation");
+      expect(created.state.linkedRefs.ralphRunIds).toEqual([ralphRun.state.runId]);
       expect(created.launch).toBeNull();
       expect(JSON.stringify(created.state)).not.toContain(cwd);
       expect(created.summary.ticketCount).toBe(1);
@@ -344,7 +345,8 @@ describe("WorkerStore", () => {
       expect(prepared.launch).not.toBeNull();
       expect(prepared.state.status).toBe("requested");
       expect(prepared.state.latestTelemetry.state).toBe("unknown");
-      expect(prepared.launch?.runtime).toBe("sdk");
+      expect(prepared.launch?.runtime).toBe("subprocess");
+      expect(prepared.launch?.ralphRunId).toBe(prepared.state.linkedRefs.ralphRunIds[0]);
       expect(prepared.launch?.workspaceDir).toBe(getWorkerRuntimeDir(cwd, "runtime-worker"));
       expect(existsSync(prepared.launch?.workspaceDir ?? "")).toBe(true);
       expect(prepared.launch?.status).toBe("prepared");
@@ -495,7 +497,10 @@ describe("WorkerStore", () => {
           expect.objectContaining({ workerId: "approval-worker", action: "needs_approval", applied: false }),
         ]),
       );
-      expect(store.readWorker("scheduler-worker").state.lastSchedulerSummary).toContain("resume candidate");
+      const linkedRunId = store.readWorker("scheduler-worker").state.linkedRefs.ralphRunIds[0];
+      expect(store.readWorker("scheduler-worker").state.lastSchedulerSummary).toContain(
+        `linked Ralph run ${linkedRunId} is ready for another iteration`,
+      );
     } finally {
       cleanup();
     }

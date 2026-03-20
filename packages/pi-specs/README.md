@@ -11,7 +11,6 @@ When active, the extension teaches the model to use specifications as declarativ
 - append-only clarification and decision history per spec
 - explicit initiative membership for cross-layer strategic traceability
 - AI-facing `spec_*` tools with built-in prompt guidance
-- `/spec` slash command namespace for human entrypoints
 - system-prompt augmentation via `before_agent_start`
 
 The coherent path is spec -> plan -> tickets: the spec declares intended behavior, the plan translates that behavior into implementation strategy and sequencing, and the tickets carry the concrete execution work.

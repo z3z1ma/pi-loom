@@ -4,9 +4,7 @@ import { join } from "node:path";
 import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
-  RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
@@ -34,10 +32,8 @@ type RegisteredHandlers = Map<string, (event: unknown, ctx: ExtensionContext) =>
 type RegisteredTools = Map<string, ToolDefinition>;
 
 type MockPi = {
-  commands: Map<string, Omit<RegisteredCommand, "name">>;
   tools: RegisteredTools;
   handlers: RegisteredHandlers;
-  registerCommand: ReturnType<typeof vi.fn>;
   registerTool: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
 };
@@ -51,17 +47,12 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 function createMockPi(): MockPi {
-  const commands = new Map<string, Omit<RegisteredCommand, "name">>();
   const tools: RegisteredTools = new Map();
   const handlers: RegisteredHandlers = new Map();
 
   return {
-    commands,
     tools,
     handlers,
-    registerCommand: vi.fn((name: string, options: Omit<RegisteredCommand, "name">) => {
-      commands.set(name, options);
-    }),
     registerTool: vi.fn((definition: ToolDefinition) => {
       tools.set(definition.name, definition);
     }),
@@ -69,15 +60,6 @@ function createMockPi(): MockPi {
       handlers.set(event, handler);
     }),
   };
-}
-
-function getCommand(mockPi: MockPi, name: string): Omit<RegisteredCommand, "name"> {
-  const command = mockPi.commands.get(name);
-  expect(command).toBeDefined();
-  if (!command) {
-    throw new Error(`Missing command ${name}`);
-  }
-  return command;
 }
 
 function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: ExtensionContext) => unknown {
@@ -89,26 +71,13 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
   return handler;
 }
 
-function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notify: ReturnType<typeof vi.fn> } } {
-  const ui = { notify: vi.fn() };
-  return {
-    ctx: {
-      cwd,
-      ui,
-    } as unknown as ExtensionCommandContext,
-    ui,
-  };
-}
-
 describe("pi-critique extension", () => {
-  it("registers the /critique command, critique tools, and lifecycle hooks", async () => {
+  it("registers critique tools and lifecycle hooks", async () => {
     const mockPi = createMockPi();
     const { default: piCritique } = await import("../extensions/index.js");
 
     piCritique(mockPi as unknown as ExtensionAPI);
 
-    expect(mockPi.commands.has("critique")).toBe(true);
-    expect(getCommand(mockPi, "critique").description).toContain("durable critique packets");
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "critique_dashboard",
       "critique_finding",
@@ -122,37 +91,22 @@ describe("pi-critique extension", () => {
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
 
-  it("routes /critique output through the registered command handler and initializes critique storage", async () => {
+  it("initializes critique storage on session start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
       const { default: piCritique } = await import("../extensions/index.js");
       piCritique(mockPi as unknown as ExtensionAPI);
 
-      const command = getCommand(mockPi, "critique");
       const sessionStart = getHandler(mockPi, "session_start");
-      const { ctx, ui } = createCommandContext(cwd);
       const store = createCritiqueStore(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
       await expect(store.listCritiquesAsync()).resolves.toEqual([]);
-
-      await command.handler("create workspace repo Introduce durable critique memory", ctx);
-
-      await expect(store.readCritiqueAsync("introduce-durable-critique-memory")).resolves.toMatchObject({
-        state: { critiqueId: "introduce-durable-critique-memory" },
-        summary: { targetKind: "workspace", targetRef: "repo" },
-      });
-
-      expect(ui.notify).toHaveBeenCalledWith(
-        expect.stringContaining("introduce-durable-critique-memory [active/concerns]"),
-        "info",
-      );
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("workspace:repo"), "info");
     } finally {
       cleanup();
     }
-  }, 30000);
+  });
 
   it("augments the system prompt with critique doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();

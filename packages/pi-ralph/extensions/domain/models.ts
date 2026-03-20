@@ -127,6 +127,21 @@ export interface RalphIterationRecord {
   notes: string[];
 }
 
+export interface RalphPostIterationState {
+  iterationId: string;
+  iteration: number;
+  status: RalphIterationStatus;
+  startedAt: string;
+  completedAt: string | null;
+  focus: string;
+  summary: string;
+  workerSummary: string;
+  verifier: RalphVerifierSummary;
+  critiqueLinks: RalphCritiqueLink[];
+  decision: RalphContinuationDecision | null;
+  notes: string[];
+}
+
 export interface RalphLaunchDescriptor {
   runId: string;
   iterationId: string;
@@ -139,9 +154,10 @@ export interface RalphLaunchDescriptor {
   instructions: string[];
 }
 
-export interface RalphPreparedLaunchState {
+export interface RalphNextLaunchState {
   runtime: RalphLaunchDescriptor["runtime"] | null;
   resume: boolean;
+  preparedAt: string | null;
   instructions: string[];
 }
 
@@ -160,11 +176,10 @@ export interface RalphRunState {
   verifierSummary: RalphVerifierSummary;
   critiqueLinks: RalphCritiqueLink[];
   latestDecision: RalphContinuationDecision | null;
+  postIteration: RalphPostIterationState | null;
   lastIterationNumber: number;
-  currentIterationId: string | null;
-  lastLaunchAt: string | null;
-  launchCount: number;
-  preparedLaunch: RalphPreparedLaunchState;
+  nextIterationId: string | null;
+  nextLaunch: RalphNextLaunchState;
   stopReason: RalphDecisionReason | null;
   packetSummary: string;
 }

@@ -6,7 +6,6 @@ This package adds a first-class critique layer where critique runs, findings, an
 
 ## Capabilities
 
-- `/critique` command surface for creating, reading, launching, and resolving critiques
 - `critique_*` tools for list/read/write/launch/run/finding/dashboard workflows
 - canonical critique records stored in SQLite with runs and findings history; packets and dashboards are rendered on demand from the SQLite store
 - packet compilation that pulls linked constitution, initiative, research, spec, and ticket context into a fresh-review handoff
@@ -22,7 +21,6 @@ This package adds a first-class critique layer where critique runs, findings, an
 `pi-critique` owns both the launch contract and a default executable launch adapter.
 
 - `critique_launch` writes an explicit `launch.json` descriptor and packet path, then executes the critique synchronously in a separate fresh `pi` process; callers should allow a long timeout because the tool blocks until that critic exits
-- the interactive `/critique launch` command opens a fresh session via `ctx.newSession(...)` and prefills the reviewer prompt for a human-visible handoff
 - tool execution uses a subprocess because tool handlers receive `ExtensionContext`, not the command-only session controls like `ctx.newSession(...)`
 - a successful `critique_launch` must land a persisted `critique_run` in SQLite; a clean subprocess exit without that stored run is treated as failure
 - external runtimes can still consume the same descriptor using the coding-agent session APIs (`ctx.newSession`, `ctx.switchSession`, `ctx.fork`) or their own subprocess adapter

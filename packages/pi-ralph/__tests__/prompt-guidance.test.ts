@@ -16,8 +16,10 @@ describe("ralph prompt guidance", () => {
     expect(guidance).toContain("assumptions, scope boundaries, risks, dependencies, edge cases, and open questions");
     expect(guidance).toContain("fresh-context launch descriptors and bounded packets");
     expect(guidance).toContain("long transcripts as a liability");
+    expect(guidance).toContain("execute one bounded iteration at a time");
     expect(guidance).toContain("reject shallow run updates");
     expect(guidance).toContain("resume paused or review-gated runs from durable state instead of chat residue");
+    expect(guidance).toContain("Ralph remains directly usable on its own");
     expect(guidance).toContain("Ralph orchestrates over those artifacts; it does not replace them");
   });
 
@@ -35,15 +37,9 @@ describe("ralph prompt guidance", () => {
   it("keeps Ralph tool prompt guidance aligned with the detail-first doctrine", () => {
     const toolSource = readFileSync(new URL("../extensions/tools/ralph.ts", import.meta.url), "utf8");
 
-    expect(toolSource).toContain(
-      "Persist detailed Ralph iteration state, verifier evidence, critique links, blockers, and policy decisions durably",
-    );
-    expect(toolSource).toContain("Do not write shallow status blurbs; each update should leave the run resume-ready");
-    expect(toolSource).toContain(
-      "Launch only after the run packet reflects the latest objective framing, verifier evidence, critique outcomes, blockers, and decision state.",
-    );
-    expect(toolSource).toContain(
-      "Resume only after required critique or verifier artifacts are linked into the run and the packet explains the latest blockers, rationale, and next-step expectations.",
-    );
+    expect(toolSource).toContain("primary Ralph loop tool");
+    expect(toolSource).toContain("prompt plus current conversation context");
+    expect(toolSource).toContain("safe way for a fresh Ralph worker session to commit its bounded iteration outcome");
+    expect(toolSource).toContain("One Ralph checkpoint call per bounded iteration");
   });
 });

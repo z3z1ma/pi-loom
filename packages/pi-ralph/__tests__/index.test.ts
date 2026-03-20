@@ -30,15 +30,26 @@ vi.mock("@sinclair/typebox", () => ({
   },
 }));
 
+vi.mock("../extensions/domain/runtime.js", () => ({
+  runRalphLaunch: vi.fn(async () => ({
+    command: "pi",
+    args: ["--mode", "json"],
+    exitCode: 0,
+    output: "Mocked Ralph subprocess output",
+    stderr: "",
+  })),
+}));
+
 type RegisteredHandlers = Map<string, (event: unknown, ctx: ExtensionContext) => unknown>;
 type RegisteredTools = Map<string, ToolDefinition>;
+type RegisteredCommands = Map<string, RegisteredCommand>;
 
 type MockPi = {
-  commands: Map<string, Omit<RegisteredCommand, "name">>;
   tools: RegisteredTools;
   handlers: RegisteredHandlers;
-  registerCommand: ReturnType<typeof vi.fn>;
+  commands: RegisteredCommands;
   registerTool: ReturnType<typeof vi.fn>;
+  registerCommand: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
 };
 
@@ -51,33 +62,24 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 function createMockPi(): MockPi {
-  const commands = new Map<string, Omit<RegisteredCommand, "name">>();
   const tools: RegisteredTools = new Map();
   const handlers: RegisteredHandlers = new Map();
+  const commands: RegisteredCommands = new Map();
 
   return {
-    commands,
     tools,
     handlers,
-    registerCommand: vi.fn((name: string, options: Omit<RegisteredCommand, "name">) => {
-      commands.set(name, options);
-    }),
+    commands,
     registerTool: vi.fn((definition: ToolDefinition) => {
       tools.set(definition.name, definition);
+    }),
+    registerCommand: vi.fn((name: string, definition: RegisteredCommand) => {
+      commands.set(name, definition);
     }),
     on: vi.fn((event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
       handlers.set(event, handler);
     }),
   };
-}
-
-function getCommand(mockPi: MockPi, name: string): Omit<RegisteredCommand, "name"> {
-  const command = mockPi.commands.get(name);
-  expect(command).toBeDefined();
-  if (!command) {
-    throw new Error(`Missing command ${name}`);
-  }
-  return command;
 }
 
 function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: ExtensionContext) => unknown {
@@ -89,58 +91,62 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
   return handler;
 }
 
+function getCommand(mockPi: MockPi, name: string): RegisteredCommand {
+  const command = mockPi.commands.get(name);
+  expect(command).toBeDefined();
+  if (!command) {
+    throw new Error(`Missing command ${name}`);
+  }
+  return command;
+}
+
 function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notify: ReturnType<typeof vi.fn> } } {
   const ui = { notify: vi.fn() };
   return {
     ctx: {
       cwd,
       ui,
+      hasUI: false,
+      sessionManager: {
+        getBranch: () => [
+          { type: "message", message: { role: "user", content: [{ type: "text", text: "Please investigate this issue." }] } },
+          { type: "message", message: { role: "assistant", content: [{ type: "text", text: "I can do that." }] } },
+        ],
+      },
     } as unknown as ExtensionCommandContext,
     ui,
   };
 }
 
 describe("pi-ralph extension", () => {
-  it("registers the /ralph command, Ralph tools, and lifecycle hooks", async () => {
+  it("registers the human /ralph command, Ralph tools, and lifecycle hooks", async () => {
     const mockPi = createMockPi();
     const { default: piRalph } = await import("../extensions/index.js");
 
     piRalph(mockPi as unknown as ExtensionAPI);
 
     expect(mockPi.commands.has("ralph")).toBe(true);
-    expect(getCommand(mockPi, "ralph").description).toContain("Ralph loop runs");
-    expect([...mockPi.tools.keys()].sort()).toEqual([
-      "ralph_dashboard",
-      "ralph_launch",
-      "ralph_list",
-      "ralph_read",
-      "ralph_resume",
-      "ralph_write",
-    ]);
+    expect(getCommand(mockPi, "ralph").description).toContain("bounded Ralph loop");
+    expect([...mockPi.tools.keys()].sort()).toEqual(["ralph_checkpoint", "ralph_list", "ralph_read", "ralph_run"]);
     expect(mockPi.handlers.has("session_start")).toBe(true);
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
 
-  it("routes /ralph output through the registered command handler and initializes Ralph storage", async () => {
+  it("routes /ralph through the command handler and initializes Ralph storage", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
       const { default: piRalph } = await import("../extensions/index.js");
       piRalph(mockPi as unknown as ExtensionAPI);
 
-      const command = getCommand(mockPi, "ralph");
       const sessionStart = getHandler(mockPi, "session_start");
-      const { ctx, ui } = createCommandContext(cwd);
-
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
 
-      await command.handler("create Durable loop orchestration :: Keep Ralph state durable across fresh launches", ctx);
+      const command = getCommand(mockPi, "ralph");
+      const { ctx, ui } = createCommandContext(cwd);
+      await command.handler("x2 investigate issue durability", ctx);
 
-      expect(ui.notify).toHaveBeenCalledWith(
-        expect.stringContaining("durable-loop-orchestration [planned/preparing] Durable loop orchestration"),
-        "info",
-      );
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Objective:"), "info");
+      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Iterations executed this call:"), "info");
     } finally {
       cleanup();
     }

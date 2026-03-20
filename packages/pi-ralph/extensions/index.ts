@@ -13,7 +13,7 @@ const RALPH_COMMAND = "ralph";
 
 export default function piRalph(pi: ExtensionAPI): void {
   pi.registerCommand(RALPH_COMMAND, {
-    description: "Manage durable Ralph loop runs, packets, dashboards, and fresh-context launches in local Loom memory",
+    description: "Run a bounded Ralph loop from the current conversation and prompt",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const output = await handleRalphCommand(args, ctx);
       if (output) {

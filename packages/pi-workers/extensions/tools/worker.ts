@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { Type } from "@sinclair/typebox";
 import { renderWorkerDashboard, renderWorkerDetail, renderWorkerList } from "../domain/render.js";
-import { buildInheritedWorkerSdkSessionConfig, runWorkerLaunch } from "../domain/runtime.js";
+import { runWorkerLaunch } from "../domain/runtime.js";
 import { createWorkerStore } from "../domain/store.js";
 
 const WorkerStatusEnum = StringEnum([
@@ -28,7 +28,6 @@ const WorkerTelemetryEnum = StringEnum([
   "waiting_for_review",
   "finished",
 ] as const);
-const WorkerRuntimeKindEnum = StringEnum(["subprocess", "sdk", "rpc"] as const);
 const MessageDirectionEnum = StringEnum(["manager_to_worker", "worker_to_manager", "broadcast"] as const);
 const MessageKindEnum = StringEnum([
   "assignment",
@@ -87,7 +86,7 @@ const WorkspaceSchema = Type.Object({
 });
 
 const ManagerRefSchema = Type.Object({
-  kind: Type.Optional(StringEnum(["operator", "manual", "plan", "ticket", "ralph", "runtime"] as const)),
+  kind: Type.Optional(StringEnum(["operator", "manual", "plan", "ticket", "ralph"] as const)),
   ref: Type.Optional(Type.String()),
   label: Type.Optional(Type.String()),
 });
@@ -258,13 +257,13 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     name: "worker_write",
     label: "Write Worker",
     description:
-      "Create or update workers, messages, checkpoints, telemetry, approvals, consolidation, and retirement state.",
+      "Create or update Ralph-backed workers, messages, checkpoints, telemetry, approvals, consolidation, and retirement state.",
     promptSnippet:
       "Workers execute ticket-linked work. For the common case, create or read the ticket first, then create the worker with linkedRefs.ticketIds before launching it.",
     promptGuidelines: [
       "Workers require at least one linked ticket id; do not create free-floating workers.",
-      "When the task is straightforward execution, prefer the simple flow: ticket_read/ticket_write -> worker_write action=create with linkedRefs.ticketIds -> worker_launch. Keep the ticket as the live execution ledger while the worker carries workspace-backed execution state.",
-      "Use append_message, checkpoints, telemetry, completion, and approval updates to keep the worker record truthful after launch instead of narrating worker progress only in chat.",
+      "Each worker is a manager-facing wrapper over exactly one linked Ralph run. If you do not supply linkedRefs.ralphRunIds, worker creation will bind a fresh Ralph run automatically.",
+      "Use append_message, checkpoints, telemetry, completion, and approval updates to keep the wrapper state truthful between Ralph iterations instead of narrating progress only in chat.",
     ],
     parameters: Type.Object({
       action: WorkerWriteActionEnum,
@@ -385,24 +384,22 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     name: "worker_launch",
     label: "Launch Worker",
     description:
-      "Provision a worker workspace if needed, prepare launch state, and optionally run an SDK-backed Pi worker by default.",
+      "Provision the intended worktree, prepare the next linked Ralph iteration, and optionally execute it.",
     promptSnippet:
-      "Launch the existing ticket-linked worker through the default SDK-backed runtime unless you intentionally need subprocess or RPC.",
+      "Launch the existing ticket-linked worker by preparing and executing the next linked Ralph iteration in its intended worktree.",
     promptGuidelines: [
       "Use this after the worker already exists and is linked to at least one ticket; worker creation and worker launch are separate steps.",
-      "Omit the runtime override for the common path so launch defaults to the SDK-backed runtime. Override only when you deliberately need subprocess or RPC behavior.",
-      "Use prepareOnly when a manager or later step needs the prepared workspace and launch descriptor without immediately starting execution.",
+      "Worker launch prepares one bounded Ralph iteration for the worker's linked run rather than creating a separate worker-local runtime session.",
+      "Use prepareOnly when a manager or later step needs the prepared worktree and linked Ralph launch descriptor without immediately executing the iteration.",
     ],
     parameters: Type.Object({
       ref: Type.String(),
       prepareOnly: Type.Optional(Type.Boolean()),
       note: Type.Optional(Type.String()),
-      runtime: Type.Optional(WorkerRuntimeKindEnum),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
-      const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
-      const prepared = await store.prepareLaunchAsync(params.ref, false, params.note, params.runtime);
+      const prepared = await store.prepareLaunchAsync(params.ref, false, params.note);
       if (params.prepareOnly === true) {
         return machineResult({ launch: prepared.launch }, await store.renderLaunchAsync(params.ref));
       }
@@ -410,7 +407,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       if (!running.launch) {
         throw new Error("Worker launch descriptor was not created");
       }
-      const execution = await runWorkerLaunch(running.launch, signal, undefined, sdkSessionConfig);
+      const execution = await runWorkerLaunch(running.launch, signal);
       const finalized = await store.finishLaunchExecutionAsync(params.ref, execution);
       return machineResult(
         { launch: finalized.launch, execution },
@@ -423,28 +420,21 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     name: "worker_resume",
     label: "Resume Worker",
     description:
-      "Prepare and optionally run a resumed worker from durable state, defaulting to the SDK-backed runtime.",
+      "Prepare and optionally execute the next linked Ralph iteration for an existing worker from durable state.",
     promptSnippet:
-      "Resume the worker from durable state with the default SDK-backed runtime unless an explicit runtime override is truly needed.",
+      "Resume the worker from durable state by preparing the next Ralph iteration for its linked run.",
     promptGuidelines: [
-      "Use resume for a worker that already exists and has durable state worth continuing; use worker_launch for the initial execution when no prior run exists.",
-      "Keep the runtime override optional. If omitted, resume should preserve the last intentional runtime choice or fall back to the default SDK-backed runtime.",
+      "Use resume for a worker that already exists and has durable state worth continuing; use worker_launch for the initial wrapper-mediated iteration when no prior linked run iteration has been prepared.",
+      "Resume continues the linked Ralph run; it does not revive a separate worker-local runtime session.",
     ],
     parameters: Type.Object({
       ref: Type.String(),
       prepareOnly: Type.Optional(Type.Boolean()),
       note: Type.Optional(Type.String()),
-      runtime: Type.Optional(WorkerRuntimeKindEnum),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
-      const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
-      const prepared = await store.prepareLaunchAsync(
-        params.ref,
-        true,
-        params.note ?? "Resume requested",
-        params.runtime,
-      );
+      const prepared = await store.prepareLaunchAsync(params.ref, true, params.note ?? "Resume requested");
       if (params.prepareOnly === true) {
         return machineResult({ launch: prepared.launch }, await store.renderLaunchAsync(params.ref));
       }
@@ -452,7 +442,7 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       if (!running.launch) {
         throw new Error("Worker launch descriptor was not created");
       }
-      const execution = await runWorkerLaunch(running.launch, signal, undefined, sdkSessionConfig);
+      const execution = await runWorkerLaunch(running.launch, signal);
       const finalized = await store.finishLaunchExecutionAsync(params.ref, execution);
       return machineResult(
         { launch: finalized.launch, execution },

@@ -193,7 +193,11 @@ describe("ralph review-state gating", () => {
         state: expect.objectContaining({
           runId: created.state.runId,
           waitingFor: "operator",
-          currentIterationId: "iter-001",
+          nextIterationId: null,
+          postIteration: expect.objectContaining({
+            iterationId: "iter-001",
+            status: "reviewing",
+          }),
         }),
       }),
     );

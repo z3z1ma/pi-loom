@@ -92,6 +92,32 @@ function renderIterations(iterations: RalphIterationRecord[]): string {
     .join("\n");
 }
 
+function renderPostIteration(state: RalphRunState): string {
+  if (!state.postIteration) {
+    return "(none yet)";
+  }
+  return [
+    `- iteration: ${state.postIteration.iteration} (${state.postIteration.iterationId}) [${state.postIteration.status}]`,
+    `- completed at: ${state.postIteration.completedAt ?? "(not completed)"}`,
+    `- focus: ${state.postIteration.focus || "(none)"}`,
+    `- summary: ${state.postIteration.summary || "(none)"}`,
+    `- worker summary: ${state.postIteration.workerSummary || "(none)"}`,
+    `- verifier: ${state.postIteration.verifier.verdict}`,
+    `- critique links: ${state.postIteration.critiqueLinks.map((link) => link.critiqueId).join(", ") || "(none)"}`,
+    `- decision: ${state.postIteration.decision?.kind ?? "(none)"}`,
+  ].join("\n");
+}
+
+function renderNextLaunch(state: RalphRunState): string {
+  return [
+    `- next iteration id: ${state.nextIterationId ?? "(none prepared)"}`,
+    `- prepared at: ${state.nextLaunch.preparedAt ?? "(not prepared)"}`,
+    `- mode: ${state.nextLaunch.resume ? "resume" : "fresh launch"}`,
+    `- runtime: ${state.nextLaunch.runtime ?? "descriptor_only"}`,
+    `- instructions: ${state.nextLaunch.instructions.join(" | ") || "(none)"}`,
+  ].join("\n");
+}
+
 export function renderRalphSummary(summary: RalphRunSummary): string {
   return `${summary.id} [${summary.status}/${summary.phase}] ${summary.title}`;
 }
@@ -132,6 +158,8 @@ export function renderRalphMarkdown(state: RalphRunState, iterations: RalphItera
       renderSection("Verifier Summary", renderVerifier(state)),
       renderSection("Critique Links", renderCritiques(state)),
       renderSection("Latest Decision", renderDecision(state)),
+      renderSection("Post-Iteration Checkpoint", renderPostIteration(state)),
+      renderSection("Next Launch State", renderNextLaunch(state)),
       renderSection("Iteration Ledger", renderIterations(iterations)),
     ]),
   );
@@ -145,8 +173,8 @@ export function renderRalphDetail(result: RalphReadResult): string {
     `Tickets: ${result.state.linkedRefs.ticketIds.join(", ") || "none"}`,
     `Critiques: ${result.state.linkedRefs.critiqueIds.join(", ") || "none"}`,
     `Iterations: ${result.iterations.length}`,
-    `Launches: ${result.state.launchCount}`,
-    `Last launch: ${result.state.lastLaunchAt ?? "never"}`,
+    `Post-iteration checkpoint: ${result.state.postIteration ? `${result.state.postIteration.iteration} [${result.state.postIteration.status}]` : "none"}`,
+    `Next launch prepared: ${result.state.nextLaunch.preparedAt ?? "no"}`,
     `Latest decision: ${result.state.latestDecision?.kind ?? "none"}`,
     `Stop reason: ${result.state.stopReason ?? "none"}`,
     "",
@@ -157,10 +185,11 @@ export function renderRalphDetail(result: RalphReadResult): string {
 
 export function renderLaunchDescriptor(_cwd: string, launch: RalphLaunchDescriptor): string {
   return [
-    `Ralph launch descriptor for ${launch.runId}`,
+    `Ralph single-iteration launch for ${launch.runId}`,
+    `Prepared: ${launch.createdAt}`,
     `Iteration: ${launch.iteration} (${launch.iterationId})`,
     `Runtime: ${launch.runtime}`,
-    `Resume: ${launch.resume ? "yes" : "no"}`,
+    `Mode: ${launch.resume ? "resume" : "fresh launch"}`,
     `Packet ref: ${launch.packetRef}`,
     "",
     "Instructions:",
@@ -174,20 +203,19 @@ export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor):
     "",
     "This is a fresh Ralph worker session. Do not continue the prior worker transcript.",
     `Iteration: ${launch.iteration} (${launch.iterationId})`,
-    `Resume: ${launch.resume ? "yes" : "no"}`,
+    `Mode: ${launch.resume ? "resume" : "fresh launch"}`,
     "",
     "Before acting:",
     `- Read ${launch.packetRef}.`,
     "- Treat plans, tickets, critique, and other Loom records as canonical source material.",
     "- Work only one bounded iteration; do not silently self-loop.",
-    "- Persist status, verifier evidence, critique references, and the continuation decision through `ralph_write`.",
+    "- Persist status, verifier evidence, critique references, and the continuation decision through `ralph_checkpoint`.",
+    "- Exit after writing the durable post-iteration state that the next caller will inspect.",
     "",
     "At minimum before finishing:",
-    `- Update iteration ${launch.iterationId} with ralph_write action=append_iteration ref=${launch.runId}.`,
-    `- Persist verifier state with ralph_write action=set_verifier ref=${launch.runId} if checks ran.`,
-    `- Persist critique linkage with ralph_write action=link_critique ref=${launch.runId} when critique artifacts were used or produced.`,
-    `- Persist the stop/continue outcome with ralph_write action=decide ref=${launch.runId}.`,
+    `- Call ralph_checkpoint ref=${launch.runId} once with the complete bounded-iteration outcome.`,
     "- If the run should continue, leave the next step explicit rather than claiming completion vaguely.",
+    "- A clean subprocess exit without durable post-iteration state is a failure.",
   ].join("\n");
 }
 
@@ -196,7 +224,7 @@ export function renderDashboard(dashboard: RalphDashboard): string {
     renderRalphSummary(dashboard.run),
     `Waiting for: ${dashboard.waitingFor}`,
     `Iterations: ${dashboard.counts.iterations}`,
-    `Latest iteration: ${dashboard.latestIteration ? `${dashboard.latestIteration.iteration} [${dashboard.latestIteration.status}]` : "none"}`,
+    `Post-iteration checkpoint: ${dashboard.latestIteration ? `${dashboard.latestIteration.iteration} [${dashboard.latestIteration.status}]` : "none"}`,
     `Latest decision: ${dashboard.latestDecision?.kind ?? "none"}`,
     `Verifier counts: ${Object.entries(dashboard.counts.verifierVerdicts)
       .map(([key, value]) => `${key}=${value}`)

@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Model } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { createRalphStore } from "@pi-loom/pi-ralph/extensions/domain/store.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
 import { createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
@@ -70,20 +70,6 @@ function createCtx(cwd: string): ExtensionContext {
   return { cwd } as ExtensionContext;
 }
 
-function createCtxWithRuntimeConfig(cwd: string): ExtensionContext {
-  return {
-    cwd,
-    model: { provider: "openai", id: "gpt-5.4" } as Model<unknown>,
-    modelRegistry: { modelsJsonPath: "/tmp/omp-agent/models.json" } as unknown,
-    sessionManager: {
-      getEntries: () => [{ type: "thinking_level_change", thinkingLevel: "high" }],
-      getLeafId: () => "leaf-1",
-      getSessionFile: () => undefined,
-      getSessionDir: () => "/tmp/omp-agent/sessions/current-workspace",
-    },
-  } as unknown as ExtensionContext;
-}
-
 async function createWorkerTicket(cwd: string): Promise<void> {
   const ticketStore = createTicketStore(cwd);
   await ticketStore.initLedgerAsync();
@@ -120,9 +106,14 @@ describe("worker tools", () => {
       expect(workerWrite?.promptGuidelines).toContain(
         "Workers require at least one linked ticket id; do not create free-floating workers.",
       );
-      expect(mockPi.tools.get("worker_launch")?.promptSnippet).toContain("default SDK-backed runtime");
+      expect(workerWrite?.promptGuidelines).toContain(
+        "Each worker is a manager-facing wrapper over exactly one linked Ralph run. If you do not supply linkedRefs.ralphRunIds, worker creation will bind a fresh Ralph run automatically.",
+      );
+      expect(mockPi.tools.get("worker_launch")?.promptGuidelines).toContain(
+        "Worker launch prepares one bounded Ralph iteration for the worker's linked run rather than creating a separate worker-local runtime session.",
+      );
       expect(mockPi.tools.get("manager_write")?.promptGuidelines).toContain(
-        "Leave runtime unset for the common case so resume defaults to the SDK-backed path instead of forcing subprocess unnecessarily.",
+        "Manager intervention happens between Ralph iterations; do not treat worker resume as reviving a hidden worker-local runtime session.",
       );
 
       await workerWrite?.execute(
@@ -310,18 +301,36 @@ describe("worker tools", () => {
       let worker = createWorkerStore(cwd).readWorker("runtime-tool-worker");
       expect(worker.state.status).toBe("requested");
       expect(worker.state.latestTelemetry.state).toBe("unknown");
-      expect(worker.launch?.runtime).toBe("sdk");
+      expect(worker.launch?.runtime).toBe("subprocess");
       expect(worker.launch?.status).toBe("prepared");
+      expect(worker.launch?.ralphRunId).toBe(worker.state.linkedRefs.ralphRunIds[0]);
+      expect(worker.launch?.iterationId).toBe("iter-001");
       const canonicalPrepared = await createWorkerStore(cwd).readWorkerAsync("runtime-tool-worker");
       expect(canonicalPrepared.launch?.status).toBe("prepared");
-      expect(canonicalPrepared.launch?.runtime).toBe("sdk");
+      expect(canonicalPrepared.launch?.runtime).toBe("subprocess");
 
-      runWorkerLaunchMock.mockResolvedValueOnce({ status: "completed", output: "Execution finished", error: null });
+      runWorkerLaunchMock.mockImplementationOnce(async (launch) => {
+        createRalphStore(cwd).appendIteration(launch.ralphRunId, {
+          id: launch.iterationId,
+          status: "accepted",
+          summary: "Worker completed the bounded Ralph iteration.",
+          workerSummary: "Resolved the queued manager request durably.",
+          decision: {
+            kind: "continue",
+            reason: "unknown",
+            summary: "Manager can inspect the durable state before scheduling the next iteration.",
+            decidedAt: new Date().toISOString(),
+            decidedBy: "runtime",
+            blockingRefs: [],
+          },
+        });
+        return { status: "completed", output: "Execution finished", error: null };
+      });
       await workerLaunch?.execute("call-run", { ref: "runtime-tool-worker" }, undefined, undefined, createCtx(cwd));
 
       worker = createWorkerStore(cwd).readWorker("runtime-tool-worker");
       expect(worker.launch?.status).toBe("completed");
-      expect(worker.launch?.note).toBe("Execution finished");
+      expect(worker.launch?.note).toContain("Worker completed the bounded Ralph iteration.");
       expect(worker.state.status).toBe("ready");
       expect(worker.state.latestTelemetry.state).toBe("idle");
 
@@ -338,52 +347,6 @@ describe("worker tools", () => {
       cleanup();
     }
   }, 60000);
-
-  it("passes inherited sdk runtime config into worker launches", async () => {
-    const { cwd, cleanup } = createGitWorkspace();
-    const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
-    runWorkerLaunchMock.mockReset();
-    try {
-      await createWorkerTicket(cwd);
-
-      const mockPi = createMockPi();
-      registerWorkerTools(mockPi as unknown as ExtensionAPI);
-      const workerWrite = mockPi.tools.get("worker_write");
-      const workerLaunch = mockPi.tools.get("worker_launch");
-      expect(workerWrite && workerLaunch).toBeTruthy();
-
-      await workerWrite?.execute(
-        "call-create",
-        { action: "create", title: "Inherited Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-
-      runWorkerLaunchMock.mockResolvedValueOnce({ status: "completed", output: "Execution finished", error: null });
-      await workerLaunch?.execute(
-        "call-run",
-        { ref: "inherited-runtime-worker" },
-        undefined,
-        undefined,
-        createCtxWithRuntimeConfig(cwd),
-      );
-
-      const sdkSessionConfig = runWorkerLaunchMock.mock.calls[0]?.[3];
-      expect(sdkSessionConfig).toEqual(
-        expect.objectContaining({
-          ledgerRoot: cwd,
-          extensionRoot: cwd,
-          agentDir: "/tmp/omp-agent",
-          thinkingLevel: "high",
-          model: expect.objectContaining({ provider: "openai", id: "gpt-5.4" }),
-        }),
-      );
-    } finally {
-      runWorkerLaunchMock.mockReset();
-      cleanup();
-    }
-  }, 30000);
 
   it("supports manager overview and manager-write flows", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -471,7 +434,7 @@ describe("worker tools", () => {
     }
   }, 90000);
 
-  it("bridges inherited runtime/session config into launch preparation and resume", async () => {
+  it("schedules one bounded linked Ralph iteration from manager durable state", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
     runWorkerLaunchMock.mockReset();
@@ -501,25 +464,43 @@ describe("worker tools", () => {
         createCtx(cwd),
       );
 
-      runWorkerLaunchMock.mockResolvedValueOnce({ status: "completed", output: "Execution finished", error: null });
-      await managerSchedule?.execute(
+      runWorkerLaunchMock.mockImplementationOnce(async (launch) => {
+        createRalphStore(cwd).appendIteration(launch.ralphRunId, {
+          id: launch.iterationId,
+          status: "accepted",
+          summary: "Manager scheduling ran the next bounded iteration.",
+          workerSummary: "Inbox work was captured durably before stopping.",
+          decision: {
+            kind: "continue",
+            reason: "unknown",
+            summary: "Manager may decide whether to schedule another iteration.",
+            decidedAt: new Date().toISOString(),
+            decidedBy: "runtime",
+            blockingRefs: [],
+          },
+        });
+        return { status: "completed", output: "Execution finished", error: null };
+      });
+      const scheduled = await managerSchedule?.execute(
         "call-schedule",
         { refs: ["scheduled-runtime-worker"], apply: true, executeResumes: true },
         undefined,
         undefined,
-        createCtxWithRuntimeConfig(cwd),
+        createCtx(cwd),
       );
 
-      const sdkSessionConfig = runWorkerLaunchMock.mock.calls[0]?.[3];
-      expect(sdkSessionConfig).toEqual(
+      expect(runWorkerLaunchMock).toHaveBeenCalledTimes(1);
+      expect(runWorkerLaunchMock.mock.calls[0]?.[0]).toEqual(
         expect.objectContaining({
-          ledgerRoot: cwd,
-          extensionRoot: cwd,
-          agentDir: "/tmp/omp-agent",
-          thinkingLevel: "high",
-          model: expect.objectContaining({ provider: "openai", id: "gpt-5.4" }),
+          ralphRunId: "scheduled-runtime-worker",
+          iterationId: "iter-001",
+          iteration: 1,
+          resume: true,
+          runtime: "subprocess",
         }),
       );
+      expect(JSON.stringify(scheduled)).toContain("scheduled-runtime-worker");
+      expect(createWorkerStore(cwd).readWorker("scheduled-runtime-worker").state.status).toBe("ready");
     } finally {
       runWorkerLaunchMock.mockReset();
       cleanup();

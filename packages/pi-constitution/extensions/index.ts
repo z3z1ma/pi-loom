@@ -1,27 +1,13 @@
 import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { handleConstitutionCommand } from "./commands/constitution.js";
 import { createConstitutionalStore } from "./domain/store.js";
 import { buildConstitutionalSystemPrompt, getBaseConstitutionalGuidance } from "./prompts/guidance.js";
 import { registerConstitutionTools } from "./tools/constitution.js";
 
-const CONSTITUTION_COMMAND = "constitution";
-
 export default function piConstitution(pi: ExtensionAPI): void {
-  pi.registerCommand(CONSTITUTION_COMMAND, {
-    description: "Manage durable constitutional memory in SQLite-backed project context",
-    handler: async (args: string, ctx: ExtensionCommandContext) => {
-      const output = await handleConstitutionCommand(args, ctx);
-      if (output) {
-        ctx.ui.notify(output, "info");
-      }
-    },
-  });
-
   registerConstitutionTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
@@ -37,9 +23,7 @@ export default function piConstitution(pi: ExtensionAPI): void {
 }
 
 export const _test = {
-  commandName: CONSTITUTION_COMMAND,
   getBaseConstitutionalGuidance,
   buildConstitutionalSystemPrompt,
-  handleConstitutionCommand,
   createConstitutionalStore,
 };

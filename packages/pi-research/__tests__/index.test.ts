@@ -4,9 +4,7 @@ import { join } from "node:path";
 import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
-  RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
@@ -34,10 +32,8 @@ type RegisteredHandlers = Map<string, (event: unknown, ctx: ExtensionContext) =>
 type RegisteredTools = Map<string, ToolDefinition>;
 
 type MockPi = {
-  commands: Map<string, Omit<RegisteredCommand, "name">>;
   tools: RegisteredTools;
   handlers: RegisteredHandlers;
-  registerCommand: ReturnType<typeof vi.fn>;
   registerTool: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
 };
@@ -54,17 +50,12 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 function createMockPi(): MockPi {
-  const commands = new Map<string, Omit<RegisteredCommand, "name">>();
   const tools: RegisteredTools = new Map();
   const handlers: RegisteredHandlers = new Map();
 
   return {
-    commands,
     tools,
     handlers,
-    registerCommand: vi.fn((name: string, options: Omit<RegisteredCommand, "name">) => {
-      commands.set(name, options);
-    }),
     registerTool: vi.fn((definition: ToolDefinition) => {
       tools.set(definition.name, definition);
     }),
@@ -72,15 +63,6 @@ function createMockPi(): MockPi {
       handlers.set(event, handler);
     }),
   };
-}
-
-function getCommand(mockPi: MockPi, name: string): Omit<RegisteredCommand, "name"> {
-  const command = mockPi.commands.get(name);
-  expect(command).toBeDefined();
-  if (!command) {
-    throw new Error(`Missing command ${name}`);
-  }
-  return command;
 }
 
 function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: ExtensionContext) => unknown {
@@ -92,26 +74,13 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
   return handler;
 }
 
-function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notify: ReturnType<typeof vi.fn> } } {
-  const ui = { notify: vi.fn() };
-  return {
-    ctx: {
-      cwd,
-      ui,
-    } as unknown as ExtensionCommandContext,
-    ui,
-  };
-}
-
 describe("pi-research extension", () => {
-  it("registers the /research command, research tools, and lifecycle hooks", async () => {
+  it("registers research tools and lifecycle hooks", async () => {
     const mockPi = createMockPi();
     const { default: piResearch } = await import("../extensions/index.js");
 
     piResearch(mockPi as unknown as ExtensionAPI);
 
-    expect(mockPi.commands.has("research")).toBe(true);
-    expect(getCommand(mockPi, "research").description).toContain("durable research");
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "research_artifact",
       "research_dashboard",
@@ -125,27 +94,18 @@ describe("pi-research extension", () => {
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
 
-  it("routes /research output through the registered command handler and initializes research memory", async () => {
+  it("initializes research memory on session start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
       const { default: piResearch } = await import("../extensions/index.js");
       piResearch(mockPi as unknown as ExtensionAPI);
-
-      const command = getCommand(mockPi, "research");
       const sessionStart = getHandler(mockPi, "session_start");
-      const { ctx, ui } = createCommandContext(cwd);
 
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
 
-      await command.handler("create Evaluate theme architecture", ctx);
-
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("evaluate-theme-architecture [proposed]"), "info");
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Evaluate theme architecture"), "info");
-      await expect(createResearchStore(cwd).readResearch("evaluate-theme-architecture")).resolves.toMatchObject({
-        summary: { id: "evaluate-theme-architecture", title: "Evaluate theme architecture", status: "proposed" },
-      });
+      await expect(createResearchStore(cwd).listResearch({ includeArchived: true })).resolves.toEqual([]);
     } finally {
       cleanup();
     }

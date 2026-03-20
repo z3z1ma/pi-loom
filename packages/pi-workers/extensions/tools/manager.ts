@@ -2,7 +2,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { renderManagerOverview, renderWorkerDetail } from "../domain/render.js";
-import { buildInheritedWorkerSdkSessionConfig, runWorkerLaunch } from "../domain/runtime.js";
+import { runWorkerLaunch } from "../domain/runtime.js";
 import { createWorkerStore } from "../domain/store.js";
 
 const ManagerMessageKindEnum = StringEnum([
@@ -13,7 +13,6 @@ const ManagerMessageKindEnum = StringEnum([
   "broadcast_warning",
   "note",
 ] as const);
-const WorkerRuntimeKindEnum = StringEnum(["subprocess", "sdk", "rpc"] as const);
 const ManagerWriteActionEnum = StringEnum([
   "message",
   "acknowledge_message",
@@ -37,7 +36,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "manager_overview",
     label: "Manager Overview",
-    description: "Summarize worker fleet state, unresolved inbox backlog, pending approvals, and resume candidates.",
+    description: "Summarize Ralph-backed worker fleet state, unresolved inbox backlog, pending approvals, and resume candidates.",
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const overview = await getStore(ctx).managerOverviewAsync();
@@ -71,11 +70,11 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     name: "manager_schedule",
     label: "Manager Schedule",
     description:
-      "Run a bounded manager scheduling pass over worker fleet state and optionally apply resume/message actions.",
+      "Run a bounded manager scheduling pass over worker plus linked Ralph durable state and optionally apply resume/message actions.",
     promptSnippet:
-      "Use bounded scheduling to resume inbox-backed workers from durable state without guessing from chat residue.",
+      "Use bounded scheduling to resume inbox-backed workers through their linked Ralph runs from durable state without guessing from chat residue.",
     promptGuidelines: [
-      "When executeResumes is true, let the worker launch logic preserve the worker's intentional runtime choice and default to the SDK-backed runtime when no other runtime was chosen.",
+      "When executeResumes is true, manager scheduling should prepare and run the next linked Ralph iteration only when the Ralph run is not review-gated or terminal.",
     ],
     parameters: Type.Object({
       refs: Type.Optional(Type.Array(Type.String())),
@@ -83,13 +82,11 @@ export function registerManagerTools(pi: ExtensionAPI): void {
       executeResumes: Type.Optional(Type.Boolean()),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
       const results = await getStore(ctx).runManagerSchedulerPass({
         refs: params.refs,
         apply: params.apply === true,
         executeResumes: params.executeResumes === true,
         signal,
-        sdkSessionConfig,
       });
       return machineResult(
         { results },
@@ -105,12 +102,12 @@ export function registerManagerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "manager_write",
     label: "Manager Write",
-    description: "Send manager messages, make approval decisions, or resume workers through the manager control plane.",
+    description: "Send manager messages, make approval decisions, or resume Ralph-backed workers through the manager control plane.",
     promptSnippet:
-      "Manager resume is the manager-side version of the basic ticket-linked worker flow: once the worker exists, resume it through the default SDK-backed runtime unless you intentionally override it.",
+      "Manager resume is the manager-side version of the ticket-linked worker flow: once the worker exists, resume it by preparing the next linked Ralph iteration.",
     promptGuidelines: [
-      "Use message and approval actions to manage the inbox and review contract; use resume only when the worker already exists and should continue execution from durable state.",
-      "Leave runtime unset for the common case so resume defaults to the SDK-backed path instead of forcing subprocess unnecessarily.",
+      "Use message and approval actions to manage the inbox and review contract; use resume only when the worker already exists and should continue execution from durable worker plus Ralph state.",
+      "Manager intervention happens between Ralph iterations; do not treat worker resume as reviving a hidden worker-local runtime session.",
     ],
     parameters: Type.Object({
       action: ManagerWriteActionEnum,
@@ -122,11 +119,9 @@ export function registerManagerTools(pi: ExtensionAPI): void {
       rationale: Type.Optional(Type.Array(Type.String())),
       prepareOnly: Type.Optional(Type.Boolean()),
       note: Type.Optional(Type.String()),
-      runtime: Type.Optional(WorkerRuntimeKindEnum),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const store = getStore(ctx);
-      const sdkSessionConfig = buildInheritedWorkerSdkSessionConfig(ctx);
       switch (params.action) {
         case "message": {
           if (!params.kind || !params.text?.trim()) {
@@ -166,12 +161,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
           return machineResult({ worker }, renderWorkerDetail(worker));
         }
         case "resume": {
-          const prepared = await store.prepareLaunchAsync(
-            params.ref,
-            true,
-            params.note ?? "Prepared by manager tool.",
-            params.runtime,
-          );
+          const prepared = await store.prepareLaunchAsync(params.ref, true, params.note ?? "Prepared by manager tool.");
           if (params.prepareOnly === true) {
             return machineResult({ launch: prepared.launch }, await store.renderLaunchAsync(params.ref));
           }
@@ -179,7 +169,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
           if (!running.launch) {
             throw new Error("Worker launch descriptor was not created");
           }
-          const execution = await runWorkerLaunch(running.launch, signal, undefined, sdkSessionConfig);
+          const execution = await runWorkerLaunch(running.launch, signal);
           const finalized = await store.finishLaunchExecutionAsync(params.ref, execution);
           return machineResult(
             { launch: finalized.launch, execution },

@@ -6,7 +6,6 @@ This package adds a first-class planning layer with canonical plan state stored 
 
 ## Capabilities
 
-- `/workplan` command surface for initializing, creating, inspecting, linking, unlinking, listing, and archiving plan records
 - `plan_*` tools for list/read/write/packet/ticket-link/dashboard workflows
 - canonical plan records stored in SQLite, with packet and plan views rendered from those records for inspection or explicit export
 - bounded planning packets that pull linked constitution, research, initiative, spec, ticket, critique, and docs context into one fresh handoff

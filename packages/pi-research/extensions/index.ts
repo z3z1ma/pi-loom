@@ -1,27 +1,13 @@
 import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { handleResearchCommand } from "./commands/research.js";
 import { createResearchStore } from "./domain/store.js";
 import { buildResearchSystemPrompt, getBaseResearchGuidance } from "./prompts/guidance.js";
 import { registerResearchTools } from "./tools/research.js";
 
-const RESEARCH_COMMAND = "research";
-
 export default function piResearch(pi: ExtensionAPI): void {
-  pi.registerCommand(RESEARCH_COMMAND, {
-    description: "Manage durable research in SQLite-backed knowledge memory",
-    handler: async (args: string, ctx: ExtensionCommandContext) => {
-      const output = await handleResearchCommand(args, ctx);
-      if (output) {
-        ctx.ui.notify(output, "info");
-      }
-    },
-  });
-
   registerResearchTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
@@ -37,9 +23,7 @@ export default function piResearch(pi: ExtensionAPI): void {
 }
 
 export const _test = {
-  commandName: RESEARCH_COMMAND,
   getBaseResearchGuidance,
   buildResearchSystemPrompt,
-  handleResearchCommand,
   createResearchStore,
 };

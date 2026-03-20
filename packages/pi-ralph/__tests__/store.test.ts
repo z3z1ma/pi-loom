@@ -93,8 +93,14 @@ describe("RalphStore durable memory", () => {
       status: "planned",
       phase: "preparing",
       waitingFor: "none",
-      launchCount: 0,
-      currentIterationId: null,
+      postIteration: null,
+      nextIterationId: null,
+      nextLaunch: {
+        runtime: null,
+        resume: false,
+        preparedAt: null,
+      },
+      lastIterationNumber: 0,
     });
     expect(readback.summary).toMatchObject({
       id: "ralph-rollout",
@@ -171,8 +177,12 @@ describe("RalphStore durable memory", () => {
       expect.objectContaining({
         state: expect.objectContaining({
           runId: created.state.runId,
-          currentIterationId: "iter-001",
-          preparedLaunch: expect.objectContaining({ runtime: "subprocess", resume: false }),
+          nextIterationId: null,
+          nextLaunch: expect.objectContaining({ runtime: null, resume: false, preparedAt: null }),
+          postIteration: expect.objectContaining({
+            iterationId: "iter-001",
+            status: "reviewing",
+          }),
         }),
       }),
     );
@@ -241,7 +251,7 @@ describe("RalphStore durable memory", () => {
     expect(readback.state.waitingFor).toBe("critique");
     expect(readback.launch).toMatchObject({
       iterationId: "iter-001",
-      runtime: "subprocess",
+      runtime: "descriptor_only",
       packetRef: `ralph-run:${created.state.runId}:packet`,
     });
   }, 120000);
@@ -280,8 +290,12 @@ describe("RalphStore durable memory", () => {
       iteration: 1,
       resume: false,
     });
-    expect(launched.state.currentIterationId).toBe("iter-001");
-    expect(launched.state.launchCount).toBe(1);
+    expect(launched.state.nextIterationId).toBe("iter-001");
+    expect(launched.state.nextLaunch).toMatchObject({
+      runtime: "subprocess",
+      resume: false,
+      preparedAt: "2026-03-15T14:11:00.000Z",
+    });
 
     vi.setSystemTime(new Date("2026-03-15T14:12:00.000Z"));
     const reviewed = store.appendIteration(created.state.runId, {
@@ -392,7 +406,13 @@ describe("RalphStore durable memory", () => {
     });
     expect(completed.state.status).toBe("completed");
     expect(completed.state.phase).toBe("completed");
-    expect(completed.state.currentIterationId).toBeNull();
+    expect(completed.state.nextIterationId).toBeNull();
+    expect(completed.state.nextLaunch).toMatchObject({
+      runtime: null,
+      resume: false,
+      preparedAt: null,
+      instructions: [],
+    });
     expect(completed.state.stopReason).toBe("goal_reached");
 
     vi.setSystemTime(new Date("2026-03-15T14:30:00.000Z"));
@@ -431,10 +451,13 @@ describe("RalphStore durable memory", () => {
       runtime: "subprocess",
       resume: true,
     });
-    expect(resumed.state.currentIterationId).toBe("iter-002");
-    expect(resumed.state.launchCount).toBe(2);
+    expect(resumed.state.nextIterationId).toBe("iter-002");
     expect(resumed.state.lastIterationNumber).toBe(2);
-    expect(resumed.state.lastLaunchAt).toBe("2026-03-15T14:33:00.000Z");
+    expect(resumed.state.nextLaunch).toMatchObject({
+      runtime: "subprocess",
+      resume: true,
+      preparedAt: "2026-03-15T14:33:00.000Z",
+    });
     expect(resumed.iterations.map((iteration) => iteration.id)).toEqual(["iter-001", "iter-002"]);
 
     const resumedReadback = store.readRun(resumed.state.runId);

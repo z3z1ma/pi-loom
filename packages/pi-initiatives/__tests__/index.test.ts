@@ -4,9 +4,7 @@ import { join } from "node:path";
 import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
-  RegisteredCommand,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
@@ -34,10 +32,8 @@ type RegisteredHandlers = Map<string, (event: unknown, ctx: ExtensionContext) =>
 type RegisteredTools = Map<string, ToolDefinition>;
 
 type MockPi = {
-  commands: Map<string, Omit<RegisteredCommand, "name">>;
   tools: RegisteredTools;
   handlers: RegisteredHandlers;
-  registerCommand: ReturnType<typeof vi.fn>;
   registerTool: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
 };
@@ -54,17 +50,12 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 function createMockPi(): MockPi {
-  const commands = new Map<string, Omit<RegisteredCommand, "name">>();
   const tools: RegisteredTools = new Map();
   const handlers: RegisteredHandlers = new Map();
 
   return {
-    commands,
     tools,
     handlers,
-    registerCommand: vi.fn((name: string, options: Omit<RegisteredCommand, "name">) => {
-      commands.set(name, options);
-    }),
     registerTool: vi.fn((definition: ToolDefinition) => {
       tools.set(definition.name, definition);
     }),
@@ -72,15 +63,6 @@ function createMockPi(): MockPi {
       handlers.set(event, handler);
     }),
   };
-}
-
-function getCommand(mockPi: MockPi, name: string): Omit<RegisteredCommand, "name"> {
-  const command = mockPi.commands.get(name);
-  expect(command).toBeDefined();
-  if (!command) {
-    throw new Error(`Missing command ${name}`);
-  }
-  return command;
 }
 
 function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: ExtensionContext) => unknown {
@@ -92,26 +74,13 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
   return handler;
 }
 
-function createCommandContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notify: ReturnType<typeof vi.fn> } } {
-  const ui = { notify: vi.fn() };
-  return {
-    ctx: {
-      cwd,
-      ui,
-    } as unknown as ExtensionCommandContext,
-    ui,
-  };
-}
-
 describe("pi-initiatives extension", () => {
-  it("registers the /initiative command, initiative tools, and lifecycle hooks", async () => {
+  it("registers initiative tools and lifecycle hooks without slash commands", async () => {
     const mockPi = createMockPi();
     const { default: piInitiatives } = await import("../extensions/index.js");
 
     piInitiatives(mockPi as unknown as ExtensionAPI);
 
-    expect(mockPi.commands.has("initiative")).toBe(true);
-    expect(getCommand(mockPi, "initiative").description).toContain("durable initiatives");
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "initiative_dashboard",
       "initiative_list",
@@ -120,32 +89,6 @@ describe("pi-initiatives extension", () => {
     ]);
     expect(mockPi.handlers.has("session_start")).toBe(true);
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
-  });
-
-  it("routes /initiative output through the registered command handler and initializes the ledger", async () => {
-    const { cwd, cleanup } = createTempWorkspace();
-    try {
-      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
-      const mockPi = createMockPi();
-      const { default: piInitiatives } = await import("../extensions/index.js");
-      piInitiatives(mockPi as unknown as ExtensionAPI);
-
-      const command = getCommand(mockPi, "initiative");
-      const sessionStart = getHandler(mockPi, "session_start");
-      const { ctx, ui } = createCommandContext(cwd);
-
-      await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
-
-      await command.handler("create Platform modernization", ctx);
-
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("platform-modernization [proposed]"), "info");
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Platform modernization"), "info");
-      await expect(createInitiativeStore(cwd).readInitiative("platform-modernization")).resolves.toMatchObject({
-        summary: { id: "platform-modernization", title: "Platform modernization", status: "proposed" },
-      });
-    } finally {
-      cleanup();
-    }
   });
 
   it("augments the system prompt with initiative doctrine before agent start", async () => {
