@@ -113,14 +113,12 @@ describe("PlanStore durable memory", () => {
       summary: "Persist state, packet, plan markdown, and dashboard artifacts.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
-      specChange: spec.state.changeId,
     });
     const reviewTicket = await ticketStore.createTicketAsync({
       title: "Review plan package",
       summary: "Verify the plan layer stays detailed at the execution-strategy level and ticket-linked.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
-      specChange: spec.state.changeId,
     });
     await ticketStore.closeTicketAsync(reviewTicket.summary.id, "Critique and dashboard tests pass.");
     await initiativeStore.linkTicket(initiative.state.initiativeId, implementationTicket.summary.id);

@@ -102,7 +102,6 @@ function deriveContextRefsFromTicket(ticket: TicketReadResult): PlanContextRefs 
   return mergeContextRefs({
     initiativeIds: ticket.ticket.frontmatter["initiative-ids"],
     researchIds: ticket.ticket.frontmatter["research-ids"],
-    specChangeIds: ticket.ticket.frontmatter["spec-change"] ? [ticket.ticket.frontmatter["spec-change"]] : [],
     ticketIds: [ticket.summary.id],
   });
 }
@@ -112,7 +111,6 @@ function deriveContextRefsFromSpec(change: SpecChangeRecord): PlanContextRefs {
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChangeIds: [change.state.changeId],
-    ticketIds: change.linkedTickets?.links.map((ticket) => ticket.ticketId) ?? [],
   });
 }
 
@@ -349,14 +347,12 @@ export class PlanStore {
         decisions: SpecChangeRecord["decisions"];
         analysis: SpecChangeRecord["analysis"];
         checklist: SpecChangeRecord["checklist"];
-        linkedTickets?: SpecChangeRecord["linkedTickets"];
       };
       return {
         state: attributes.state,
         decisions: attributes.decisions,
         analysis: attributes.analysis,
         checklist: attributes.checklist,
-        linkedTickets: attributes.linkedTickets ?? null,
         summary: {
           id: entity.displayId,
           title: entity.title,
@@ -446,7 +442,7 @@ export class PlanStore {
             `${change.summary.id} [${change.summary.status}] ${change.summary.title}`,
             `Proposal: ${excerpt(change.state.proposalSummary)}`,
             `Requirements: ${change.state.requirements.length}`,
-            `Tasks: ${change.state.tasks.length}`,
+            `Capabilities: ${change.state.capabilities.length}`,
           ].join("\n"),
           contextRefs: deriveContextRefsFromSpec(change),
         };
@@ -552,7 +548,7 @@ export class PlanStore {
       .filter((record): record is SpecChangeRecord => record !== null)
       .map(
         (record) =>
-          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} tasks=${record.state.tasks.length}`,
+          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} caps=${record.state.capabilities.length}`,
       );
     const tickets = (await Promise.all(contextRefs.ticketIds.map((ticketId) => this.safeReadTicketAsync(ticketId))))
       .filter((record): record is TicketReadResult => record !== null)

@@ -41,23 +41,12 @@ export function buildSpecChecklist(state: SpecChangeState): SpecChecklistResult 
 
   items.push(
     checklistItem(
-      "traceability",
-      "Every requirement traces to a task",
-      state.requirements.every((requirement) => state.tasks.some((task) => task.requirements.includes(requirement.id))),
-      state.requirements.every((requirement) => state.tasks.some((task) => task.requirements.includes(requirement.id)))
-        ? "Each requirement maps to at least one task."
-        : "Add task coverage for every requirement.",
-    ),
-  );
-
-  items.push(
-    checklistItem(
-      "tasks",
-      "Tasks define execution order",
-      state.tasks.every((task) => task.requirements.length > 0),
-      state.tasks.every((task) => task.requirements.length > 0)
-        ? "Each task is linked to at least one requirement."
-        : "Link every task to a requirement before ensuring tickets from the spec.",
+      "scenarios",
+      "Capabilities include concrete scenarios",
+      state.capabilities.every((capability) => capability.scenarios.length > 0),
+      state.capabilities.every((capability) => capability.scenarios.length > 0)
+        ? "Every capability includes at least one scenario."
+        : "Add concrete scenarios so the spec stays behavior-complete without implementation coupling.",
     ),
   );
 

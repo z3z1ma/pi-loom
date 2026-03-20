@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitiativeStore } from "../../pi-initiatives/extensions/domain/store.js";
 import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
-import { ensureSpecTickets } from "../../pi-specs/extensions/domain/ticket-sync.js";
 import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { createResearchStore } from "../extensions/domain/store.js";
 
@@ -59,9 +58,9 @@ describe("research integration smoke", () => {
     });
     await researchStore.linkInitiative(research.state.researchId, "theme-modernization");
 
-    await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    await researchStore.linkSpec(research.state.researchId, "add-dark-mode");
-    const planned = await specStore.updatePlan("add-dark-mode", {
+    await specStore.createChange({ title: "Dark theme support", summary: "Support a dark theme." });
+    await researchStore.linkSpec(research.state.researchId, "dark-theme-support");
+    await specStore.updatePlan("dark-theme-support", {
       designNotes: "Use a shared theme service and persistent storage adapter.",
       capabilities: [
         {
@@ -73,38 +72,31 @@ describe("research integration smoke", () => {
         },
       ],
     });
-    const [reqToggle, reqPersist] = planned.state.requirements.map((requirement) => requirement.id);
-    await specStore.updateTasks("add-dark-mode", {
-      tasks: [
-        {
-          title: "Build theme foundation",
-          summary: "Add shared service and theme state.",
-          requirements: [reqToggle],
-        },
-        {
-          title: "Persist theme choice",
-          summary: "Store the selected theme durably.",
-          requirements: [reqPersist],
-          deps: ["task-001"],
-        },
-      ],
-    });
-    await specStore.finalizeChange("add-dark-mode");
+    await specStore.finalizeChange("dark-theme-support");
 
-    const ensured = await ensureSpecTickets(workspace, "add-dark-mode");
-    const linkedTickets = ensured.linkedTickets?.links ?? [];
-    const firstTicket = await ticketStore.readTicketAsync(linkedTickets[0]?.ticketId ?? "t-0001");
-    const secondTicket = await ticketStore.readTicketAsync(linkedTickets[1]?.ticketId ?? "t-0002");
+    const firstTicket = await ticketStore.createTicketAsync({
+      title: "Build theme foundation",
+      summary: "Add shared service and theme state.",
+      initiativeIds: ["theme-modernization"],
+      researchIds: [research.state.researchId],
+    });
+    const secondTicket = await ticketStore.createTicketAsync({
+      title: "Persist theme choice",
+      summary: "Store the selected theme durably.",
+      initiativeIds: ["theme-modernization"],
+      researchIds: [research.state.researchId],
+      deps: [firstTicket.summary.id],
+    });
     await researchStore.linkTicket(research.state.researchId, firstTicket.summary.id);
 
     const refreshedResearch = await researchStore.readResearch(research.state.researchId);
     const refreshedInitiative = await initiativeStore.readInitiative("theme-modernization");
-    const refreshedSpec = await specStore.readChange("add-dark-mode");
+    const refreshedSpec = await specStore.readChange("dark-theme-support");
     const refreshedTicket = await ticketStore.readTicketAsync(firstTicket.summary.id);
 
     expect(refreshedResearch.dashboard).toMatchObject({
       linkedInitiatives: { total: 1, items: [expect.objectContaining({ id: "theme-modernization" })] },
-      linkedSpecs: { total: 1, items: [expect.objectContaining({ id: "add-dark-mode" })] },
+      linkedSpecs: { total: 1, items: [expect.objectContaining({ id: "dark-theme-support" })] },
       linkedTickets: { total: 1 },
       hypotheses: { counts: { supported: 1 } },
       artifacts: { counts: { source: 1 } },
@@ -119,7 +111,7 @@ describe("research integration smoke", () => {
     expect(refreshedResearch.map.edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ relation: "links_initiative", to: "initiative:theme-modernization" }),
-        expect.objectContaining({ relation: "links_spec", to: "spec:add-dark-mode" }),
+        expect.objectContaining({ relation: "links_spec", to: "spec:dark-theme-support" }),
         expect.objectContaining({ relation: "links_ticket", to: `ticket:${firstTicket.summary.id}` }),
         expect.objectContaining({ relation: "supports_hypothesis", to: "hyp-001" }),
       ]),
@@ -131,6 +123,5 @@ describe("research integration smoke", () => {
     expect(refreshedTicket.ticket.frontmatter["research-ids"]).toEqual([research.state.researchId]);
     expect(refreshedTicket.summary.researchIds).toEqual([research.state.researchId]);
     expect(secondTicket.ticket.frontmatter["research-ids"]).toEqual([research.state.researchId]);
-    expect(linkedTickets).toHaveLength(2);
   }, 60000);
 });

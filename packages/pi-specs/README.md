@@ -2,7 +2,7 @@
 
 `pi-specs` adds a durable specification-memory layer to pi-compatible runtimes.
 
-When active, the extension teaches the model to use specifications as the bridge between strategic initiatives and execution. Specification state is persisted in SQLite via pi-storage, with canonical change bundles, capability deltas, append-only clarification decisions, spec-quality analysis, checklist artifacts, explicit initiative membership, and linked execution tickets.
+When active, the extension teaches the model to use specifications as declarative, implementation-decoupled statements of intended program behavior. Specs define the desired capability, constraints, scenarios, and acceptance independent of today's code shape; plans then capture implementation strategy against current code reality, and tickets capture execution truth. Specification state is persisted in SQLite via pi-storage, with canonical change bundles, capability summaries, append-only clarification decisions, spec-quality analysis, checklist artifacts, and explicit initiative membership.
 
 ## Features
 
@@ -13,12 +13,14 @@ When active, the extension teaches the model to use specifications as the bridge
 - AI-facing `spec_*` tools with built-in prompt guidance
 - `/spec` slash command namespace for human entrypoints
 - system-prompt augmentation via `before_agent_start`
-- finalized-spec ticket creation and refresh with provenance
-- linked tickets inherit initiative membership from their originating spec change
+
+Specs should not directly own tickets as the normative model. The coherent path is spec -> plan -> tickets: the spec declares intended behavior, the plan translates that behavior into implementation strategy and sequencing, and the tickets carry the concrete execution work.
+
+Spec titles should name the behavior or capability being specified, not the implementation delta. Prefer titles like `Dark theme support` or `Offline draft recovery` over change-verb phrasing like `Add dark mode`.
 
 ## Storage model
 
-Spec state, metadata, and linked-ticket records are persisted in SQLite via pi-storage. `/spec tickets` remains the surface that ensures the ticket layer matches the finalized spec, not a filesystem projection step.
+Spec state and metadata are persisted in SQLite via pi-storage. Plans, not specs, connect finalized specs to linked tickets.
 
 ## Development
 

@@ -23,10 +23,6 @@ export function analyzeSpecChange(state: SpecChangeState): SpecAnalysisResult {
   if (state.requirements.length === 0) {
     findings.push(finding("requirements-empty", "error", "change", "No requirements have been defined."));
   }
-  if (state.tasks.length === 0) {
-    findings.push(finding("tasks-empty", "error", "tasks", "No implementation tasks have been defined."));
-  }
-
   for (const capability of state.capabilities) {
     if (capability.requirements.length === 0) {
       findings.push(
@@ -63,37 +59,6 @@ export function analyzeSpecChange(state: SpecChangeState): SpecAnalysisResult {
           false,
         ),
       );
-    }
-    const linkedTasks = state.tasks.filter((task) => task.requirements.includes(requirement.id));
-    if (linkedTasks.length === 0) {
-      findings.push(
-        finding(
-          `requirement-${requirement.id}-trace`,
-          "error",
-          "tasks",
-          `Requirement ${requirement.id} is not traced to any task.`,
-        ),
-      );
-    }
-  }
-
-  for (const task of state.tasks) {
-    if (task.requirements.length === 0) {
-      findings.push(
-        finding(`task-${task.id}-requirements`, "error", "tasks", `Task ${task.id} is not linked to a requirement.`),
-      );
-    }
-    for (const dependency of task.deps) {
-      if (!state.tasks.some((candidate) => candidate.id === dependency)) {
-        findings.push(
-          finding(
-            `task-${task.id}-dep-${dependency}`,
-            "error",
-            "tasks",
-            `Task ${task.id} depends on unknown task ${dependency}.`,
-          ),
-        );
-      }
     }
   }
 

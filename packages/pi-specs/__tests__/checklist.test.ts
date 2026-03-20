@@ -4,9 +4,9 @@ import type { SpecChangeState } from "../extensions/domain/models.js";
 
 function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
   return {
-    changeId: "add-dark-mode",
-    title: "Add dark mode",
-    status: "tasked",
+    changeId: "dark-theme-support",
+    title: "Dark theme support",
+    status: "planned",
     createdAt: "2026-03-15T00:00:00.000Z",
     updatedAt: "2026-03-15T00:00:00.000Z",
     finalizedAt: null,
@@ -15,8 +15,8 @@ function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
     initiativeIds: [],
     researchIds: [],
     supersedes: [],
-    proposalSummary: "Introduce a first-class dark theme.",
-    designNotes: "Use CSS variables.",
+    proposalSummary: "The product supports a first-class dark theme.",
+    designNotes: "Theme semantics must remain consistent across settings and persisted sessions.",
     requirements: [
       {
         id: "req-001",
@@ -34,21 +34,9 @@ function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
         scenarios: ["User toggles theme from settings."],
       },
     ],
-    tasks: [
-      {
-        id: "task-001",
-        title: "Add theme toggle",
-        summary: "Wire the settings control.",
-        deps: [],
-        requirements: ["req-001"],
-        capabilities: ["theme-toggling"],
-        acceptance: ["Toggle persists while the session is active."],
-      },
-    ],
     artifactVersions: {
       proposal: null,
       design: null,
-      tasks: null,
       analysis: null,
       checklist: null,
     },
@@ -57,14 +45,14 @@ function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
 }
 
 describe("spec checklist", () => {
-  it("marks all checklist items as passed for a complete spec", () => {
+  it("marks all checklist items as passed for a complete declarative spec", () => {
     const result = buildSpecChecklist(buildState());
 
     expect(result.passed).toBe(true);
     expect(result.items.every((item) => item.passed)).toBe(true);
   });
 
-  it("fails checklist items when acceptance or traceability is missing", () => {
+  it("fails checklist items when acceptance criteria or scenarios are missing", () => {
     const result = buildSpecChecklist(
       buildState({
         requirements: [
@@ -75,12 +63,24 @@ describe("spec checklist", () => {
             capabilities: ["theme-toggling"],
           },
         ],
+        capabilities: [
+          {
+            id: "theme-toggling",
+            title: "Theme toggling",
+            summary: "Allow switching between light and dark themes.",
+            requirements: ["req-001"],
+            scenarios: [],
+          },
+        ],
       }),
     );
 
     expect(result.passed).toBe(false);
     expect(result.items).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "requirements", passed: false })]),
+      expect.arrayContaining([
+        expect.objectContaining({ id: "requirements", passed: false }),
+        expect.objectContaining({ id: "scenarios", passed: false }),
+      ]),
     );
   });
 });

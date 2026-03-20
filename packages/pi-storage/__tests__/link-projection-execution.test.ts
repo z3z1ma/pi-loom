@@ -80,14 +80,12 @@ describe("execution-layer canonical link projection", () => {
       title: "Foundation ticket",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
-      specChange: spec.state.changeId,
     });
     const dependent = await ticketStore.createTicketAsync({
       title: "Dependent ticket",
       deps: [foundation.summary.id],
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
-      specChange: spec.state.changeId,
       parent: foundation.summary.id,
     });
 
@@ -207,7 +205,6 @@ describe("execution-layer canonical link projection", () => {
         { kind: "belongs_to", targetKind: "initiative", targetDisplayId: initiative.state.initiativeId },
         { kind: "belongs_to", targetKind: "ticket", targetDisplayId: foundation.summary.id },
         { kind: "references", targetKind: "research", targetDisplayId: research.state.researchId },
-        { kind: "implements", targetKind: "spec_change", targetDisplayId: spec.state.changeId },
       ]),
     );
 

@@ -23,7 +23,6 @@ import type {
   SpecDecisionRecord,
   SpecListFilter,
   SpecPlanInput,
-  SpecTasksInput,
 } from "./models.js";
 import {
   currentTimestamp,
@@ -32,7 +31,6 @@ import {
   normalizeChangeId,
   normalizeStatus,
   normalizeStringList,
-  normalizeTaskId,
   slugifyTitle,
 } from "./normalize.js";
 import {
@@ -40,7 +38,6 @@ import {
   renderChecklistMarkdown,
   renderDesignMarkdown,
   renderProposalMarkdown,
-  renderTasksMarkdown,
 } from "./render.js";
 
 const SPEC_CHANGE_ENTITY_KIND = "spec_change" as const;
@@ -52,7 +49,6 @@ interface SpecChangeEntityAttributes {
   decisions: SpecDecisionRecord[];
   analysis: string;
   checklist: string;
-  linkedTickets?: SpecChangeRecord["linkedTickets"];
 }
 
 interface SpecCapabilityEntityAttributes {
@@ -100,7 +96,6 @@ function artifactVersions(): Record<SpecArtifactName, string | null> {
   return {
     proposal: null,
     design: null,
-    tasks: null,
     analysis: null,
     checklist: null,
   };
@@ -110,24 +105,12 @@ function union(left: readonly string[], right: readonly string[]): string[] {
   return normalizeStringList([...left, ...right]);
 }
 
-function resolveRequirementCapabilities(state: SpecChangeState, requirementIds: string[]): string[] {
-  const ids = new Set<string>();
-  for (const requirementId of requirementIds) {
-    const requirement = state.requirements.find((candidate) => candidate.id === requirementId);
-    for (const capabilityId of requirement?.capabilities ?? []) {
-      ids.add(capabilityId);
-    }
-  }
-  return [...ids].sort((left, right) => left.localeCompare(right));
-}
-
 function summarizeChange(state: SpecChangeState, archived: boolean): SpecChangeSummary {
   return {
     id: state.changeId,
     title: state.title,
     status: state.status,
     requirementCount: state.requirements.length,
-    taskCount: state.tasks.length,
     capabilityIds: state.capabilities
       .map((capability) => capability.id)
       .sort((left, right) => left.localeCompare(right)),
@@ -174,12 +157,6 @@ function projectedSpecChangeLinks(record: SpecChangeRecord): ProjectedEntityLink
       targetKind: "research" as const,
       targetDisplayId: researchId,
     })),
-    // Linked tickets stay embedded on the aggregate record and also project canonical references.
-    ...normalizeStringList(record.linkedTickets?.links.map((link) => link.ticketId) ?? []).map((ticketId) => ({
-      kind: "references" as const,
-      targetKind: "ticket" as const,
-      targetDisplayId: ticketId,
-    })),
   ];
 }
 
@@ -220,7 +197,6 @@ export class SpecStore {
       designNotes: "",
       requirements: [],
       capabilities: [],
-      tasks: [],
       artifactVersions: artifactVersions(),
     };
   }
@@ -245,14 +221,6 @@ export class SpecStore {
         requirements: normalizeStringList(capability.requirements),
         scenarios: normalizeStringList(capability.scenarios),
       })),
-      tasks: state.tasks.map((task) => ({
-        ...task,
-        id: normalizeTaskId(task.id),
-        deps: normalizeStringList(task.deps),
-        requirements: normalizeStringList(task.requirements),
-        capabilities: normalizeStringList(task.capabilities),
-        acceptance: normalizeStringList(task.acceptance),
-      })),
       artifactVersions: { ...artifactVersions(), ...state.artifactVersions },
     };
   }
@@ -266,11 +234,10 @@ export class SpecStore {
         state.designNotes.trim() || state.capabilities.length > 0 || state.requirements.length > 0
           ? renderDesignMarkdown(state)
           : "",
-      tasks: state.tasks.length > 0 ? renderTasksMarkdown(state) : "",
       analysis,
       checklist,
     };
-    for (const artifact of ["proposal", "design", "tasks", "analysis", "checklist"] as const) {
+    for (const artifact of ["proposal", "design", "analysis", "checklist"] as const) {
       statuses.push({
         name: artifact,
         exists: renderedArtifacts[artifact].length > 0,
@@ -287,7 +254,6 @@ export class SpecStore {
     decisions: SpecDecisionRecord[],
     analysis: string,
     checklist: string,
-    linkedTickets: SpecChangeRecord["linkedTickets"] = null,
   ): SpecChangeRecord {
     const normalized = this.normalizeState(state);
     const archived = Boolean(normalized.archivedRef);
@@ -296,19 +262,16 @@ export class SpecStore {
       normalized.designNotes.trim() || normalized.capabilities.length > 0 || normalized.requirements.length > 0
         ? renderDesignMarkdown(normalized)
         : "";
-    const tasksMarkdown = normalized.tasks.length > 0 ? renderTasksMarkdown(normalized) : "";
     return {
       state: normalized,
       summary: summarizeChange(normalized, archived),
       artifacts: this.artifactStatuses(normalized, analysis, checklist),
       proposal,
       design,
-      tasksMarkdown,
       analysis,
       checklist,
       decisions,
       capabilitySpecs: normalized.capabilities.map((capability) => capabilityFromState(normalized, capability.id)),
-      linkedTickets,
     };
   }
 
@@ -328,7 +291,6 @@ export class SpecStore {
       attributes.decisions ?? [],
       attributes.analysis ?? "",
       attributes.checklist ?? "",
-      attributes.linkedTickets ?? null,
     );
   }
 
@@ -337,12 +299,11 @@ export class SpecStore {
     decisions: SpecDecisionRecord[],
     analysis: string,
     checklist: string,
-    linkedTickets: SpecChangeRecord["linkedTickets"] = null,
   ): Promise<SpecChangeRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId);
     const version = (existing?.version ?? 0) + 1;
-    const record = this.materializeChangeRecord(state, decisions, analysis, checklist, linkedTickets);
+    const record = this.materializeChangeRecord(state, decisions, analysis, checklist);
     const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
       storage,
       {
@@ -360,7 +321,6 @@ export class SpecStore {
           decisions: record.decisions,
           analysis: record.analysis,
           checklist: record.checklist,
-          linkedTickets: record.linkedTickets,
         },
         createdAt: existing?.createdAt ?? record.state.createdAt,
         updatedAt: record.state.updatedAt,
@@ -492,22 +452,6 @@ export class SpecStore {
                 .join(" "),
               weight: 5,
             },
-            {
-              value: state.tasks
-                .map((task) =>
-                  [
-                    task.id,
-                    task.title,
-                    task.summary,
-                    task.deps.join(" "),
-                    task.requirements.join(" "),
-                    task.capabilities.join(" "),
-                    task.acceptance.join(" "),
-                  ].join(" "),
-                )
-                .join(" "),
-              weight: 4,
-            },
             { value: state.designNotes, weight: 4 },
           ],
         })),
@@ -564,7 +508,7 @@ export class SpecStore {
     if (await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId)) {
       throw new Error(`Spec change already exists: ${state.changeId}`);
     }
-    return this.persistCanonicalChange(state, [], "", "", null);
+    return this.persistCanonicalChange(state, [], "", "");
   }
 
   async recordClarification(
@@ -591,13 +535,7 @@ export class SpecStore {
       updatedAt: decision.createdAt,
     });
     const nextDecisions = [...record.decisions, decision];
-    const persisted = await this.persistCanonicalChange(
-      nextState,
-      nextDecisions,
-      record.analysis,
-      record.checklist,
-      record.linkedTickets,
-    );
+    const persisted = await this.persistCanonicalChange(nextState, nextDecisions, record.analysis, record.checklist);
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const entity = await findEntityByDisplayId(
       storage,
@@ -672,64 +610,8 @@ export class SpecStore {
     }
 
     state.updatedAt = currentTimestamp();
-    state.status = state.tasks.length > 0 ? "tasked" : "planned";
-    return this.persistCanonicalChange(
-      state,
-      record.decisions,
-      record.analysis,
-      record.checklist,
-      record.linkedTickets,
-    );
-  }
-
-  async updateTasks(ref: string, input: SpecTasksInput): Promise<SpecChangeRecord> {
-    const record = await this.loadCanonicalChange(ref);
-    const state = this.normalizeState({ ...record.state });
-    const nextTasks = input.replace ? [] : [...state.tasks];
-
-    for (const taskInput of input.tasks) {
-      const requirementIds = normalizeStringList(taskInput.requirements);
-      for (const requirementId of requirementIds) {
-        if (!state.requirements.some((requirement) => requirement.id === requirementId)) {
-          throw new Error(`Unknown requirement for task ${taskInput.title}: ${requirementId}`);
-        }
-      }
-      const taskId = taskInput.id
-        ? normalizeTaskId(taskInput.id)
-        : nextSequenceId(
-            nextTasks.map((task) => task.id),
-            "task",
-          );
-      const capabilities = normalizeStringList(taskInput.capabilities);
-      const resolvedCapabilities =
-        capabilities.length > 0 ? capabilities : resolveRequirementCapabilities(state, requirementIds);
-      const taskRecord = {
-        id: taskId,
-        title: taskInput.title.trim(),
-        summary: taskInput.summary?.trim() ?? "",
-        deps: normalizeStringList(taskInput.deps),
-        requirements: requirementIds,
-        capabilities: resolvedCapabilities,
-        acceptance: normalizeStringList(taskInput.acceptance),
-      };
-      const existingIndex = nextTasks.findIndex((task) => task.id === taskId);
-      if (existingIndex === -1) {
-        nextTasks.push(taskRecord);
-      } else {
-        nextTasks[existingIndex] = taskRecord;
-      }
-    }
-
-    state.tasks = nextTasks.sort((left, right) => left.id.localeCompare(right.id));
-    state.updatedAt = currentTimestamp();
-    state.status = "tasked";
-    return this.persistCanonicalChange(
-      state,
-      record.decisions,
-      record.analysis,
-      record.checklist,
-      record.linkedTickets,
-    );
+    state.status = "planned";
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
   }
 
   async setInitiativeIds(ref: string, initiativeIds: string[]): Promise<SpecChangeRecord> {
@@ -739,13 +621,7 @@ export class SpecStore {
       initiativeIds: normalizeStringList(initiativeIds),
       updatedAt: currentTimestamp(),
     });
-    return this.persistCanonicalChange(
-      state,
-      record.decisions,
-      record.analysis,
-      record.checklist,
-      record.linkedTickets,
-    );
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
   }
 
   async setResearchIds(ref: string, researchIds: string[]): Promise<SpecChangeRecord> {
@@ -755,27 +631,21 @@ export class SpecStore {
       researchIds: normalizeStringList(researchIds),
       updatedAt: currentTimestamp(),
     });
-    return this.persistCanonicalChange(
-      state,
-      record.decisions,
-      record.analysis,
-      record.checklist,
-      record.linkedTickets,
-    );
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
   }
 
   async analyzeChange(ref: string): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
     const state = this.normalizeState({ ...record.state, updatedAt: currentTimestamp() });
     const analysis = renderAnalysisMarkdown(analyzeSpecChange(state));
-    return this.persistCanonicalChange(state, record.decisions, analysis, record.checklist, record.linkedTickets);
+    return this.persistCanonicalChange(state, record.decisions, analysis, record.checklist);
   }
 
   async generateChecklist(ref: string): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
     const state = this.normalizeState({ ...record.state, updatedAt: currentTimestamp() });
     const checklist = renderChecklistMarkdown(buildSpecChecklist(state));
-    return this.persistCanonicalChange(state, record.decisions, record.analysis, checklist, record.linkedTickets);
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, checklist);
   }
 
   async finalizeChange(ref: string): Promise<SpecChangeRecord> {
@@ -791,7 +661,7 @@ export class SpecStore {
     state.status = "finalized";
     state.finalizedAt = currentTimestamp();
     state.updatedAt = state.finalizedAt;
-    return this.persistCanonicalChange(state, record.decisions, analysis, checklist, record.linkedTickets);
+    return this.persistCanonicalChange(state, record.decisions, analysis, checklist);
   }
 
   async archiveChange(ref: string): Promise<SpecChangeRecord> {
@@ -810,13 +680,7 @@ export class SpecStore {
       archivedRef: archivedSpecRef(record.state.changeId, archivedAt.slice(0, 10)),
       updatedAt: archivedAt,
     });
-    return this.persistCanonicalChange(
-      state,
-      record.decisions,
-      record.analysis,
-      record.checklist,
-      record.linkedTickets,
-    );
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
   }
 }
 

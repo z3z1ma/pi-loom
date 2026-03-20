@@ -58,14 +58,14 @@ The current Loom stack is:
 - constitutional memory for durable project vision, principles, constraints, roadmap intent, and logged decisions
 - research for durable discovery, evidence, and upstream context
 - initiatives for durable strategic outcome context
-- specs for durable bounded change contracts that bridge research into execution planning
+- specs for durable declarative behavior contracts that stay independent of current implementation details
 - plans for durable execution strategy and linked multi-ticket rollouts
 - tickets for durable execution state
 - workers for local durable workspace-backed execution units, inbox-driven manager-worker messaging, explicit manager control surfaces, bounded manager scheduling, checkpoints, approvals, and consolidation records that surround tickets without replacing them as shared repo truth
 - critique for durable adversarial review packets, verdicts, findings, and follow-up work
 - docs for durable high-level architecture, workflow, concept, and operations understanding after completed work changes the system narrative
 
-Specs are the bridge between that durable research context and execution, turning validated understanding into bounded change contracts. Plans then sit between specs (or broader initiative/workspace context) and tickets: they keep a thin execution narrative plus a linked ticket set without trying to replace ticket fidelity. Spec state synchronizes tickets into the execution layer, with those tickets retaining explicit research provenance alongside their spec and initiative links, and plans can group the resulting execution slice.
+Specs capture the intended behavior of the system independent of the current code shape. Plans sit between specs (or broader initiative/workspace context) and tickets: they translate declarative contracts into implementation strategy against the current codebase, keep a thin execution narrative plus a linked ticket set, and avoid forcing the spec itself to become a migration or rollout document. Specs do not own ticket linkage; plans are the bridge into ticket execution.
 
 Initiatives should link back to constitutional roadmap items where applicable so strategic work can be traced to explicit constitutional commitments rather than only to local execution metadata.
 
@@ -148,7 +148,7 @@ The final Loom memory layer is durable documentation memory:
 
 - documentation records are persisted in SQLite via pi-storage
 - docs are organized as a focused corpus of overviews, guides, concepts, and operations docs instead of one giant markdown file
-- documentation packets compile linked constitution, initiative, research, spec, ticket, and critique context into a bounded maintainer handoff
+- documentation packets compile linked constitution, initiative, research, spec, plan, ticket, and critique context into a bounded maintainer handoff
 - `/docs update` opens a fresh session handoff, while `docs_update` executes the same packet in a separate fresh `pi` process and requires the canonical SQLite-backed revision to land
 - the layer stays high-level and explanatory rather than turning into API reference generation
 
@@ -158,8 +158,8 @@ The Loom layer between research and ticketing is durable specification memory:
 
 - spec state is persisted in SQLite via pi-storage
 - spec renderings may be generated for review, but SQLite remains the canonical store
-- specs translate research and initiative context into bounded implementation contracts
-- finalized specs synchronize tickets into the execution layer, with those tickets retaining explicit provenance back to their originating research, spec change, capabilities, and requirements
+- specs translate research and initiative context into declarative behavior contracts that remain valid even if the implementation changes
+- plans are the execution bridge from finalized specs into linked ticket execution, while specs remain declarative contracts instead of execution ledgers
 
 ## Initiative memory layer
 

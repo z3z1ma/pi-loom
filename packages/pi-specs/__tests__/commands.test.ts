@@ -22,7 +22,7 @@ function createContext(cwd: string): ExtensionCommandContext {
 }
 
 describe("/spec command handler", () => {
-  it("initializes, proposes, plans, tasks, finalizes, projects, and archives durable spec state", async () => {
+  it("initializes, proposes, defines behavior, finalizes, and archives durable spec state", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
@@ -33,27 +33,20 @@ describe("/spec command handler", () => {
       expect(initialized).toContain("catalog.sqlite");
       expect(await store.listChanges({ includeArchived: true })).toEqual([]);
 
-      const created = await handleSpecCommand("propose Add dark mode", ctx);
-      expect(created).toContain("add-dark-mode [proposed]");
+      const created = await handleSpecCommand("propose Dark theme support", ctx);
+      expect(created).toContain("dark-theme-support [proposed]");
 
       const planned = await handleSpecCommand(
-        "plan add-dark-mode Theme toggling :: Users can toggle dark mode :: Use CSS variables",
+        "plan dark-theme-support Theme toggling :: Users can toggle dark mode | Theme preference persists :: Use CSS variables",
         ctx,
       );
       expect(planned).toContain("Capabilities: theme-toggling");
 
-      const tasked = await handleSpecCommand("tasks add-dark-mode Implement theme toggle :: req-001", ctx);
-      expect(tasked).toContain("Tasks: 1");
+      const finalized = await handleSpecCommand("finalize dark-theme-support", ctx);
+      expect(finalized).toContain("dark-theme-support [finalized]");
 
-      const finalized = await handleSpecCommand("finalize add-dark-mode", ctx);
-      expect(finalized).toContain("add-dark-mode [finalized]");
-
-      const projected = await handleSpecCommand("tickets add-dark-mode", ctx);
-      expect(projected).toContain("Linked tickets: 1");
-      expect((await store.readChange("add-dark-mode")).linkedTickets?.links).toHaveLength(1);
-
-      const archived = await handleSpecCommand("archive add-dark-mode", ctx);
-      expect(archived).toContain("add-dark-mode [archived]");
+      const archived = await handleSpecCommand("archive dark-theme-support", ctx);
+      expect(archived).toContain("dark-theme-support [archived]");
       expect((await store.readCapability("theme-toggling")).id).toBe("theme-toggling");
     } finally {
       cleanup();

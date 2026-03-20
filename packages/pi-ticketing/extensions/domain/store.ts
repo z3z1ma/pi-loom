@@ -127,15 +127,6 @@ function projectedLinksForTicket(record: TicketReadResult): ProjectedEntityLinkI
     });
   }
 
-  if (frontmatter["spec-change"]) {
-    desired.push({
-      kind: "implements",
-      targetKind: "spec_change",
-      targetDisplayId: frontmatter["spec-change"],
-      required: false,
-    });
-  }
-
   return desired;
 }
 
@@ -446,9 +437,6 @@ export class TicketStore {
         links: normalizeStringList(input.links),
         "initiative-ids": normalizeStringList(input.initiativeIds),
         "research-ids": normalizeStringList(input.researchIds),
-        "spec-change": normalizeOptionalString(input.specChange),
-        "spec-capabilities": normalizeStringList(input.specCapabilities),
-        "spec-requirements": normalizeStringList(input.specRequirements),
         parent: normalizeOptionalString(input.parent) ? this.resolveTicketRef(input.parent as string) : null,
         assignee: normalizeOptionalString(input.assignee),
         acceptance: normalizeStringList(input.acceptance),
@@ -537,12 +525,6 @@ export class TicketStore {
       record.frontmatter["initiative-ids"] = normalizeStringList(updates.initiativeIds);
     if (updates.researchIds !== undefined)
       record.frontmatter["research-ids"] = normalizeStringList(updates.researchIds);
-    if (updates.specChange !== undefined)
-      record.frontmatter["spec-change"] = normalizeOptionalString(updates.specChange);
-    if (updates.specCapabilities !== undefined)
-      record.frontmatter["spec-capabilities"] = normalizeStringList(updates.specCapabilities);
-    if (updates.specRequirements !== undefined)
-      record.frontmatter["spec-requirements"] = normalizeStringList(updates.specRequirements);
     if (updates.parent !== undefined)
       record.frontmatter.parent = normalizeOptionalString(updates.parent)
         ? this.resolveTicketRef(updates.parent as string)

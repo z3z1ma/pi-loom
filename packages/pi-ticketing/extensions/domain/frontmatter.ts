@@ -50,9 +50,6 @@ function ensureFrontmatterDefaults(frontmatter: Partial<TicketFrontmatter>): Tic
     links: normalizeStringList(frontmatter.links),
     "initiative-ids": normalizeStringList(frontmatter["initiative-ids"]),
     "research-ids": normalizeStringList(frontmatter["research-ids"]),
-    "spec-change": normalizeOptionalString(frontmatter["spec-change"]),
-    "spec-capabilities": normalizeStringList(frontmatter["spec-capabilities"]),
-    "spec-requirements": normalizeStringList(frontmatter["spec-requirements"]),
     parent: normalizeOptionalString(frontmatter.parent),
     assignee: normalizeOptionalString(frontmatter.assignee),
     acceptance: normalizeStringList(frontmatter.acceptance),
@@ -205,16 +202,6 @@ export function parseTicket(text: string, sourceLabel: string, closed: boolean):
       ? (frontmatterRaw["initiative-ids"] as string[])
       : [],
     "research-ids": Array.isArray(frontmatterRaw["research-ids"]) ? (frontmatterRaw["research-ids"] as string[]) : [],
-    "spec-change":
-      typeof frontmatterRaw["spec-change"] === "string" || frontmatterRaw["spec-change"] === null
-        ? (frontmatterRaw["spec-change"] as string | null)
-        : null,
-    "spec-capabilities": Array.isArray(frontmatterRaw["spec-capabilities"])
-      ? (frontmatterRaw["spec-capabilities"] as string[])
-      : [],
-    "spec-requirements": Array.isArray(frontmatterRaw["spec-requirements"])
-      ? (frontmatterRaw["spec-requirements"] as string[])
-      : [],
     parent:
       typeof frontmatterRaw.parent === "string" || frontmatterRaw.parent === null
         ? (frontmatterRaw.parent as string | null)

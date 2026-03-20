@@ -1,8 +1,7 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { SpecPlanInput, SpecTasksInput } from "../domain/models.js";
+import type { SpecPlanInput } from "../domain/models.js";
 import { renderCapabilityDetail, renderSpecDetail, renderSpecSummary } from "../domain/render.js";
 import { createSpecStore } from "../domain/store.js";
-import { ensureSpecTickets } from "../domain/ticket-sync.js";
 
 function splitArgs(args: string): string[] {
   return args.trim().split(/\s+/).filter(Boolean);
@@ -57,46 +56,11 @@ function parsePlanArgs(args: string): { ref: string; input: SpecPlanInput } {
   };
 }
 
-function parseTasksArgs(args: string): { ref: string; input: SpecTasksInput } {
-  const [left, requirementsPart, dependenciesPart, summaryPart] = parseDoubleColonArgs(args);
-  if (!left || !requirementsPart) {
-    throw new Error(
-      "Usage: /spec tasks <change> <task title> :: <requirement ids comma-separated> [:: <dependency task ids comma-separated>] [:: <summary>]",
-    );
-  }
-  const [ref, ...taskTitleParts] = splitArgs(left);
-  if (!ref || taskTitleParts.length === 0) {
-    throw new Error(
-      "Usage: /spec tasks <change> <task title> :: <requirement ids comma-separated> [:: <dependency task ids comma-separated>] [:: <summary>]",
-    );
-  }
-  return {
-    ref,
-    input: {
-      tasks: [
-        {
-          title: taskTitleParts.join(" "),
-          requirements: requirementsPart
-            .split(",")
-            .map((entry) => entry.trim())
-            .filter(Boolean),
-          deps:
-            dependenciesPart
-              ?.split(",")
-              .map((entry) => entry.trim())
-              .filter(Boolean) ?? [],
-          summary: summaryPart,
-        },
-      ],
-    },
-  };
-}
-
 export async function handleSpecCommand(args: string, ctx: ExtensionCommandContext): Promise<string> {
   const store = createSpecStore(ctx.cwd);
   const [subcommand, ...rest] = splitArgs(args);
   if (!subcommand) {
-    return "Usage: /spec <init|propose|list|show|clarify|plan|tasks|analyze|checklist|finalize|tickets|archive>";
+    return "Usage: /spec <init|propose|list|show|clarify|plan|analyze|checklist|finalize|archive>";
   }
 
   switch (subcommand) {
@@ -130,10 +94,6 @@ export async function handleSpecCommand(args: string, ctx: ExtensionCommandConte
       const { ref, input } = parsePlanArgs(rest.join(" "));
       return renderSpecDetail(await store.updatePlan(ref, input));
     }
-    case "tasks": {
-      const { ref, input } = parseTasksArgs(rest.join(" "));
-      return renderSpecDetail(await store.updateTasks(ref, input));
-    }
     case "analyze": {
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /spec analyze <change>");
@@ -148,11 +108,6 @@ export async function handleSpecCommand(args: string, ctx: ExtensionCommandConte
       const ref = rest[0];
       if (!ref) throw new Error("Usage: /spec finalize <change>");
       return renderSpecDetail(await store.finalizeChange(ref));
-    }
-    case "tickets": {
-      const ref = rest[0];
-      if (!ref) throw new Error("Usage: /spec tickets <change>");
-      return renderSpecDetail(await ensureSpecTickets(ctx.cwd, ref));
     }
     case "archive": {
       const ref = rest[0];

@@ -1,15 +1,7 @@
 import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 
-export const SPEC_STATUSES = [
-  "proposed",
-  "clarifying",
-  "planned",
-  "tasked",
-  "finalized",
-  "archived",
-  "superseded",
-] as const;
-export const SPEC_ARTIFACT_NAMES = ["proposal", "design", "tasks", "analysis", "checklist"] as const;
+export const SPEC_STATUSES = ["proposed", "clarifying", "planned", "finalized", "archived", "superseded"] as const;
+export const SPEC_ARTIFACT_NAMES = ["proposal", "design", "analysis", "checklist"] as const;
 export const SPEC_DECISION_KINDS = ["clarification", "decision"] as const;
 export const SPEC_ANALYSIS_SEVERITIES = ["info", "warning", "error"] as const;
 
@@ -35,16 +27,6 @@ export interface SpecCapabilityRecord {
   scenarios: string[];
 }
 
-export interface SpecTaskRecord {
-  id: string;
-  title: string;
-  summary: string;
-  deps: string[];
-  requirements: string[];
-  capabilities: string[];
-  acceptance: string[];
-}
-
 export interface SpecChangeState {
   changeId: string;
   title: string;
@@ -62,7 +44,6 @@ export interface SpecChangeState {
   designNotes: string;
   requirements: SpecRequirementRecord[];
   capabilities: SpecCapabilityRecord[];
-  tasks: SpecTaskRecord[];
   artifactVersions: SpecArtifactVersions;
 }
 
@@ -83,30 +64,11 @@ export interface SpecArtifactStatus {
   updatedAt: string | null;
 }
 
-export interface SpecLinkedTicketEntry {
-  taskId: string;
-  ticketId: string;
-  signature: string;
-  capabilityIds: string[];
-  requirementIds: string[];
-  dependencyTaskIds: string[];
-}
-
-export interface SpecLinkedTicketsState {
-  /** Stable non-filesystem spec identifier for the linked ticket snapshot. */
-  changeRef: string;
-  ensuredAt: string;
-  mode: "initial" | "updated";
-  capabilityIds: string[];
-  links: SpecLinkedTicketEntry[];
-}
-
 export interface SpecChangeSummary {
   id: string;
   title: string;
   status: SpecStatus;
   requirementCount: number;
-  taskCount: number;
   capabilityIds: string[];
   initiativeIds: string[];
   researchIds: string[];
@@ -134,19 +96,17 @@ export interface SpecChangeRecord {
   artifacts: SpecArtifactStatus[];
   proposal: string;
   design: string;
-  tasksMarkdown: string;
   analysis: string;
   checklist: string;
   decisions: SpecDecisionRecord[];
   capabilitySpecs: CanonicalCapabilityRecord[];
-  linkedTickets: SpecLinkedTicketsState | null;
 }
 
 export interface SpecAnalysisFinding {
   id: string;
   severity: SpecAnalysisSeverity;
   blocking: boolean;
-  artifact: SpecArtifactName | "change" | "capability" | "tickets";
+  artifact: SpecArtifactName | "change" | "capability";
   message: string;
 }
 
@@ -199,21 +159,6 @@ export interface SpecPlanInput {
   designNotes?: string;
   supersedes?: string[];
   capabilities: SpecPlanCapabilityInput[];
-}
-
-export interface SpecTaskInput {
-  id?: string;
-  title: string;
-  summary?: string;
-  deps?: string[];
-  requirements?: string[];
-  capabilities?: string[];
-  acceptance?: string[];
-}
-
-export interface SpecTasksInput {
-  replace?: boolean;
-  tasks: SpecTaskInput[];
 }
 
 export interface SpecWriteResult {

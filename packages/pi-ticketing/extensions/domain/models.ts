@@ -52,9 +52,6 @@ export interface TicketFrontmatter {
   links: string[];
   "initiative-ids": string[];
   "research-ids": string[];
-  "spec-change": string | null;
-  "spec-capabilities": string[];
-  "spec-requirements": string[];
   parent: string | null;
   assignee: string | null;
   acceptance: string[];
@@ -95,9 +92,6 @@ export interface TicketSummary {
   links: string[];
   initiativeIds: string[];
   researchIds: string[];
-  specChange: string | null;
-  specCapabilities: string[];
-  specRequirements: string[];
   tags: string[];
   parent: string | null;
   closed: boolean;
@@ -206,9 +200,6 @@ export interface CreateTicketInput {
   links?: string[];
   initiativeIds?: string[];
   researchIds?: string[];
-  specChange?: string | null;
-  specCapabilities?: string[];
-  specRequirements?: string[];
   parent?: string | null;
   assignee?: string | null;
   acceptance?: string[];
@@ -227,9 +218,6 @@ export interface UpdateTicketInput {
   links?: string[];
   initiativeIds?: string[];
   researchIds?: string[];
-  specChange?: string | null;
-  specCapabilities?: string[];
-  specRequirements?: string[];
   parent?: string | null;
   assignee?: string | null;
   acceptance?: string[];

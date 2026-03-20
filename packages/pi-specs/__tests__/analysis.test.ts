@@ -4,9 +4,9 @@ import type { SpecChangeState } from "../extensions/domain/models.js";
 
 function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
   return {
-    changeId: "add-dark-mode",
-    title: "Add dark mode",
-    status: "tasked",
+    changeId: "dark-theme-support",
+    title: "Dark theme support",
+    status: "planned",
     createdAt: "2026-03-15T00:00:00.000Z",
     updatedAt: "2026-03-15T00:00:00.000Z",
     finalizedAt: null,
@@ -15,8 +15,8 @@ function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
     initiativeIds: [],
     researchIds: [],
     supersedes: [],
-    proposalSummary: "Introduce a first-class dark theme.",
-    designNotes: "Use CSS variables.",
+    proposalSummary: "The product supports a first-class dark theme.",
+    designNotes: "Theme semantics must remain consistent across settings and persisted sessions.",
     requirements: [
       {
         id: "req-001",
@@ -34,21 +34,9 @@ function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
         scenarios: ["User toggles theme from settings."],
       },
     ],
-    tasks: [
-      {
-        id: "task-001",
-        title: "Add theme toggle",
-        summary: "Wire the settings control.",
-        deps: [],
-        requirements: ["req-001"],
-        capabilities: ["theme-toggling"],
-        acceptance: ["Toggle persists while the session is active."],
-      },
-    ],
     artifactVersions: {
       proposal: null,
       design: null,
-      tasks: null,
       analysis: null,
       checklist: null,
     },
@@ -57,17 +45,26 @@ function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
 }
 
 describe("spec analysis", () => {
-  it("passes finalized-quality checks for a traced spec", () => {
+  it("passes finalized-quality checks for a behavior-complete spec", () => {
     const result = analyzeSpecChange(buildState());
 
     expect(result.readyToFinalize).toBe(true);
     expect(result.findings).toEqual([]);
   });
 
-  it("flags missing traceability and missing tasks as blocking spec-quality failures", () => {
+  it("flags missing behavioral detail as a spec-quality failure", () => {
     const result = analyzeSpecChange(
       buildState({
-        tasks: [],
+        requirements: [],
+        capabilities: [
+          {
+            id: "theme-toggling",
+            title: "Theme toggling",
+            summary: "Allow switching between light and dark themes.",
+            requirements: [],
+            scenarios: [],
+          },
+        ],
       }),
     );
 
@@ -75,14 +72,14 @@ describe("spec analysis", () => {
     expect(result.findings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          artifact: "tasks",
+          artifact: "change",
           blocking: true,
-          message: "No implementation tasks have been defined.",
+          message: "No requirements have been defined.",
         }),
         expect.objectContaining({
-          artifact: "tasks",
-          blocking: true,
-          message: "Requirement req-001 is not traced to any task.",
+          artifact: "capability",
+          blocking: false,
+          message: "Capability theme-toggling has no scenarios.",
         }),
       ]),
     );

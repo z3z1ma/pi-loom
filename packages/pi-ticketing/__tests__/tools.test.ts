@@ -493,8 +493,10 @@ describe("ticket tools", () => {
       );
       expect(deleted.details).toMatchObject({
         action: "delete",
-        deletedTicketId: deleteCandidateId,
-        affectedTicketIds: [],
+        result: {
+          deletedTicketId: deleteCandidateId,
+          affectedTicketIds: [],
+        },
       });
       expect(firstText(deleted.content)).toContain(`Deleted ticket ${deleteCandidateId}.`);
 

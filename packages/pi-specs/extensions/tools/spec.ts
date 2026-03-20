@@ -2,21 +2,19 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { LOOM_LIST_SORTS } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
-import type { SpecPlanInput, SpecTasksInput } from "../domain/models.js";
+import type { SpecPlanInput } from "../domain/models.js";
 import { renderCapabilityDetail, renderSpecDetail, renderSpecSummary } from "../domain/render.js";
 import { createSpecStore } from "../domain/store.js";
-import { ensureSpecTickets } from "../domain/ticket-sync.js";
 
 const SpecStatusEnum = StringEnum([
   "proposed",
   "clarifying",
   "planned",
-  "tasked",
   "finalized",
   "archived",
   "superseded",
 ] as const);
-const SpecWriteActionEnum = StringEnum(["init", "propose", "clarify", "plan", "tasks", "finalize", "archive"] as const);
+const SpecWriteActionEnum = StringEnum(["init", "propose", "clarify", "plan", "finalize", "archive"] as const);
 const SpecAnalyzeModeEnum = StringEnum(["analysis", "checklist", "both"] as const);
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 
@@ -65,37 +63,36 @@ const SpecPlanCapabilityParams = Type.Object({
   scenarios: Type.Optional(Type.Array(Type.String())),
 });
 
-const SpecTaskParams = Type.Object({
-  id: Type.Optional(Type.String()),
-  title: Type.String(),
-  summary: Type.Optional(Type.String()),
-  deps: Type.Optional(Type.Array(Type.String())),
-  requirements: Type.Optional(Type.Array(Type.String())),
-  capabilities: Type.Optional(Type.Array(Type.String())),
-  acceptance: Type.Optional(Type.Array(Type.String())),
-});
-
 const SpecWriteParams = Type.Object({
   action: SpecWriteActionEnum,
   ref: Type.Optional(Type.String()),
-  title: Type.Optional(Type.String()),
-  summary: Type.Optional(Type.String()),
+  title: Type.Optional(
+    Type.String({
+      description:
+        "Spec change title. Name the intended behavior or capability, not an implementation delta; prefer `Dark theme support` over `Add dark mode`.",
+    }),
+  ),
+  summary: Type.Optional(
+    Type.String({
+      description:
+        "Behavior-first summary of the desired outcome, constraints, or scope. Keep it truthful to intended program behavior rather than a task list or migration sequence.",
+    }),
+  ),
   question: Type.Optional(Type.String()),
   answer: Type.Optional(Type.String()),
-  designNotes: Type.Optional(Type.String()),
+  designNotes: Type.Optional(
+    Type.String({
+      description:
+        "Notes that clarify design intent, constraints, or tradeoffs without turning the spec itself into a rollout plan or execution log.",
+    }),
+  ),
   supersedes: Type.Optional(Type.Array(Type.String())),
   capabilities: Type.Optional(Type.Array(SpecPlanCapabilityParams)),
-  tasks: Type.Optional(Type.Array(SpecTaskParams)),
-  replace: Type.Optional(Type.Boolean()),
 });
 
 const SpecAnalyzeParams = Type.Object({
   ref: Type.String(),
   mode: Type.Optional(SpecAnalyzeModeEnum),
-});
-
-const SpecSyncParams = Type.Object({
-  ref: Type.String(),
 });
 
 type SpecWriteParamsValue = Static<typeof SpecWriteParams>;
@@ -129,16 +126,6 @@ function toPlanInput(params: SpecWriteParamsValue): SpecPlanInput {
   };
 }
 
-function toTasksInput(params: SpecWriteParamsValue): SpecTasksInput {
-  if (!params.tasks || params.tasks.length === 0) {
-    throw new Error("tasks are required for tasks action");
-  }
-  return {
-    replace: params.replace,
-    tasks: params.tasks,
-  };
-}
-
 export function registerSpecTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "spec_list",
@@ -146,9 +133,9 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     description:
       "List spec changes plus the separate capability summary set from durable local spec memory. Leave `sort` unset for the default change ordering: `updated_desc` without `text`, `relevance` with `text`. `status` and `includeArchived` narrow only the change list.",
     promptSnippet:
-      "Inspect relevant existing specs before opening a new change or ensuring linked tickets so the new spec can inherit bounded detail instead of re-inventing it; broad text search with the default relevance ranking is the safest first pass when you are rediscovering prior spec work.",
+      "Inspect relevant existing specs before opening a new change or downstream plan so the new spec can inherit existing behavioral intent instead of re-inventing it; broad text search with the default relevance ranking is the safest first pass when you are rediscovering prior spec work.",
     promptGuidelines: [
-      "Use this tool before creating a new spec so you do not duplicate existing capability work.",
+      "Use this tool before creating a new spec so you do not duplicate existing capability work or re-state behavior that is already specified.",
       "Start with `text` when rediscovering prior spec work by capability, title, or phrase; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
       "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
       "`status` and `includeArchived` apply only to spec changes. Capability summaries are still returned separately and are not filtered by those change filters.",
@@ -181,10 +168,11 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     label: "spec_read",
     description: "Read a spec change or canonical capability spec from durable local spec memory.",
     promptSnippet:
-      "Load the current spec truth before planning work, ensuring linked tickets, or implementing derived tickets so bounded requirements, rationale, and edge cases stay explicit.",
+      "Load the current spec truth before planning work or implementation so intended behavior, rationale, and edge cases stay explicit.",
     promptGuidelines: [
-      "Read the active or finalized spec before implementation when it is the durable source of product intent.",
-      "Use the loaded spec to recover detailed requirements, rationale, dependencies, risks, edge cases, and acceptance instead of reconstructing them from memory.",
+      "Read the active or finalized spec before implementation when it is the durable source of intended behavior.",
+      "Use the loaded spec to recover detailed requirements, rationale, dependencies, risks, edge cases, and acceptance instead of reconstructing them from memory or inferring them from current code.",
+      "Treat plans as the implementation bridge and tickets as the execution ledger; the spec is the declarative behavior contract they must honor.",
     ],
     parameters: SpecReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -205,14 +193,17 @@ export function registerSpecTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "spec_write",
     label: "spec_write",
-    description: "Create or update durable spec state in the local spec memory layer.",
+    description:
+      "Create or update durable spec state in the local spec memory layer, keeping specs declarative and implementation-decoupled while plans and tickets stay execution-aware.",
     promptSnippet:
-      "Persist proposal, clarification, design, and task structure durably as a substantial specification contract instead of leaving product intent skeletal or trapped in chat.",
+      "Persist proposal, clarification, and behavior contract durably instead of leaving product intent skeletal, implementation-coupled, or trapped in chat.",
     promptGuidelines: [
       "Use this tool to formalize product intent before implementation when the work exceeds a narrow localized fix.",
       "Write clarifications back into the spec so future turns and agents can rely on them.",
-      "Capture enough bounded detail for the spec layer: problem framing, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
-      "Do not derive linked tickets from a spec that is still missing substantive requirements or testable acceptance criteria.",
+      "Capture enough bounded detail for the spec layer: problem framing, desired behavior, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
+      "When proposing a spec, title it around the behavior or capability being specified rather than a change verb or migration delta.",
+      "Keep specs declarative and implementation-decoupled; use plans for rollout strategy and tickets for concrete execution work.",
+      "Do not treat a spec as the place that owns ticket linkage or direct execution choreography; create or update a plan when the spec is ready to drive implementation.",
     ],
     parameters: SpecWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -241,10 +232,6 @@ export function registerSpecTools(pi: ExtensionAPI): void {
           const change = await store.updatePlan(requireRef(params.ref), toPlanInput(params));
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
-        case "tasks": {
-          const change = await store.updateTasks(requireRef(params.ref), toTasksInput(params));
-          return machineResult({ action: params.action, change }, renderSpecDetail(change));
-        }
         case "finalize": {
           const change = await store.finalizeChange(requireRef(params.ref));
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
@@ -262,11 +249,11 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     label: "spec_analyze",
     description: "Run spec-quality analysis or checklist generation over a spec change.",
     promptSnippet:
-      "Validate that the spec is clear, complete, traceable, and detailed enough to stand as the contract before turning it into tickets.",
+      "Validate that the spec is clear, complete, behavior-first, and detailed enough to stand as the contract before turning it into plans and execution work.",
     promptGuidelines: [
       "Use this tool to validate the specification itself, not to claim the code is correct.",
-      "Run analysis before finalizing and ensuring linked tickets from a non-trivial spec change.",
-      "Treat missing rationale, edge cases, dependencies, or verification detail as a spec-quality failure to fix before ensuring tickets.",
+      "Run analysis before finalizing and before handing the spec off to plans or other execution artifacts.",
+      "Treat implementation-coupled wording, missing rationale, edge cases, dependencies, or verification detail as a spec-quality failure to fix before planning execution.",
     ],
     parameters: SpecAnalyzeParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -282,24 +269,6 @@ export function registerSpecTools(pi: ExtensionAPI): void {
       }
       const change = await store.analyzeChange(params.ref);
       return machineResult({ mode: params.mode ?? "analysis", change }, renderSpecDetail(change));
-    },
-  });
-
-  pi.registerTool({
-    name: "spec_ensure_tickets",
-    label: "spec_ensure_tickets",
-    description: "Ensure a finalized spec change has deterministic linked tickets with explicit provenance.",
-    promptSnippet:
-      "Generate execution tickets only after the spec is finalized, validated, and detailed enough to serve as the durable contract for execution.",
-    promptGuidelines: [
-      "Ensure linked tickets only from finalized specs so execution state does not outrun product intent.",
-      "Require substantial specification detail before ensuring tickets so they inherit complete requirements, rationale, dependencies, edge cases, and verification expectations.",
-      "Re-run ticket generation when the finalized spec changes and you need the linked ticket graph refreshed deterministically.",
-    ],
-    parameters: SpecSyncParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const change = await ensureSpecTickets(ctx.cwd, params.ref);
-      return machineResult({ change }, renderSpecDetail(change));
     },
   });
 }

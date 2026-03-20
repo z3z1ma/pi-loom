@@ -24,8 +24,8 @@ describe("SpecStore durable memory", () => {
     vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
     await initiativeStore.createInitiative({ title: "Platform modernization" });
     await initiativeStore.createInitiative({ title: "UI foundation" });
-    const created = await store.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    expect(created.state.changeId).toBe("add-dark-mode");
+    const created = await store.createChange({ title: "Dark theme support", summary: "Support a dark theme." });
+    expect(created.state.changeId).toBe("dark-theme-support");
     const changeRef = created.summary.ref;
 
     vi.setSystemTime(new Date("2026-03-15T10:05:00.000Z"));
@@ -53,27 +53,16 @@ describe("SpecStore durable memory", () => {
     expect(linked.state.initiativeIds).toEqual(["platform-modernization", "ui-foundation"]);
 
     vi.setSystemTime(new Date("2026-03-15T10:20:00.000Z"));
-    const tasked = await store.updateTasks(changeRef, {
-      tasks: [
-        {
-          title: "Add theme toggle",
-          summary: "Wire the UI control and persistence.",
-          requirements: planned.state.requirements.map((requirement) => requirement.id),
-        },
-      ],
-    });
-    expect(tasked.state.status).toBe("tasked");
-
     const plannedSnapshot = await store.readChange(changeRef);
-    expect(plannedSnapshot.summary.ref).toBe("spec:add-dark-mode");
+    expect(plannedSnapshot.summary.ref).toBe("spec:dark-theme-support");
     expect(plannedSnapshot.artifacts.map((artifact) => artifact.ref)).toEqual([
-      "spec:add-dark-mode:artifact:proposal",
-      "spec:add-dark-mode:artifact:design",
-      "spec:add-dark-mode:artifact:tasks",
-      "spec:add-dark-mode:artifact:analysis",
-      "spec:add-dark-mode:artifact:checklist",
+      "spec:dark-theme-support:artifact:proposal",
+      "spec:dark-theme-support:artifact:design",
+      "spec:dark-theme-support:artifact:analysis",
+      "spec:dark-theme-support:artifact:checklist",
     ]);
     expect(plannedSnapshot.capabilitySpecs[0]?.ref).toBe("capability:theme-toggling");
+    expect(plannedSnapshot.state.status).toBe("planned");
 
     const analyzed = await store.analyzeChange(changeRef);
     expect(analyzed.analysis).toContain("Specification quality gates passed");
@@ -83,15 +72,14 @@ describe("SpecStore durable memory", () => {
 
     const archived = await store.archiveChange(changeRef);
     expect(archived.state.status).toBe("archived");
-    expect(archived.state.archivedRef).toBe("archive:spec:2026-03-15:add-dark-mode");
+    expect(archived.state.archivedRef).toBe("archive:spec:2026-03-15:dark-theme-support");
     expect(archived.summary.initiativeIds).toEqual(["platform-modernization", "ui-foundation"]);
-    expect(archived.summary.ref).toBe("archive:spec:2026-03-15:add-dark-mode");
+    expect(archived.summary.ref).toBe("archive:spec:2026-03-15:dark-theme-support");
     expect(archived.artifacts.map((artifact) => artifact.ref)).toEqual([
-      "archive:spec:2026-03-15:add-dark-mode:artifact:proposal",
-      "archive:spec:2026-03-15:add-dark-mode:artifact:design",
-      "archive:spec:2026-03-15:add-dark-mode:artifact:tasks",
-      "archive:spec:2026-03-15:add-dark-mode:artifact:analysis",
-      "archive:spec:2026-03-15:add-dark-mode:artifact:checklist",
+      "archive:spec:2026-03-15:dark-theme-support:artifact:proposal",
+      "archive:spec:2026-03-15:dark-theme-support:artifact:design",
+      "archive:spec:2026-03-15:dark-theme-support:artifact:analysis",
+      "archive:spec:2026-03-15:dark-theme-support:artifact:checklist",
     ]);
     const canonicalCapability = await store.readCapability(
       plannedSnapshot.capabilitySpecs[0]?.ref ?? "capability:theme-toggling",
@@ -101,9 +89,9 @@ describe("SpecStore durable memory", () => {
 
     expect(await store.listChanges({ includeArchived: true })).toEqual([
       expect.objectContaining({
-        id: "add-dark-mode",
+        id: "dark-theme-support",
         archived: true,
-        ref: "archive:spec:2026-03-15:add-dark-mode",
+        ref: "archive:spec:2026-03-15:dark-theme-support",
       }),
     ]);
     expect(await store.listCapabilities()).toEqual([

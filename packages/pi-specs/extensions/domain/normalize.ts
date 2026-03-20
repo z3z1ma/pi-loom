@@ -63,14 +63,6 @@ export function normalizeRequirementId(value: string): string {
   return trimmed;
 }
 
-export function normalizeTaskId(value: string): string {
-  const trimmed = value.trim().toLowerCase();
-  if (!/^task-\d{3}$/.test(trimmed)) {
-    throw new Error(`Invalid task id: ${value}`);
-  }
-  return trimmed;
-}
-
 export function normalizeStatus(value: string | undefined): SpecStatus {
   return expectEnum("spec status", value, SPEC_STATUSES, "proposed");
 }

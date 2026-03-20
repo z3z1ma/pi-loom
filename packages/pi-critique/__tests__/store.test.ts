@@ -99,9 +99,6 @@ describe("CritiqueStore durable memory", () => {
         },
       ],
     });
-    await specStore.updateTasks(spec.state.changeId, {
-      tasks: [{ title: "Implement critique store", requirements: ["req-001"] }],
-    });
 
     vi.setSystemTime(new Date("2026-03-15T10:20:00.000Z"));
     const ticket = await ticketStore.createTicketAsync({
@@ -109,7 +106,6 @@ describe("CritiqueStore durable memory", () => {
       summary: "Persist critique state, packet, runs, findings, and dashboard artifacts.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
-      specChange: spec.state.changeId,
     });
     await initiativeStore.linkTicket(initiative.state.initiativeId, ticket.summary.id);
     await researchStore.linkTicket(research.state.researchId, ticket.summary.id);
@@ -157,7 +153,6 @@ describe("CritiqueStore durable memory", () => {
     expect(critique.packet).toContain(`${roadmapId} [active/now] Critique layer`);
     expect(critique.packet).toContain(initiative.state.initiativeId);
     expect(critique.packet).toContain(research.state.researchId);
-    expect(critique.packet).toContain(spec.state.changeId);
     expect(critique.packet).toContain(ticket.summary.id);
     expect(critique.packet).toContain(
       "Does this work satisfy the constitutional requirement for durable adversarial review?",
@@ -274,7 +269,6 @@ describe("CritiqueStore durable memory", () => {
     const followupTicket = await ticketStore.readTicketAsync("t-0002");
     expect(followupTicket.ticket.body.context).toContain(`Critique: ${critique.state.critiqueId}`);
     expect(followupTicket.ticket.body.context).toContain("Finding: finding-001");
-    expect(followupTicket.ticket.frontmatter["spec-change"]).toBe(spec.state.changeId);
 
     vi.setSystemTime(new Date("2026-03-15T10:55:00.000Z"));
     const fixed = await critiqueStore.updateFindingAsync(critique.state.critiqueId, {

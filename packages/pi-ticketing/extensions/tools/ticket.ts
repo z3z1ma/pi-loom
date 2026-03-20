@@ -96,9 +96,6 @@ const TicketWriteParams = Type.Object({
   links: Type.Optional(Type.Array(Type.String())),
   initiativeIds: Type.Optional(Type.Array(Type.String())),
   researchIds: Type.Optional(Type.Array(Type.String())),
-  specChange: Type.Optional(Type.String()),
-  specCapabilities: Type.Optional(Type.Array(Type.String())),
-  specRequirements: Type.Optional(Type.Array(Type.String())),
   parent: Type.Optional(Type.String()),
   assignee: Type.Optional(Type.String()),
   acceptance: Type.Optional(Type.Array(Type.String())),
@@ -162,9 +159,6 @@ function toUpdateInput(params: TicketWriteParamsValue): UpdateTicketInput {
     links: params.links,
     initiativeIds: params.initiativeIds,
     researchIds: params.researchIds,
-    specChange: params.specChange,
-    specCapabilities: params.specCapabilities,
-    specRequirements: params.specRequirements,
     parent: params.parent,
     assignee: params.assignee,
     acceptance: params.acceptance,
@@ -193,9 +187,6 @@ function toCreateInput(params: TicketWriteParamsValue): CreateTicketInput {
     links: params.links,
     initiativeIds: params.initiativeIds,
     researchIds: params.researchIds,
-    specChange: params.specChange,
-    specCapabilities: params.specCapabilities,
-    specRequirements: params.specRequirements,
     parent: params.parent,
     assignee: params.assignee,
     acceptance: params.acceptance,
@@ -319,7 +310,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
         case "delete": {
           const result = await runMutation(ctx, () => store.deleteTicketAsync(requireRef(params.ref)));
           return machineResult(
-            result,
+            { action: params.action, result },
             result.affectedTicketIds.length > 0
               ? `Deleted ticket ${result.deletedTicketId}. Updated tickets: ${result.affectedTicketIds.join(", ")}`
               : `Deleted ticket ${result.deletedTicketId}.`,

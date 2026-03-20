@@ -33,9 +33,6 @@ describe("TicketStore canonical storage", () => {
       links: ["runbook"],
       initiativeIds: ["platform-modernization"],
       researchIds: ["evaluate-theme-architecture"],
-      specChange: "incident-auth-recovery",
-      specCapabilities: ["auth-recovery"],
-      specRequirements: ["req-001"],
       acceptance: ["Operators can log in again"],
       labels: ["auth"],
       summary: "Login failures block responders.",
@@ -60,9 +57,6 @@ describe("TicketStore canonical storage", () => {
       links: ["runbook"],
       "initiative-ids": ["platform-modernization"],
       "research-ids": ["evaluate-theme-architecture"],
-      "spec-change": "incident-auth-recovery",
-      "spec-capabilities": ["auth-recovery"],
-      "spec-requirements": ["req-001"],
       acceptance: ["Operators can log in again"],
       labels: ["auth"],
       "created-at": "2024-01-02T03:04:05.000Z",
@@ -78,9 +72,6 @@ describe("TicketStore canonical storage", () => {
     });
     expect(created.summary.initiativeIds).toEqual(["platform-modernization"]);
     expect(created.summary.researchIds).toEqual(["evaluate-theme-architecture"]);
-    expect(created.summary.specChange).toBe("incident-auth-recovery");
-    expect(created.summary.specCapabilities).toEqual(["auth-recovery"]);
-    expect(created.summary.specRequirements).toEqual(["req-001"]);
 
     vi.setSystemTime(new Date("2024-01-02T04:00:00.000Z"));
     const checkpointed = await store.recordCheckpointAsync(created.summary.id, {

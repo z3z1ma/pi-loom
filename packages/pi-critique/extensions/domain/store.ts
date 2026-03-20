@@ -378,7 +378,6 @@ function deriveContextRefsFromTicket(ticket: TicketReadResult): CritiqueContextR
   return mergeContextRefs({
     initiativeIds: ticket.ticket.frontmatter["initiative-ids"],
     researchIds: ticket.ticket.frontmatter["research-ids"],
-    specChangeIds: ticket.ticket.frontmatter["spec-change"] ? [ticket.ticket.frontmatter["spec-change"]] : [],
     ticketIds: [ticket.summary.id],
   });
 }
@@ -388,7 +387,6 @@ function deriveContextRefsFromSpec(change: SpecChangeRecord): CritiqueContextRef
     initiativeIds: change.state.initiativeIds,
     researchIds: change.state.researchIds,
     specChangeIds: [change.state.changeId],
-    ticketIds: change.linkedTickets?.links.map((ticket) => ticket.ticketId) ?? [],
   });
 }
 
@@ -717,14 +715,12 @@ export class CritiqueStore {
         decisions: SpecChangeRecord["decisions"];
         analysis: SpecChangeRecord["analysis"];
         checklist: SpecChangeRecord["checklist"];
-        linkedTickets?: SpecChangeRecord["linkedTickets"];
       };
       return {
         state: attributes.state,
         decisions: attributes.decisions,
         analysis: attributes.analysis,
         checklist: attributes.checklist,
-        linkedTickets: attributes.linkedTickets ?? null,
         summary: {
           id: entity.displayId,
           title: entity.title,
@@ -788,8 +784,7 @@ export class CritiqueStore {
             `${change.summary.id} [${change.summary.status}] ${change.summary.title}`,
             `Proposal: ${excerpt(change.state.proposalSummary)}`,
             `Requirements: ${change.state.requirements.length}`,
-            `Tasks: ${change.state.tasks.length}`,
-            `Linked tickets: ${change.linkedTickets?.links.length ?? 0}`,
+            `Capabilities: ${change.state.capabilities.length}`,
           ].join("\n"),
           contextRefs: deriveContextRefsFromSpec(change),
         };
@@ -902,8 +897,7 @@ export class CritiqueStore {
             `${change.summary.id} [${change.summary.status}] ${change.summary.title}`,
             `Proposal: ${excerpt(change.state.proposalSummary)}`,
             `Requirements: ${change.state.requirements.length}`,
-            `Tasks: ${change.state.tasks.length}`,
-            `Linked tickets: ${change.linkedTickets?.links.length ?? 0}`,
+            `Capabilities: ${change.state.capabilities.length}`,
           ].join("\n"),
           contextRefs: deriveContextRefsFromSpec(change),
         };
@@ -996,7 +990,7 @@ export class CritiqueStore {
       .filter((record): record is SpecChangeRecord => record !== null)
       .map(
         (record) =>
-          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} tasks=${record.state.tasks.length}`,
+          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} caps=${record.state.capabilities.length}`,
       );
     const tickets = contextRefs.ticketIds
       .map((ticketId) => this.safeReadTicket(ticketId))
@@ -1068,7 +1062,7 @@ export class CritiqueStore {
       .filter((record): record is SpecChangeRecord => record !== null)
       .map(
         (record) =>
-          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} tasks=${record.state.tasks.length}`,
+          `${record.state.changeId} [${record.state.status}] ${record.state.title} — reqs=${record.state.requirements.length} caps=${record.state.capabilities.length}`,
       );
     const tickets = (await Promise.all(contextRefs.ticketIds.map((ticketId) => this.safeReadTicketAsync(ticketId))))
       .filter((record): record is TicketReadResult => record !== null)
@@ -1921,7 +1915,6 @@ export class CritiqueStore {
       type: ticketTypeForFinding(finding.kind),
       initiativeIds: context.contextRefs.initiativeIds,
       researchIds: context.contextRefs.researchIds,
-      specChange: context.contextRefs.specChangeIds[0] ?? null,
       reviewStatus: "requested",
       externalRefs: [`critique:${critique.state.critiqueId}`, `finding:${finding.id}`],
       labels: ["critique", finding.kind],

@@ -112,13 +112,7 @@ describe("pi-specs extension", () => {
 
     expect(mockPi.commands.has("spec")).toBe(true);
     expect(getCommand(mockPi, "spec").description).toContain("durable specifications");
-    expect([...mockPi.tools.keys()].sort()).toEqual([
-      "spec_analyze",
-      "spec_ensure_tickets",
-      "spec_list",
-      "spec_read",
-      "spec_write",
-    ]);
+    expect([...mockPi.tools.keys()].sort()).toEqual(["spec_analyze", "spec_list", "spec_read", "spec_write"]);
     expect(mockPi.handlers.has("session_start")).toBe(true);
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
@@ -139,13 +133,13 @@ describe("pi-specs extension", () => {
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
       expect(await store.listChanges({ includeArchived: true })).toEqual([]);
 
-      await command.handler("propose Add dark mode", ctx);
+      await command.handler("propose Dark theme support", ctx);
 
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("add-dark-mode [proposed]"), "info");
-      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Add dark mode"), "info");
-      await expect(store.readChange("add-dark-mode")).resolves.toMatchObject({
-        summary: { id: "add-dark-mode", status: "proposed" },
-        state: { proposalSummary: "Add dark mode" },
+      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("dark-theme-support [proposed]"), "info");
+      expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("Dark theme support"), "info");
+      await expect(store.readChange("dark-theme-support")).resolves.toMatchObject({
+        summary: { id: "dark-theme-support", status: "proposed" },
+        state: { proposalSummary: "Dark theme support" },
       });
     } finally {
       cleanup();
@@ -167,10 +161,12 @@ describe("pi-specs extension", () => {
       )) as { systemPrompt: string };
 
       expect(result.systemPrompt).toContain("Base system prompt");
-      expect(result.systemPrompt).toContain("Specifications bridge research and execution.");
+      expect(result.systemPrompt).toContain(
+        "Specifications are declarative, implementation-decoupled descriptions of desired program behavior.",
+      );
       expect(result.systemPrompt).toContain("Specification state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
-        "Prefer spec tools before direct ticket generation for non-trivial feature work.",
+        "Prefer spec tools before planning or ticketing non-trivial feature work, and use plans as the primary bridge from specs into tickets.",
       );
     } finally {
       cleanup();

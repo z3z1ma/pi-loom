@@ -9,7 +9,6 @@ import type {
   SpecChecklistResult,
   SpecDecisionRecord,
   SpecRequirementRecord,
-  SpecTaskRecord,
 } from "./models.js";
 
 function joinNonEmpty(chunks: string[]): string {
@@ -27,23 +26,6 @@ function renderRequirements(requirements: SpecRequirementRecord[]): string {
       const capabilities =
         requirement.capabilities.length > 0 ? `\n  Capabilities: ${requirement.capabilities.join(", ")}` : "";
       return `- ${requirement.id}: ${requirement.text}${acceptance}${capabilities}`;
-    })
-    .join("\n");
-}
-
-function renderTasks(tasks: SpecTaskRecord[]): string {
-  if (tasks.length === 0) {
-    return "(none)";
-  }
-  return tasks
-    .map((task) => {
-      const lines = [`- ${task.id}: ${task.title}`];
-      if (task.summary) lines.push(`  Summary: ${task.summary}`);
-      if (task.requirements.length > 0) lines.push(`  Requirements: ${task.requirements.join(", ")}`);
-      if (task.capabilities.length > 0) lines.push(`  Capabilities: ${task.capabilities.join(", ")}`);
-      if (task.deps.length > 0) lines.push(`  Dependencies: ${task.deps.join(", ")}`);
-      if (task.acceptance.length > 0) lines.push(`  Acceptance: ${task.acceptance.join("; ")}`);
-      return lines.join("\n");
     })
     .join("\n");
 }
@@ -102,29 +84,6 @@ export function renderDesignMarkdown(state: SpecChangeState): string {
   );
 }
 
-export function renderTasksMarkdown(state: SpecChangeState): string {
-  return serializeMarkdownArtifact(
-    {
-      id: state.changeId,
-      title: state.title,
-      status: state.status,
-      "created-at": state.createdAt,
-      "updated-at": state.updatedAt,
-      research: state.researchIds,
-      initiatives: state.initiativeIds,
-    },
-    joinNonEmpty([
-      renderSection("Task Graph", renderTasks(state.tasks)),
-      renderSection(
-        "Traceability",
-        renderBulletList(
-          state.tasks.map((task) => `${task.id} -> ${task.requirements.join(", ") || "(no requirements linked)"}`),
-        ),
-      ),
-    ]),
-  );
-}
-
 export function renderCapabilityMarkdown(changeId: string, capability: CanonicalCapabilityRecord): string {
   return serializeMarkdownArtifact(
     {
@@ -170,7 +129,7 @@ export function renderAnalysisMarkdown(result: SpecAnalysisResult): string {
         "Summary",
         result.readyToFinalize
           ? "Specification quality gates passed. This does not verify implementation correctness."
-          : "Specification quality gates failed. Fix the spec before projecting or implementing tickets.",
+          : "Specification quality gates failed. Fix the spec before handing it off to plans and tickets.",
       ),
       renderSection(
         "Findings",
@@ -210,11 +169,10 @@ export function renderChecklistMarkdown(result: SpecChecklistResult): string {
 }
 
 export function renderSpecSummary(summary: SpecChangeSummary): string {
-  return `${summary.id} [${summary.status}] caps=${summary.capabilityIds.length} reqs=${summary.requirementCount} tasks=${summary.taskCount} ${summary.title}`;
+  return `${summary.id} [${summary.status}] caps=${summary.capabilityIds.length} reqs=${summary.requirementCount} ${summary.title}`;
 }
 
 export function renderSpecDetail(record: SpecChangeRecord): string {
-  const linkedTicketCount = record.linkedTickets?.links.length ?? 0;
   return [
     renderSpecSummary(record.summary),
     `Artifacts: ${
@@ -227,9 +185,7 @@ export function renderSpecDetail(record: SpecChangeRecord): string {
     `Initiatives: ${record.state.initiativeIds.join(", ") || "none"}`,
     `Capabilities: ${record.state.capabilities.map((capability) => capability.id).join(", ") || "none"}`,
     `Requirements: ${record.state.requirements.length}`,
-    `Tasks: ${record.state.tasks.length}`,
     `Decisions: ${record.decisions.length}`,
-    `Linked tickets: ${linkedTicketCount}`,
     "",
     "Proposal:",
     record.state.proposalSummary || "(empty)",
