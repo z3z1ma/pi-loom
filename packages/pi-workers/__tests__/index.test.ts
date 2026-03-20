@@ -76,7 +76,7 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
 }
 
 describe("pi-workers extension", () => {
-  it("registers worker tools and lifecycle hooks without slash commands", async () => {
+  it("registers manager tools and lifecycle hooks without slash commands", async () => {
     const mockPi = createMockPi();
     const { default: piWorkers } = await import("../extensions/index.js");
 
@@ -84,17 +84,11 @@ describe("pi-workers extension", () => {
 
     expect((mockPi as { registerCommand?: ReturnType<typeof vi.fn> }).registerCommand).toBeUndefined();
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "manager_overview",
-      "manager_schedule",
-      "manager_supervise",
-      "manager_write",
-      "worker_dashboard",
-      "worker_launch",
-      "worker_list",
-      "worker_read",
-      "worker_resume",
-      "worker_supervise",
-      "worker_write",
+      "manager_list",
+      "manager_read",
+      "manager_start",
+      "manager_steer",
+      "manager_wait",
     ]);
     expect(mockPi.handlers.has("session_start")).toBe(true);
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
@@ -120,7 +114,7 @@ describe("pi-workers extension", () => {
     }
   }, 30000);
 
-  it("augments the system prompt with worker doctrine before agent start", async () => {
+  it("augments the system prompt with manager-first worker doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
@@ -135,7 +129,8 @@ describe("pi-workers extension", () => {
 
       expect(result.systemPrompt).toContain("Base system prompt");
       expect(result.systemPrompt).toContain("Worker state is persisted in SQLite via pi-storage.");
-      expect(result.systemPrompt).toContain("Prefer durable worker records");
+      expect(result.systemPrompt).toContain("manager_start");
+      expect(result.systemPrompt).toContain("manager_wait");
     } finally {
       cleanup();
     }

@@ -4,22 +4,19 @@ import { buildWorkerSystemPrompt, getBaseWorkerGuidance } from "../extensions/pr
 describe("worker prompt guidance", () => {
   it("includes worker doctrine and layer boundaries", () => {
     const guidance = getBaseWorkerGuidance();
-    expect(guidance).toContain("A worker is not a session branch.");
-    expect(guidance).toContain("wrapper around a linked Ralph run");
-    expect(guidance).toContain("`manager_*` tools");
+    expect(guidance).toContain("Managers are the primary AI-facing surface of this package.");
+    expect(guidance).toContain("manager_start");
+    expect(guidance).toContain("manager_wait");
+    expect(guidance).toContain("Workers are internal implementation details");
+    expect(guidance).toContain("ticket-bound wrapper around one linked Ralph run");
+    expect(guidance).toContain("Use `manager_steer`");
+    expect(guidance).toContain("Ralph remains standalone and directly usable outside Pi Workers.");
     expect(guidance).not.toContain("/manager");
-    expect(guidance).toContain("Manager instructions are durable inbox items");
-    expect(guidance).toContain("Managers own completion approval and consolidation decisions.");
-    expect(guidance).toContain("next linked Ralph iteration");
-    expect(guidance).toContain("Workers execute ticket-linked work");
-    expect(guidance).toContain("Manager intervention happens between Ralph iterations");
-    expect(guidance).toContain("Tickets remain the live execution ledger.");
-    expect(guidance).toContain("Do not invent unrestricted peer meshes in v1.");
   });
 
   it("renders cwd-specific worker memory guidance", () => {
     const prompt = buildWorkerSystemPrompt("/tmp/example-workspace");
     expect(prompt).toContain("Worker state is persisted in SQLite via pi-storage.");
-    expect(prompt).toContain("compact supervision inputs");
+    expect(prompt).toContain("manager-first orchestration");
   });
 });

@@ -8,8 +8,6 @@ export const WORKER_STATUSES = [
   "active",
   "blocked",
   "waiting_for_review",
-  "completion_requested",
-  "approved_for_consolidation",
   "completed",
   "retired",
   "failed",
@@ -26,7 +24,7 @@ export const WORKER_TELEMETRY_STATES = [
   "waiting_for_review",
   "finished",
 ] as const;
-export const MANAGER_REF_KINDS = ["operator", "manual", "plan", "ticket", "ralph"] as const;
+export const MANAGER_REF_KINDS = ["operator", "manual", "initiative", "plan", "ticket", "ralph", "manager"] as const;
 export const MESSAGE_DIRECTIONS = ["manager_to_worker", "worker_to_manager", "broadcast"] as const;
 export const MESSAGE_AWAITING = ["none", "worker", "manager"] as const;
 export const MESSAGE_KINDS = [
@@ -38,7 +36,6 @@ export const MESSAGE_KINDS = [
   "resolution",
   "checkpoint_notice",
   "completion_notice",
-  "approval_decision",
   "broadcast_warning",
   "status_update",
   "note",
@@ -51,20 +48,6 @@ export const APPROVAL_STATUSES = [
   "rejected_for_revision",
   "escalated",
 ] as const;
-export const CONSOLIDATION_STATUSES = [
-  "not_started",
-  "pending",
-  "in_progress",
-  "merged",
-  "cherry_picked",
-  "patched",
-  "conflicted",
-  "validation_failed",
-  "rolled_back",
-  "deferred",
-] as const;
-export const CONSOLIDATION_STRATEGIES = ["merge", "cherry-pick", "patch", "manual"] as const;
-export const SUPERVISION_ACTIONS = ["continue", "steer", "escalate", "approve", "retire"] as const;
 
 export type WorkerStatus = (typeof WORKER_STATUSES)[number];
 export type WorkspaceStrategy = (typeof WORKSPACE_STRATEGIES)[number];
@@ -76,9 +59,6 @@ export type MessageAwaiting = (typeof MESSAGE_AWAITING)[number];
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
 export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
-export type ConsolidationStatus = (typeof CONSOLIDATION_STATUSES)[number];
-export type ConsolidationStrategy = (typeof CONSOLIDATION_STRATEGIES)[number];
-export type SupervisionAction = (typeof SUPERVISION_ACTIONS)[number];
 
 export interface WorkerLinkedRefs {
   initiativeIds: string[];
@@ -115,34 +95,6 @@ export interface WorkerTelemetry {
   notes: string[];
 }
 
-export interface WorkerCompletionRequest {
-  requestedAt: string | null;
-  scopeComplete: string[];
-  validationEvidence: string[];
-  remainingRisks: string[];
-  branchState: string;
-  summary: string;
-  requestedBy: string;
-}
-
-export interface WorkerApprovalDecision {
-  status: ApprovalStatus;
-  decidedAt: string | null;
-  decidedBy: string | null;
-  summary: string;
-  rationale: string[];
-}
-
-export interface WorkerConsolidationOutcome {
-  status: ConsolidationStatus;
-  strategy: ConsolidationStrategy | null;
-  summary: string;
-  validation: string[];
-  conflicts: string[];
-  followUps: string[];
-  decidedAt: string | null;
-}
-
 export interface WorkerState {
   workerId: string;
   title: string;
@@ -155,19 +107,8 @@ export interface WorkerState {
   linkedRefs: WorkerLinkedRefs;
   workspace: WorkerWorkspaceDescriptor;
   latestTelemetry: WorkerTelemetry;
-  latestCheckpointId: string | null;
   latestCheckpointSummary: string;
-  lastMessageAt: string | null;
   lastLaunchAt: string | null;
-  lastSchedulerAt: string | null;
-  lastSchedulerSummary: string;
-  launchCount: number;
-  lastRuntimeKind: WorkerRuntimeKind | null;
-  interventionCount: number;
-  completionRequest: WorkerCompletionRequest;
-  approval: WorkerApprovalDecision;
-  consolidation: WorkerConsolidationOutcome;
-  packetSummary: string;
 }
 
 export interface WorkerSummary {
@@ -178,14 +119,11 @@ export interface WorkerSummary {
   updatedAt: string;
   managerKind: ManagerRefKind;
   ticketCount: number;
-  runtimeKind: WorkerRuntimeKind | null;
   telemetryState: WorkerTelemetryState;
   latestCheckpointSummary: string;
-  lastSchedulerSummary: string;
   acknowledgedInboxCount: number;
   unresolvedInboxCount: number;
   pendingManagerActionCount: number;
-  pendingApproval: boolean;
   workerRef: string;
 }
 
@@ -238,7 +176,6 @@ export interface WorkerRuntimeDescriptor {
   packetRef: string;
   ralphLaunchRef: string;
   instructions: string[];
-  launchPrompt: string;
   command: string[];
   pid: number | null;
   status: "prepared" | "running" | "completed" | "failed" | "retired";
@@ -257,14 +194,6 @@ export interface WorkerCanonicalRecord extends Record<string, unknown> {
   messages: WorkerMessageRecord[];
 }
 
-export interface WorkerSupervisionDecision {
-  action: SupervisionAction;
-  confidence: number;
-  reasoning: string;
-  message: string | null;
-  evidence: string[];
-}
-
 export interface WorkerDashboard {
   worker: WorkerSummary;
   workerRef: string;
@@ -281,8 +210,6 @@ export interface WorkerDashboard {
     unresolvedMessages: number;
     pendingManagerActions: number;
   };
-  approval: WorkerApprovalDecision;
-  consolidation: WorkerConsolidationOutcome;
   stale: boolean;
 }
 
@@ -298,27 +225,11 @@ export interface WorkerReadResult {
   artifacts: WorkerArtifactPaths;
 }
 
-export interface ManagerOverview {
-  workers: WorkerSummary[];
-  unresolvedInboxWorkers: WorkerSummary[];
-  pendingManagerActionWorkers: WorkerSummary[];
-  pendingApprovalWorkers: WorkerSummary[];
-  resumeCandidates: WorkerSummary[];
-}
-
-export interface ManagerSchedulerDecision {
-  workerId: string;
-  action: "resume" | "needs_approval" | "message" | "wait" | "blocked";
-  applied: boolean;
-  summary: string;
-}
-
 export interface WorkerListFilter {
   status?: WorkerStatus;
   text?: string;
   sort?: LoomListSort;
   telemetryState?: WorkerTelemetryState;
-  pendingApproval?: boolean;
 }
 
 export interface CreateWorkerInput {
@@ -379,26 +290,11 @@ export interface SetWorkerTelemetryInput {
 }
 
 export interface RequestWorkerCompletionInput {
-  requestedAt?: string;
-  scopeComplete?: string[];
-  validationEvidence?: string[];
-  remainingRisks?: string[];
-  branchState?: string;
   summary?: string;
-  requestedBy?: string;
 }
 
-export interface DecideWorkerApprovalInput {
-  status: Exclude<ApprovalStatus, "not_requested" | "pending">;
-  decidedAt?: string;
-  decidedBy?: string;
-  summary?: string;
-  rationale?: string[];
-}
-
-export interface RecordWorkerConsolidationInput {
-  status: Exclude<ConsolidationStatus, "not_started" | "pending">;
-  strategy?: ConsolidationStrategy | null;
+export interface RecordWorkerOutcomeInput {
+  status: Extract<WorkerStatus, "ready" | "blocked" | "waiting_for_review" | "completed" | "failed">;
   summary?: string;
   validation?: string[];
   conflicts?: string[];
@@ -409,5 +305,131 @@ export interface RecordWorkerConsolidationInput {
 export interface PrepareWorkerLaunchInput {
   resume?: boolean;
   note?: string;
-  prompt?: string;
+}
+
+export const MANAGER_STATUSES = ["active", "waiting_for_input", "completed", "failed", "archived"] as const;
+export const MANAGER_MESSAGE_DIRECTIONS = ["operator_to_manager", "manager_to_operator"] as const;
+export const MANAGER_MESSAGE_KINDS = ["steer", "approval", "escalation", "report"] as const;
+export const MANAGER_MESSAGE_STATUSES = ["pending", "resolved"] as const;
+
+export type ManagerStatus = (typeof MANAGER_STATUSES)[number];
+export type ManagerMessageDirection = (typeof MANAGER_MESSAGE_DIRECTIONS)[number];
+export type ManagerMessageKind = (typeof MANAGER_MESSAGE_KINDS)[number];
+export type ManagerMessageStatus = (typeof MANAGER_MESSAGE_STATUSES)[number];
+
+export interface ManagerLinkedRefs {
+  initiativeIds: string[];
+  researchIds: string[];
+  specChangeIds: string[];
+  ticketIds: string[];
+  critiqueIds: string[];
+  docIds: string[];
+  planIds: string[];
+}
+
+export interface ManagerState {
+  managerId: string;
+  title: string;
+  objective: string;
+  summary: string;
+  status: ManagerStatus;
+  createdAt: string;
+  updatedAt: string;
+  targetRef: string;
+  linkedRefs: ManagerLinkedRefs;
+  workerIds: string[];
+  workerSignature: string;
+  latestSummary: string;
+  lastRunAt: string | null;
+  runCount: number;
+}
+
+export interface ManagerMessageRecord {
+  id: string;
+  managerId: string;
+  createdAt: string;
+  direction: ManagerMessageDirection;
+  kind: ManagerMessageKind;
+  status: ManagerMessageStatus;
+  text: string;
+  workerId: string | null;
+  resolvedAt: string | null;
+}
+
+export interface ManagerCanonicalRecord extends Record<string, unknown> {
+  state: ManagerState;
+  messages: ManagerMessageRecord[];
+}
+
+export interface ManagerSummary {
+  id: string;
+  title: string;
+  status: ManagerStatus;
+  targetRef: string;
+  ticketCount: number;
+  workerCount: number;
+  updatedAt: string;
+  latestSummary: string;
+  pendingMessages: number;
+}
+
+export interface ManagerWorkerView {
+  id: string;
+  title: string;
+  status: WorkerStatus;
+  branch: string;
+  baseRef: string;
+  ticketIds: string[];
+  ralphRunId: string | null;
+  latestSummary: string;
+}
+
+export interface ManagerReadResult {
+  state: ManagerState;
+  summary: ManagerSummary;
+  messages: ManagerMessageRecord[];
+  workers: ManagerWorkerView[];
+  manager: string;
+}
+
+export interface ManagerListFilter {
+  status?: ManagerStatus;
+  text?: string;
+  sort?: LoomListSort;
+}
+
+export interface CreateManagerInput {
+  managerId?: string;
+  title: string;
+  objective?: string;
+  summary?: string;
+  targetRef?: string;
+  linkedRefs?: Partial<ManagerLinkedRefs>;
+}
+
+export interface ManagerSteerInput {
+  text?: string;
+  workerId?: string;
+  approvalStatus?: Exclude<ApprovalStatus, "not_requested" | "pending">;
+  targetRef?: string;
+}
+
+export interface ManagerCheckpointInput {
+  status?: ManagerStatus;
+  summary?: string;
+  linkedRefs?: Partial<ManagerLinkedRefs>;
+  resolveOperatorInput?: boolean;
+  operatorMessages?: Array<{
+    kind: ManagerMessageKind;
+    text: string;
+    workerId?: string | null;
+  }>;
+  workerUpdates?: Array<{
+    workerId: string;
+    status: Extract<WorkerStatus, "ready" | "blocked" | "waiting_for_review" | "completed" | "failed">;
+    summary?: string;
+    validation?: string[];
+    conflicts?: string[];
+    followUps?: string[];
+  }>;
 }

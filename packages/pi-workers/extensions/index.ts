@@ -1,16 +1,14 @@
-import type {
-  BeforeAgentStartEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { createManagerStore } from "./domain/manager-store.js";
 import { createWorkerStore } from "./domain/store.js";
 import { buildWorkerSystemPrompt, getBaseWorkerGuidance } from "./prompts/guidance.js";
-import { registerManagerTools } from "./tools/manager.js";
-import { registerWorkerTools } from "./tools/worker.js";
+import { registerInternalManagerTools, registerManagerTools } from "./tools/manager.js";
 
 export default function piWorkers(pi: ExtensionAPI): void {
   registerManagerTools(pi);
-  registerWorkerTools(pi);
+  if (process.env.PI_WORKERS_INTERNAL_MANAGER === "1") {
+    registerInternalManagerTools(pi);
+  }
 
   pi.on("session_start", async (_event, ctx) => {
     await createWorkerStore(ctx.cwd).initLedgerAsync();
@@ -28,4 +26,5 @@ export const _test = {
   getBaseWorkerGuidance,
   buildWorkerSystemPrompt,
   createWorkerStore,
+  createManagerStore,
 };

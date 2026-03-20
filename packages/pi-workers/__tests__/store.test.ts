@@ -180,7 +180,7 @@ describe("WorkerStore", () => {
       });
 
       const prepared = store.prepareLaunch("packet-worker", false, "launch packet");
-      expect(prepared.packet).toContain("Run contract:");
+      expect(prepared.packet).toContain("Worker packet-worker: Packet Worker");
       expect(prepared.packet).toContain("Drain the inbox before stopping");
 
       const checkpointed = store.appendCheckpoint("packet-worker", {
@@ -192,13 +192,13 @@ describe("WorkerStore", () => {
         nextAction: "Stop because inbox is empty",
       });
       expect(checkpointed.checkpoints.at(-1)?.remainingInboxCount).toBe(0);
-      expect(checkpointed.packet).toContain("Remaining inbox count: 0");
+      expect(checkpointed.packet).toContain("Latest checkpoint: Inbox work processed");
     } finally {
       cleanup();
     }
   }, 60000);
 
-  it("records messages checkpoints approvals and consolidation outcomes durably", async () => {
+  it("records messages checkpoints review requests and worker outcomes durably", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       await createWorkerTicket(cwd, "Worker lifecycle ticket");
@@ -218,24 +218,16 @@ describe("WorkerStore", () => {
         managerInputRequired: true,
       });
       store.requestCompletion("lifecycle-worker", {
-        summary: "Completion requested with evidence",
-        validationEvidence: ["npm run typecheck"],
+        summary: "Ready for manager review",
       });
-      store.decideApproval("lifecycle-worker", {
-        status: "approved",
-        summary: "Looks good",
-        rationale: ["Evidence is sufficient"],
-      });
-      const result = store.recordConsolidation("lifecycle-worker", {
-        status: "merged",
-        strategy: "merge",
-        summary: "Merged onto feature branch",
+      const result = store.recordWorkerOutcome("lifecycle-worker", {
+        status: "completed",
+        summary: "Completed and merged onto the target branch",
         validation: ["npm run typecheck"],
       });
 
       expect(result.state.status).toBe("completed");
-      expect(result.state.approval.status).toBe("approved");
-      expect(result.state.consolidation.status).toBe("merged");
+      expect(result.state.latestTelemetry.state).toBe("finished");
       expect(result.messages).toHaveLength(1);
       expect(result.checkpoints).toHaveLength(1);
 
@@ -270,9 +262,8 @@ describe("WorkerStore", () => {
         expect.arrayContaining([
           "message_appended",
           "checkpoint_appended",
-          "completion_requested",
-          "approval_decided",
-          "consolidation_recorded",
+          "review_requested",
+          "worker_outcome_recorded",
         ]),
       );
 
@@ -280,7 +271,7 @@ describe("WorkerStore", () => {
         async () => {
           const linkedTicket = await createTicketStore(cwd).readTicketAsync("t-0001");
           expect(linkedTicket.journal.map((entry) => entry.text)).toEqual(
-            expect.arrayContaining([expect.stringContaining("consolidation outcome: merged")]),
+            expect.arrayContaining([expect.stringContaining("Worker lifecycle-worker outcome: completed")]),
           );
         },
         { timeout: 5000 },
@@ -290,44 +281,31 @@ describe("WorkerStore", () => {
     }
   }, 90000);
 
-  it("requires approval before recording consolidation outcomes", async () => {
+  it("records blocked and waiting-for-review worker outcomes directly", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
-      await createWorkerTicket(cwd, "Approval gate ticket");
+      await createWorkerTicket(cwd, "Worker outcome ticket");
 
       const store = createWorkerStore(cwd);
-      store.createWorker({ title: "Approval Gate Worker", linkedRefs: { ticketIds: ["t-0001"] } });
-      expect(() =>
-        store.recordConsolidation("approval-gate-worker", {
-          status: "merged",
-          strategy: "merge",
-          summary: "Should fail before approval",
-        }),
-      ).toThrow("Consolidation requires prior approved_for_consolidation status");
-      expect(() =>
-        store.recordConsolidation("approval-gate-worker", {
-          status: "deferred",
-          summary: "Waiting on another branch",
-          followUps: ["Retry after dependency lands"],
-        }),
-      ).toThrow("Consolidation requires prior approved_for_consolidation status");
-
-      store.requestCompletion("approval-gate-worker", {
-        summary: "Ready for approval",
-        validationEvidence: ["npm run typecheck"],
-      });
-      store.decideApproval("approval-gate-worker", {
-        status: "approved",
-        summary: "Approved for fan-in",
+      store.createWorker({ title: "Outcome Worker", linkedRefs: { ticketIds: ["t-0001"] } });
+      store.requestCompletion("outcome-worker", {
+        summary: "Ready for review",
       });
 
-      const deferred = store.recordConsolidation("approval-gate-worker", {
-        status: "deferred",
-        summary: "Waiting on another branch",
+      const blocked = store.recordWorkerOutcome("outcome-worker", {
+        status: "blocked",
+        summary: "Merge conflict needs operator intervention",
         followUps: ["Retry after dependency lands"],
       });
-      expect(deferred.state.status).toBe("approved_for_consolidation");
-      expect(deferred.state.consolidation.status).toBe("deferred");
+      expect(blocked.state.status).toBe("blocked");
+      expect(blocked.state.latestTelemetry.state).toBe("blocked");
+
+      const waiting = store.recordWorkerOutcome("outcome-worker", {
+        status: "waiting_for_review",
+        summary: "Operator review still required",
+      });
+      expect(waiting.state.status).toBe("waiting_for_review");
+      expect(waiting.state.latestTelemetry.state).toBe("waiting_for_review");
     } finally {
       cleanup();
     }
@@ -430,125 +408,6 @@ describe("WorkerStore", () => {
       );
     } finally {
       rmSync(outsideDir, { recursive: true, force: true });
-      cleanup();
-    }
-  }, 30000);
-
-  it("produces durable supervision decisions and persists applied interventions", async () => {
-    const { cwd, cleanup } = createWorkspace();
-    try {
-      await createWorkerTicket(cwd, "Supervision worker ticket");
-
-      const store = createWorkerStore(cwd);
-      store.createWorker({ title: "Supervise Worker", linkedRefs: { ticketIds: ["t-0001"] } });
-      store.appendCheckpoint("supervise-worker", {
-        summary: "Still blocked on the same issue",
-        understanding: "Need manager help",
-        blockers: ["Missing manager decision"],
-        nextAction: "Wait",
-        managerInputRequired: true,
-      });
-      store.appendCheckpoint("supervise-worker", {
-        summary: "Still blocked on the same issue",
-        understanding: "Need manager help",
-        blockers: ["Missing manager decision"],
-        nextAction: "Wait",
-        managerInputRequired: true,
-      });
-      store.appendCheckpoint("supervise-worker", {
-        summary: "Still blocked on the same issue",
-        understanding: "Need manager help",
-        blockers: ["Missing manager decision"],
-        nextAction: "Wait",
-        managerInputRequired: true,
-      });
-
-      const decision = store.superviseWorker("supervise-worker", true);
-      expect(decision.decision.action).toBe("escalate");
-      expect(decision.worker.state.interventionCount).toBe(1);
-      expect(decision.worker.messages.at(-1)?.direction).toBe("manager_to_worker");
-    } finally {
-      cleanup();
-    }
-  }, 90000);
-
-  it("runs a bounded manager scheduler pass over unresolved inbox and approval backlog", async () => {
-    const { cwd, cleanup } = createWorkspace();
-    try {
-      await createWorkerTicket(cwd, "Scheduler worker ticket");
-
-      const store = createWorkerStore(cwd);
-      store.createWorker({ title: "Scheduler Worker", linkedRefs: { ticketIds: ["t-0001"] } });
-      store.appendMessage("scheduler-worker", {
-        direction: "manager_to_worker",
-        kind: "assignment",
-        text: "Process queued work",
-      });
-      store.createWorker({ title: "Approval Worker", linkedRefs: { ticketIds: ["t-0001"] } });
-      store.requestCompletion("approval-worker", {
-        summary: "Ready for approval",
-        validationEvidence: ["npm run typecheck"],
-      });
-
-      const decisions = await store.runManagerSchedulerPass();
-      expect(decisions).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ workerId: "scheduler-worker", action: "resume", applied: false }),
-          expect.objectContaining({ workerId: "approval-worker", action: "needs_approval", applied: false }),
-        ]),
-      );
-      const linkedRunId = store.readWorker("scheduler-worker").state.linkedRefs.ralphRunIds[0];
-      expect(store.readWorker("scheduler-worker").state.lastSchedulerSummary).toContain(
-        `linked Ralph run ${linkedRunId} is ready for another iteration`,
-      );
-    } finally {
-      cleanup();
-    }
-  }, 30000);
-
-  it("treats blocked workers with new inbox instructions as resume candidates", async () => {
-    const { cwd, cleanup } = createWorkspace();
-    try {
-      await createWorkerTicket(cwd, "Blocked worker ticket");
-
-      const store = createWorkerStore(cwd);
-      store.createWorker({ title: "Blocked Worker", linkedRefs: { ticketIds: ["t-0001"] } });
-      store.setTelemetry("blocked-worker", { state: "blocked", summary: "Waiting for manager input" });
-      store.appendMessage("blocked-worker", {
-        direction: "manager_to_worker",
-        kind: "unblock",
-        text: "Manager has provided the missing clarification",
-      });
-
-      const decisions = await store.runManagerSchedulerPass();
-      expect(decisions).toEqual(
-        expect.arrayContaining([expect.objectContaining({ workerId: "blocked-worker", action: "resume" })]),
-      );
-    } finally {
-      cleanup();
-    }
-  }, 90000);
-
-  it("does not double-resume workers that already have a running launch", async () => {
-    const { cwd, cleanup } = createGitWorkspace();
-    try {
-      await createWorkerTicket(cwd, "Running worker ticket");
-
-      const store = createWorkerStore(cwd);
-      store.createWorker({ title: "Running Worker", linkedRefs: { ticketIds: ["t-0001"] } });
-      store.appendMessage("running-worker", {
-        direction: "manager_to_worker",
-        kind: "assignment",
-        text: "Work is queued",
-      });
-      store.prepareLaunch("running-worker", true, "prepare run");
-      store.startLaunchExecution("running-worker");
-
-      const decisions = await store.runManagerSchedulerPass();
-      expect(decisions).toEqual(
-        expect.arrayContaining([expect.objectContaining({ workerId: "running-worker", action: "wait" })]),
-      );
-    } finally {
       cleanup();
     }
   }, 30000);

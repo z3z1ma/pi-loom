@@ -16,33 +16,6 @@ function createGitWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 describe("worker runtime", () => {
-  it("builds an explicit launch prompt instead of reusing the raw packet dump", async () => {
-    const { cwd, cleanup } = createGitWorkspace();
-    try {
-      const ticketStore = createTicketStore(cwd);
-      await ticketStore.initLedgerAsync();
-      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
-      const store = createWorkerStore(cwd);
-      store.createWorker({ title: "Prompt Worker", linkedRefs: { ticketIds: ["t-0001"] } });
-      store.appendMessage("prompt-worker", {
-        direction: "manager_to_worker",
-        kind: "assignment",
-        text: "Durably process the inbox",
-      });
-
-      const prepared = store.prepareLaunch("prompt-worker", false, "launch prompt");
-      expect(prepared.launch?.launchPrompt).toContain(
-        "Act as this Pi worker now. Process the worker inbox, execute the requested work, and leave durable state updates behind.",
-      );
-      expect(prepared.launch?.launchPrompt).toContain("Before you stop:");
-      expect(prepared.launch?.launchPrompt).toContain("Worker state packet:");
-      expect(prepared.launch?.launchPrompt).toContain(prepared.packet);
-      expect(prepared.launch?.launchPrompt).not.toBe(prepared.packet);
-    } finally {
-      cleanup();
-    }
-  }, 30000);
-
   it("provisions and retires Git worktree-backed worker attachments", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {
@@ -116,7 +89,6 @@ describe("worker runtime", () => {
 
       const launched = store.prepareLaunch("linked-ralph-worker", false, "linked launch");
       expect(launched.launch?.runtime).toBe("subprocess");
-      expect(launched.state.lastRuntimeKind).toBeNull();
 
       const launch = launched.launch;
       expect(launch).not.toBeNull();
@@ -130,7 +102,7 @@ describe("worker runtime", () => {
       expect(launch.instructions).toEqual(
         expect.arrayContaining([
           `Execute the next Ralph iteration in worktree ${launch.branch}.`,
-          `Use worker linked-ralph-worker as the manager-facing wrapper for run ${launch.ralphRunId}.`,
+          `This worker is the ticket-bound wrapper for linked Ralph run ${launch.ralphRunId}.`,
         ]),
       );
 
@@ -185,7 +157,6 @@ describe("worker runtime", () => {
       });
 
       const finished = store.finishLaunchExecution("linked-ralph-worker", execution);
-      expect(finished.state.lastRuntimeKind).toBe("subprocess");
       expect(finished.state.status).toBe("ready");
       expect(finished.state.latestTelemetry.state).toBe("idle");
       expect(finished.launch?.status).toBe("completed");
@@ -212,7 +183,6 @@ describe("worker runtime", () => {
       packetRef: "",
       ralphLaunchRef: "",
       instructions: [],
-      launchPrompt: "Prompt",
       command: ["pi", "ralph", "launch", "run-001"],
       pid: null,
       status: "prepared",
@@ -249,7 +219,6 @@ describe("worker runtime", () => {
       packetRef: "ralph-run:run-001:packet",
       ralphLaunchRef: "ralph-run:run-001:launch",
       instructions: ["Inspect durable state"],
-      launchPrompt: "Prompt",
       command: ["pi", "ralph", "resume", "run-001"],
       pid: null,
       status: "prepared",
@@ -290,51 +259,6 @@ describe("worker runtime", () => {
         "Linked Ralph iteration exited without durable post-iteration state and explicit decision for the prepared iteration.",
       );
       expect(finished.dashboard.unresolvedInbox).toHaveLength(1);
-    } finally {
-      cleanup();
-    }
-  }, 90000);
-
-  it("reconstructs linked Ralph resume readiness from durable state", async () => {
-    const { cwd, cleanup } = createGitWorkspace();
-    try {
-      const ticketStore = createTicketStore(cwd);
-      await ticketStore.initLedgerAsync();
-      await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
-
-      const store = createWorkerStore(cwd);
-      store.createWorker({ title: "Recovery Worker", linkedRefs: { ticketIds: ["t-0001"] } });
-      const linkedRunId = store.readWorker("recovery-worker").state.linkedRefs.ralphRunIds[0];
-      expect(linkedRunId).toBeTruthy();
-      store.appendMessage("recovery-worker", {
-        direction: "manager_to_worker",
-        kind: "assignment",
-        text: "Resume me when ready",
-      });
-      const prepared = store.prepareLaunch("recovery-worker", false, "prepare linked iteration");
-      createRalphStore(cwd).appendIteration(prepared.state.linkedRefs.ralphRunIds[0] ?? "", {
-        id: prepared.launch?.iterationId,
-        status: "accepted",
-        summary: "Iteration persisted durable worker evidence.",
-        workerSummary: "Worker stopped with inbox state captured for manager review.",
-        decision: {
-          kind: "continue",
-          reason: "unknown",
-          summary: "Another bounded iteration may run once the manager decides to continue.",
-          decidedAt: new Date().toISOString(),
-          decidedBy: "runtime",
-          blockingRefs: [],
-        },
-      });
-      await store.runManagerSchedulerPass();
-
-      const reread = createWorkerStore(cwd).readWorker("recovery-worker");
-      expect(reread.launch?.runtime).toBe("subprocess");
-      expect(reread.launch?.ralphRunId).toBe(linkedRunId);
-      expect(reread.state.lastRuntimeKind).toBeNull();
-      expect(reread.summary.runtimeKind).toBeNull();
-      expect(reread.state.lastSchedulerSummary).toContain(`linked Ralph run ${linkedRunId} is ready for another iteration`);
-      expect(reread.packet).toContain("Pending approval:");
     } finally {
       cleanup();
     }

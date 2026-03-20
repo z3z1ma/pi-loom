@@ -7,7 +7,6 @@ import type { RalphLaunchDescriptor } from "@pi-loom/pi-ralph/extensions/domain/
 import type { PrepareWorkerLaunchInput, WorkerReadResult, WorkerRuntimeDescriptor } from "./models.js";
 import { DEFAULT_WORKER_RUNTIME_KIND } from "./models.js";
 import { getWorkerRuntimeDir } from "./paths.js";
-import { renderWorkerLaunchPrompt } from "./render.js";
 
 export interface WorkerExecutionResult {
   status: "completed" | "failed" | "cancelled";
@@ -17,6 +16,10 @@ export interface WorkerExecutionResult {
 
 function runGit(repoRoot: string, args: string[]): string {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf-8" }).trim();
+}
+
+function currentBranch(repoRoot: string): string {
+  return runGit(repoRoot, ["branch", "--show-current"]);
 }
 
 function gitBranchExists(repoRoot: string, branch: string): boolean {
@@ -44,7 +47,14 @@ export function ensureWorkerWorkspace(cwd: string, worker: WorkerReadResult): st
     if (branchExists) {
       runGit(cwd, ["worktree", "add", "--force", runtimeRoot, worker.state.workspace.branch]);
     } else {
-      runGit(cwd, ["worktree", "add", "-b", worker.state.workspace.branch, runtimeRoot, worker.state.workspace.baseRef]);
+      runGit(cwd, [
+        "worktree",
+        "add",
+        "-b",
+        worker.state.workspace.branch,
+        runtimeRoot,
+        worker.state.workspace.baseRef,
+      ]);
     }
   }
 
@@ -94,8 +104,8 @@ function prepareLinkedRalphLaunch(
   const runId = linkedRalphRunId(worker);
   const instructions = [
     `Execute the next Ralph iteration in worktree ${worker.state.workspace.branch}.`,
-    `Use worker ${worker.state.workerId} as the manager-facing wrapper for run ${runId}.`,
-    "Leave durable worker checkpoint, inbox, approval, and consolidation state truthful before stopping.",
+    `This worker is the ticket-bound wrapper for linked Ralph run ${runId}.`,
+    "Leave durable worker state truthful before stopping, especially when the work is blocked or ready for review.",
   ];
   const result =
     input.resume === true
@@ -110,7 +120,6 @@ export function prepareWorkerLaunchDescriptor(
   input: PrepareWorkerLaunchInput = {},
 ): WorkerRuntimeDescriptor {
   const workspaceDir = ensureWorkerWorkspace(cwd, worker);
-  const prompt = input.prompt?.trim() || renderWorkerLaunchPrompt(worker);
   const ralphLaunch = prepareLinkedRalphLaunch(cwd, worker, input);
   return {
     workerId: worker.state.workerId,
@@ -127,7 +136,6 @@ export function prepareWorkerLaunchDescriptor(
     packetRef: ralphLaunch.packetRef,
     ralphLaunchRef: ralphLaunch.launchRef,
     instructions: [...ralphLaunch.instructions],
-    launchPrompt: prompt,
     command: ["pi", "ralph", ralphLaunch.resume ? "resume" : "launch", ralphLaunch.runId],
     pid: null,
     status: "prepared",

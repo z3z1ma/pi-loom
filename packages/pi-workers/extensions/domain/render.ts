@@ -1,5 +1,6 @@
 import type {
-  ManagerOverview,
+  ManagerReadResult,
+  ManagerSummary,
   WorkerDashboard,
   WorkerReadResult,
   WorkerRuntimeDescriptor,
@@ -23,17 +24,13 @@ export function renderWorkerDetail(result: WorkerReadResult): string {
     `${summary.id} [${state.status}] ${state.title}`,
     `Objective: ${state.objective || "(none)"}`,
     `Manager: ${state.managerRef.kind}:${state.managerRef.ref}`,
-    `Runtime kind: ${summary.runtimeKind ?? "(none)"}`,
     `Tickets: ${state.linkedRefs.ticketIds.join(", ") || "none"}`,
     `Workspace: ${state.workspace.strategy} ${state.workspace.branch} @ ${state.workspace.baseRef}`,
     `Telemetry: ${state.latestTelemetry.state}${state.latestTelemetry.summary ? ` — ${state.latestTelemetry.summary}` : ""}`,
-    `Last scheduler: ${state.lastSchedulerSummary || "(none)"}`,
     `Acknowledged inbox: ${summary.acknowledgedInboxCount}`,
     `Inbox backlog: ${summary.unresolvedInboxCount}`,
     `Manager backlog: ${summary.pendingManagerActionCount}`,
     `Checkpoint: ${state.latestCheckpointSummary || "(none)"}`,
-    `Approval: ${state.approval.status}`,
-    `Consolidation: ${state.consolidation.status}`,
     `Stale: ${dashboard.stale ? "yes" : "no"}`,
   ].join("\n");
 }
@@ -45,7 +42,7 @@ export function renderWorkerList(workers: WorkerSummary[]): string {
   return workers
     .map(
       (worker) =>
-        `${worker.id} [${worker.status}/${worker.telemetryState}/${worker.runtimeKind ?? "none"}] ${worker.title} inbox=${worker.unresolvedInboxCount} manager=${worker.pendingManagerActionCount}`,
+        `${worker.id} [${worker.status}/${worker.telemetryState}] ${worker.title} inbox=${worker.unresolvedInboxCount} manager=${worker.pendingManagerActionCount}`,
     )
     .join("\n");
 }
@@ -54,16 +51,12 @@ export function renderWorkerDashboard(dashboard: WorkerDashboard): string {
   return [
     `${dashboard.worker.id} [${dashboard.worker.status}/${dashboard.worker.telemetryState}] ${dashboard.worker.title}`,
     `Worker ref: ${dashboard.workerRef}`,
-    `Runtime kind: ${dashboard.worker.runtimeKind ?? "(none)"}`,
     `Latest telemetry: ${dashboard.latestTelemetry.state}${dashboard.latestTelemetry.summary ? ` — ${dashboard.latestTelemetry.summary}` : ""}`,
-    `Last scheduler: ${dashboard.worker.lastSchedulerSummary || "(none)"}`,
     `Latest checkpoint: ${dashboard.latestCheckpoint?.summary ?? "(none)"}`,
     `Latest message: ${dashboard.latestMessage?.kind ?? "(none)"}`,
     `Counts: messages=${dashboard.counts.messages}, checkpoints=${dashboard.counts.checkpoints}, acknowledged=${dashboard.counts.acknowledgedInbox}, unresolved=${dashboard.counts.unresolvedMessages}, manager=${dashboard.counts.pendingManagerActions}`,
     renderList("Unresolved inbox", dashboard.unresolvedInbox.map(renderMessageSummary)),
     renderList("Pending manager actions", dashboard.pendingManagerActions.map(renderMessageSummary)),
-    `Approval: ${dashboard.approval.status}`,
-    `Consolidation: ${dashboard.consolidation.status}`,
     `Stale: ${dashboard.stale ? "yes" : "no"}`,
   ].join("\n");
 }
@@ -72,31 +65,16 @@ export function renderWorkerPacket(result: WorkerReadResult): string {
   const { state, checkpoints, messages } = result;
   const latestCheckpoint = checkpoints.at(-1);
   const recentMessages = messages.slice(-5).map(renderMessageSummary);
-  const unresolvedBacklog = messages.filter(
-    (message) => message.awaiting === "worker" && message.status !== "resolved",
-  );
   return [
     `Worker ${state.workerId}: ${state.title}`,
     `Status: ${state.status}`,
     `Objective: ${state.objective || "(none)"}`,
-    `Runtime kind: ${state.lastRuntimeKind ?? "(none)"}`,
-    `Last scheduler: ${state.lastSchedulerSummary || "(none)"}`,
-    `Pending approval: ${state.approval.status}`,
-    [
-      "Run contract:",
-      "1. Read unresolved inbox items before starting substantive work.",
-      "2. Acknowledge, resolve, or escalate each actionable manager instruction durably.",
-      "3. Record checkpoints that show both implementation progress and inbox-processing progress.",
-      "4. Re-check inbox state before stopping.",
-      "5. Stop only when the inbox is empty, you are blocked on manager input, you are requesting review/approval, or an explicit bounded policy budget has been reached.",
-    ].join("\n"),
     `Manager: ${state.managerRef.kind}:${state.managerRef.ref}`,
     renderList("Tickets", state.linkedRefs.ticketIds),
     renderList("Plans", state.linkedRefs.planIds),
     renderList("Ralph runs", state.linkedRefs.ralphRunIds),
     `Workspace strategy: ${state.workspace.strategy}`,
     `Workspace branch/base: ${state.workspace.branch} / ${state.workspace.baseRef}`,
-    renderList("Unresolved inbox", unresolvedBacklog.map(renderMessageSummary)),
     `Latest checkpoint: ${latestCheckpoint?.summary ?? "(none)"}`,
     latestCheckpoint
       ? [
@@ -112,22 +90,6 @@ export function renderWorkerPacket(result: WorkerReadResult): string {
         ].join("\n")
       : "No checkpoints yet.",
     renderList("Recent messages", recentMessages),
-    `Approval: ${state.approval.status}`,
-    `Consolidation: ${state.consolidation.status}`,
-  ].join("\n\n");
-}
-
-export function renderWorkerLaunchPrompt(result: WorkerReadResult): string {
-  return [
-    "Act as this Pi worker now. Process the worker inbox, execute the requested work, and leave durable state updates behind.",
-    [
-      "Before you stop:",
-      "1. Read unresolved inbox items and handle the actionable manager instructions.",
-      "2. Persist durable progress by acknowledging/resolving inbox items, recording a checkpoint, escalating blockers, or requesting completion/review.",
-      "3. Do not treat a chat-only response as success; if you are blocked, record that durably and state what manager input is required.",
-    ].join("\n"),
-    "Worker state packet:",
-    renderWorkerPacket(result),
   ].join("\n\n");
 }
 
@@ -144,18 +106,43 @@ export function renderLaunchDescriptor(launch: WorkerRuntimeDescriptor): string 
   ].join("\n");
 }
 
-export function renderManagerOverview(overview: ManagerOverview): string {
+export function renderManagerList(managers: ManagerSummary[]): string {
+  if (managers.length === 0) {
+    return "No managers.";
+  }
+  return managers
+    .map(
+      (manager) =>
+        `${manager.id} [${manager.status}] ${manager.title} target=${manager.targetRef} workers=${manager.workerCount} pending=${manager.pendingMessages}`,
+    )
+    .join("\n");
+}
+
+export function renderManagerDetail(result: ManagerReadResult): string {
+  const pending = result.messages.filter(
+    (message) => message.direction === "manager_to_operator" && message.status !== "resolved",
+  );
+  const recent = result.messages
+    .slice(-5)
+    .map((message) => `${message.id} ${message.direction}/${message.kind} [${message.status}] ${message.text}`);
   return [
-    `Workers: ${overview.workers.length}`,
-    `Unresolved worker inbox: ${overview.unresolvedInboxWorkers.length}`,
-    `Pending manager actions: ${overview.pendingManagerActionWorkers.length}`,
-    `Pending approvals: ${overview.pendingApprovalWorkers.length}`,
-    `Resume candidates: ${overview.resumeCandidates.length}`,
+    `${result.summary.id} [${result.state.status}] ${result.state.title}`,
+    `Objective: ${result.state.objective || "(none)"}`,
+    `Target ref: ${result.state.targetRef}`,
+    `Tickets: ${result.state.linkedRefs.ticketIds.join(", ") || "none"}`,
     renderList(
-      "Resume candidate workers",
-      overview.resumeCandidates.map(
-        (worker) => `${worker.id} [${worker.status}/${worker.telemetryState}] inbox=${worker.unresolvedInboxCount}`,
+      "Workers",
+      result.workers.map(
+        (worker) => `${worker.id} [${worker.status}] branch=${worker.branch} ralph=${worker.ralphRunId ?? "none"}`,
       ),
     ),
+    `Last run: ${result.state.lastRunAt ?? "(never)"}`,
+    `Run count: ${result.state.runCount}`,
+    `Latest summary: ${result.state.latestSummary || "(none)"}`,
+    renderList(
+      "Pending manager output",
+      pending.map((message) => `${message.kind}${message.workerId ? ` ${message.workerId}` : ""}: ${message.text}`),
+    ),
+    renderList("Recent manager messages", recent),
   ].join("\n");
 }

@@ -11,5 +11,5 @@ export function getBaseWorkerGuidance(): string {
 }
 
 export function buildWorkerSystemPrompt(_cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nWorker state is persisted in SQLite via pi-storage. Prefer durable worker records, compact supervision inputs, and explicit manager approval over transcript-heavy coordination.`;
+  return `${BASE_GUIDANCE}\n\nWorker state is persisted in SQLite via pi-storage. Prefer manager-first orchestration, durable manager state, and explicit operator review plus worker outcome recording between Ralph iterations over transcript-heavy coordination.`;
 }

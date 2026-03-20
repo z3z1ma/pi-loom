@@ -14,24 +14,18 @@ import { buildWorkerDashboard } from "./dashboard.js";
 import type {
   AppendWorkerCheckpointInput,
   AppendWorkerMessageInput,
-  ApprovalStatus,
   CreateWorkerInput,
-  DecideWorkerApprovalInput,
-  ManagerOverview,
   ManagerRef,
-  ManagerSchedulerDecision,
   MessageAwaiting,
   MessageDirection,
   MessageKind,
-  RecordWorkerConsolidationInput,
+  RecordWorkerOutcomeInput,
   RequestWorkerCompletionInput,
   SetWorkerTelemetryInput,
   UpdateWorkerInput,
-  WorkerApprovalDecision,
   WorkerCanonicalRecord,
   WorkerCheckpointArtifactPayload,
   WorkerCheckpointRecord,
-  WorkerConsolidationOutcome,
   WorkerDashboard,
   WorkerLaunchAttachmentMetadata,
   WorkerLinkedRefs,
@@ -42,15 +36,12 @@ import type {
   WorkerState,
   WorkerStatus,
   WorkerSummary,
-  WorkerSupervisionDecision,
   WorkerTelemetry,
   WorkerWorkspaceDescriptor,
 } from "./models.js";
 import {
   currentTimestamp,
   ensureRelativeOrLogicalRef,
-  normalizeApprovalStatus,
-  normalizeConsolidationOutcome,
   normalizeManagerRef,
   normalizeMessageAwaiting,
   normalizeMessageDirection,
@@ -71,12 +62,7 @@ import {
   renderWorkerList,
   renderWorkerPacket,
 } from "./render.js";
-import {
-  prepareWorkerLaunchDescriptor,
-  retireWorkerWorkspace,
-  runWorkerLaunch,
-  type WorkerExecutionResult,
-} from "./runtime.js";
+import { prepareWorkerLaunchDescriptor, retireWorkerWorkspace, type WorkerExecutionResult } from "./runtime.js";
 
 const ENTITY_KIND = "worker" as const;
 const WORKER_PROJECTION_OWNER = "worker-store" as const;
@@ -270,7 +256,6 @@ function normalizeWorkerLaunchDescriptor(launch: WorkerRuntimeDescriptor): Worke
     packetRef: launch.packetRef,
     ralphLaunchRef: launch.ralphLaunchRef,
     instructions: normalizeStringList(launch.instructions),
-    launchPrompt: launch.launchPrompt,
     command: [...launch.command],
     pid: typeof launch.pid === "number" && Number.isFinite(launch.pid) ? Math.floor(launch.pid) : null,
     status: launch.status,
@@ -360,9 +345,6 @@ function workerSearchText(worker: WorkerReadResult): string[] {
     worker.summary.objectiveSummary,
     worker.state.latestCheckpointSummary,
     worker.summary.latestCheckpointSummary,
-    worker.state.lastSchedulerSummary,
-    worker.summary.lastSchedulerSummary,
-    worker.state.packetSummary,
     worker.state.managerRef.ref,
     worker.state.managerRef.label ?? "",
     ...worker.state.linkedRefs.initiativeIds,
@@ -384,9 +366,6 @@ function filterAndSortWorkerSummaries(records: WorkerReadResult[], filter: Worke
     if (filter.telemetryState && worker.summary.telemetryState !== filter.telemetryState) {
       return false;
     }
-    if (filter.pendingApproval !== undefined && worker.summary.pendingApproval !== filter.pendingApproval) {
-      return false;
-    }
     return true;
   });
 
@@ -401,7 +380,6 @@ function filterAndSortWorkerSummaries(records: WorkerReadResult[], filter: Worke
         { value: worker.summary.title, weight: 10 },
         { value: worker.summary.objectiveSummary, weight: 9 },
         { value: worker.summary.latestCheckpointSummary, weight: 7 },
-        { value: worker.summary.lastSchedulerSummary, weight: 6 },
         { value: workerSearchText(worker).join(" "), weight: 3 },
       ],
     })),
@@ -569,18 +547,6 @@ function readLinkedRalphRun(cwd: string, worker: WorkerReadResult) {
   return createRalphStore(cwd).readRun(runId);
 }
 
-function maybeReadLinkedRalphRun(cwd: string, worker: WorkerReadResult) {
-  try {
-    return readLinkedRalphRun(cwd, worker);
-  } catch {
-    return null;
-  }
-}
-
-function ralphAllowsNextIteration(cwd: string, worker: WorkerReadResult, run = readLinkedRalphRun(cwd, worker)): boolean {
-  return run.state.waitingFor === "none" && !["completed", "halted", "failed", "archived"].includes(run.state.status);
-}
-
 function projectedLinksForWorker(worker: WorkerReadResult): ProjectedEntityLinkInput[] {
   const desired: ProjectedEntityLinkInput[] = [];
   const linkedRefs = worker.state.linkedRefs;
@@ -651,26 +617,6 @@ function defaultTelemetry(): WorkerTelemetry {
   });
 }
 
-function defaultApproval(): WorkerApprovalDecision {
-  return {
-    status: "not_requested",
-    decidedAt: null,
-    decidedBy: null,
-    summary: "",
-    rationale: [],
-  };
-}
-
-function defaultConsolidation(): WorkerConsolidationOutcome {
-  return normalizeConsolidationOutcome({
-    status: "not_started",
-    summary: "",
-    validation: [],
-    conflicts: [],
-    followUps: [],
-  });
-}
-
 function defaultWorkspaceDescriptor(workerId: string): WorkerWorkspaceDescriptor {
   return normalizeWorkspaceDescriptor({
     workspaceKey: `worker-runtime:${workerId}`,
@@ -681,10 +627,6 @@ function defaultWorkspaceDescriptor(workerId: string): WorkerWorkspaceDescriptor
 
 function defaultManagerRef(): ManagerRef {
   return normalizeManagerRef({ kind: "operator", ref: "operator" });
-}
-
-function isSuccessfulConsolidationStatus(status: WorkerConsolidationOutcome["status"]): boolean {
-  return status === "merged" || status === "cherry_picked" || status === "patched";
 }
 
 function executionSummary(execution: WorkerExecutionResult): string {
@@ -701,19 +643,15 @@ function completedExecutionState(worker: WorkerReadResult): {
   status: WorkerStatus;
   telemetryState: WorkerTelemetry["state"];
 } {
-  if (worker.state.approval.status === "approved") {
-    return { status: "approved_for_consolidation", telemetryState: "waiting_for_review" };
-  }
-  if (worker.state.approval.status === "rejected_for_revision" || worker.state.approval.status === "escalated") {
-    return { status: "blocked", telemetryState: "blocked" };
-  }
-  if (worker.state.completionRequest.requestedAt) {
-    return { status: "completion_requested", telemetryState: "waiting_for_review" };
-  }
   return { status: "ready", telemetryState: "idle" };
 }
 
-function executionSummaryFromRalph(cwd: string, worker: WorkerReadResult, summary: string, finishedAt: string): {
+function executionSummaryFromRalph(
+  cwd: string,
+  worker: WorkerReadResult,
+  summary: string,
+  finishedAt: string,
+): {
   status: WorkerStatus;
   telemetryState: WorkerTelemetry["state"];
   summary: string;
@@ -735,32 +673,8 @@ function executionSummaryFromRalph(cwd: string, worker: WorkerReadResult, summar
     .join(" — ");
   const resolvedSummary = durableSummary || summary;
 
-  if (worker.state.approval.status === "approved") {
-    return { status: "approved_for_consolidation", telemetryState: "waiting_for_review", summary: resolvedSummary };
-  }
-  if (worker.state.approval.status === "rejected_for_revision" || worker.state.approval.status === "escalated") {
-    return { status: "blocked", telemetryState: "blocked", summary: resolvedSummary };
-  }
-
   if (postIteration.decision.kind === "complete" || run.state.status === "completed") {
-    worker.state.completionRequest = {
-      requestedAt: worker.state.completionRequest.requestedAt ?? finishedAt,
-      scopeComplete: worker.state.completionRequest.scopeComplete,
-      validationEvidence: worker.state.completionRequest.validationEvidence,
-      remainingRisks: worker.state.completionRequest.remainingRisks,
-      branchState: worker.state.completionRequest.branchState || worker.state.workspace.branch,
-      summary: worker.state.completionRequest.summary || resolvedSummary,
-      requestedBy: worker.state.completionRequest.requestedBy || worker.state.workerId,
-    };
-    worker.state.approval = {
-      ...worker.state.approval,
-      status: worker.state.approval.status === "not_requested" ? "pending" : worker.state.approval.status,
-      summary:
-        worker.state.approval.status === "not_requested"
-          ? "Pending manager approval"
-          : worker.state.approval.summary,
-    };
-    return { status: "completion_requested", telemetryState: "waiting_for_review", summary: resolvedSummary };
+    return { status: "waiting_for_review", telemetryState: "waiting_for_review", summary: resolvedSummary };
   }
 
   if (run.state.status === "failed" || run.state.status === "halted") {
@@ -784,27 +698,8 @@ function normalizeWorkerState(state: WorkerState): WorkerState {
     linkedRefs: normalizeLinkedRefs(state.linkedRefs),
     workspace: normalizeWorkspaceDescriptor(state.workspace ?? defaultWorkspaceDescriptor(state.workerId)),
     latestTelemetry: normalizeTelemetry({ ...defaultTelemetry(), ...state.latestTelemetry }),
-    latestCheckpointId: state.latestCheckpointId ?? null,
     latestCheckpointSummary: state.latestCheckpointSummary ?? "",
-    lastMessageAt: state.lastMessageAt ?? null,
     lastLaunchAt: state.lastLaunchAt ?? null,
-    lastSchedulerAt: state.lastSchedulerAt ?? null,
-    lastSchedulerSummary: state.lastSchedulerSummary ?? "",
-    launchCount: state.launchCount ?? 0,
-    lastRuntimeKind: state.lastRuntimeKind ?? null,
-    interventionCount: state.interventionCount ?? 0,
-    completionRequest: state.completionRequest ?? {
-      requestedAt: null,
-      scopeComplete: [],
-      validationEvidence: [],
-      remainingRisks: [],
-      branchState: "",
-      summary: "",
-      requestedBy: "",
-    },
-    approval: state.approval ?? defaultApproval(),
-    consolidation: state.consolidation ?? defaultConsolidation(),
-    packetSummary: state.packetSummary ?? "",
   };
   normalized.workspace.repositoryRoot = ensureRelativeOrLogicalRef(
     normalized.workspace.repositoryRoot,
@@ -823,14 +718,11 @@ function buildSummary(_cwd: string, state: WorkerState, workerRef: string): Work
     updatedAt: state.updatedAt,
     managerKind: state.managerRef.kind,
     ticketCount: state.linkedRefs.ticketIds.length,
-    runtimeKind: state.lastRuntimeKind,
     telemetryState: state.latestTelemetry.state,
     latestCheckpointSummary: summarizeText(state.latestCheckpointSummary, 160),
-    lastSchedulerSummary: summarizeText(state.lastSchedulerSummary, 160),
     acknowledgedInboxCount: 0,
     unresolvedInboxCount: state.latestTelemetry.pendingMessages,
     pendingManagerActionCount: 0,
-    pendingApproval: state.approval.status === "pending",
     workerRef,
   };
 }
@@ -841,7 +733,6 @@ function syncDerivedViews(cwd: string, worker: WorkerReadResult): void {
     pendingMessages: unresolvedInbox(worker.messages).length,
   });
   worker.packet = renderWorkerPacket(worker);
-  worker.state.packetSummary = summarizeText(worker.packet, 200);
   worker.summary = {
     ...buildSummary(cwd, worker.state, worker.artifacts.dir),
     acknowledgedInboxCount: acknowledgedInbox(worker.messages).length,
@@ -893,12 +784,6 @@ ${state.objective || "No objective recorded."}
 
 ## Latest checkpoint
 ${state.latestCheckpointSummary || "No checkpoints yet."}
-
-## Approval
-${state.approval.status}${state.approval.summary ? ` — ${state.approval.summary}` : ""}
-
-## Consolidation
-${state.consolidation.status}${state.consolidation.summary ? ` — ${state.consolidation.summary}` : ""}
 `;
 }
 
@@ -1155,204 +1040,6 @@ export class WorkerStore {
     return buildWorkerReadResult(this.cwd, row.id, snapshot);
   }
 
-  managerOverview(): ManagerOverview {
-    const workers = this.listWorkers();
-    const unresolvedInboxWorkers = workers.filter((worker) => worker.unresolvedInboxCount > 0);
-    const pendingManagerActionWorkers = workers.filter((worker) => worker.pendingManagerActionCount > 0);
-    const pendingApprovalWorkers = workers.filter((worker) => worker.pendingApproval);
-    const resumeCandidates = workers.filter((summary) => {
-      if (summary.unresolvedInboxCount === 0) {
-        return false;
-      }
-      const worker = this.readWorker(summary.id);
-      const ralphRun = maybeReadLinkedRalphRun(this.cwd, worker);
-      return ralphRun ? ralphAllowsNextIteration(this.cwd, worker, ralphRun) : false;
-    });
-    return {
-      workers,
-      unresolvedInboxWorkers,
-      pendingManagerActionWorkers,
-      pendingApprovalWorkers,
-      resumeCandidates,
-    };
-  }
-
-  superviseWorkers(refs?: string[], apply = false): Array<{ ref: string; decision: WorkerSupervisionDecision }> {
-    const workerRefs =
-      refs && refs.length > 0
-        ? refs.map((ref) => this.resolveWorkerRef(ref))
-        : this.listWorkers().map((worker) => worker.id);
-    return workerRefs.map((ref) => ({ ref, decision: this.superviseWorker(ref, apply).decision }));
-  }
-
-  private async recordSchedulerObservation(ref: string, summary: string): Promise<void> {
-    const worker = this.readWorker(ref);
-    worker.state.lastSchedulerAt = currentTimestamp();
-    worker.state.lastSchedulerSummary = summary;
-    worker.state.updatedAt = currentTimestamp();
-    syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker);
-    this.trackDurability(worker, persistPromise);
-    await persistPromise;
-  }
-
-  async runManagerSchedulerPass(
-    options: {
-      refs?: string[];
-      apply?: boolean;
-      executeResumes?: boolean;
-      signal?: AbortSignal;
-    } = {},
-  ): Promise<ManagerSchedulerDecision[]> {
-    const workerRefs =
-      options.refs && options.refs.length > 0
-        ? options.refs.map((ref) => this.resolveWorkerRef(ref))
-        : this.listWorkers().map((worker) => worker.id);
-
-    await Promise.all(
-      workerRefs.map(async (workerId) => {
-        await this.pendingPersists.get(workerId);
-        await this.pendingTicketRefSyncs.get(workerId);
-      }),
-    );
-
-    const decisions: ManagerSchedulerDecision[] = [];
-
-    for (const ref of workerRefs) {
-      const worker = this.readWorker(ref);
-      const ralphRun = maybeReadLinkedRalphRun(this.cwd, worker);
-      if (!ralphRun) {
-        const summary = `Worker ${worker.state.workerId} is missing a single readable linked Ralph run.`;
-        await this.recordSchedulerObservation(ref, summary);
-        decisions.push({ workerId: ref, action: "blocked", applied: false, summary });
-        continue;
-      }
-      const unresolvedCount = unresolvedInbox(worker.messages).length;
-      if (worker.state.status === "completion_requested" && worker.state.approval.status === "pending") {
-        const summary = "Pending manager approval requires explicit review.";
-        await this.recordSchedulerObservation(ref, summary);
-        decisions.push({
-          workerId: ref,
-          action: "needs_approval",
-          applied: false,
-          summary,
-        });
-        continue;
-      }
-
-      if (worker.launch?.status === "running") {
-        const summary = "Worker already has a running launch; scheduler will not start a second concurrent run.";
-        await this.recordSchedulerObservation(ref, summary);
-        decisions.push({
-          workerId: ref,
-          action: "wait",
-          applied: false,
-          summary,
-        });
-        continue;
-      }
-
-      if (["failed", "halted"].includes(ralphRun.state.status)) {
-        const summary = `Linked Ralph run ${ralphRun.state.runId} is ${ralphRun.state.status} (${ralphRun.state.stopReason ?? "unknown"}).`;
-        await this.recordSchedulerObservation(ref, summary);
-        decisions.push({
-          workerId: ref,
-          action: "blocked",
-          applied: false,
-          summary,
-        });
-        continue;
-      }
-
-      if (ralphRun.state.waitingFor !== "none") {
-        const summary = `Linked Ralph run ${ralphRun.state.runId} is waiting for ${ralphRun.state.waitingFor}; manager action is required before another iteration.`;
-        await this.recordSchedulerObservation(ref, summary);
-        decisions.push({
-          workerId: ref,
-          action: "wait",
-          applied: false,
-          summary,
-        });
-        continue;
-      }
-
-      if (
-        unresolvedCount > 0 &&
-        ralphAllowsNextIteration(this.cwd, worker, ralphRun)
-      ) {
-        if (options.apply === true && options.executeResumes === true) {
-          const prepared = this.prepareLaunch(ref, true, "Prepared by manager scheduler.");
-          await this.persistBySnapshot.get(prepared);
-          const running = this.startLaunchExecution(ref);
-          await this.persistBySnapshot.get(running);
-          if (!running.launch) {
-            decisions.push({
-              workerId: ref,
-              action: "blocked",
-              applied: false,
-              summary: "Scheduler could not start worker launch execution.",
-            });
-            continue;
-          }
-          const execution = await runWorkerLaunch(running.launch, options.signal);
-          const finished = this.finishLaunchExecution(ref, execution);
-          await this.persistBySnapshot.get(finished);
-          const summary = `Scheduler resumed linked Ralph run ${ralphRun.state.runId} because unresolved worker inbox backlog existed (${unresolvedCount}).`;
-          await this.recordSchedulerObservation(ref, summary);
-          decisions.push({
-            workerId: ref,
-            action: "resume",
-            applied: true,
-            summary,
-          });
-        } else {
-          const summary = `Worker has unresolved inbox backlog (${unresolvedCount}) and linked Ralph run ${ralphRun.state.runId} is ready for another iteration.`;
-          await this.recordSchedulerObservation(ref, summary);
-          decisions.push({
-            workerId: ref,
-            action: "resume",
-            applied: false,
-            summary,
-          });
-        }
-        continue;
-      }
-
-      const supervision = this.superviseWorker(ref, options.apply === true);
-      if (options.apply === true) {
-        await this.persistBySnapshot.get(supervision.worker);
-      }
-      if (supervision.decision.action === "steer" || supervision.decision.action === "escalate") {
-        const summary = supervision.decision.message ?? supervision.decision.reasoning;
-        await this.recordSchedulerObservation(ref, summary);
-        decisions.push({
-          workerId: ref,
-          action: "message",
-          applied: options.apply === true,
-          summary,
-        });
-      } else if (worker.state.status === "blocked" || worker.state.status === "failed") {
-        await this.recordSchedulerObservation(ref, supervision.decision.reasoning);
-        decisions.push({
-          workerId: ref,
-          action: "blocked",
-          applied: false,
-          summary: supervision.decision.reasoning,
-        });
-      } else {
-        await this.recordSchedulerObservation(ref, supervision.decision.reasoning);
-        decisions.push({
-          workerId: ref,
-          action: "wait",
-          applied: false,
-          summary: supervision.decision.reasoning,
-        });
-      }
-    }
-
-    return decisions;
-  }
-
   createWorker(input: CreateWorkerInput): WorkerReadResult {
     this.initLedger();
     const workerId = input.workerId ? slugifyWorkerValue(input.workerId) : this.nextWorkerId(input.title);
@@ -1385,27 +1072,8 @@ export class WorkerStore {
       linkedRefs,
       workspace,
       latestTelemetry: defaultTelemetry(),
-      latestCheckpointId: null,
       latestCheckpointSummary: "",
-      lastMessageAt: null,
       lastLaunchAt: null,
-      lastSchedulerAt: null,
-      lastSchedulerSummary: "",
-      launchCount: 0,
-      lastRuntimeKind: null,
-      interventionCount: 0,
-      completionRequest: {
-        requestedAt: null,
-        scopeComplete: [],
-        validationEvidence: [],
-        remainingRisks: [],
-        branchState: "",
-        summary: "",
-        requestedBy: "",
-      },
-      approval: defaultApproval(),
-      consolidation: defaultConsolidation(),
-      packetSummary: "",
     });
     const artifacts = getWorkerArtifactPaths(this.cwd, workerId);
     const worker: WorkerReadResult = {
@@ -1507,10 +1175,6 @@ export class WorkerStore {
           : null,
     };
     worker.messages.push(record);
-    if (record.direction === "manager_to_worker") {
-      worker.state.interventionCount += 1;
-    }
-    worker.state.lastMessageAt = createdAt;
     worker.state.latestTelemetry.pendingMessages = unresolvedInbox(worker.messages).length;
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
@@ -1573,7 +1237,6 @@ export class WorkerStore {
       resolvedBy: actor,
     });
 
-    worker.state.lastMessageAt = timestamp;
     worker.state.latestTelemetry.pendingMessages = unresolvedInbox(worker.messages).length;
     worker.state.updatedAt = timestamp;
     syncDerivedViews(this.cwd, worker);
@@ -1640,7 +1303,6 @@ export class WorkerStore {
       managerInputRequired: input.managerInputRequired === true,
     };
     worker.checkpoints.push(checkpoint);
-    worker.state.latestCheckpointId = checkpoint.id;
     worker.state.latestCheckpointSummary = checkpoint.summary;
     worker.state.latestTelemetry = normalizeTelemetry({
       ...worker.state.latestTelemetry,
@@ -1705,7 +1367,7 @@ export class WorkerStore {
     if (telemetryState === "blocked") worker.state.status = "blocked";
     if (telemetryState === "waiting_for_review") worker.state.status = "waiting_for_review";
     if (telemetryState === "busy" && worker.state.status === "requested") worker.state.status = "active";
-    if (telemetryState === "finished" && worker.state.status === "active") worker.state.status = "completion_requested";
+    if (telemetryState === "finished" && worker.state.status === "active") worker.state.status = "waiting_for_review";
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
     const persistPromise = this.persist(worker);
@@ -1716,39 +1378,24 @@ export class WorkerStore {
 
   requestCompletion(ref: string, input: RequestWorkerCompletionInput): WorkerReadResult {
     const worker = this.readWorker(ref);
-    worker.state.completionRequest = {
-      requestedAt: input.requestedAt ?? currentTimestamp(),
-      scopeComplete: normalizeStringList(input.scopeComplete),
-      validationEvidence: normalizeStringList(input.validationEvidence),
-      remainingRisks: normalizeStringList(input.remainingRisks),
-      branchState: normalizeOptionalString(input.branchState) ?? worker.state.workspace.branch,
-      summary: normalizeOptionalString(input.summary) ?? "Completion requested",
-      requestedBy: normalizeOptionalString(input.requestedBy) ?? worker.state.workerId,
-    };
-    worker.state.approval = {
-      ...worker.state.approval,
-      status: "pending",
-      decidedAt: null,
-      decidedBy: null,
-      summary: "Pending manager approval",
-      rationale: [],
-    };
-    worker.state.status = "completion_requested";
+    const summary =
+      normalizeOptionalString(input.summary) ?? (worker.state.latestCheckpointSummary || worker.state.summary);
+    const requestedAt = currentTimestamp();
+    worker.state.status = "waiting_for_review";
     worker.state.latestTelemetry = normalizeTelemetry({
       ...worker.state.latestTelemetry,
       state: "waiting_for_review",
-      summary: worker.state.completionRequest.summary,
+      summary,
     });
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
     const persistPromise = this.persist(worker, [
       {
-        createdAt: worker.state.completionRequest.requestedAt ?? worker.state.updatedAt,
+        createdAt: requestedAt,
         payload: {
-          change: "completion_requested",
+          change: "review_requested",
           workerId: worker.state.workerId,
-          requestedBy: worker.state.completionRequest.requestedBy,
-          summary: worker.state.completionRequest.summary,
+          summary,
         },
       },
     ]);
@@ -1759,10 +1406,10 @@ export class WorkerStore {
           await ticketStore.addJournalEntryAsync(
             ticketId,
             "state",
-            `Worker ${worker.state.workerId} requested completion`,
+            `Worker ${worker.state.workerId} requested review`,
             {
               workerId: worker.state.workerId,
-              summary: worker.state.completionRequest.summary,
+              summary,
             },
           );
         }
@@ -1774,116 +1421,34 @@ export class WorkerStore {
     return worker;
   }
 
-  decideApproval(ref: string, input: DecideWorkerApprovalInput): WorkerReadResult {
+  recordWorkerOutcome(ref: string, input: RecordWorkerOutcomeInput): WorkerReadResult {
     const worker = this.readWorker(ref);
-    const status = normalizeApprovalStatus(input.status) as Exclude<ApprovalStatus, "not_requested" | "pending">;
-    worker.state.approval = {
-      status,
-      decidedAt: input.decidedAt ?? currentTimestamp(),
-      decidedBy: normalizeOptionalString(input.decidedBy) ?? "manager",
-      summary: normalizeOptionalString(input.summary) ?? status,
-      rationale: normalizeStringList(input.rationale),
-    };
-    if (status === "approved") {
-      worker.state.status = "approved_for_consolidation";
-      worker.state.latestTelemetry = normalizeTelemetry({
-        ...worker.state.latestTelemetry,
-        state: "waiting_for_review",
-        summary: worker.state.approval.summary,
-      });
-    } else if (status === "rejected_for_revision") {
-      worker.state.status = "active";
-      worker.state.latestTelemetry = normalizeTelemetry({
-        ...worker.state.latestTelemetry,
-        state: "busy",
-        summary: worker.state.approval.summary,
-      });
-    } else {
-      worker.state.status = "blocked";
-      worker.state.latestTelemetry = normalizeTelemetry({
-        ...worker.state.latestTelemetry,
-        state: "blocked",
-        summary: worker.state.approval.summary,
-      });
-    }
-    worker.state.updatedAt = currentTimestamp();
-    syncDerivedViews(this.cwd, worker);
-    const persistPromise = this.persist(worker, [
-      {
-        createdAt: worker.state.approval.decidedAt ?? worker.state.updatedAt,
-        payload: {
-          change: "approval_decided",
-          workerId: worker.state.workerId,
-          status,
-          decidedBy: worker.state.approval.decidedBy,
-        },
-      },
-    ]);
-    const ticketSyncPromise = persistPromise.then(() =>
-      this.queueTicketRefSync(worker.state.workerId, async () => {
-        const ticketStore = createTicketStore(this.cwd);
-        for (const ticketId of worker.state.linkedRefs.ticketIds) {
-          await ticketStore.addJournalEntryAsync(
-            ticketId,
-            "state",
-            `Worker ${worker.state.workerId} approval decision: ${status}`,
-            {
-              workerId: worker.state.workerId,
-              approval: status,
-            },
-          );
-        }
-      }),
-    );
-    this.trackDurability(worker, persistPromise, ticketSyncPromise);
-    void persistPromise.catch(() => undefined);
-    void ticketSyncPromise.catch(() => undefined);
-    return worker;
-  }
-
-  recordConsolidation(ref: string, input: RecordWorkerConsolidationInput): WorkerReadResult {
-    const worker = this.readWorker(ref);
-    if (worker.state.status !== "approved_for_consolidation") {
-      throw new Error("Consolidation requires prior approved_for_consolidation status");
-    }
-    worker.state.consolidation = normalizeConsolidationOutcome({
-      status: input.status,
-      strategy: input.strategy ?? null,
-      summary: input.summary ?? "",
-      validation: input.validation ?? [],
-      conflicts: input.conflicts ?? [],
-      followUps: input.followUps ?? [],
-      decidedAt: input.decidedAt ?? currentTimestamp(),
-    });
-
     const status = input.status;
-    if (isSuccessfulConsolidationStatus(status)) {
-      worker.state.status = "completed";
-      worker.state.latestTelemetry = normalizeTelemetry({
-        ...worker.state.latestTelemetry,
-        state: "finished",
-        summary: worker.state.consolidation.summary,
-      });
-    } else if (status === "conflicted" || status === "validation_failed") {
-      worker.state.status = "blocked";
-      worker.state.latestTelemetry = normalizeTelemetry({
-        ...worker.state.latestTelemetry,
-        state: "blocked",
-        summary: worker.state.consolidation.summary,
-      });
-    } else {
-      worker.state.status = "approved_for_consolidation";
-    }
+    const summary = normalizeOptionalString(input.summary) ?? worker.state.latestTelemetry.summary;
+    const telemetryState =
+      status === "completed"
+        ? "finished"
+        : status === "blocked" || status === "failed"
+          ? "blocked"
+          : status === "waiting_for_review"
+            ? "waiting_for_review"
+            : "idle";
+    worker.state.status = status;
+    worker.state.latestTelemetry = normalizeTelemetry({
+      ...worker.state.latestTelemetry,
+      state: telemetryState,
+      summary,
+    });
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
     const persistPromise = this.persist(worker, [
       {
-        createdAt: worker.state.consolidation.decidedAt ?? worker.state.updatedAt,
+        createdAt: worker.state.updatedAt,
         payload: {
-          change: "consolidation_recorded",
+          change: "worker_outcome_recorded",
           workerId: worker.state.workerId,
           status,
-          strategy: input.strategy ?? null,
+          summary,
         },
       },
     ]);
@@ -1893,9 +1458,16 @@ export class WorkerStore {
         for (const ticketId of worker.state.linkedRefs.ticketIds) {
           await ticketStore.addJournalEntryAsync(
             ticketId,
-            isSuccessfulConsolidationStatus(status) ? "verification" : "state",
-            `Worker ${worker.state.workerId} consolidation outcome: ${status}`,
-            { workerId: worker.state.workerId, consolidationStatus: status, strategy: input.strategy ?? null },
+            status === "completed" ? "verification" : "state",
+            `Worker ${worker.state.workerId} outcome: ${status}`,
+            {
+              workerId: worker.state.workerId,
+              status,
+              summary,
+              validation: input.validation ?? [],
+              conflicts: input.conflicts ?? [],
+              followUps: input.followUps ?? [],
+            },
           );
         }
       }),
@@ -1906,139 +1478,7 @@ export class WorkerStore {
     return worker;
   }
 
-  superviseWorker(ref: string, apply = false): { worker: WorkerReadResult; decision: WorkerSupervisionDecision } {
-    const worker = this.readWorker(ref);
-    const ralphRun = maybeReadLinkedRalphRun(this.cwd, worker);
-    const recentCheckpoints = worker.checkpoints.slice(-3);
-    const recentSummaries = recentCheckpoints.map((checkpoint) => checkpoint.summary.trim()).filter(Boolean);
-    const repeatedSummary = recentSummaries.length >= 3 && new Set(recentSummaries).size === 1;
-    const blockerSignature = recentCheckpoints
-      .map((checkpoint) => checkpoint.blockers.join("|").trim())
-      .filter(Boolean);
-    const repeatedBlockers = blockerSignature.length >= 3 && new Set(blockerSignature).size === 1;
-    const lastHeartbeat = worker.state.latestTelemetry.heartbeatAt
-      ? new Date(worker.state.latestTelemetry.heartbeatAt).getTime()
-      : 0;
-    const stale = lastHeartbeat > 0 ? Date.now() - lastHeartbeat > 1000 * 60 * 15 : worker.state.status !== "requested";
-
-    let decision: WorkerSupervisionDecision;
-
-
-    if (!ralphRun) {
-      decision = {
-        action: "escalate",
-        confidence: 0.99,
-        reasoning: "Worker wrapper is missing a single readable linked Ralph run.",
-        message: "Repair the worker-to-Ralph linkage before supervising or resuming this worker again.",
-        evidence: worker.state.linkedRefs.ralphRunIds,
-      };
-    } else if (worker.state.status === "completion_requested" && worker.state.approval.status === "pending") {
-      const hasEvidence = worker.state.completionRequest.validationEvidence.length > 0;
-      decision = hasEvidence
-        ? {
-            action: "approve",
-            confidence: 0.9,
-            reasoning: "Worker is waiting for review and provided validation evidence.",
-            message: "Completion evidence is present. Approve if the claimed scope matches expectations.",
-            evidence: [...worker.state.completionRequest.validationEvidence],
-          }
-        : {
-            action: "steer",
-            confidence: 0.86,
-            reasoning: "Worker requested completion without validation evidence.",
-            message: "Before approval, provide concrete validation evidence and remaining-risk detail.",
-            evidence: [worker.state.completionRequest.summary],
-          };
-    } else if (repeatedBlockers || repeatedSummary) {
-      decision = {
-        action: "escalate",
-        confidence: 0.94,
-        reasoning: "Worker has repeated the same blocker or no-progress checkpoint pattern several times.",
-        message:
-          "Escalating: repeated blocker/no-progress pattern detected. Reassess assignment, unblock explicitly, or retire the worker.",
-        evidence: blockerSignature.length > 0 ? blockerSignature : recentSummaries,
-      };
-    } else if (ralphRun.state.status === "failed" || ralphRun.state.status === "halted") {
-      decision = {
-        action: "escalate",
-        confidence: 0.97,
-        reasoning: "Linked Ralph run recorded a terminal failure or halt between worker iterations.",
-        message: `Linked Ralph run ${ralphRun.state.runId} is ${ralphRun.state.status}. Inspect the durable post-iteration state before resuming this worker.`,
-        evidence: [ralphRun.state.stopReason ?? "unknown", ralphRun.state.summary, ralphRun.state.postIteration?.summary ?? ""]
-          .map((value) => value.trim())
-          .filter(Boolean),
-      };
-    } else if (ralphRun.state.waitingFor !== "none") {
-      decision = {
-        action: "steer",
-        confidence: 0.92,
-        reasoning: "Linked Ralph run is review-gated between iterations and cannot truthfully continue yet.",
-        message: `Linked Ralph run ${ralphRun.state.runId} is waiting for ${ralphRun.state.waitingFor}. Resolve that gate before scheduling another iteration.`,
-        evidence: [ralphRun.state.postIteration?.summary ?? "", ralphRun.state.latestDecision?.summary ?? ""]
-          .map((value) => value.trim())
-          .filter(Boolean),
-      };
-    } else if (worker.state.latestTelemetry.state === "busy" && !stale) {
-      decision = {
-        action: "continue",
-        confidence: 0.88,
-        reasoning: "Worker is actively progressing and does not currently need interruption.",
-        message: null,
-        evidence: [worker.state.latestTelemetry.summary || "recent heartbeat active"],
-      };
-    } else if (worker.state.latestTelemetry.state === "blocked" || stale) {
-      decision = {
-        action: "steer",
-        confidence: 0.91,
-        reasoning: stale
-          ? "Worker heartbeat is stale and needs an explicit manager intervention."
-          : "Worker is blocked and waiting on manager action.",
-        message: stale
-          ? "Status has gone stale. Send a checkpoint or reprovision/resume the worker before more time is lost."
-          : "A blocker is active. Resolve the blocker or explicitly escalate/reassign the work.",
-        evidence: [worker.state.latestTelemetry.summary, worker.state.latestCheckpointSummary].filter(Boolean),
-      };
-    } else if (worker.state.latestTelemetry.state === "waiting_for_review") {
-      decision = {
-        action: "steer",
-        confidence: 0.87,
-        reasoning: "Worker is waiting for a manager decision and should not be left idle.",
-        message: "Manager input is required. Approve, reject, escalate, or provide the missing guidance now.",
-        evidence: [worker.state.latestCheckpointSummary, worker.state.completionRequest.summary].filter(Boolean),
-      };
-    } else {
-      decision = {
-        action: "continue",
-        confidence: 0.7,
-        reasoning: "No urgent intervention signal detected from compact worker state.",
-        message: null,
-        evidence: [worker.state.latestTelemetry.summary, worker.state.latestCheckpointSummary].filter(Boolean),
-      };
-    }
-
-    if (apply && decision.message) {
-      this.appendMessage(worker.state.workerId, {
-        direction: "manager_to_worker",
-        kind:
-          decision.action === "escalate"
-            ? "escalation"
-            : decision.action === "approve"
-              ? "approval_decision"
-              : "unblock",
-        text: decision.message,
-        relatedRefs: worker.state.linkedRefs.ticketIds,
-      });
-      return { worker: this.readWorker(worker.state.workerId), decision };
-    }
-
-    return { worker, decision };
-  }
-
-  prepareLaunch(
-    ref: string,
-    resume = false,
-    note?: string,
-  ): WorkerReadResult {
+  prepareLaunch(ref: string, resume = false, note?: string): WorkerReadResult {
     const worker = this.readWorker(ref);
     worker.state.linkedRefs = ensureLinkedRalphRun(
       this.cwd,
@@ -2052,7 +1492,6 @@ export class WorkerStore {
     const launch = prepareWorkerLaunchDescriptor(this.cwd, worker, { resume, note });
     worker.launch = launch;
     worker.state.lastLaunchAt = launch.updatedAt;
-    worker.state.launchCount += 1;
     worker.state.updatedAt = currentTimestamp();
     syncDerivedViews(this.cwd, worker);
     const persistPromise = this.persist(worker, [
@@ -2091,7 +1530,6 @@ export class WorkerStore {
     };
     worker.state.status = "active";
     worker.state.lastLaunchAt = startedAt;
-    worker.state.lastRuntimeKind = normalizeRuntimeKind(worker.launch.runtime);
     worker.state.latestTelemetry = normalizeTelemetry({
       ...worker.state.latestTelemetry,
       state: "busy",
@@ -2272,24 +1710,6 @@ export class WorkerStore {
     return this.readWorker(workerId);
   }
 
-  async managerOverviewAsync(): Promise<ManagerOverview> {
-    const workers = await this.listWorkersAsync({});
-    return {
-      workers,
-      unresolvedInboxWorkers: workers.filter((worker) => worker.unresolvedInboxCount > 0),
-      pendingManagerActionWorkers: workers.filter((worker) => worker.pendingManagerActionCount > 0),
-      pendingApprovalWorkers: workers.filter((worker) => worker.pendingApproval),
-      resumeCandidates: workers.filter((summary) => {
-        if (summary.unresolvedInboxCount === 0) {
-          return false;
-        }
-        const worker = this.readWorker(summary.id);
-        const ralphRun = maybeReadLinkedRalphRun(this.cwd, worker);
-        return ralphRun ? ralphAllowsNextIteration(this.cwd, worker, ralphRun) : false;
-      }),
-    };
-  }
-
   async createWorkerAsync(input: CreateWorkerInput): Promise<WorkerReadResult> {
     const worker = this.createWorker(input);
     const persistPromise = this.persistBySnapshot.get(worker);
@@ -2373,8 +1793,8 @@ export class WorkerStore {
     return materializeWorkerRecord(this.cwd, worker);
   }
 
-  async decideApprovalAsync(ref: string, input: DecideWorkerApprovalInput): Promise<WorkerReadResult> {
-    const worker = this.decideApproval(ref, input);
+  async recordWorkerOutcomeAsync(ref: string, input: RecordWorkerOutcomeInput): Promise<WorkerReadResult> {
+    const worker = this.recordWorkerOutcome(ref, input);
     const persistPromise = this.persistBySnapshot.get(worker);
     const ticketSyncPromise = this.ticketSyncBySnapshot.get(worker);
     await persistPromise;
@@ -2382,27 +1802,7 @@ export class WorkerStore {
     return materializeWorkerRecord(this.cwd, worker);
   }
 
-  async recordConsolidationAsync(ref: string, input: RecordWorkerConsolidationInput): Promise<WorkerReadResult> {
-    const worker = this.recordConsolidation(ref, input);
-    const persistPromise = this.persistBySnapshot.get(worker);
-    const ticketSyncPromise = this.ticketSyncBySnapshot.get(worker);
-    await persistPromise;
-    await ticketSyncPromise;
-    return materializeWorkerRecord(this.cwd, worker);
-  }
-
-  async superviseWorkersAsync(
-    refs?: string[],
-    apply = false,
-  ): Promise<Array<{ ref: string; decision: WorkerSupervisionDecision }>> {
-    return this.superviseWorkers(refs, apply);
-  }
-
-  async prepareLaunchAsync(
-    ref: string,
-    resume = false,
-    note?: string,
-  ): Promise<WorkerReadResult> {
+  async prepareLaunchAsync(ref: string, resume = false, note?: string): Promise<WorkerReadResult> {
     const worker = this.prepareLaunch(ref, resume, note);
     const persistPromise = this.persistBySnapshot.get(worker);
     await persistPromise;

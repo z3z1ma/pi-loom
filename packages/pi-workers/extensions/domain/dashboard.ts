@@ -64,8 +64,6 @@ export function buildWorkerDashboard(_cwd: string, worker: WorkerReadResult): Wo
       unresolvedMessages: inboxBacklog.length,
       pendingManagerActions: managerBacklog.length,
     },
-    approval: worker.state.approval,
-    consolidation: worker.state.consolidation,
     stale,
   };
 }

@@ -2,14 +2,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
-import { createRalphStore } from "@pi-loom/pi-ralph/extensions/domain/store.js";
-import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { describe, expect, it, vi } from "vitest";
+import { createRalphStore } from "../../pi-ralph/extensions/domain/store.js";
 import { createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
-import { runWorkerLaunch } from "../extensions/domain/runtime.js";
+import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
+import { describe, expect, it, vi } from "vitest";
+import { createManagerStore } from "../extensions/domain/manager-store.js";
 import { createWorkerStore } from "../extensions/domain/store.js";
-import { registerManagerTools } from "../extensions/tools/manager.js";
-import { registerWorkerTools } from "../extensions/tools/worker.js";
+import { registerInternalManagerTools, registerManagerTools } from "../extensions/tools/manager.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -29,6 +28,17 @@ vi.mock("@sinclair/typebox", () => ({
     String: (options?: Record<string, unknown>) => ({ type: "string", ...(options ?? {}) }),
   },
 }));
+
+vi.mock("../extensions/domain/manager-runtime.js", async () => {
+  const actual = await vi.importActual<typeof import("../extensions/domain/manager-runtime.js")>(
+    "../extensions/domain/manager-runtime.js",
+  );
+  return {
+    ...actual,
+    startManagerDaemon: vi.fn(),
+    waitForManagerUpdate: vi.fn(async (cwd: string, ref: string) => createManagerStore(cwd).readManager(ref)),
+  };
+});
 
 vi.mock("../extensions/domain/runtime.js", async () => {
   const actual = await vi.importActual<typeof import("../extensions/domain/runtime.js")>(
@@ -70,439 +80,189 @@ function createCtx(cwd: string): ExtensionContext {
   return { cwd } as ExtensionContext;
 }
 
-async function createWorkerTicket(cwd: string): Promise<void> {
+async function createWorkerTicket(cwd: string, title = "Ticket"): Promise<void> {
   const ticketStore = createTicketStore(cwd);
   await ticketStore.initLedgerAsync();
-  await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
+  await ticketStore.createTicketAsync({ title, summary: "summary", context: "context", plan: "plan" });
 }
 
-describe("worker tools", () => {
-  it("registers worker tools and supports create/read/list flow", async () => {
+describe("manager tools", () => {
+  it("registers only the public manager-first surface by default", () => {
+    const mockPi = createMockPi();
+    registerManagerTools(mockPi as unknown as ExtensionAPI);
+    expect([...mockPi.tools.keys()].sort()).toEqual([
+      "manager_list",
+      "manager_read",
+      "manager_start",
+      "manager_steer",
+      "manager_wait",
+    ]);
+  });
+
+  it("starts a manager, spawns the background daemon, and supports list/read/wait", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       await createWorkerTicket(cwd);
-
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);
-      registerWorkerTools(mockPi as unknown as ExtensionAPI);
-      expect([...mockPi.tools.keys()].sort()).toEqual([
-        "manager_overview",
-        "manager_schedule",
-        "manager_supervise",
-        "manager_write",
-        "worker_dashboard",
-        "worker_launch",
-        "worker_list",
-        "worker_read",
-        "worker_resume",
-        "worker_supervise",
-        "worker_write",
-      ]);
+      const managerStart = mockPi.tools.get("manager_start");
+      const managerList = mockPi.tools.get("manager_list");
+      const managerRead = mockPi.tools.get("manager_read");
+      const managerWait = mockPi.tools.get("manager_wait");
+      expect(managerStart && managerList && managerRead && managerWait).toBeTruthy();
 
-      const workerWrite = mockPi.tools.get("worker_write");
-      const workerRead = mockPi.tools.get("worker_read");
-      const workerList = mockPi.tools.get("worker_list");
-      expect(workerWrite && workerRead && workerList).toBeTruthy();
-      expect(workerWrite?.promptGuidelines).toContain(
-        "Workers require at least one linked ticket id; do not create free-floating workers.",
-      );
-      expect(workerWrite?.promptGuidelines).toContain(
-        "Each worker is a manager-facing wrapper over exactly one linked Ralph run. If you do not supply linkedRefs.ralphRunIds, worker creation will bind a fresh Ralph run automatically.",
-      );
-      expect(mockPi.tools.get("worker_launch")?.promptGuidelines).toContain(
-        "Worker launch prepares one bounded Ralph iteration for the worker's linked run rather than creating a separate worker-local runtime session.",
-      );
-      expect(mockPi.tools.get("manager_write")?.promptGuidelines).toContain(
-        "Manager intervention happens between Ralph iterations; do not treat worker resume as reviving a hidden worker-local runtime session.",
-      );
-
-      await workerWrite?.execute(
-        "call-1",
-        { action: "create", title: "Tool Worker", linkedRefs: { ticketIds: ["t-0001"] } },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      const listed = await workerList?.execute("call-2", {}, undefined, undefined, createCtx(cwd));
-      expect(JSON.stringify(listed)).toContain("tool-worker");
-      const read = await workerRead?.execute(
-        "call-3",
-        { ref: "tool-worker", mode: "dashboard" },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      expect(JSON.stringify(read)).toContain("tool-worker");
-
-      await workerWrite?.execute(
-        "call-4",
+      await managerStart?.execute(
+        "call-start",
         {
-          action: "append_message",
-          ref: "tool-worker",
-          message: {
-            direction: "manager_to_worker",
-            kind: "assignment",
-            text: "Handle the inbox item",
-          },
-        },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      const inbox = await workerRead?.execute(
-        "call-5",
-        { ref: "tool-worker", mode: "inbox" },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      expect(JSON.stringify(inbox)).toContain("Handle the inbox item");
-    } finally {
-      cleanup();
-    }
-  }, 60000);
-
-  it("supports explicit message acknowledgement and resolution actions", async () => {
-    const { cwd, cleanup } = createWorkspace();
-    try {
-      await createWorkerTicket(cwd);
-
-      const mockPi = createMockPi();
-      registerManagerTools(mockPi as unknown as ExtensionAPI);
-      registerWorkerTools(mockPi as unknown as ExtensionAPI);
-      const workerWrite = mockPi.tools.get("worker_write");
-      const workerRead = mockPi.tools.get("worker_read");
-      expect(workerWrite && workerRead).toBeTruthy();
-
-      await workerWrite?.execute(
-        "call-create",
-        { action: "create", title: "Inbox Tool Worker", linkedRefs: { ticketIds: ["t-0001"] } },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      await workerWrite?.execute(
-        "call-message",
-        {
-          action: "append_message",
-          ref: "inbox-tool-worker",
-          message: {
-            direction: "manager_to_worker",
-            kind: "assignment",
-            text: "Acknowledge and resolve this instruction",
-          },
+          title: "Ticket Manager",
+          linkedRefs: { ticketIds: ["t-0001"] },
         },
         undefined,
         undefined,
         createCtx(cwd),
       );
 
-      const inbox = await workerRead?.execute(
-        "call-inbox",
-        { ref: "inbox-tool-worker", mode: "inbox" },
+      const listed = await managerList?.execute("call-list", {}, undefined, undefined, createCtx(cwd));
+      expect(JSON.stringify(listed)).toContain("ticket-manager");
+      const read = await managerRead?.execute(
+        "call-read",
+        { ref: "ticket-manager" },
         undefined,
         undefined,
         createCtx(cwd),
       );
-      const inboxDetails = JSON.parse(((inbox?.content ?? [])[0] as { text?: string } | undefined)?.text ?? "{}") as {
-        workerInbox?: Array<{ id: string }>;
-      };
-      const messageId = inboxDetails.workerInbox?.[0]?.id;
-      expect(messageId).toBeTruthy();
-      if (!messageId) throw new Error("Expected inbox message id");
-
-      await workerWrite?.execute(
-        "call-ack",
-        {
-          action: "acknowledge_message",
-          ref: "inbox-tool-worker",
-          message: { replyTo: messageId, text: "Starting the work" },
-        },
+      expect(JSON.stringify(read)).toContain("Target ref");
+      const waited = await managerWait?.execute(
+        "call-wait",
+        { ref: "ticket-manager" },
         undefined,
         undefined,
         createCtx(cwd),
       );
-      let worker = createWorkerStore(cwd).readWorker("inbox-tool-worker");
-      expect(worker.dashboard.unresolvedInbox[0]?.status).toBe("acknowledged");
-
-      await workerWrite?.execute(
-        "call-resolve",
-        {
-          action: "resolve_message",
-          ref: "inbox-tool-worker",
-          message: { replyTo: messageId, text: "Completed the instruction" },
-        },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      worker = createWorkerStore(cwd).readWorker("inbox-tool-worker");
-      expect(worker.summary.unresolvedInboxCount).toBe(0);
-      expect(worker.messages.at(-1)?.kind).toBe("resolution");
-    } finally {
-      cleanup();
-    }
-  }, 90000);
-
-  it("enforces ticket links on create requests", async () => {
-    const { cwd, cleanup } = createWorkspace();
-    try {
-      const mockPi = createMockPi();
-      registerManagerTools(mockPi as unknown as ExtensionAPI);
-      registerWorkerTools(mockPi as unknown as ExtensionAPI);
-      const workerWrite = mockPi.tools.get("worker_write");
-      expect(workerWrite).toBeTruthy();
-
-      await expect(
-        workerWrite?.execute(
-          "call-create",
-          { action: "create", title: "Ticketless Worker" },
-          undefined,
-          undefined,
-          createCtx(cwd),
-        ),
-      ).rejects.toThrow("Workers require at least one linked ticket id");
+      expect(JSON.stringify(waited)).toContain("ticket-manager");
     } finally {
       cleanup();
     }
   });
 
-  it("keeps prepare-only launches truthful and persists launch outcomes", async () => {
+  it("dispatches workers and starts bounded Ralph-backed iterations", async () => {
     const { cwd, cleanup } = createGitWorkspace();
+    const { runWorkerLaunch } = await import("../extensions/domain/runtime.js");
     const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
     runWorkerLaunchMock.mockReset();
     try {
       await createWorkerTicket(cwd);
-
+      const manager = await createManagerStore(cwd).createManagerAsync({
+        title: "Dispatch Manager",
+        linkedRefs: { ticketIds: ["t-0001"] },
+      });
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);
-      registerWorkerTools(mockPi as unknown as ExtensionAPI);
-      const workerWrite = mockPi.tools.get("worker_write");
-      const workerLaunch = mockPi.tools.get("worker_launch");
-      const workerResume = mockPi.tools.get("worker_resume");
-      expect(workerWrite && workerLaunch && workerResume).toBeTruthy();
-
-      await workerWrite?.execute(
-        "call-create",
-        { action: "create", title: "Runtime Tool Worker", linkedRefs: { ticketIds: ["t-0001"] } },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-
-      await workerLaunch?.execute(
-        "call-prepare",
-        { ref: "runtime-tool-worker", prepareOnly: true, note: "prepare only" },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-
-      let worker = createWorkerStore(cwd).readWorker("runtime-tool-worker");
-      expect(worker.state.status).toBe("requested");
-      expect(worker.state.latestTelemetry.state).toBe("unknown");
-      expect(worker.launch?.runtime).toBe("subprocess");
-      expect(worker.launch?.status).toBe("prepared");
-      expect(worker.launch?.ralphRunId).toBe(worker.state.linkedRefs.ralphRunIds[0]);
-      expect(worker.launch?.iterationId).toBe("iter-001");
-      const canonicalPrepared = await createWorkerStore(cwd).readWorkerAsync("runtime-tool-worker");
-      expect(canonicalPrepared.launch?.status).toBe("prepared");
-      expect(canonicalPrepared.launch?.runtime).toBe("subprocess");
+      registerInternalManagerTools(mockPi as unknown as ExtensionAPI);
+      const managerDispatch = mockPi.tools.get("manager_dispatch");
+      expect(managerDispatch).toBeTruthy();
 
       runWorkerLaunchMock.mockImplementationOnce(async (launch) => {
-        createRalphStore(cwd).appendIteration(launch.ralphRunId, {
+        const ralphStore = createRalphStore(cwd);
+        await ralphStore.appendIterationAsync(launch.ralphRunId, {
           id: launch.iterationId,
           status: "accepted",
-          summary: "Worker completed the bounded Ralph iteration.",
-          workerSummary: "Resolved the queued manager request durably.",
-          decision: {
-            kind: "continue",
-            reason: "unknown",
-            summary: "Manager can inspect the durable state before scheduling the next iteration.",
-            decidedAt: new Date().toISOString(),
-            decidedBy: "runtime",
-            blockingRefs: [],
-          },
+          summary: "Manager dispatch started one worker iteration.",
+          workerSummary: "Worker iteration completed.",
         });
-        return { status: "completed", output: "Execution finished", error: null };
+        const decided = await ralphStore.decideRunAsync(launch.ralphRunId, {
+          summary: "Another bounded iteration may be scheduled later.",
+          decidedBy: "runtime",
+        });
+        await ralphStore.appendIterationAsync(launch.ralphRunId, {
+          id: launch.iterationId,
+          decision: decided.state.latestDecision ?? undefined,
+        });
+        return { status: "completed", output: "Dispatch finished", error: null };
       });
-      await workerLaunch?.execute("call-run", { ref: "runtime-tool-worker" }, undefined, undefined, createCtx(cwd));
 
-      worker = createWorkerStore(cwd).readWorker("runtime-tool-worker");
-      expect(worker.launch?.status).toBe("completed");
-      expect(worker.launch?.note).toContain("Worker completed the bounded Ralph iteration.");
-      expect(worker.state.status).toBe("ready");
-      expect(worker.state.latestTelemetry.state).toBe("idle");
+      await managerDispatch?.execute(
+        "call-dispatch",
+        { ref: manager.state.managerId },
+        undefined,
+        undefined,
+        createCtx(cwd),
+      );
 
-      runWorkerLaunchMock.mockResolvedValueOnce({ status: "cancelled", output: "", error: "Cancelled" });
-      await workerResume?.execute("call-resume", { ref: "runtime-tool-worker" }, undefined, undefined, createCtx(cwd));
-
-      worker = createWorkerStore(cwd).readWorker("runtime-tool-worker");
-      expect(worker.launch?.status).toBe("failed");
-      expect(worker.launch?.note).toContain("Execution cancelled: Cancelled");
-      expect(worker.state.status).toBe("blocked");
-      expect(worker.state.latestTelemetry.summary).toContain("Execution cancelled: Cancelled");
+      const reread = createManagerStore(cwd).readManager(manager.state.managerId);
+      expect(reread.workers).toHaveLength(1);
+      expect(reread.workers[0]?.id).toBe("dispatch-manager-t-0001");
+      expect(createWorkerStore(cwd).readWorker("dispatch-manager-t-0001").launch?.status).toBe("running");
     } finally {
       runWorkerLaunchMock.mockReset();
-      cleanup();
-    }
-  }, 60000);
-
-  it("supports manager overview and manager-write flows", async () => {
-    const { cwd, cleanup } = createWorkspace();
-    try {
-      await createWorkerTicket(cwd);
-
-      const mockPi = createMockPi();
-      registerManagerTools(mockPi as unknown as ExtensionAPI);
-      registerWorkerTools(mockPi as unknown as ExtensionAPI);
-      const managerOverview = mockPi.tools.get("manager_overview");
-      const managerSchedule = mockPi.tools.get("manager_schedule");
-      const managerSupervise = mockPi.tools.get("manager_supervise");
-      const managerWrite = mockPi.tools.get("manager_write");
-      const workerWrite = mockPi.tools.get("worker_write");
-      expect(managerOverview && managerSchedule && managerSupervise && managerWrite && workerWrite).toBeTruthy();
-
-      await workerWrite?.execute(
-        "call-create",
-        { action: "create", title: "Managed Tool Worker", linkedRefs: { ticketIds: ["t-0001"] } },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      await managerWrite?.execute(
-        "call-message",
-        {
-          action: "message",
-          ref: "managed-tool-worker",
-          kind: "assignment",
-          text: "Do the work from the manager surface",
-        },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-
-      const overview = await managerOverview?.execute("call-overview", {}, undefined, undefined, createCtx(cwd));
-      expect(JSON.stringify(overview)).toContain("Unresolved worker inbox");
-
-      await workerWrite?.execute(
-        "call-worker-escalation",
-        {
-          action: "append_message",
-          ref: "managed-tool-worker",
-          message: {
-            direction: "worker_to_manager",
-            kind: "escalation",
-            text: "Need manager decision",
-          },
-        },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      const managerInboxMessageId = createWorkerStore(cwd).readInbox("managed-tool-worker").managerInbox[0]?.id;
-      expect(managerInboxMessageId).toBeTruthy();
-      if (!managerInboxMessageId) throw new Error("Expected manager inbox message id");
-
-      await managerWrite?.execute(
-        "call-manager-resolve",
-        {
-          action: "resolve_message",
-          ref: "managed-tool-worker",
-          messageId: managerInboxMessageId,
-          text: "Decision applied",
-        },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-
-      const supervise = await managerSupervise?.execute(
-        "call-supervise",
-        { refs: ["managed-tool-worker"] },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      expect(JSON.stringify(supervise)).toContain("managed-tool-worker");
-
-      const schedule = await managerSchedule?.execute("call-schedule", {}, undefined, undefined, createCtx(cwd));
-      expect(JSON.stringify(schedule)).toContain("managed-tool-worker");
-    } finally {
       cleanup();
     }
   }, 90000);
 
-  it("schedules one bounded linked Ralph iteration from manager durable state", async () => {
-    const { cwd, cleanup } = createGitWorkspace();
-    const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
-    runWorkerLaunchMock.mockReset();
+  it("checkpoints operator-facing messages and worker outcome updates", async () => {
+    const { cwd, cleanup } = createWorkspace();
     try {
       await createWorkerTicket(cwd);
+      const workerStore = createWorkerStore(cwd);
+      await workerStore.createWorkerAsync({
+        workerId: "checkpoint-manager-t-0001",
+        title: "Checkpoint Worker",
+        linkedRefs: { ticketIds: ["t-0001"] },
+      });
+      await workerStore.requestCompletionAsync("checkpoint-manager-t-0001", {
+        summary: "Ready for review",
+      });
 
+      const manager = await createManagerStore(cwd).createManagerAsync({
+        title: "Checkpoint Manager",
+        linkedRefs: { ticketIds: ["t-0001"] },
+      });
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);
-      registerWorkerTools(mockPi as unknown as ExtensionAPI);
-      const workerWrite = mockPi.tools.get("worker_write");
-      const managerWrite = mockPi.tools.get("manager_write");
-      const managerSchedule = mockPi.tools.get("manager_schedule");
-      expect(workerWrite && managerWrite && managerSchedule).toBeTruthy();
+      registerInternalManagerTools(mockPi as unknown as ExtensionAPI);
+      const managerCheckpoint = mockPi.tools.get("manager_checkpoint");
+      const managerSteer = mockPi.tools.get("manager_steer");
+      expect(managerCheckpoint && managerSteer).toBeTruthy();
 
-      await workerWrite?.execute(
-        "call-create",
-        { action: "create", title: "Scheduled Runtime Worker", linkedRefs: { ticketIds: ["t-0001"] } },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      await managerWrite?.execute(
-        "call-message",
-        { action: "message", ref: "scheduled-runtime-worker", kind: "assignment", text: "Do the work" },
+      await managerSteer?.execute(
+        "call-steer",
+        { ref: manager.state.managerId, text: "Please summarize after merge" },
         undefined,
         undefined,
         createCtx(cwd),
       );
 
-      runWorkerLaunchMock.mockImplementationOnce(async (launch) => {
-        createRalphStore(cwd).appendIteration(launch.ralphRunId, {
-          id: launch.iterationId,
-          status: "accepted",
-          summary: "Manager scheduling ran the next bounded iteration.",
-          workerSummary: "Inbox work was captured durably before stopping.",
-          decision: {
-            kind: "continue",
-            reason: "unknown",
-            summary: "Manager may decide whether to schedule another iteration.",
-            decidedAt: new Date().toISOString(),
-            decidedBy: "runtime",
-            blockingRefs: [],
-          },
-        });
-        return { status: "completed", output: "Execution finished", error: null };
-      });
-      const scheduled = await managerSchedule?.execute(
-        "call-schedule",
-        { refs: ["scheduled-runtime-worker"], apply: true, executeResumes: true },
+      await managerCheckpoint?.execute(
+        "call-checkpoint",
+        {
+          ref: manager.state.managerId,
+          resolveOperatorInput: true,
+          status: "waiting_for_input",
+          summary: "Need operator attention after merge.",
+          operatorMessages: [
+            { kind: "report", text: "Merged the worker branch.", workerId: "checkpoint-manager-t-0001" },
+          ],
+          workerUpdates: [
+            {
+              workerId: "checkpoint-manager-t-0001",
+              status: "completed",
+              summary: "Merged into target ref",
+              validation: ["git log --oneline"],
+            },
+          ],
+        },
         undefined,
         undefined,
         createCtx(cwd),
       );
 
-      expect(runWorkerLaunchMock).toHaveBeenCalledTimes(1);
-      expect(runWorkerLaunchMock.mock.calls[0]?.[0]).toEqual(
-        expect.objectContaining({
-          ralphRunId: "scheduled-runtime-worker",
-          iterationId: "iter-001",
-          iteration: 1,
-          resume: true,
-          runtime: "subprocess",
-        }),
-      );
-      expect(JSON.stringify(scheduled)).toContain("scheduled-runtime-worker");
-      expect(createWorkerStore(cwd).readWorker("scheduled-runtime-worker").state.status).toBe("ready");
+      const reread = createManagerStore(cwd).readManager(manager.state.managerId);
+      expect(reread.state.status).toBe("waiting_for_input");
+      expect(
+        reread.messages.some((message) => message.direction === "manager_to_operator" && message.kind === "report"),
+      ).toBe(true);
+      expect(createWorkerStore(cwd).readWorker("checkpoint-manager-t-0001").state.status).toBe("completed");
     } finally {
-      runWorkerLaunchMock.mockReset();
       cleanup();
     }
   }, 90000);

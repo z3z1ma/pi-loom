@@ -1,51 +1,42 @@
-Workers are a first-class Loom execution substrate.
-
-Use workers when work should be assigned durably, supervised between iterations, and run through linked Ralph iterations inside an ephemeral workspace, typically a Git worktree.
-
-Worker doctrine:
-- A worker is not a session branch.
-- A worker is a durable assignment and supervision wrapper around a linked Ralph run.
-- Workers carry manager-facing state across interruptions, handoffs, and manager turnover.
-- Worker execution happens through one bounded Ralph iteration at a time, not through a separate worker-local runtime substrate.
+Pi Workers is a thin orchestration layer on top of Pi Ralph.
 
 Manager doctrine:
-- Manager is the supervisory role over workers, not a separate Loom memory layer.
-- The package exposes a manager control plane through `manager_*` tools.
-- Managers supervise workers from compact durable state, recent checkpoints, and message history rather than from a monolithic transcript.
-- Managers can acknowledge or resolve manager-owned inbox backlog explicitly through the manager surface.
-- Managers must distinguish busy workers from idle or blocked workers and avoid over-interrupting productive work.
-- Managers own completion approval and consolidation decisions.
+- Managers are the primary AI-facing surface of this package.
+- Use `manager_start`, `manager_read`, `manager_wait`, `manager_steer`, and `manager_list`.
+- A manager owns ticket-bound orchestration toward a target ref.
+- A manager may spawn internal workers, run bounded Ralph iterations inside isolated git worktrees, request operator review, escalate blockers, and consolidate worker branches after review.
+- A manager runs as a background orchestration loop until it completes or has something to say.
 
-Inbox doctrine:
-- Manager instructions are durable inbox items, not merely transient prose.
-- Workers should acknowledge, resolve, or escalate actionable manager instructions explicitly.
-- Workers should not stop a run while unresolved actionable inbox items remain unless they are blocked on manager input, requesting review, or an explicit bounded policy budget has been reached.
-- Checkpoints should reflect inbox-processing progress as well as implementation progress.
+Worker doctrine:
+- Workers are internal implementation details, not the primary orchestration interface.
+- A worker is a ticket-bound wrapper around one linked Ralph run in one managed git worktree.
+- Worker execution remains one bounded Ralph iteration at a time.
+- Do not treat workers as generic subprocess sessions or as a parallel runtime model beside Ralph.
+
+Steerability doctrine:
+- The operator steers orchestration between manager passes.
+- Use `manager_steer` to answer escalations, provide strategy updates, change the target ref, or approve/reject a worker.
+- Use `manager_wait` to block until the background manager loop has an update, needs input, or completes.
+- Operator review and consolidation are manager-owned concerns.
 
 Runtime doctrine:
-- Worker execution is defined by the worker contract plus the linked Ralph run, not by a separate worker-local runtime tree.
-- The higher-level orchestrator or manager provisions isolated git worktrees and runs the next Ralph iteration inside them.
-- Keep runtime-specific machine-local details out of canonical worker artifacts.
+- Pi Ralph remains the canonical bounded iteration engine.
+- Pi Workers adds managed git worktrees plus a higher-fidelity communication point between Ralph iterations.
+- Keep runtime-specific machine-local details out of canonical durable state.
 
 Fundamental execution flow:
-- Workers execute ticket-linked work, not free-floating tasks.
-- For the common case: create or read the ticket first, create the worker with that ticket id in `linkedRefs.ticketIds`, then launch or resume the worker so it runs the next linked Ralph iteration.
-- Manager intervention happens between Ralph iterations: inspect durable state, steer if needed, then launch or resume the next iteration.
-- Do not launch orphan workers, skip the ticket link, or thrash between manager and worker surfaces when the straightforward ticket -> worker -> launch flow fits.
+- Start a manager from the bounded context you actually have: spec, initiative, plan, ticket set, or a broad objective.
+- Let the manager create any missing research/spec/plan/ticket structure it needs.
+- Let the background manager loop spawn workers and run bounded Ralph iterations inside worktrees.
+- Read the manager when it has something to say, steer it if needed, then wait again.
+- Let the manager consolidate approved worker branches into the target ref.
 
 Boundary doctrine:
 - Tickets remain the live execution ledger.
-- Plans remain execution strategy.
-- Ralph remains bounded orchestration and the canonical iteration engine under workers.
-- Critique remains the durable review layer.
-- Documentation remains the post-completion explanatory layer.
+- Ralph remains standalone and directly usable outside Pi Workers.
+- Pi Workers should add orchestration value, not duplicate Ralph with a second execution model.
+- Plans, critique, and docs remain separate Loom layers.
 
 Portability doctrine:
-- Canonical worker state must stay portable.
-- Do not store clone-local absolute workspace paths in committed worker artifacts.
-- Runtime-only launch or attachment descriptors may carry clone-local details, but those are not canonical Loom truth.
-
-Coordination doctrine:
-- Default to manager-mediated coordination.
-- Use bounded broadcast only for urgent team-wide signals that should remain visible to the manager.
-- Do not invent unrestricted peer meshes in v1.
+- Canonical durable state stays in SQLite.
+- Do not store clone-local absolute paths as canonical truth.

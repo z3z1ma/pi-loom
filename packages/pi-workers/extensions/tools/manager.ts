@@ -1,29 +1,26 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { Type } from "@sinclair/typebox";
-import { renderManagerOverview, renderWorkerDetail } from "../domain/render.js";
-import { runWorkerLaunch } from "../domain/runtime.js";
-import { createWorkerStore } from "../domain/store.js";
+import { createManagerStore } from "../domain/manager-store.js";
+import { startManagerDaemon, waitForManagerUpdate } from "../domain/manager-runtime.js";
+import { renderManagerDetail, renderManagerList } from "../domain/render.js";
 
-const ManagerMessageKindEnum = StringEnum([
-  "assignment",
-  "clarification",
-  "unblock",
-  "approval_decision",
-  "broadcast_warning",
-  "note",
-] as const);
-const ManagerWriteActionEnum = StringEnum([
-  "message",
-  "acknowledge_message",
-  "resolve_message",
-  "approve",
-  "resume",
-] as const);
+const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
+const ManagerStatusEnum = StringEnum(["active", "waiting_for_input", "completed", "failed", "archived"] as const);
+const WorkerOutcomeStatusEnum = StringEnum(["ready", "blocked", "waiting_for_review", "completed", "failed"] as const);
+const ApprovalStatusEnum = StringEnum(["approved", "rejected_for_revision", "escalated"] as const);
+const ManagerMessageKindEnum = StringEnum(["steer", "approval", "escalation", "report"] as const);
 
-function getStore(ctx: ExtensionContext) {
-  return createWorkerStore(ctx.cwd);
-}
+const LinkedRefsSchema = Type.Object({
+  initiativeIds: Type.Optional(Type.Array(Type.String())),
+  researchIds: Type.Optional(Type.Array(Type.String())),
+  specChangeIds: Type.Optional(Type.Array(Type.String())),
+  ticketIds: Type.Optional(Type.Array(Type.String())),
+  critiqueIds: Type.Optional(Type.Array(Type.String())),
+  docIds: Type.Optional(Type.Array(Type.String())),
+  planIds: Type.Optional(Type.Array(Type.String())),
+});
 
 function machineResult(details: Record<string, unknown>, text: string) {
   return {
@@ -32,153 +29,189 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
+function getStore(ctx: ExtensionContext) {
+  return createManagerStore(ctx.cwd);
+}
+
 export function registerManagerTools(pi: ExtensionAPI): void {
   pi.registerTool({
-    name: "manager_overview",
-    label: "Manager Overview",
-    description: "Summarize Ralph-backed worker fleet state, unresolved inbox backlog, pending approvals, and resume candidates.",
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const overview = await getStore(ctx).managerOverviewAsync();
-      return machineResult({ overview }, renderManagerOverview(overview));
-    },
-  });
-
-  pi.registerTool({
-    name: "manager_supervise",
-    label: "Manager Supervise",
-    description: "Run compact-state supervision over one or many workers and optionally persist manager interventions.",
+    name: "manager_list",
+    label: "manager_list",
+    description:
+      "List durable managers for Ralph-backed worktree orchestration. Start broad with text when rediscovering a manager by title, target ref, or latest summary; use status only when you intentionally want a narrow slice.",
+    promptSnippet:
+      "Use this before starting a new manager so you reuse an existing durable orchestration record instead of fragmenting manager state.",
     parameters: Type.Object({
-      refs: Type.Optional(Type.Array(Type.String())),
-      apply: Type.Optional(Type.Boolean()),
+      status: Type.Optional(ManagerStatusEnum),
+      text: Type.Optional(Type.String()),
+      sort: Type.Optional(LoomListSortEnum),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const results = await getStore(ctx).superviseWorkersAsync(params.refs, params.apply === true);
-      return machineResult(
-        { results },
-        results
-          .map(
-            (result) =>
-              `${result.ref}: ${result.decision.action} (${result.decision.confidence})${result.decision.message ? ` — ${result.decision.message}` : ""}`,
-          )
-          .join("\n"),
-      );
-    },
-  });
-
-  pi.registerTool({
-    name: "manager_schedule",
-    label: "Manager Schedule",
-    description:
-      "Run a bounded manager scheduling pass over worker plus linked Ralph durable state and optionally apply resume/message actions.",
-    promptSnippet:
-      "Use bounded scheduling to resume inbox-backed workers through their linked Ralph runs from durable state without guessing from chat residue.",
-    promptGuidelines: [
-      "When executeResumes is true, manager scheduling should prepare and run the next linked Ralph iteration only when the Ralph run is not review-gated or terminal.",
-    ],
-    parameters: Type.Object({
-      refs: Type.Optional(Type.Array(Type.String())),
-      apply: Type.Optional(Type.Boolean()),
-      executeResumes: Type.Optional(Type.Boolean()),
-    }),
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const results = await getStore(ctx).runManagerSchedulerPass({
-        refs: params.refs,
-        apply: params.apply === true,
-        executeResumes: params.executeResumes === true,
-        signal,
+      const managers = await getStore(ctx).listManagersAsync({
+        status: params.status,
+        text: params.text,
+        sort: params.sort as LoomListSort | undefined,
       });
-      return machineResult(
-        { results },
-        results
-          .map(
-            (result) => `${result.workerId}: ${result.action}${result.applied ? " [applied]" : ""} — ${result.summary}`,
-          )
-          .join("\n"),
-      );
+      return machineResult({ managers }, renderManagerList(managers));
     },
   });
 
   pi.registerTool({
-    name: "manager_write",
-    label: "Manager Write",
-    description: "Send manager messages, make approval decisions, or resume Ralph-backed workers through the manager control plane.",
+    name: "manager_read",
+    label: "manager_read",
+    description:
+      "Read a durable manager record, including pending output, target ref, and internal worker views. Use this to inspect what the manager is doing or waiting on.",
+    promptSnippet: "Read the manager before deciding whether to wait, steer, or inspect other Loom state.",
+    parameters: Type.Object({ ref: Type.String() }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const manager = await getStore(ctx).readManagerAsync(params.ref);
+      return machineResult({ manager }, renderManagerDetail(manager));
+    },
+  });
+
+  pi.registerTool({
+    name: "manager_start",
+    label: "manager_start",
+    description:
+      "Create a durable manager for a broad objective, linked refs, or ticket set, start its background orchestration loop, and optionally wait until it has something to say or finishes.",
     promptSnippet:
-      "Manager resume is the manager-side version of the ticket-linked worker flow: once the worker exists, resume it by preparing the next linked Ralph iteration.",
+      "Start managers from a spec, initiative, plan, ticket set, or free-text objective. The background manager loop decides what research, planning, ticketing, worker spawning, and review work must happen next.",
     promptGuidelines: [
-      "Use message and approval actions to manage the inbox and review contract; use resume only when the worker already exists and should continue execution from durable worker plus Ralph state.",
-      "Manager intervention happens between Ralph iterations; do not treat worker resume as reviving a hidden worker-local runtime session.",
+      "A manager may start from linked refs, a ticket set, or just a broad objective. If no tickets exist yet, the manager can create the needed research/spec/plan/ticket artifacts in later AI steps.",
+      "Use wait when you want this call to block until the manager emits an update, asks for operator input, or finishes. Otherwise start it asynchronously and inspect later with manager_read or manager_wait.",
     ],
     parameters: Type.Object({
-      action: ManagerWriteActionEnum,
-      ref: Type.String(),
-      kind: Type.Optional(ManagerMessageKindEnum),
-      text: Type.Optional(Type.String()),
-      messageId: Type.Optional(Type.String()),
-      approvalStatus: Type.Optional(StringEnum(["approved", "rejected_for_revision", "escalated"] as const)),
-      rationale: Type.Optional(Type.Array(Type.String())),
-      prepareOnly: Type.Optional(Type.Boolean()),
-      note: Type.Optional(Type.String()),
+      title: Type.String(),
+      objective: Type.Optional(Type.String()),
+      summary: Type.Optional(Type.String()),
+      targetRef: Type.Optional(Type.String()),
+      linkedRefs: Type.Optional(LinkedRefsSchema),
+      wait: Type.Optional(Type.Boolean()),
+      timeoutMs: Type.Optional(Type.Number()),
     }),
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const store = getStore(ctx);
-      switch (params.action) {
-        case "message": {
-          if (!params.kind || !params.text?.trim()) {
-            throw new Error("kind and text are required for manager message action");
-          }
-          const worker = await store.appendMessageAsync(params.ref, {
-            direction: "manager_to_worker",
-            kind: params.kind,
-            text: params.text,
-          });
-          return machineResult({ worker }, renderWorkerDetail(worker));
-        }
-        case "approve": {
-          if (!params.approvalStatus) {
-            throw new Error("approvalStatus is required for manager approve action");
-          }
-          const worker = await store.decideApprovalAsync(params.ref, {
-            status: params.approvalStatus,
-            summary: params.text,
-            rationale: params.rationale,
-            decidedBy: "manager",
-          });
-          return machineResult({ worker }, renderWorkerDetail(worker));
-        }
-        case "acknowledge_message": {
-          if (!params.messageId) {
-            throw new Error("messageId is required for manager acknowledge_message action");
-          }
-          const worker = await store.acknowledgeMessageAsync(params.ref, params.messageId, "manager", params.text);
-          return machineResult({ worker }, renderWorkerDetail(worker));
-        }
-        case "resolve_message": {
-          if (!params.messageId) {
-            throw new Error("messageId is required for manager resolve_message action");
-          }
-          const worker = await store.resolveMessageAsync(params.ref, params.messageId, "manager", params.text);
-          return machineResult({ worker }, renderWorkerDetail(worker));
-        }
-        case "resume": {
-          const prepared = await store.prepareLaunchAsync(params.ref, true, params.note ?? "Prepared by manager tool.");
-          if (params.prepareOnly === true) {
-            return machineResult({ launch: prepared.launch }, await store.renderLaunchAsync(params.ref));
-          }
-          const running = await store.startLaunchExecutionAsync(params.ref);
-          if (!running.launch) {
-            throw new Error("Worker launch descriptor was not created");
-          }
-          const execution = await runWorkerLaunch(running.launch, signal);
-          const finalized = await store.finishLaunchExecutionAsync(params.ref, execution);
-          return machineResult(
-            { launch: finalized.launch, execution },
-            `${await store.renderLaunchAsync(params.ref)}\n\nExecution: ${execution.status}\n${execution.output || execution.error || ""}`.trim(),
-          );
-        }
-        default:
-          throw new Error(`Unsupported manager action: ${params.action satisfies never}`);
+      const manager = await store.createManagerAsync({
+        title: params.title,
+        objective: params.objective,
+        summary: params.summary,
+        targetRef: params.targetRef,
+        linkedRefs: params.linkedRefs,
+      });
+      startManagerDaemon(ctx.cwd, manager.state.managerId);
+      if (params.wait === true) {
+        const updated = await waitForManagerUpdate(ctx.cwd, manager.state.managerId, { timeoutMs: params.timeoutMs });
+        return machineResult({ manager: updated }, renderManagerDetail(updated));
       }
+      return machineResult({ manager }, renderManagerDetail(manager));
+    },
+  });
+
+  pi.registerTool({
+    name: "manager_wait",
+    label: "manager_wait",
+    description:
+      "Block until a manager has something to say, reaches a terminal state, or the wait timeout expires. Use this after starting or steering a manager.",
+    promptSnippet: "Use this to wait on the background manager loop instead of polling manager_read manually.",
+    parameters: Type.Object({
+      ref: Type.String(),
+      timeoutMs: Type.Optional(Type.Number()),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const manager = await waitForManagerUpdate(ctx.cwd, params.ref, { timeoutMs: params.timeoutMs });
+      return machineResult({ manager }, renderManagerDetail(manager));
+    },
+  });
+
+  pi.registerTool({
+    name: "manager_steer",
+    label: "manager_steer",
+    description:
+      "Provide operator steerability between manager passes: answer escalations, approve or reject a worker, or change the target ref. The background manager loop is restarted automatically afterward, and you may optionally wait for the next update.",
+    promptSnippet:
+      "Use steerability between manager updates to answer what the manager asked, then let the background loop continue on its own.",
+    parameters: Type.Object({
+      ref: Type.String(),
+      text: Type.Optional(Type.String()),
+      workerId: Type.Optional(Type.String()),
+      approvalStatus: Type.Optional(ApprovalStatusEnum),
+      targetRef: Type.Optional(Type.String()),
+      wait: Type.Optional(Type.Boolean()),
+      timeoutMs: Type.Optional(Type.Number()),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const manager = await getStore(ctx).steerManagerAsync(params.ref, {
+        text: params.text,
+        workerId: params.workerId,
+        approvalStatus: params.approvalStatus,
+        targetRef: params.targetRef,
+      });
+      startManagerDaemon(ctx.cwd, manager.state.managerId);
+      if (params.wait === true) {
+        const updated = await waitForManagerUpdate(ctx.cwd, manager.state.managerId, { timeoutMs: params.timeoutMs });
+        return machineResult({ manager: updated }, renderManagerDetail(updated));
+      }
+      return machineResult({ manager }, renderManagerDetail(manager));
+    },
+  });
+}
+
+export function registerInternalManagerTools(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "manager_dispatch",
+    label: "manager_dispatch",
+    description:
+      "Ensure ticket workers exist and start any straightforward background Ralph iterations that are ready to run. This is primarily for the background manager loop, not the usual operator-facing path.",
+    parameters: Type.Object({ ref: Type.String() }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const manager = await getStore(ctx).dispatchManagerWorkAsync(params.ref);
+      return machineResult({ manager }, renderManagerDetail(manager));
+    },
+  });
+
+  pi.registerTool({
+    name: "manager_checkpoint",
+    label: "manager_checkpoint",
+    description:
+      "Persist one bounded manager-loop outcome, including operator-facing messages, linked-ref updates, status changes, and worker outcome updates. This is primarily for the background manager loop.",
+    parameters: Type.Object({
+      ref: Type.String(),
+      status: Type.Optional(ManagerStatusEnum),
+      summary: Type.Optional(Type.String()),
+      linkedRefs: Type.Optional(LinkedRefsSchema),
+      resolveOperatorInput: Type.Optional(Type.Boolean()),
+      operatorMessages: Type.Optional(
+        Type.Array(
+          Type.Object({
+            kind: ManagerMessageKindEnum,
+            text: Type.String(),
+            workerId: Type.Optional(Type.String()),
+          }),
+        ),
+      ),
+      workerUpdates: Type.Optional(
+        Type.Array(
+          Type.Object({
+            workerId: Type.String(),
+            status: WorkerOutcomeStatusEnum,
+            summary: Type.Optional(Type.String()),
+            validation: Type.Optional(Type.Array(Type.String())),
+            conflicts: Type.Optional(Type.Array(Type.String())),
+            followUps: Type.Optional(Type.Array(Type.String())),
+          }),
+        ),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const manager = await getStore(ctx).checkpointManagerAsync(params.ref, {
+        status: params.status,
+        summary: params.summary,
+        linkedRefs: params.linkedRefs,
+        resolveOperatorInput: params.resolveOperatorInput,
+        operatorMessages: params.operatorMessages,
+        workerUpdates: params.workerUpdates,
+      });
+      return machineResult({ manager }, renderManagerDetail(manager));
     },
   });
 }

@@ -1,13 +1,11 @@
 import type {
   ApprovalStatus,
-  ConsolidationStatus,
   ManagerRef,
   ManagerRefKind,
   MessageAwaiting,
   MessageDirection,
   MessageKind,
   MessageStatus,
-  WorkerConsolidationOutcome,
   WorkerRuntimeKind,
   WorkerTelemetry,
   WorkerTelemetryState,
@@ -16,8 +14,6 @@ import type {
 } from "./models.js";
 import {
   APPROVAL_STATUSES,
-  CONSOLIDATION_STATUSES,
-  CONSOLIDATION_STRATEGIES,
   DEFAULT_WORKER_RUNTIME_KIND,
   MANAGER_REF_KINDS,
   MESSAGE_AWAITING,
@@ -117,10 +113,6 @@ export function normalizeApprovalStatus(value: string | null | undefined): Appro
   return expectEnum("worker approval status", value, APPROVAL_STATUSES, "not_requested");
 }
 
-export function normalizeConsolidationStatus(value: string | null | undefined): ConsolidationStatus {
-  return expectEnum("worker consolidation status", value, CONSOLIDATION_STATUSES, "not_started");
-}
-
 export function normalizeManagerRef(input: Partial<ManagerRef> | undefined): ManagerRef {
   return {
     kind: normalizeManagerRefKind(input?.kind),
@@ -153,22 +145,6 @@ export function normalizeTelemetry(input: Partial<WorkerTelemetry> | undefined):
         ? Math.floor(input.pendingMessages)
         : 0,
     notes: normalizeStringList(input?.notes),
-  };
-}
-
-export function normalizeConsolidationOutcome(
-  input: Partial<WorkerConsolidationOutcome> | undefined,
-): WorkerConsolidationOutcome {
-  return {
-    status: normalizeConsolidationStatus(input?.status),
-    strategy: input?.strategy
-      ? expectEnum("consolidation strategy", input.strategy, CONSOLIDATION_STRATEGIES, "merge")
-      : null,
-    summary: normalizeOptionalString(input?.summary) ?? "",
-    validation: normalizeStringList(input?.validation),
-    conflicts: normalizeStringList(input?.conflicts),
-    followUps: normalizeStringList(input?.followUps),
-    decidedAt: normalizeOptionalString(input?.decidedAt),
   };
 }
 
