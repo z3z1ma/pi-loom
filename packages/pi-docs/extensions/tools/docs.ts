@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import { renderDashboard, renderDocumentationDetail, renderUpdatePrompt } from "../domain/render.js";
 import { runDocsUpdate } from "../domain/runtime.js";
@@ -12,6 +13,7 @@ const DocAudienceEnum = StringEnum(["ai", "human"] as const);
 const DocSourceTargetKindEnum = StringEnum(["initiative", "spec", "ticket", "critique", "workspace"] as const);
 const DocsWriteActionEnum = StringEnum(["init", "create", "update", "archive"] as const);
 const DocsReadModeEnum = StringEnum(["full", "state", "packet", "document"] as const);
+const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 
 function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
   return { ...schema, description } as T;
@@ -64,6 +66,12 @@ const DocsListParams = Type.Object({
       description:
         "Free-text search over documentation id, title, summary, source ref, and other indexed content. Prefer starting with text alone, then add exact filters only after the result set is still too broad.",
     }),
+  ),
+  sort: Type.Optional(
+    withDescription(
+      LoomListSortEnum,
+      "Optional result ordering. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Override this only when you intentionally need chronological or id-based ordering after filtering.",
+    ),
   ),
 });
 
@@ -168,17 +176,26 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     name: "docs_list",
     label: "docs_list",
     description:
-      "List durable documentation records. Start broad with `text` when rediscovering a doc by title, topic, or source context; add exact filters such as `docType`, `sectionGroup`, `sourceKind`, or `topic` only when you intentionally want a narrower slice.",
+      "List durable documentation records. Start broad with `text` when rediscovering a doc by title, topic, or source context; add exact filters such as `docType`, `sectionGroup`, `sourceKind`, or `topic` only when you intentionally want a narrower slice. Results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
-      "Inspect existing documentation records before creating new docs so substantial durable explanations stay focused, non-duplicative, and attached to the right record; broad text search is the safest first pass when you do not know the exact doc classification yet.",
+      "Inspect existing documentation records before creating new docs so substantial durable explanations stay focused, non-duplicative, and attached to the right record; broad text search is the safest first pass when you do not know the exact doc classification yet, and the default relevance ordering is usually the right first view.",
     promptGuidelines: [
       "Use this tool before creating a new documentation record so high-level topics stay consolidated in one durable, high-context document instead of fragmenting into shallow duplicates.",
       "When rediscovering a durable document, start with `text` and no exact filters; `docType`, `sectionGroup`, `sourceKind`, and `topic` narrow by exact stored values and can hide valid matches if guessed wrong.",
+      "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need chronology or id order after filtering.",
       "Add exact filters only after the broad search is still too wide or when you intentionally need one specific documentation slice.",
     ],
     parameters: DocsListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const docs = await getStore(ctx).listDocs(params);
+      const docs = await getStore(ctx).listDocs({
+        status: params.status,
+        docType: params.docType,
+        sectionGroup: params.sectionGroup,
+        sourceKind: params.sourceKind,
+        topic: params.topic,
+        text: params.text,
+        sort: params.sort as LoomListSort | undefined,
+      });
       return machineResult(
         { docs },
         docs.length > 0

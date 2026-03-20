@@ -223,7 +223,6 @@ describe("TicketStore canonical storage", () => {
       expect.objectContaining({ id: archivedCandidate.summary.id, archived: false, closed: false, status: "ready" }),
     ]);
     await expect(store.listTicketsAsync({ includeClosed: true, includeArchived: true })).resolves.toEqual([
-      expect.objectContaining({ id: archivedCandidate.summary.id, archived: false, status: "ready", closed: false }),
       expect.objectContaining({
         id: closedArchivedCandidate.summary.id,
         archived: true,
@@ -231,6 +230,7 @@ describe("TicketStore canonical storage", () => {
         status: "closed",
         closed: true,
       }),
+      expect.objectContaining({ id: archivedCandidate.summary.id, archived: false, status: "ready", closed: false }),
     ]);
 
     await expect(store.readTicketAsync(closedArchivedCandidate.summary.id)).resolves.toMatchObject({
@@ -277,6 +277,6 @@ describe("TicketStore canonical storage", () => {
     expect(rereadChild.ticket.frontmatter.parent).toBeNull();
 
     const remaining = await store.listTicketsAsync({ includeClosed: true, includeArchived: true });
-    expect(remaining.map((ticket) => ticket.id)).toEqual([parent.summary.id, dependent.summary.id, child.summary.id]);
+    expect(remaining.map((ticket) => ticket.id)).toEqual([child.summary.id, dependent.summary.id, parent.summary.id]);
   }, 30000);
 });

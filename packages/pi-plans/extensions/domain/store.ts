@@ -14,6 +14,7 @@ import {
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
+import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
@@ -809,30 +810,68 @@ export class PlanStore {
       }
       throw new Error(`Plan entity ${entity.displayId} is missing structured attributes`);
     }
-    return summaries
-      .filter(({ summary, state }) => {
-        if (filter.status && summary.status !== filter.status) {
-          return false;
-        }
-        if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
-          return false;
-        }
-        if (filter.linkedTicketId) {
-          const linkedTicketId = filter.linkedTicketId.trim();
-          if (!state.linkedTickets.some((link) => link.ticketId === linkedTicketId)) {
+    return filterAndSortListEntries(
+      summaries
+        .filter(({ summary, state }) => {
+          if (filter.status && summary.status !== filter.status) {
             return false;
           }
-        }
-        if (!filter.text) {
+          if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
+            return false;
+          }
+          if (filter.linkedTicketId) {
+            const linkedTicketId = filter.linkedTicketId.trim();
+            if (!state.linkedTickets.some((link) => link.ticketId === linkedTicketId)) {
+              return false;
+            }
+          }
           return true;
-        }
-        const text = filter.text.toLowerCase();
-        return [summary.id, summary.title, summary.summary, summary.sourceRef, summary.sourceKind]
-          .join(" ")
-          .toLowerCase()
-          .includes(text);
-      })
-      .map(({ summary }) => summary);
+        })
+        .map(({ summary, state }) => ({
+          item: summary,
+          id: summary.id,
+          createdAt: state.createdAt,
+          updatedAt: summary.updatedAt,
+          fields: [
+            { value: summary.id, weight: 10 },
+            { value: summary.title, weight: 10 },
+            { value: summary.summary, weight: 8 },
+            { value: summary.sourceRef, weight: 7 },
+            { value: summary.sourceKind, weight: 6 },
+            { value: state.scopePaths.join(" "), weight: 6 },
+            { value: state.linkedTickets.map((link) => `${link.ticketId} ${link.role ?? ""}`).join(" "), weight: 6 },
+            { value: state.sourceTarget.ref, weight: 7 },
+            { value: state.sourceTarget.kind, weight: 5 },
+            { value: state.contextRefs.roadmapItemIds.join(" "), weight: 4 },
+            { value: state.contextRefs.initiativeIds.join(" "), weight: 5 },
+            { value: state.contextRefs.researchIds.join(" "), weight: 5 },
+            { value: state.contextRefs.specChangeIds.join(" "), weight: 5 },
+            { value: state.contextRefs.ticketIds.join(" "), weight: 4 },
+            { value: state.contextRefs.critiqueIds.join(" "), weight: 3 },
+            { value: state.contextRefs.docIds.join(" "), weight: 3 },
+            { value: state.purpose, weight: 6 },
+            { value: state.contextAndOrientation, weight: 5 },
+            { value: state.milestones, weight: 5 },
+            { value: state.planOfWork, weight: 6 },
+            { value: state.concreteSteps, weight: 5 },
+            { value: state.validation, weight: 4 },
+            { value: state.idempotenceAndRecovery, weight: 4 },
+            { value: state.artifactsAndNotes, weight: 4 },
+            { value: state.interfacesAndDependencies, weight: 4 },
+            { value: state.risksAndQuestions, weight: 4 },
+            { value: state.outcomesAndRetrospective, weight: 4 },
+            { value: state.packetSummary, weight: 5 },
+            { value: state.progress.map((entry) => `${entry.status} ${entry.text}`).join(" "), weight: 3 },
+            { value: state.discoveries.map((entry) => `${entry.note} ${entry.evidence}`).join(" "), weight: 3 },
+            {
+              value: state.decisions.map((entry) => `${entry.decision} ${entry.rationale} ${entry.author}`).join(" "),
+              weight: 3,
+            },
+            { value: state.revisionNotes.map((entry) => `${entry.change} ${entry.reason}`).join(" "), weight: 2 },
+          ],
+        })),
+      { text: filter.text, sort: filter.sort },
+    );
   }
 
   async readPlan(ref: string): Promise<PlanReadResult> {

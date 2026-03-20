@@ -1,3 +1,5 @@
+import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
+
 export const DOC_STATUSES = ["active", "archived", "superseded"] as const;
 export const DOC_TYPES = ["overview", "guide", "concept", "operations", "workflow", "faq"] as const;
 export const DOC_SECTION_GROUPS = ["overviews", "guides", "concepts", "operations"] as const;
@@ -130,6 +132,7 @@ export interface DocumentationListFilter {
   sectionGroup?: DocSectionGroup;
   sourceKind?: DocSourceTargetKind;
   topic?: string;
+  sort?: LoomListSort;
   text?: string;
 }
 

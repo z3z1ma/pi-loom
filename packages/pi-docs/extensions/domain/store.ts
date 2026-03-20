@@ -18,6 +18,7 @@ import {
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
+import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
@@ -140,6 +141,65 @@ function canonicalEntityKindForDocSourceTarget(
     case "workspace":
       return null;
   }
+}
+
+function documentationSearchText(record: DocumentationReadResult): string[] {
+  return [
+    record.summary.id,
+    record.summary.title,
+    record.summary.summary,
+    record.summary.sourceRef,
+    record.state.sourceTarget.ref,
+    ...record.state.guideTopics,
+    ...record.dashboard.guideTopics,
+    ...record.state.audience,
+    ...record.dashboard.audience,
+    ...record.state.scopePaths,
+    ...record.dashboard.scopePaths,
+    ...record.state.linkedOutputPaths,
+    ...record.dashboard.linkedOutputPaths,
+    ...record.state.contextRefs.roadmapItemIds,
+    ...record.state.contextRefs.initiativeIds,
+    ...record.state.contextRefs.researchIds,
+    ...record.state.contextRefs.specChangeIds,
+    ...record.state.contextRefs.ticketIds,
+    ...record.state.contextRefs.critiqueIds,
+  ];
+}
+
+function filterAndSortDocumentationSummaries(
+  records: DocumentationReadResult[],
+  filter: DocumentationListFilter = {},
+): DocumentationReadResult["summary"][] {
+  const filtered = records.filter((record) => {
+    const summary = record.summary;
+    if (filter.status && summary.status !== filter.status) return false;
+    if (filter.docType && summary.docType !== filter.docType) return false;
+    if (filter.sectionGroup && summary.sectionGroup !== filter.sectionGroup) return false;
+    if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) return false;
+    if (filter.topic && !record.state.guideTopics.includes(filter.topic)) return false;
+    return true;
+  });
+
+  return filterAndSortListEntries(
+    filtered.map((record) => ({
+      item: record.summary,
+      id: record.summary.id,
+      createdAt: record.state.createdAt,
+      updatedAt: record.summary.updatedAt,
+      fields: [
+        { value: record.summary.id, weight: 12 },
+        { value: record.summary.title, weight: 10 },
+        { value: record.summary.summary, weight: 9 },
+        { value: record.summary.sourceRef, weight: 7 },
+        { value: record.state.guideTopics.join(" "), weight: 6 },
+        { value: record.state.scopePaths.join(" "), weight: 5 },
+        { value: record.state.linkedOutputPaths.join(" "), weight: 5 },
+        { value: documentationSearchText(record).join(" "), weight: 3 },
+      ],
+    })),
+    { text: filter.text, sort: filter.sort },
+  );
 }
 
 function projectedDocumentationLinks(state: DocumentationState): ProjectedEntityLinkInput[] {
@@ -876,24 +936,7 @@ export class DocumentationStore {
     const records = await Promise.all(
       (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity)),
     );
-    return records
-      .filter((record) => {
-        const summary = record.summary;
-        if (filter.status && summary.status !== filter.status) return false;
-        if (filter.docType && summary.docType !== filter.docType) return false;
-        if (filter.sectionGroup && summary.sectionGroup !== filter.sectionGroup) return false;
-        if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) return false;
-        if (filter.topic) {
-          if (!record.state.guideTopics.includes(filter.topic)) return false;
-        }
-        if (!filter.text) return true;
-        const text = filter.text.toLowerCase();
-        return [summary.id, summary.title, summary.summary, summary.docType, summary.sourceKind, summary.sourceRef]
-          .join(" ")
-          .toLowerCase()
-          .includes(text);
-      })
-      .map((record) => record.summary);
+    return filterAndSortDocumentationSummaries(records, filter);
   }
 
   async readDoc(ref: string): Promise<DocumentationReadResult> {

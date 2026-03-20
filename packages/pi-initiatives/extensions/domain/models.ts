@@ -1,5 +1,6 @@
 import type { RoadmapItemHorizon, RoadmapItemStatus } from "@pi-loom/pi-constitution/extensions/domain/models.js";
 import type { SpecChangeSummary, SpecStatus } from "@pi-loom/pi-specs/extensions/domain/models.js";
+import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import type { TicketStatus, TicketSummary } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 
 export interface InitiativeRoadmapLink {
@@ -153,6 +154,7 @@ export interface InitiativeRecord {
 export interface InitiativeListFilter {
   status?: InitiativeStatus;
   includeArchived?: boolean;
+  sort?: LoomListSort;
   text?: string;
   tag?: string;
 }

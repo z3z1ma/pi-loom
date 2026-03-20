@@ -14,6 +14,7 @@ import {
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
+import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
@@ -62,6 +63,9 @@ interface ResearchArtifactPayload extends ResearchArtifactRecord, Record<string,
 }
 
 interface ResearchSummaryWithSynthesis extends ResearchSummary {
+  state: ResearchState;
+  hypotheses: ResearchHypothesisRecord[];
+  artifacts: ResearchArtifactRecord[];
   synthesis: string;
 }
 
@@ -442,10 +446,6 @@ export class ResearchStore {
     if (!filter.includeArchived && summary.status === "archived") return false;
     if (filter.status && summary.status !== filter.status) return false;
     if (filter.tag && !summary.tags.includes(filter.tag)) return false;
-    if (filter.text) {
-      const haystack = `${summary.id} ${summary.title}`.toLowerCase();
-      if (!haystack.includes(filter.text.toLowerCase())) return false;
-    }
     if (filter.keyword) {
       const lowered = filter.keyword.toLowerCase();
       if (!summary.synthesis.toLowerCase().includes(lowered)) return false;
@@ -466,6 +466,9 @@ export class ResearchStore {
         const artifacts = artifactsByResearchId.get(researchId) ?? [];
         summaries.set(researchId, {
           ...summarizeResearch(state, hypotheses, artifacts),
+          state,
+          hypotheses,
+          artifacts,
           synthesis: renderSynthesis(state, hypotheses, artifacts),
         });
         continue;
@@ -473,10 +476,66 @@ export class ResearchStore {
       throw new Error(`Research entity ${researchId} is missing structured attributes`);
     }
 
-    return [...summaries.values()]
-      .filter((summary) => this.applyListFilter(summary, filter))
-      .map(({ synthesis: _synthesis, ...summary }) => summary)
-      .sort((left, right) => left.id.localeCompare(right.id));
+    return filterAndSortListEntries(
+      [...summaries.values()]
+        .filter((summary) => this.applyListFilter(summary, filter))
+        .map((summary) => ({
+          item: summary,
+          id: summary.id,
+          createdAt: summary.state.createdAt,
+          updatedAt: summary.updatedAt,
+          fields: [
+            { value: summary.id, weight: 10 },
+            { value: summary.title, weight: 10 },
+            { value: summary.state.question, weight: 9 },
+            { value: summary.state.objective, weight: 8 },
+            { value: summary.state.statusSummary, weight: 7 },
+            { value: summary.state.keywords.join(" "), weight: 8 },
+            { value: summary.state.tags.join(" "), weight: 7 },
+            { value: summary.state.conclusions.join(" "), weight: 7 },
+            { value: summary.state.recommendations.join(" "), weight: 7 },
+            { value: summary.state.openQuestions.join(" "), weight: 5 },
+            { value: summary.state.methodology.join(" "), weight: 4 },
+            { value: summary.state.sourceRefs.join(" "), weight: 4 },
+            { value: summary.state.initiativeIds.join(" "), weight: 3 },
+            { value: summary.state.specChangeIds.join(" "), weight: 3 },
+            { value: summary.state.ticketIds.join(" "), weight: 3 },
+            { value: summary.state.capabilityIds.join(" "), weight: 3 },
+            { value: summary.state.supersedes.join(" "), weight: 2 },
+            {
+              value: summary.hypotheses
+                .map((hypothesis) =>
+                  [
+                    hypothesis.id,
+                    hypothesis.statement,
+                    hypothesis.evidence.join(" "),
+                    hypothesis.results.join(" "),
+                  ].join(" "),
+                )
+                .join(" "),
+              weight: 4,
+            },
+            {
+              value: summary.artifacts
+                .map((artifact) =>
+                  [
+                    artifact.id,
+                    artifact.kind,
+                    artifact.title,
+                    artifact.summary,
+                    artifact.sourceUri,
+                    artifact.tags.join(" "),
+                  ].join(" "),
+                )
+                .join(" "),
+              weight: 4,
+            },
+          ],
+        })),
+      { text: filter.text, sort: filter.sort },
+    ).map(
+      ({ state: _state, hypotheses: _hypotheses, artifacts: _artifacts, synthesis: _synthesis, ...summary }) => summary,
+    );
   }
 
   async readResearch(ref: string): Promise<ResearchRecord> {

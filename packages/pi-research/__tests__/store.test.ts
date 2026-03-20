@@ -232,12 +232,12 @@ describe("research store", () => {
 
     await expect(store.listResearch()).resolves.toEqual([
       expect.objectContaining({
-        id: "alpha-research",
-        ref: "research:alpha-research",
-      }),
-      expect.objectContaining({
         id: "zulu-research",
         ref: "research:zulu-research",
+      }),
+      expect.objectContaining({
+        id: "alpha-research",
+        ref: "research:alpha-research",
       }),
     ]);
   });

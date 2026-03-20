@@ -7,6 +7,7 @@ import {
 import { createEntityId, createEventId, createLinkId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
+import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
 import { openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
@@ -150,6 +151,73 @@ function listStoredRalphStates(cwd: string): RalphRunState[] {
     }
     return normalizeStoredRunState(attributes.state);
   });
+}
+
+function ralphSearchText(record: RalphReadResult): string[] {
+  return [
+    record.summary.id,
+    record.summary.title,
+    record.state.objective,
+    record.state.summary,
+    record.summary.objectiveSummary,
+    record.summary.policyMode,
+    record.state.waitingFor,
+    record.dashboard.waitingFor,
+    record.state.latestDecision?.summary ?? "",
+    record.dashboard.latestDecision?.summary ?? "",
+    record.dashboard.latestIteration?.summary ?? "",
+    record.state.verifierSummary.summary,
+    record.state.verifierSummary.sourceRef,
+    ...record.state.policySnapshot.notes,
+    ...(record.state.latestDecision?.blockingRefs ?? []),
+    ...record.state.linkedRefs.roadmapItemIds,
+    ...record.state.linkedRefs.initiativeIds,
+    ...record.state.linkedRefs.researchIds,
+    ...record.state.linkedRefs.specChangeIds,
+    ...record.state.linkedRefs.ticketIds,
+    ...record.state.linkedRefs.critiqueIds,
+    ...record.state.linkedRefs.docIds,
+    ...record.state.linkedRefs.planIds,
+  ];
+}
+
+function filterAndSortRalphSummaries(records: RalphReadResult[], filter: RalphListFilter = {}) {
+  const filtered = records.filter((record) => {
+    const summary = record.summary;
+    if (filter.status && summary.status !== filter.status) {
+      return false;
+    }
+    if (filter.phase && summary.phase !== filter.phase) {
+      return false;
+    }
+    if (filter.decision && summary.decision !== filter.decision) {
+      return false;
+    }
+    if (filter.waitingFor && summary.waitingFor !== filter.waitingFor) {
+      return false;
+    }
+    return true;
+  });
+
+  return filterAndSortListEntries(
+    filtered.map((record) => ({
+      item: record.summary,
+      id: record.summary.id,
+      createdAt: record.state.createdAt,
+      updatedAt: record.summary.updatedAt,
+      fields: [
+        { value: record.summary.id, weight: 12 },
+        { value: record.summary.title, weight: 10 },
+        { value: record.summary.objectiveSummary, weight: 9 },
+        { value: record.summary.policyMode, weight: 7 },
+        { value: record.state.waitingFor, weight: 6 },
+        { value: record.state.latestDecision?.summary, weight: 6 },
+        { value: record.dashboard.latestIteration?.summary, weight: 5 },
+        { value: ralphSearchText(record).join(" "), weight: 3 },
+      ],
+    })),
+    { text: filter.text, sort: filter.sort },
+  );
 }
 
 function normalizePreparedLaunchState(
@@ -1410,29 +1478,10 @@ export class RalphStore {
 
   listRuns(filter: RalphListFilter = {}) {
     this.initLedger();
-    return this.runDirectories()
-      .map((directory) => this.summarizeRun(this.readState(directory), directory))
-      .filter((summary) => {
-        if (filter.status && summary.status !== filter.status) {
-          return false;
-        }
-        if (filter.phase && summary.phase !== filter.phase) {
-          return false;
-        }
-        if (filter.decision && summary.decision !== filter.decision) {
-          return false;
-        }
-        if (filter.waitingFor && summary.waitingFor !== filter.waitingFor) {
-          return false;
-        }
-        if (!filter.text) {
-          return true;
-        }
-        const haystack = [summary.id, summary.title, summary.objectiveSummary, summary.policyMode]
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(filter.text.toLowerCase());
-      });
+    return filterAndSortRalphSummaries(
+      listStoredRalphStates(this.cwd).map((state) => this.readRun(state.runId)),
+      filter,
+    );
   }
 
   readRun(ref: string): RalphReadResult {

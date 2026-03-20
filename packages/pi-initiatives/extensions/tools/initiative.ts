@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { LOOM_LIST_SORTS } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type { CreateInitiativeInput, InitiativeMilestoneInput, UpdateInitiativeInput } from "../domain/models.js";
 import { renderInitiativeDashboard, renderInitiativeDetail, renderInitiativeSummary } from "../domain/render.js";
@@ -27,16 +28,33 @@ const InitiativeWriteActionEnum = StringEnum([
   "upsert_milestone",
   "archive",
 ] as const);
+const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
+
+function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
+  return { ...schema, description } as T;
+}
 
 const InitiativeListParams = Type.Object({
-  status: Type.Optional(InitiativeStatusEnum),
+  status: Type.Optional(
+    withDescription(
+      InitiativeStatusEnum,
+      "Optional exact status filter. Leave it unset on the first pass unless you intentionally want one initiative-state slice.",
+    ),
+  ),
   includeArchived: Type.Optional(
     Type.Boolean({ description: "Include archived initiatives. Archived initiatives are hidden unless this is true." }),
   ),
   text: Type.Optional(
     Type.String({
-      description: "Broad text search across initiative records. Start here before adding narrower exact filters.",
+      description:
+        "Broad text search across initiative records. Leave `sort` unset to rank by relevance when text is present; start here before adding narrower exact filters.",
     }),
+  ),
+  sort: Type.Optional(
+    withDescription(
+      LoomListSortEnum,
+      "Optional result ordering override. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Set this only when you need recency, creation time, or id ordering instead of the default ranking.",
+    ),
   ),
   tag: Type.Optional(
     Type.String({
@@ -166,12 +184,13 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
     name: "initiative_list",
     label: "initiative_list",
     description:
-      "List initiatives from the durable local strategic memory layer. Start broad with `text`, then add exact filters like `tag` only when you intentionally want a narrower strategic slice.",
+      "List initiatives from the durable local strategic memory layer. Leave `sort` unset for the default ordering: `updated_desc` without `text`, `relevance` with `text`. Start broad with `text`, then add exact filters like `tag` only when you intentionally want a narrower strategic slice.",
     promptSnippet:
-      "Inspect strategic context before creating a new initiative or assuming work has no long-horizon container; broad text search is the safest first pass when the exact initiative title or tag is uncertain.",
+      "Inspect strategic context before creating a new initiative or assuming work has no long-horizon container; broad text search with the default relevance ranking is the safest first pass when the exact initiative title or tag is uncertain.",
     promptGuidelines: [
       "Use this tool before creating a new initiative so you do not fork program-level context.",
-      "Start with `text` and no exact filters when rediscovering initiative context by theme, objective, or phrase; add `status` or `tag` only after the broad search is still too wide.",
+      "Start with `text` and no exact filters when rediscovering initiative context by theme, objective, or phrase; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
+      "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
       "`tag` is an exact filter and can hide valid matches if you guess the stored tag wrong.",
       "Archived initiatives are hidden by default; set `includeArchived` when checking whether older strategy still governs the current work or was explicitly retired.",
     ],
@@ -181,6 +200,7 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
         status: params.status,
         includeArchived: params.includeArchived,
         text: params.text,
+        sort: params.sort,
         tag: params.tag,
       });
       return machineResult(

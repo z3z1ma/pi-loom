@@ -1,3 +1,5 @@
+import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
+
 export const PLAN_STATUSES = ["active", "paused", "completed", "archived", "superseded"] as const;
 export const PLAN_SOURCE_TARGET_KINDS = ["workspace", "initiative", "spec", "research"] as const;
 export const PLAN_PROGRESS_STATUSES = ["done", "pending"] as const;
@@ -126,6 +128,7 @@ export interface PlanReadResult {
 export interface PlanListFilter {
   status?: PlanStatus;
   sourceKind?: PlanSourceTargetKind;
+  sort?: LoomListSort;
   text?: string;
   linkedTicketId?: string;
 }

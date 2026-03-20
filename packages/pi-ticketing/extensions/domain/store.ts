@@ -410,8 +410,7 @@ export class TicketStore {
   }
 
   async listTicketsAsync(filter: TicketListFilter = {}): Promise<TicketSummary[]> {
-    const summaries = this.canonicalSummaries(await this.canonicalRecords());
-    return filterTickets(summaries, filter);
+    return filterTickets(await this.canonicalRecords(), filter);
   }
 
   async graphAsync(): Promise<TicketGraphResult> {

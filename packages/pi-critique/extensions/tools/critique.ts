@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import { renderCritiqueDetail, renderDashboard } from "../domain/render.js";
 import { runCritiqueLaunch } from "../domain/runtime.js";
@@ -58,6 +59,11 @@ const CritiqueFindingStatusEnum = StringEnum(["open", "accepted", "rejected", "f
 const CritiqueWriteActionEnum = StringEnum(["init", "create", "update", "resolve"] as const);
 const CritiqueReadModeEnum = StringEnum(["full", "state", "packet", "critique"] as const);
 const CritiqueFindingActionEnum = StringEnum(["create", "update", "ticketify"] as const);
+const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
+
+function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
+  return { ...schema, description } as T;
+}
 
 const ContextRefsSchema = Type.Object({
   roadmapItemIds: Type.Optional(Type.Array(Type.String())),
@@ -74,24 +80,38 @@ const CritiqueTargetSchema = Type.Object({
 });
 
 const CritiqueListParams = Type.Object({
-  status: Type.Optional(CritiqueStatusEnum, {
-    description: "Exact critique status filter. Start with text first unless you intentionally want one status bucket.",
-  }),
-  verdict: Type.Optional(CritiqueVerdictEnum, {
-    description: "Exact verdict filter. Useful for targeted triage after broad discovery.",
-  }),
-  targetKind: Type.Optional(CritiqueTargetKindEnum, {
-    description: "Exact target kind filter. Leave unset unless you already know the critique target type.",
-  }),
-  focusArea: Type.Optional(CritiqueFocusAreaEnum, {
-    description:
+  status: Type.Optional(
+    withDescription(
+      CritiqueStatusEnum,
+      "Exact critique status filter. Start with text first unless you intentionally want one status bucket.",
+    ),
+  ),
+  verdict: Type.Optional(
+    withDescription(CritiqueVerdictEnum, "Exact verdict filter. Useful for targeted triage after broad discovery."),
+  ),
+  targetKind: Type.Optional(
+    withDescription(
+      CritiqueTargetKindEnum,
+      "Exact target kind filter. Leave unset unless you already know the critique target type.",
+    ),
+  ),
+  focusArea: Type.Optional(
+    withDescription(
+      CritiqueFocusAreaEnum,
       "Exact focus-area filter. This narrows to critiques whose recorded focus areas include the chosen value.",
-  }),
+    ),
+  ),
   text: Type.Optional(
     Type.String({
       description:
-        "Broad substring search across critique id, title, target ref, target kind, and focus areas. Prefer this first when uncertain.",
+        "Free-text search over critique id, title, review question, target ref, target kind, focus areas, and recorded context refs. Prefer this first when uncertain.",
     }),
+  ),
+  sort: Type.Optional(
+    withDescription(
+      LoomListSortEnum,
+      "Optional result ordering. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Override this only when you intentionally need chronological or id-based ordering after filtering.",
+    ),
   ),
 });
 
@@ -258,17 +278,25 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
     name: "critique_list",
     label: "critique_list",
     description:
-      "List durable critique records. Prefer broad discovery with text first, then add exact status, verdict, target, or focus-area filters only when you intentionally want a narrower slice.",
+      "List durable critique records. Prefer broad discovery with text first, then add exact status, verdict, target, or focus-area filters only when you intentionally want a narrower slice; results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
-      "Inspect existing critiques before starting a new review so prior evidence, verdict reasoning, and follow-up findings are not duplicated or contradicted. Start broad with text when uncertain, then narrow deliberately.",
+      "Inspect existing critiques before starting a new review so prior evidence, verdict reasoning, and follow-up findings are not duplicated or contradicted. Start broad with text when uncertain, then narrow deliberately; keep the default relevance ordering unless you intentionally need another sort.",
     promptGuidelines: [
       "Use this tool to discover whether the target already has a durable critique record.",
       "Prefer text first for broad discovery by critique id, title, target ref, or focus area; exact filters can hide valid matches if you guess the stored status, verdict, target kind, or focus area wrong.",
+      "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need chronology or id order after filtering.",
       "Filter by focus area or verdict when triaging follow-up review work and when you need the strongest existing evidence trail first.",
     ],
     parameters: CritiqueListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const critiques = await getStore(ctx).listCritiquesAsync(params);
+      const critiques = await getStore(ctx).listCritiquesAsync({
+        status: params.status,
+        verdict: params.verdict,
+        targetKind: params.targetKind,
+        focusArea: params.focusArea,
+        text: params.text,
+        sort: params.sort as LoomListSort | undefined,
+      });
       return machineResult(
         { critiques },
         critiques.length > 0

@@ -5,6 +5,7 @@ import {
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
+import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { analyzeSpecChange } from "./analysis.js";
@@ -432,39 +433,109 @@ export class SpecStore {
 
   async listChanges(filter: SpecListFilter = {}): Promise<SpecChangeSummary[]> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const summaries: SpecChangeSummary[] = [];
+    const summaries: Array<{ summary: SpecChangeSummary; state: SpecChangeState }> = [];
     for (const entity of await storage.listEntities(identity.space.id, SPEC_CHANGE_ENTITY_KIND)) {
       if (hasStructuredSpecChangeAttributes(entity.attributes)) {
         const state = this.normalizeState(entity.attributes.state);
-        summaries.push(summarizeChange(state, Boolean(state.archivedRef)));
+        summaries.push({ summary: summarizeChange(state, Boolean(state.archivedRef)), state });
         continue;
       }
       throw new Error(`Spec change entity ${entity.displayId} is missing structured attributes`);
     }
-    return summaries
-      .filter((summary) => {
-        if (!filter.includeArchived && summary.archived) {
-          return false;
-        }
-        if (filter.status && summary.status !== filter.status) {
-          return false;
-        }
-        if (filter.text) {
-          const haystack = `${summary.id} ${summary.title}`.toLowerCase();
-          if (!haystack.includes(filter.text.toLowerCase())) {
+    return filterAndSortListEntries(
+      summaries
+        .filter(({ summary }) => {
+          if (!filter.includeArchived && summary.archived) {
             return false;
           }
-        }
-        return true;
-      })
-      .sort((left, right) => left.id.localeCompare(right.id));
+          if (filter.status && summary.status !== filter.status) {
+            return false;
+          }
+          return true;
+        })
+        .map(({ summary, state }) => ({
+          item: summary,
+          id: summary.id,
+          createdAt: state.createdAt,
+          updatedAt: summary.updatedAt,
+          fields: [
+            { value: summary.id, weight: 10 },
+            { value: summary.title, weight: 10 },
+            { value: state.proposalSummary, weight: 8 },
+            { value: state.initiativeIds.join(" "), weight: 6 },
+            { value: state.researchIds.join(" "), weight: 6 },
+            { value: state.supersedes.join(" "), weight: 4 },
+            {
+              value: state.capabilities
+                .map((capability) =>
+                  [
+                    capability.id,
+                    capability.title,
+                    capability.summary,
+                    capability.requirements.join(" "),
+                    capability.scenarios.join(" "),
+                  ].join(" "),
+                )
+                .join(" "),
+              weight: 7,
+            },
+            {
+              value: state.requirements
+                .map((requirement) =>
+                  [
+                    requirement.id,
+                    requirement.text,
+                    requirement.acceptance.join(" "),
+                    requirement.capabilities.join(" "),
+                  ].join(" "),
+                )
+                .join(" "),
+              weight: 5,
+            },
+            {
+              value: state.tasks
+                .map((task) =>
+                  [
+                    task.id,
+                    task.title,
+                    task.summary,
+                    task.deps.join(" "),
+                    task.requirements.join(" "),
+                    task.capabilities.join(" "),
+                    task.acceptance.join(" "),
+                  ].join(" "),
+                )
+                .join(" "),
+              weight: 4,
+            },
+            { value: state.designNotes, weight: 4 },
+          ],
+        })),
+      { text: filter.text, sort: filter.sort },
+    );
   }
 
   async listCapabilities(): Promise<CanonicalCapabilityRecord[]> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    return (await storage.listEntities(identity.space.id, SPEC_CAPABILITY_ENTITY_KIND))
-      .map((entity) => (entity.attributes as unknown as SpecCapabilityEntityAttributes).record)
-      .sort((left, right) => left.id.localeCompare(right.id));
+    return filterAndSortListEntries(
+      (await storage.listEntities(identity.space.id, SPEC_CAPABILITY_ENTITY_KIND)).map((entity) => {
+        const record = (entity.attributes as unknown as SpecCapabilityEntityAttributes).record;
+        return {
+          item: record,
+          id: record.id,
+          createdAt: null,
+          updatedAt: record.updatedAt,
+          fields: [
+            { value: record.id, weight: 10 },
+            { value: record.title, weight: 10 },
+            { value: record.summary, weight: 8 },
+            { value: record.requirements.join(" "), weight: 6 },
+            { value: record.scenarios.join(" "), weight: 5 },
+            { value: record.sourceChanges.join(" "), weight: 4 },
+          ],
+        };
+      }),
+    );
   }
 
   async readCapability(ref: string): Promise<CanonicalCapabilityRecord> {

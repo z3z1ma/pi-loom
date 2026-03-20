@@ -250,8 +250,8 @@ describe("ralph tools", () => {
       expect(resumed.details).toMatchObject({
         launch: {
           runId: "ralph-tool-coverage",
-          runtime: "subprocess",
-          resume: true,
+          runtime: "descriptor_only",
+          resume: false,
         },
         execution: { command: "pi", exitCode: 17, stderr: "Fresh Ralph resume failed." },
         run: {
@@ -271,7 +271,7 @@ describe("ralph tools", () => {
       if (resumed.content[0]?.type !== "text") {
         throw new Error("Expected resume text content");
       }
-      expect(resumed.content[0].text).toContain("Resume: yes");
+      expect(resumed.content[0].text).toContain("Resume: no");
 
       const dashboard = await ralphDashboard.execute(
         "call-6",

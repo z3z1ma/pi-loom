@@ -1,5 +1,6 @@
 import type { InitiativeSummary } from "@pi-loom/pi-initiatives/extensions/domain/models.js";
 import type { SpecChangeSummary, SpecStatus } from "@pi-loom/pi-specs/extensions/domain/models.js";
+import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import type { TicketStatus, TicketSummary } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 
 export const RESEARCH_STATUSES = ["proposed", "active", "paused", "synthesized", "archived", "superseded"] as const;
@@ -175,6 +176,7 @@ export interface ResearchRecord {
 export interface ResearchListFilter {
   status?: ResearchStatus;
   includeArchived?: boolean;
+  sort?: LoomListSort;
   text?: string;
   tag?: string;
   keyword?: string;

@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type {
   AttachArtifactInput,
@@ -29,15 +30,25 @@ const JournalKindEnum = StringEnum([
 ] as const);
 const TicketWriteActionEnum = StringEnum(TICKET_WRITE_ACTIONS);
 const TicketCheckpointActionEnum = StringEnum(["create", "read"] as const);
+const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
+
+function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
+  return { ...schema, description } as T;
+}
 
 const TicketListParams = Type.Object({
-  status: Type.Optional(TicketStatusEnum, {
-    description:
+  status: Type.Optional(
+    withDescription(
+      TicketStatusEnum,
       "Exact status filter. Start with text when discovering work; add status only once you intentionally want a narrower slice.",
-  }),
-  type: Type.Optional(TicketTypeEnum, {
-    description: "Exact type filter. Leave unset for broad discovery unless you already know the ticket kind you want.",
-  }),
+    ),
+  ),
+  type: Type.Optional(
+    withDescription(
+      TicketTypeEnum,
+      "Exact type filter. Leave unset for broad discovery unless you already know the ticket kind you want.",
+    ),
+  ),
   includeClosed: Type.Optional(
     Type.Boolean({
       description:
@@ -53,8 +64,14 @@ const TicketListParams = Type.Object({
   text: Type.Optional(
     Type.String({
       description:
-        "Broad substring search across ticket id and title. Prefer this first when you are unsure of the exact status or type.",
+        "Free-text search over ticket id, title, summary, assignee, labels, tags, and linked context. Prefer this first when you are unsure of the exact status or type.",
     }),
+  ),
+  sort: Type.Optional(
+    withDescription(
+      LoomListSortEnum,
+      "Optional result ordering. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Override this only when you intentionally need chronological or id-based ordering after filtering.",
+    ),
   ),
 });
 
@@ -211,12 +228,13 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     name: "ticket_list",
     label: "ticket_list",
     description:
-      "List tickets from the durable local ledger. Prefer broad discovery with text first, then add exact filters only when you intentionally want to narrow the result set.",
+      "List tickets from the durable local ledger. Prefer broad discovery with text first, then add exact filters only when you intentionally want to narrow the result set; results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
-      "Inspect backlog, ready work, blocked work, or existing intent before creating a new ticket. Start broad with text when uncertain, then narrow with exact filters.",
+      "Inspect backlog, ready work, blocked work, or existing intent before creating a new ticket. Start broad with text when uncertain, then narrow with exact filters; rely on the default relevance ranking unless you explicitly need a different ordering.",
     promptGuidelines: [
       "Use this tool before creating tickets so you do not duplicate existing work.",
       "Start with text for broad-first discovery when you only know part of the title or intent; exact status and type filters can hide valid matches if you guess wrong.",
+      "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need another ordering such as chronology or id order.",
       "Closed tickets are excluded by default, and archived tickets are also excluded by default even when includeClosed is true; opt into those histories only when you intentionally need them.",
       "Use status filters to inspect ready or blocked work before proposing sequencing or parallelism once you have already narrowed the search intentionally.",
       "Use the existing ledger to inherit durable context, dependencies, and verification expectations before writing a new ticket body.",
@@ -229,6 +247,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
         includeClosed: params.includeClosed,
         includeArchived: params.includeArchived,
         text: params.text,
+        sort: params.sort as LoomListSort | undefined,
       });
       return machineResult(
         { tickets },

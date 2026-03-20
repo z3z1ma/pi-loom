@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { LOOM_LIST_SORTS } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import { renderDashboard, renderPlanDetail } from "../domain/render.js";
 import { createPlanStore } from "../domain/store.js";
@@ -10,7 +11,7 @@ const PlanProgressStatusEnum = StringEnum(["done", "pending"] as const);
 const PlanWriteActionEnum = StringEnum(["init", "create", "update", "archive"] as const);
 const PlanReadModeEnum = StringEnum(["full", "state", "packet", "plan"] as const);
 const PlanTicketLinkActionEnum = StringEnum(["link", "unlink"] as const);
-
+const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
   return { ...schema, description } as T;
 }
@@ -70,8 +71,14 @@ const PlanListParams = Type.Object({
   text: Type.Optional(
     Type.String({
       description:
-        "Free-text search over plan id, title, summary, source ref, and source kind. Prefer starting with text alone, then add filters only after you find the right plan family.",
+        "Free-text search over plan id, title, summary, source ref, and source kind. Leave `sort` unset to rank by relevance when text is present; prefer starting with text alone, then add filters only after you find the right plan family.",
     }),
+  ),
+  sort: Type.Optional(
+    withDescription(
+      LoomListSortEnum,
+      "Optional result ordering override. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Set this only when you need recency, creation time, or id ordering instead of the default ranking.",
+    ),
   ),
   linkedTicketId: Type.Optional(
     Type.String({ description: "Optional exact ticket id filter for plans linked to a specific ticket." }),
@@ -207,17 +214,25 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     name: "plan_list",
     label: "plan_list",
     description:
-      "List durable execution plans. Start broad with `text` when rediscovering a plan by name, topic, or source context; add exact filters such as `status`, `sourceKind`, or `linkedTicketId` only when you intentionally want a narrower result set.",
+      "List durable execution plans. Leave `sort` unset for the default ordering: `updated_desc` without `text`, `relevance` with `text`. Start broad with `text` when rediscovering a plan by name, topic, or source context; add exact filters such as `status`, `sourceKind`, or `linkedTicketId` only when you intentionally want a narrower result set.",
     promptSnippet:
-      "Inspect existing plans before creating a new one so durable execution strategy does not fork; broad text search is the safest first pass when you do not yet know the exact source anchor or status.",
+      "Inspect existing plans before creating a new one so durable execution strategy does not fork; broad text search with the default relevance ranking is the safest first pass when you do not yet know the exact source anchor or status.",
     promptGuidelines: [
       "Use this tool before writing a new plan so broader execution strategy stays consolidated.",
-      "When rediscovering an existing plan, start with `text` and no exact filters; `status`, `sourceKind`, and `linkedTicketId` all narrow by exact stored values, and `sourceKind` in particular matches the upstream anchor type (`workspace`, `initiative`, `spec`, or `research`).",
+      "When rediscovering an existing plan, start with `text` and no exact filters; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
+      "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
+      "`status`, `sourceKind`, and `linkedTicketId` all narrow by exact stored values, and `sourceKind` in particular matches the upstream anchor type (`workspace`, `initiative`, `spec`, or `research`).",
       "Add exact filters only after the broad search is still too wide or when you intentionally need one specific execution-plan slice.",
     ],
     parameters: PlanListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const plans = await getStore(ctx).listPlans(params);
+      const plans = await getStore(ctx).listPlans({
+        status: params.status,
+        sourceKind: params.sourceKind,
+        text: params.text,
+        sort: params.sort,
+        linkedTicketId: params.linkedTicketId,
+      });
       return machineResult(
         { plans },
         plans.length > 0 ? plans.map((plan) => `${plan.id} [${plan.status}] ${plan.title}`).join("\n") : "No plans.",

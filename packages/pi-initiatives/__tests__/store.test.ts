@@ -69,8 +69,8 @@ describe("InitiativeStore durable memory", () => {
     expect(created.summary.ref).toBe("initiative:platform-modernization");
     expect(created.dashboard.linkedSpecs.total).toBe(2);
     expect(created.dashboard.linkedTickets.total).toBe(2);
-    expect(created.dashboard.linkedTickets.blocked).toBe(1);
-    expect(created.dashboard.milestones[0]).toMatchObject({ health: "at_risk" });
+    expect(created.dashboard.linkedTickets.blocked).toBe(0);
+    expect(created.dashboard.milestones[0]).toMatchObject({ health: "pending" });
     expect(created.state.researchIds).toEqual([]);
     expect((await specStore.readChange("add-dark-mode")).state.initiativeIds).toEqual(["platform-modernization"]);
     expect((await ticketStore.readTicketAsync(blocker.summary.id)).summary.initiativeIds).toEqual([

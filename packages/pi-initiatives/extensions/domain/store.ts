@@ -10,6 +10,7 @@ import {
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
+import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
@@ -388,32 +389,71 @@ export class InitiativeStore {
 
   async listInitiatives(filter: InitiativeListFilter = {}): Promise<InitiativeSummary[]> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const summaries: InitiativeSummary[] = [];
+    const summaries: Array<{ summary: InitiativeSummary; state: InitiativeState }> = [];
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
       if (hasStructuredInitiativeAttributes(entity.attributes)) {
-        summaries.push(
-          summarizeInitiative(
+        summaries.push({
+          summary: summarizeInitiative(
             this.cwd,
             entity.attributes.state,
             getInitiativeDir(this.cwd, entity.attributes.state.initiativeId),
           ),
-        );
+          state: entity.attributes.state,
+        });
         continue;
       }
       throw new Error(`Initiative entity ${entity.displayId} is missing structured attributes`);
     }
-    return summaries
-      .filter((summary) => {
-        if (!filter.includeArchived && summary.status === "archived") return false;
-        if (filter.status && summary.status !== filter.status) return false;
-        if (filter.tag && !summary.tags.includes(filter.tag)) return false;
-        if (filter.text) {
-          const haystack = `${summary.id} ${summary.title}`.toLowerCase();
-          if (!haystack.includes(filter.text.toLowerCase())) return false;
-        }
-        return true;
-      })
-      .sort((left, right) => left.id.localeCompare(right.id));
+    return filterAndSortListEntries(
+      summaries
+        .filter(({ summary }) => {
+          if (!filter.includeArchived && summary.status === "archived") return false;
+          if (filter.status && summary.status !== filter.status) return false;
+          if (filter.tag && !summary.tags.includes(filter.tag)) return false;
+          return true;
+        })
+        .map(({ summary, state }) => ({
+          item: summary,
+          id: summary.id,
+          createdAt: state.createdAt,
+          updatedAt: summary.updatedAt,
+          fields: [
+            { value: summary.id, weight: 10 },
+            { value: summary.title, weight: 10 },
+            { value: state.objective, weight: 8 },
+            { value: state.statusSummary, weight: 7 },
+            { value: state.outcomes.join(" "), weight: 6 },
+            { value: state.tags.join(" "), weight: 7 },
+            { value: state.owners.join(" "), weight: 6 },
+            { value: state.roadmapRefs.join(" "), weight: 5 },
+            { value: state.researchIds.join(" "), weight: 5 },
+            { value: state.specChangeIds.join(" "), weight: 5 },
+            { value: state.ticketIds.join(" "), weight: 5 },
+            { value: state.capabilityIds.join(" "), weight: 4 },
+            { value: state.scope.join(" "), weight: 4 },
+            { value: state.nonGoals.join(" "), weight: 3 },
+            { value: state.successMetrics.join(" "), weight: 4 },
+            { value: state.risks.join(" "), weight: 3 },
+            { value: state.targetWindow, weight: 3 },
+            { value: state.supersedes.join(" "), weight: 2 },
+            {
+              value: state.milestones
+                .map((milestone) =>
+                  [
+                    milestone.id,
+                    milestone.title,
+                    milestone.description,
+                    milestone.specChangeIds.join(" "),
+                    milestone.ticketIds.join(" "),
+                  ].join(" "),
+                )
+                .join(" "),
+              weight: 4,
+            },
+          ],
+        })),
+      { text: filter.text, sort: filter.sort },
+    );
   }
 
   async readInitiative(ref: string): Promise<InitiativeRecord> {

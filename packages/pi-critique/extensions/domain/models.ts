@@ -1,3 +1,5 @@
+import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
+
 export const CRITIQUE_STATUSES = ["proposed", "active", "resolved", "superseded", "archived"] as const;
 export const CRITIQUE_TARGET_KINDS = [
   "ticket",
@@ -221,6 +223,7 @@ export interface CritiqueListFilter {
   targetKind?: CritiqueTargetKind;
   focusArea?: CritiqueFocusArea;
   text?: string;
+  sort?: LoomListSort;
 }
 
 export interface CreateCritiqueInput {

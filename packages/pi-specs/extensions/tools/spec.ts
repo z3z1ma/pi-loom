@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { LOOM_LIST_SORTS } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type { SpecPlanInput, SpecTasksInput } from "../domain/models.js";
 import { renderCapabilityDetail, renderSpecDetail, renderSpecSummary } from "../domain/render.js";
@@ -17,9 +18,19 @@ const SpecStatusEnum = StringEnum([
 ] as const);
 const SpecWriteActionEnum = StringEnum(["init", "propose", "clarify", "plan", "tasks", "finalize", "archive"] as const);
 const SpecAnalyzeModeEnum = StringEnum(["analysis", "checklist", "both"] as const);
+const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
+
+function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
+  return { ...schema, description } as T;
+}
 
 const SpecListParams = Type.Object({
-  status: Type.Optional(SpecStatusEnum),
+  status: Type.Optional(
+    withDescription(
+      SpecStatusEnum,
+      "Optional exact spec-change status filter. Leave it unset on the first pass unless you intentionally want one change-state slice.",
+    ),
+  ),
   includeArchived: Type.Optional(
     Type.Boolean({
       description:
@@ -29,8 +40,14 @@ const SpecListParams = Type.Object({
   text: Type.Optional(
     Type.String({
       description:
-        "Broad text search across spec changes. Start here before adding exact change filters; capability summaries are returned separately.",
+        "Broad text search across spec changes. Leave `sort` unset to rank by relevance when text is present; capability summaries are returned separately.",
     }),
+  ),
+  sort: Type.Optional(
+    withDescription(
+      LoomListSortEnum,
+      "Optional change-list ordering override. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Set this only when you need recency, creation time, or id ordering instead of the default ranking. Capability summaries are still returned separately.",
+    ),
   ),
 });
 
@@ -127,13 +144,15 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     name: "spec_list",
     label: "spec_list",
     description:
-      "List spec changes plus the separate capability summary set from durable local spec memory. Start broad with `text`; `status` and `includeArchived` narrow only the change list.",
+      "List spec changes plus the separate capability summary set from durable local spec memory. Leave `sort` unset for the default change ordering: `updated_desc` without `text`, `relevance` with `text`. `status` and `includeArchived` narrow only the change list.",
     promptSnippet:
-      "Inspect relevant existing specs before opening a new change or ensuring linked tickets so the new spec can inherit bounded detail instead of re-inventing it; broad text search is the safest first pass when you are rediscovering prior spec work.",
+      "Inspect relevant existing specs before opening a new change or ensuring linked tickets so the new spec can inherit bounded detail instead of re-inventing it; broad text search with the default relevance ranking is the safest first pass when you are rediscovering prior spec work.",
     promptGuidelines: [
       "Use this tool before creating a new spec so you do not duplicate existing capability work.",
-      "Start with `text` when rediscovering prior spec work by capability, title, or phrase; add `status` only after the broad search is still too wide or when you intentionally want one change-state slice.",
+      "Start with `text` when rediscovering prior spec work by capability, title, or phrase; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
+      "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
       "`status` and `includeArchived` apply only to spec changes. Capability summaries are still returned separately and are not filtered by those change filters.",
+      "`sort` applies only to the spec change list. Capability summaries are still returned separately as an unranked companion set.",
       "Archived spec changes are hidden by default; set `includeArchived` when checking whether older finalized or superseded changes already cover the capability.",
     ],
     parameters: SpecListParams,
@@ -142,6 +161,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
         status: params.status,
         includeArchived: params.includeArchived,
         text: params.text,
+        sort: params.sort,
       });
       const capabilities = await getStore(ctx).listCapabilities();
       return machineResult(

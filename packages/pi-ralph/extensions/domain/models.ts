@@ -1,3 +1,4 @@
+import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import type { RalphArtifactPaths } from "./paths.js";
 
 export const RALPH_RUN_STATUSES = [
@@ -223,6 +224,7 @@ export interface RalphListFilter {
   decision?: RalphDecisionKind;
   waitingFor?: RalphWaitingFor;
   text?: string;
+  sort?: LoomListSort;
 }
 
 export interface CreateRalphRunInput {

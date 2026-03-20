@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { Type } from "@sinclair/typebox";
 import { renderWorkerDashboard, renderWorkerDetail, renderWorkerList } from "../domain/render.js";
 import { buildInheritedWorkerSdkSessionConfig, runWorkerLaunch } from "../domain/runtime.js";
@@ -59,6 +60,11 @@ const WorkerWriteActionEnum = StringEnum([
   "record_consolidation",
   "retire",
 ] as const);
+const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
+
+function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
+  return { ...schema, description } as T;
+}
 
 const LinkedRefsSchema = Type.Object({
   initiativeIds: Type.Optional(Type.Array(Type.String())),
@@ -171,22 +177,28 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
     name: "worker_list",
     label: "List Workers",
     description:
-      "List workspace-backed workers from local Loom memory. Prefer text-first discovery when uncertain; status, telemetryState, and pendingApproval are exact narrowing filters.",
+      "List workspace-backed workers from local Loom memory. Prefer text-first discovery when uncertain; status, telemetryState, and pendingApproval are exact narrowing filters, and results default to `relevance` with `text` otherwise `updated_desc`.",
     promptSnippet:
-      "Inspect existing workers before creating or resuming one. Start with text when you are not certain of the exact state, then add exact filters only to narrow intentionally.",
+      "Inspect existing workers before creating or resuming one. Start with text when you are not certain of the exact state, then add exact filters only to narrow intentionally; keep the default relevance ordering unless you explicitly need a different sort.",
     promptGuidelines: [
       "Use this tool before creating or launching workers so you reuse existing workspace-backed execution records instead of fragmenting work across duplicate workers.",
       "Prefer text first for broad discovery by worker title, objective summary, or latest checkpoint summary; exact status, telemetryState, and pendingApproval filters can hide the worker you need if you guess the state wrong.",
+      "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need chronology or id ordering after filtering.",
       "Use exact filters only when you intentionally want a smaller slice such as workers waiting for approval or workers in a specific telemetry state.",
     ],
     parameters: Type.Object({
-      status: Type.Optional(WorkerStatusEnum, {
-        description:
+      status: Type.Optional(
+        withDescription(
+          WorkerStatusEnum,
           "Exact worker status filter. Leave unset for broad discovery unless you intentionally want one status bucket.",
-      }),
-      telemetryState: Type.Optional(WorkerTelemetryEnum, {
-        description: "Exact telemetry state filter. Use only when you know the worker is already in that state.",
-      }),
+        ),
+      ),
+      telemetryState: Type.Optional(
+        withDescription(
+          WorkerTelemetryEnum,
+          "Exact telemetry state filter. Use only when you know the worker is already in that state.",
+        ),
+      ),
       pendingApproval: Type.Optional(
         Type.Boolean({
           description:
@@ -196,12 +208,24 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
       text: Type.Optional(
         Type.String({
           description:
-            "Broad substring search across worker title, objective summary, and latest checkpoint summary. Prefer this first when uncertain.",
+            "Free-text search over worker id, title, objective, summary, latest checkpoint summary, workspace metadata, and linked refs. Prefer this first when uncertain.",
         }),
+      ),
+      sort: Type.Optional(
+        withDescription(
+          LoomListSortEnum,
+          "Optional result ordering. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Override this only when you intentionally need chronological or id-based ordering after filtering.",
+        ),
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const workers = await getStore(ctx).listWorkersAsync(params);
+      const workers = await getStore(ctx).listWorkersAsync({
+        status: params.status,
+        telemetryState: params.telemetryState,
+        pendingApproval: params.pendingApproval,
+        text: params.text,
+        sort: params.sort as LoomListSort | undefined,
+      });
       return machineResult({ workers }, renderWorkerList(workers));
     },
   });

@@ -16,6 +16,7 @@ import {
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
+import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
@@ -148,6 +149,67 @@ function critiqueFindingArtifactDisplayId(critiqueId: string, findingId: string)
 
 function toCritiqueLaunchRef(critiqueId: string): string {
   return `critique:${critiqueId}:launch`;
+}
+
+function critiqueSearchText(record: CritiqueReadResult): string[] {
+  return [
+    record.summary.id,
+    record.summary.title,
+    record.summary.targetRef,
+    record.state.target.locator ?? "",
+    record.state.reviewQuestion,
+    ...record.summary.focusAreas,
+    ...record.state.scopeRefs,
+    ...record.state.contextRefs.roadmapItemIds,
+    ...record.state.contextRefs.initiativeIds,
+    ...record.state.contextRefs.researchIds,
+    ...record.state.contextRefs.specChangeIds,
+    ...record.state.contextRefs.ticketIds,
+    ...record.state.followupTicketIds,
+    ...record.dashboard.followupTicketIds,
+  ];
+}
+
+function filterAndSortCritiqueSummaries(
+  records: CritiqueReadResult[],
+  filter: CritiqueListFilter = {},
+): CritiqueSummary[] {
+  const filtered = records.filter((record) => {
+    const summary = record.summary;
+    if (filter.status && summary.status !== filter.status) {
+      return false;
+    }
+    if (filter.verdict && summary.verdict !== filter.verdict) {
+      return false;
+    }
+    if (filter.targetKind && summary.targetKind !== filter.targetKind) {
+      return false;
+    }
+    if (filter.focusArea && !summary.focusAreas.includes(filter.focusArea)) {
+      return false;
+    }
+    return true;
+  });
+
+  return filterAndSortListEntries(
+    filtered.map((record) => ({
+      item: record.summary,
+      id: record.summary.id,
+      createdAt: record.state.createdAt,
+      updatedAt: record.summary.updatedAt,
+      fields: [
+        { value: record.summary.id, weight: 12 },
+        { value: record.summary.title, weight: 10 },
+        { value: record.summary.targetRef, weight: 8 },
+        { value: record.state.target.locator, weight: 7 },
+        { value: record.state.reviewQuestion, weight: 7 },
+        { value: record.summary.focusAreas.join(" "), weight: 6 },
+        { value: record.state.followupTicketIds.join(" "), weight: 5 },
+        { value: critiqueSearchText(record).join(" "), weight: 3 },
+      ],
+    })),
+    { text: filter.text, sort: filter.sort },
+  );
 }
 
 function toCanonicalState(state: CritiqueState): CritiqueCanonicalState {
@@ -1347,31 +1409,10 @@ export class CritiqueStore {
 
   listCritiques(filter: CritiqueListFilter = {}): CritiqueSummary[] {
     this.initLedger();
-    return listStoredCritiqueRows(this.cwd)
-      .map((row) => this.readCritique(row.display_id ?? row.id))
-      .map((record) => record.summary)
-      .filter((summary) => {
-        if (filter.status && summary.status !== filter.status) {
-          return false;
-        }
-        if (filter.verdict && summary.verdict !== filter.verdict) {
-          return false;
-        }
-        if (filter.targetKind && summary.targetKind !== filter.targetKind) {
-          return false;
-        }
-        if (filter.focusArea && !summary.focusAreas.includes(filter.focusArea)) {
-          return false;
-        }
-        if (!filter.text) {
-          return true;
-        }
-        const text = filter.text.toLowerCase();
-        return [summary.id, summary.title, summary.targetRef, summary.targetKind, ...summary.focusAreas]
-          .join(" ")
-          .toLowerCase()
-          .includes(text);
-      });
+    return filterAndSortCritiqueSummaries(
+      listStoredCritiqueRows(this.cwd).map((row) => this.readCritique(row.display_id ?? row.id)),
+      filter,
+    );
   }
 
   readCritique(ref: string): CritiqueReadResult {
@@ -1739,20 +1780,7 @@ export class CritiqueStore {
     const records = await Promise.all(
       (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity, storage)),
     );
-    return records
-      .map((record) => record.summary)
-      .filter((summary) => {
-        if (filter.status && summary.status !== filter.status) return false;
-        if (filter.verdict && summary.verdict !== filter.verdict) return false;
-        if (filter.targetKind && summary.targetKind !== filter.targetKind) return false;
-        if (filter.focusArea && !summary.focusAreas.includes(filter.focusArea)) return false;
-        if (!filter.text) return true;
-        const text = filter.text.toLowerCase();
-        return [summary.id, summary.title, summary.targetRef, summary.targetKind, ...summary.focusAreas]
-          .join(" ")
-          .toLowerCase()
-          .includes(text);
-      });
+    return filterAndSortCritiqueSummaries(records, filter);
   }
 
   async readCritiqueAsync(ref: string): Promise<CritiqueReadResult> {

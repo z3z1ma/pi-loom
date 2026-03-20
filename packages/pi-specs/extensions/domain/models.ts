@@ -1,3 +1,5 @@
+import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
+
 export const SPEC_STATUSES = [
   "proposed",
   "clarifying",
@@ -172,6 +174,7 @@ export interface SpecChecklistResult {
 export interface SpecListFilter {
   status?: SpecStatus;
   includeArchived?: boolean;
+  sort?: LoomListSort;
   text?: string;
 }
 

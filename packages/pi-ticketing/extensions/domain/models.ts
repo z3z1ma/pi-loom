@@ -1,3 +1,5 @@
+import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
+
 export const TICKET_STATUSES = ["open", "ready", "in_progress", "blocked", "review", "closed"] as const;
 export const MUTABLE_TICKET_STATUSES = ["open", "in_progress", "review", "closed"] as const;
 export const TICKET_WRITE_ACTIONS = [
@@ -186,6 +188,7 @@ export interface TicketListFilter {
   includeArchived?: boolean;
   tag?: string;
   text?: string;
+  sort?: LoomListSort;
 }
 
 export interface CreateTicketInput {

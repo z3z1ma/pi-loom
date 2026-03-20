@@ -1,3 +1,4 @@
+import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import type { WorkerArtifactPaths } from "./paths.js";
 
 export const WORKER_STATUSES = [
@@ -309,6 +310,7 @@ export interface ManagerSchedulerDecision {
 export interface WorkerListFilter {
   status?: WorkerStatus;
   text?: string;
+  sort?: LoomListSort;
   telemetryState?: WorkerTelemetryState;
   pendingApproval?: boolean;
 }

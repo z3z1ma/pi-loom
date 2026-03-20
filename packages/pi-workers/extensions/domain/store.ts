@@ -5,10 +5,11 @@ import { appendEntityEvent, upsertEntityByDisplayIdWithLifecycleEvents } from "@
 import { createStableLoomId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
+import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { buildWorkerDashboard, filterWorkersByTelemetry, filterWorkersByText } from "./dashboard.js";
+import { buildWorkerDashboard } from "./dashboard.js";
 import type {
   AppendWorkerCheckpointInput,
   AppendWorkerMessageInput,
@@ -342,6 +343,64 @@ function listStoredWorkerRecords(cwd: string): WorkerReadResult[] {
     }
     return buildWorkerReadResult(cwd, row.id, snapshot);
   });
+}
+
+function workerSearchText(worker: WorkerReadResult): string[] {
+  return [
+    worker.summary.id,
+    worker.summary.title,
+    worker.state.objective,
+    worker.state.summary,
+    worker.summary.objectiveSummary,
+    worker.state.latestCheckpointSummary,
+    worker.summary.latestCheckpointSummary,
+    worker.state.lastSchedulerSummary,
+    worker.summary.lastSchedulerSummary,
+    worker.state.packetSummary,
+    worker.state.managerRef.ref,
+    worker.state.managerRef.label ?? "",
+    ...worker.state.linkedRefs.initiativeIds,
+    ...worker.state.linkedRefs.researchIds,
+    ...worker.state.linkedRefs.specChangeIds,
+    ...worker.state.linkedRefs.ticketIds,
+    ...worker.state.linkedRefs.critiqueIds,
+    ...worker.state.linkedRefs.docIds,
+    ...worker.state.linkedRefs.planIds,
+    ...worker.state.linkedRefs.ralphRunIds,
+  ];
+}
+
+function filterAndSortWorkerSummaries(records: WorkerReadResult[], filter: WorkerListFilter = {}): WorkerSummary[] {
+  const filtered = records.filter((worker) => {
+    if (filter.status && worker.summary.status !== filter.status) {
+      return false;
+    }
+    if (filter.telemetryState && worker.summary.telemetryState !== filter.telemetryState) {
+      return false;
+    }
+    if (filter.pendingApproval !== undefined && worker.summary.pendingApproval !== filter.pendingApproval) {
+      return false;
+    }
+    return true;
+  });
+
+  return filterAndSortListEntries(
+    filtered.map((worker) => ({
+      item: worker.summary,
+      id: worker.summary.id,
+      createdAt: worker.state.createdAt,
+      updatedAt: worker.summary.updatedAt,
+      fields: [
+        { value: worker.summary.id, weight: 12 },
+        { value: worker.summary.title, weight: 10 },
+        { value: worker.summary.objectiveSummary, weight: 9 },
+        { value: worker.summary.latestCheckpointSummary, weight: 7 },
+        { value: worker.summary.lastSchedulerSummary, weight: 6 },
+        { value: workerSearchText(worker).join(" "), weight: 3 },
+      ],
+    })),
+    { text: filter.text, sort: filter.sort },
+  );
 }
 
 function nextSequenceId(existingCount: number, prefix: string): string {
@@ -1015,18 +1074,7 @@ export class WorkerStore {
     for (const [workerId, worker] of this.pendingSnapshots) {
       workersById.set(workerId, materializeWorkerRecord(this.cwd, worker));
     }
-    const workers = [...workersById.values()].map((worker) => worker.summary);
-    const filteredByText = filterWorkersByText(workers, filter.text);
-    const filteredByTelemetry = filterWorkersByTelemetry(filteredByText, filter.telemetryState);
-    return filteredByTelemetry.filter((worker) => {
-      if (filter.status && worker.status !== filter.status) {
-        return false;
-      }
-      if (filter.pendingApproval !== undefined && worker.pendingApproval !== filter.pendingApproval) {
-        return false;
-      }
-      return true;
-    });
+    return filterAndSortWorkerSummaries([...workersById.values()], filter);
   }
 
   readWorker(ref: string): WorkerReadResult {
@@ -2060,16 +2108,7 @@ export class WorkerStore {
   }
 
   async listWorkersAsync(filter: WorkerListFilter = {}): Promise<WorkerSummary[]> {
-    const workers = listStoredWorkerRecords(this.cwd);
-    return workers
-      .map((worker) => worker.summary)
-      .filter((worker) => {
-        if (filter.status && worker.status !== filter.status) return false;
-        if (filter.telemetryState && worker.telemetryState !== filter.telemetryState) return false;
-        if (filter.pendingApproval !== undefined && worker.pendingApproval !== filter.pendingApproval) return false;
-        return !filter.text || filterWorkersByText([worker], filter.text).length > 0;
-      })
-      .sort((left, right) => left.id.localeCompare(right.id));
+    return filterAndSortWorkerSummaries(listStoredWorkerRecords(this.cwd), filter);
   }
 
   async readWorkerAsync(ref: string): Promise<WorkerReadResult> {

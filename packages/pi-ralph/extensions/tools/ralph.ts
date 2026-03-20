@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type {
   AppendRalphIterationInput,
@@ -62,6 +63,7 @@ const RalphWriteActionEnum = StringEnum([
   "archive",
 ] as const);
 const RalphReadModeEnum = StringEnum(["full", "state", "packet", "run"] as const);
+const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 
 const LinkedRefsSchema = Type.Object({
   roadmapItemIds: Type.Optional(Type.Array(Type.String())),
@@ -164,6 +166,12 @@ const RalphListParams = Type.Object({
       description:
         "Free-text search over Ralph run id, title, objective, notes, and related indexed content. Prefer starting with text alone, then add exact filters only after the broad search is still too wide.",
     }),
+  ),
+  sort: Type.Optional(
+    withDescription(
+      LoomListSortEnum,
+      "Optional result ordering. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Override this only when you intentionally need chronological or id-based ordering after filtering.",
+    ),
   ),
 });
 
@@ -351,17 +359,25 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     name: "ralph_list",
     label: "ralph_list",
     description:
-      "List durable Ralph runs. Start broad with `text` when rediscovering a run by title, objective, or recent context; add exact filters such as `status`, `phase`, `decision`, or `waitingFor` only when you intentionally want a narrower slice.",
+      "List durable Ralph runs. Start broad with `text` when rediscovering a run by title, objective, or recent context; add exact filters such as `status`, `phase`, `decision`, or `waitingFor` only when you intentionally want a narrower slice. Results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
-      "Inspect existing Ralph runs before starting a new long-horizon loop so orchestration state does not fork; broad text search is the safest first pass when you do not yet know the exact run state.",
+      "Inspect existing Ralph runs before starting a new long-horizon loop so orchestration state does not fork; broad text search is the safest first pass when you do not yet know the exact run state, and the default relevance ordering is usually the right first view.",
     promptGuidelines: [
       "Use this tool to rediscover the run that should absorb new iteration work.",
       "When rediscovering a run, start with `text` and no exact filters; `status`, `phase`, `decision`, and `waitingFor` all narrow by exact stored values and can hide valid runs if guessed wrong.",
+      "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need chronology or id order after filtering.",
       "Use `waitingFor` when intentionally triaging paused or review-gated runs after the broad search, not as the default discovery path.",
     ],
     parameters: RalphListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const runs = await getStore(ctx).listRunsAsync(params);
+      const runs = await getStore(ctx).listRunsAsync({
+        status: params.status,
+        phase: params.phase,
+        decision: params.decision,
+        waitingFor: params.waitingFor,
+        text: params.text,
+        sort: params.sort as LoomListSort | undefined,
+      });
       return machineResult(
         { runs },
         runs.length > 0
