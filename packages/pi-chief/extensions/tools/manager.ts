@@ -8,9 +8,9 @@ import { renderManagerDetail, renderManagerList } from "../domain/render.js";
 
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 const ManagerStatusEnum = StringEnum(["active", "waiting_for_input", "completed", "failed", "archived"] as const);
-const WorkerOutcomeStatusEnum = StringEnum(["ready", "blocked", "waiting_for_review", "completed", "failed"] as const);
-const ApprovalStatusEnum = StringEnum(["approved", "rejected_for_revision", "escalated"] as const);
-const ManagerMessageKindEnum = StringEnum(["steer", "approval", "escalation", "report"] as const);
+const WorkerStatusEnum = StringEnum(["queued", "running", "waiting_for_manager", "completed", "failed", "retired"] as const);
+const ReviewDecisionEnum = StringEnum(["approved", "rejected_for_revision", "escalated"] as const);
+const ManagerMessageKindEnum = StringEnum(["steer", "review", "escalation", "report"] as const);
 
 const LinkedRefsSchema = Type.Object({
   initiativeIds: Type.Optional(Type.Array(Type.String())),
@@ -38,7 +38,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     name: "manager_list",
     label: "manager_list",
     description:
-      "List durable managers for Ralph-backed worktree orchestration. Start broad with text when rediscovering a manager by title, target ref, or latest summary; use status only when you intentionally want a narrow slice.",
+      "List durable managers for Ralph-backed chief orchestration. Start broad with text when rediscovering a manager by title, target ref, or latest summary; use status only when you intentionally want a narrow slice.",
     promptSnippet:
       "Use this before starting a new manager so you reuse an existing durable orchestration record instead of fragmenting manager state.",
     parameters: Type.Object({
@@ -60,7 +60,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     name: "manager_read",
     label: "manager_read",
     description:
-      "Read a durable manager record, including pending output, target ref, and internal worker views. Use this to inspect what the manager is doing or waiting on.",
+      "Read a durable manager record, including the manager’s own Ralph loop state, pending operator output, and internal worker views.",
     promptSnippet: "Read the manager before deciding whether to wait, steer, or inspect other Loom state.",
     parameters: Type.Object({ ref: Type.String() }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -73,13 +73,9 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     name: "manager_start",
     label: "manager_start",
     description:
-      "Create a durable manager for a broad objective, linked refs, or ticket set, start its background orchestration loop, and optionally wait until it has something to say or finishes.",
+      "Create a durable manager from a spec, initiative, plan, ticket set, or free-text objective, create its linked Ralph loop, start the background daemon, and optionally wait for the first update.",
     promptSnippet:
-      "Start managers from a spec, initiative, plan, ticket set, or free-text objective. The background manager loop decides what research, planning, ticketing, worker spawning, and review work must happen next.",
-    promptGuidelines: [
-      "A manager may start from linked refs, a ticket set, or just a broad objective. If no tickets exist yet, the manager can create the needed research/spec/plan/ticket artifacts in later AI steps.",
-      "Use wait when you want this call to block until the manager emits an update, asks for operator input, or finishes. Otherwise start it asynchronously and inspect later with manager_read or manager_wait.",
-    ],
+      "Start managers from whatever broad context you actually have. The manager loop can create missing research/spec/plan/ticket structure before it reconciles workers.",
     parameters: Type.Object({
       title: Type.String(),
       objective: Type.Optional(Type.String()),
@@ -112,7 +108,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     label: "manager_wait",
     description:
       "Block until a manager has something to say, reaches a terminal state, or the wait timeout expires. Use this after starting or steering a manager.",
-    promptSnippet: "Use this to wait on the background manager loop instead of polling manager_read manually.",
+    promptSnippet: "Use this to wait on the background manager daemon instead of polling manager_read manually.",
     parameters: Type.Object({
       ref: Type.String(),
       timeoutMs: Type.Optional(Type.Number()),
@@ -127,14 +123,14 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     name: "manager_steer",
     label: "manager_steer",
     description:
-      "Provide operator steerability between manager passes: answer escalations, approve or reject a worker, or change the target ref. The background manager loop is restarted automatically afterward, and you may optionally wait for the next update.",
+      "Provide operator steerability between manager passes: answer escalations, provide guidance, record review decisions, or change the target ref. The background daemon is restarted automatically afterward, and you may optionally wait for the next update.",
     promptSnippet:
-      "Use steerability between manager updates to answer what the manager asked, then let the background loop continue on its own.",
+      "Use this between manager updates to answer what the manager asked, then let the background daemon continue on its own.",
     parameters: Type.Object({
       ref: Type.String(),
       text: Type.Optional(Type.String()),
       workerId: Type.Optional(Type.String()),
-      approvalStatus: Type.Optional(ApprovalStatusEnum),
+      reviewDecision: Type.Optional(ReviewDecisionEnum),
       targetRef: Type.Optional(Type.String()),
       wait: Type.Optional(Type.Boolean()),
       timeoutMs: Type.Optional(Type.Number()),
@@ -143,7 +139,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
       const manager = await getStore(ctx).steerManagerAsync(params.ref, {
         text: params.text,
         workerId: params.workerId,
-        approvalStatus: params.approvalStatus,
+        reviewDecision: params.reviewDecision,
         targetRef: params.targetRef,
       });
       startManagerDaemon(ctx.cwd, manager.state.managerId);
@@ -158,22 +154,22 @@ export function registerManagerTools(pi: ExtensionAPI): void {
 
 export function registerInternalManagerTools(pi: ExtensionAPI): void {
   pi.registerTool({
-    name: "manager_dispatch",
-    label: "manager_dispatch",
+    name: "manager_reconcile",
+    label: "manager_reconcile",
     description:
-      "Ensure ticket workers exist and start any straightforward background Ralph iterations that are ready to run. This is primarily for the background manager loop, not the usual operator-facing path.",
+      "Ensure ticket-bound workers and worktrees exist for the manager’s current ticket set, then start any queued worker Ralph loops in the background. This is for the internal manager loop, not the normal operator-facing path.",
     parameters: Type.Object({ ref: Type.String() }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const manager = await getStore(ctx).dispatchManagerWorkAsync(params.ref);
+      const manager = await getStore(ctx).reconcileManagerWorkersAsync(params.ref);
       return machineResult({ manager }, renderManagerDetail(manager));
     },
   });
 
   pi.registerTool({
-    name: "manager_checkpoint",
-    label: "manager_checkpoint",
+    name: "manager_record",
+    label: "manager_record",
     description:
-      "Persist one bounded manager-loop outcome, including operator-facing messages, linked-ref updates, status changes, and worker outcome updates. This is primarily for the background manager loop.",
+      "Persist one bounded manager-loop outcome: linked-ref changes, operator-facing messages, status changes, and worker outcome updates. This is for the internal manager loop.",
     parameters: Type.Object({
       ref: Type.String(),
       status: Type.Optional(ManagerStatusEnum),
@@ -193,8 +189,9 @@ export function registerInternalManagerTools(pi: ExtensionAPI): void {
         Type.Array(
           Type.Object({
             workerId: Type.String(),
-            status: WorkerOutcomeStatusEnum,
+            status: WorkerStatusEnum,
             summary: Type.Optional(Type.String()),
+            instructions: Type.Optional(Type.Array(Type.String())),
             validation: Type.Optional(Type.Array(Type.String())),
             conflicts: Type.Optional(Type.Array(Type.String())),
             followUps: Type.Optional(Type.Array(Type.String())),
@@ -203,7 +200,7 @@ export function registerInternalManagerTools(pi: ExtensionAPI): void {
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const manager = await getStore(ctx).checkpointManagerAsync(params.ref, {
+      const manager = await getStore(ctx).recordManagerStepAsync(params.ref, {
         status: params.status,
         summary: params.summary,
         linkedRefs: params.linkedRefs,

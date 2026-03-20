@@ -9,8 +9,6 @@ export interface WorkerArtifactPaths {
   dir: string;
   state: string;
   worker: string;
-  messages: string;
-  checkpoints: string;
   launch: string;
 }
 
@@ -21,7 +19,7 @@ export function slugifyWorkerValue(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (!normalized) {
-    throw new Error("Worker identifiers must contain at least one alphanumeric character");
+    throw new Error("Identifiers must contain at least one alphanumeric character");
   }
   return normalized;
 }
@@ -63,8 +61,6 @@ export function getWorkerArtifactPaths(_cwd: string, workerId: string): WorkerAr
     dir,
     state: `${dir}:state`,
     worker: `${dir}:summary`,
-    messages: `${dir}:messages`,
-    checkpoints: `${dir}:checkpoints`,
     launch: `${dir}:launch`,
   };
 }

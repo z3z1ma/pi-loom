@@ -1,13 +1,13 @@
+import { runManagerLoopOnce, isWorkerLaunchRunning } from "./manager-runtime.js";
 import { createManagerStore } from "./manager-store.js";
-import { isWorkerLaunchRunning, runManagerAgentStep } from "./manager-runtime.js";
 import { createWorkerStore } from "./store.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function workerNeedsManagerStep(status: string): boolean {
-  return ["waiting_for_review", "blocked", "completed", "failed", "retired", "archived"].includes(status);
+function workerNeedsManager(worker: { state: { status: string } }): boolean {
+  return worker.state.status === "waiting_for_manager" || worker.state.status === "failed" || worker.state.status === "completed";
 }
 
 async function main(): Promise<void> {
@@ -40,32 +40,29 @@ async function main(): Promise<void> {
         return [];
       }
     });
-    const anyRunning = workers.some((worker) => isWorkerLaunchRunning(worker));
+
+    if (workers.some((worker) => isWorkerLaunchRunning(worker))) {
+      await sleep(1000);
+      continue;
+    }
+
     const workerSignature = workers
-      .map(
-        (worker) =>
-          `${worker.state.workerId}:${worker.state.status}:${worker.state.latestTelemetry.summary || worker.state.latestCheckpointSummary || worker.state.summary}`,
-      )
+      .map((worker) => `${worker.state.workerId}:${worker.state.status}:${worker.state.summary}`)
       .sort()
       .join("|");
-    const allWorkersNeedManagerStep = workers.length > 0 && workers.every((worker) => workerNeedsManagerStep(worker.state.status));
-    if (anyRunning) {
-      await sleep(1000);
-      continue;
-    }
 
-    const shouldInvokeAgent =
-      manager.state.lastRunAt === null ||
+    const shouldInvokeManager =
       workers.length === 0 ||
       manager.state.linkedRefs.ticketIds.length !== workers.length ||
-      workerSignature !== manager.state.workerSignature ||
-      allWorkersNeedManagerStep;
-    if (!shouldInvokeAgent) {
+      workers.some((worker) => workerNeedsManager(worker)) ||
+      workerSignature !== manager.state.workerSignature;
+
+    if (!shouldInvokeManager) {
       await sleep(1000);
       continue;
     }
 
-    await runManagerAgentStep(cwd, managerId);
+    await runManagerLoopOnce(cwd, managerId);
     await sleep(250);
   }
 }

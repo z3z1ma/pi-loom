@@ -53,6 +53,22 @@ function readJsonFile<T>(filePath: string): T | null {
   }
 }
 
+function resolvePiExtensionRootFromCwd(startDir: string): string | undefined {
+  let currentDir = path.resolve(startDir);
+  while (true) {
+    const packageJsonPath = path.join(currentDir, "package.json");
+    const packageJson = readJsonFile<{ pi?: { extensions?: string[] } }>(packageJsonPath);
+    if (packageJson?.pi?.extensions && packageJson.pi.extensions.length > 0) {
+      return currentDir;
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      return undefined;
+    }
+    currentDir = parentDir;
+  }
+}
+
 export function resolveRalphExtensionRoot(startDir = path.dirname(fileURLToPath(import.meta.url))): string {
   let currentDir = path.resolve(startDir);
   while (true) {
@@ -161,8 +177,9 @@ export async function runRalphLaunch(
   launch: RalphLaunchDescriptor,
   signal: AbortSignal | undefined,
   onUpdate?: (text: string) => void,
+  extraEnv?: Record<string, string | undefined>,
 ): Promise<RalphExecutionResult> {
-  const extensionRoot = resolveRalphExtensionRoot();
+  const extensionRoot = resolvePiExtensionRootFromCwd(cwd) ?? resolveRalphExtensionRoot();
   const prompt = renderLaunchPrompt(cwd, launch);
   const command = getPiSpawnCommand(["-e", extensionRoot, "--mode", "json", "-p", "--no-session", prompt]);
 
@@ -174,6 +191,7 @@ export async function runRalphLaunch(
     cwd,
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],
+    env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
   });
 
   let stdoutBuffer = "";

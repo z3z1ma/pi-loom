@@ -36,22 +36,13 @@ vi.mock("../extensions/domain/manager-runtime.js", async () => {
   return {
     ...actual,
     startManagerDaemon: vi.fn(),
+    startWorkerLaunchProcess: vi.fn(),
     waitForManagerUpdate: vi.fn(async (cwd: string, ref: string) => createManagerStore(cwd).readManager(ref)),
   };
 });
 
-vi.mock("../extensions/domain/runtime.js", async () => {
-  const actual = await vi.importActual<typeof import("../extensions/domain/runtime.js")>(
-    "../extensions/domain/runtime.js",
-  );
-  return {
-    ...actual,
-    runWorkerLaunch: vi.fn(actual.runWorkerLaunch),
-  };
-});
-
 function createWorkspace(): { cwd: string; cleanup: () => void } {
-  const cwd = mkdtempSync(join(tmpdir(), "pi-workers-tools-"));
+  const cwd = mkdtempSync(join(tmpdir(), "pi-chief-tools-"));
   process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
   return {
     cwd,
@@ -63,7 +54,7 @@ function createWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 function createGitWorkspace(): { cwd: string; cleanup: () => void } {
-  return createSeededGitWorkspace({ prefix: "pi-workers-tools-git-" });
+  return createSeededGitWorkspace({ prefix: "pi-chief-tools-git-" });
 }
 
 function createMockPi(): { tools: Map<string, ToolDefinition>; registerTool: ReturnType<typeof vi.fn> } {
@@ -99,22 +90,19 @@ describe("manager tools", () => {
     ]);
   });
 
-  it("starts a manager, spawns the background daemon, and supports list/read/wait", async () => {
+  it("starts a manager with its own linked Ralph run and background daemon", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       await createWorkerTicket(cwd);
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);
       const managerStart = mockPi.tools.get("manager_start");
-      const managerList = mockPi.tools.get("manager_list");
-      const managerRead = mockPi.tools.get("manager_read");
-      const managerWait = mockPi.tools.get("manager_wait");
-      expect(managerStart && managerList && managerRead && managerWait).toBeTruthy();
+      expect(managerStart).toBeTruthy();
 
       await managerStart?.execute(
         "call-start",
         {
-          title: "Ticket Manager",
+          title: "Chief Manager",
           linkedRefs: { ticketIds: ["t-0001"] },
         },
         undefined,
@@ -122,132 +110,95 @@ describe("manager tools", () => {
         createCtx(cwd),
       );
 
-      const listed = await managerList?.execute("call-list", {}, undefined, undefined, createCtx(cwd));
-      expect(JSON.stringify(listed)).toContain("ticket-manager");
-      const read = await managerRead?.execute(
-        "call-read",
-        { ref: "ticket-manager" },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      expect(JSON.stringify(read)).toContain("Target ref");
-      const waited = await managerWait?.execute(
-        "call-wait",
-        { ref: "ticket-manager" },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
-      expect(JSON.stringify(waited)).toContain("ticket-manager");
+      const manager = await createManagerStore(cwd).readManagerAsync("chief-manager");
+      expect(manager.state.ralphRunId).toBe("chief-manager-loop");
+      expect(createRalphStore(cwd).readRun(manager.state.ralphRunId).state.title).toBe("Chief Manager");
+      const { startManagerDaemon } = await import("../extensions/domain/manager-runtime.js");
+      expect(vi.mocked(startManagerDaemon)).toHaveBeenCalledWith(cwd, "chief-manager");
     } finally {
       cleanup();
     }
   });
 
-  it("dispatches workers and starts bounded Ralph-backed iterations", async () => {
+  it("registers internal reconcile and record tools for the chief loop runtime", async () => {
+    const mockPi = createMockPi();
+    registerInternalManagerTools(mockPi as unknown as ExtensionAPI);
+    expect([...mockPi.tools.keys()].sort()).toEqual(["manager_reconcile", "manager_record"]);
+  });
+
+  it("reconciles ticket-bound workers and starts queued Ralph-backed launches", async () => {
     const { cwd, cleanup } = createGitWorkspace();
-    const { runWorkerLaunch } = await import("../extensions/domain/runtime.js");
-    const runWorkerLaunchMock = vi.mocked(runWorkerLaunch);
-    runWorkerLaunchMock.mockReset();
     try {
       await createWorkerTicket(cwd);
       const manager = await createManagerStore(cwd).createManagerAsync({
         title: "Dispatch Manager",
         linkedRefs: { ticketIds: ["t-0001"] },
       });
+
       const mockPi = createMockPi();
-      registerManagerTools(mockPi as unknown as ExtensionAPI);
       registerInternalManagerTools(mockPi as unknown as ExtensionAPI);
-      const managerDispatch = mockPi.tools.get("manager_dispatch");
-      expect(managerDispatch).toBeTruthy();
+      const reconcile = mockPi.tools.get("manager_reconcile");
+      expect(reconcile).toBeTruthy();
 
-      runWorkerLaunchMock.mockImplementationOnce(async (launch) => {
-        const ralphStore = createRalphStore(cwd);
-        await ralphStore.appendIterationAsync(launch.ralphRunId, {
-          id: launch.iterationId,
-          status: "accepted",
-          summary: "Manager dispatch started one worker iteration.",
-          workerSummary: "Worker iteration completed.",
-        });
-        const decided = await ralphStore.decideRunAsync(launch.ralphRunId, {
-          summary: "Another bounded iteration may be scheduled later.",
-          decidedBy: "runtime",
-        });
-        await ralphStore.appendIterationAsync(launch.ralphRunId, {
-          id: launch.iterationId,
-          decision: decided.state.latestDecision ?? undefined,
-        });
-        return { status: "completed", output: "Dispatch finished", error: null };
-      });
-
-      await managerDispatch?.execute(
-        "call-dispatch",
-        { ref: manager.state.managerId },
-        undefined,
-        undefined,
-        createCtx(cwd),
-      );
+      await reconcile?.execute("call-reconcile", { ref: manager.state.managerId }, undefined, undefined, createCtx(cwd));
 
       const reread = createManagerStore(cwd).readManager(manager.state.managerId);
       expect(reread.workers).toHaveLength(1);
-      expect(reread.workers[0]?.id).toBe("dispatch-manager-t-0001");
-      expect(createWorkerStore(cwd).readWorker("dispatch-manager-t-0001").launch?.status).toBe("running");
+      expect(reread.workers[0]?.ticketId).toBe("t-0001");
+      const worker = createWorkerStore(cwd).readWorker(reread.workers[0]!.id);
+      expect(worker.state.status).toBe("running");
+      expect(worker.launch?.status).toBe("running");
+      const { startWorkerLaunchProcess } = await import("../extensions/domain/manager-runtime.js");
+      expect(vi.mocked(startWorkerLaunchProcess)).toHaveBeenCalledWith(cwd, worker.state.workerId);
     } finally {
-      runWorkerLaunchMock.mockReset();
       cleanup();
     }
   }, 90000);
 
-  it("checkpoints operator-facing messages and worker outcome updates", async () => {
+  it("records operator-facing messages and worker outcomes", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       await createWorkerTicket(cwd);
+      const managerStore = createManagerStore(cwd);
+      const manager = await managerStore.createManagerAsync({
+        title: "Record Manager",
+        linkedRefs: { ticketIds: ["t-0001"] },
+      });
       const workerStore = createWorkerStore(cwd);
       await workerStore.createWorkerAsync({
-        workerId: "checkpoint-manager-t-0001",
-        title: "Checkpoint Worker",
-        linkedRefs: { ticketIds: ["t-0001"] },
-      });
-      await workerStore.requestCompletionAsync("checkpoint-manager-t-0001", {
-        summary: "Ready for review",
-      });
-
-      const manager = await createManagerStore(cwd).createManagerAsync({
-        title: "Checkpoint Manager",
-        linkedRefs: { ticketIds: ["t-0001"] },
+        workerId: "record-manager-t-0001",
+        title: "Record Worker",
+        ticketId: "t-0001",
+        managerId: manager.state.managerId,
       });
       const mockPi = createMockPi();
       registerManagerTools(mockPi as unknown as ExtensionAPI);
       registerInternalManagerTools(mockPi as unknown as ExtensionAPI);
-      const managerCheckpoint = mockPi.tools.get("manager_checkpoint");
-      const managerSteer = mockPi.tools.get("manager_steer");
-      expect(managerCheckpoint && managerSteer).toBeTruthy();
+      const steer = mockPi.tools.get("manager_steer");
+      const record = mockPi.tools.get("manager_record");
+      expect(steer && record).toBeTruthy();
 
-      await managerSteer?.execute(
+      await steer?.execute(
         "call-steer",
-        { ref: manager.state.managerId, text: "Please summarize after merge" },
+        { ref: manager.state.managerId, text: "Please summarize after merge", workerId: "record-manager-t-0001", reviewDecision: "approved" },
         undefined,
         undefined,
         createCtx(cwd),
       );
 
-      await managerCheckpoint?.execute(
-        "call-checkpoint",
+      await record?.execute(
+        "call-record",
         {
           ref: manager.state.managerId,
           resolveOperatorInput: true,
           status: "waiting_for_input",
           summary: "Need operator attention after merge.",
-          operatorMessages: [
-            { kind: "report", text: "Merged the worker branch.", workerId: "checkpoint-manager-t-0001" },
-          ],
+          operatorMessages: [{ kind: "report", text: "Merged the worker branch.", workerId: "record-manager-t-0001" }],
           workerUpdates: [
             {
-              workerId: "checkpoint-manager-t-0001",
+              workerId: "record-manager-t-0001",
               status: "completed",
               summary: "Merged into target ref",
-              validation: ["git log --oneline"],
             },
           ],
         },
@@ -258,10 +209,8 @@ describe("manager tools", () => {
 
       const reread = createManagerStore(cwd).readManager(manager.state.managerId);
       expect(reread.state.status).toBe("waiting_for_input");
-      expect(
-        reread.messages.some((message) => message.direction === "manager_to_operator" && message.kind === "report"),
-      ).toBe(true);
-      expect(createWorkerStore(cwd).readWorker("checkpoint-manager-t-0001").state.status).toBe("completed");
+      expect(reread.messages.some((message) => message.direction === "manager_to_operator" && message.kind === "report")).toBe(true);
+      expect(createWorkerStore(cwd).readWorker("record-manager-t-0001").state.status).toBe("completed");
     } finally {
       cleanup();
     }

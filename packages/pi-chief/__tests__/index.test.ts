@@ -7,7 +7,8 @@ import type {
   ExtensionContext,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
-import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
+import { createRalphStore } from "../../pi-ralph/extensions/domain/store.js";
+import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { describe, expect, it, vi } from "vitest";
 import { createWorkerStore } from "../extensions/domain/store.js";
 
@@ -41,7 +42,7 @@ type MockPi = {
 };
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
-  const cwd = mkdtempSync(join(tmpdir(), "pi-workers-index-"));
+  const cwd = mkdtempSync(join(tmpdir(), "pi-chief-index-"));
   process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
   return {
     cwd,
@@ -75,12 +76,12 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
   return handler;
 }
 
-describe("pi-workers extension", () => {
+describe("pi-chief extension", () => {
   it("registers manager tools and lifecycle hooks without slash commands", async () => {
     const mockPi = createMockPi();
-    const { default: piWorkers } = await import("../extensions/index.js");
+    const { default: piChief } = await import("../extensions/index.js");
 
-    piWorkers(mockPi as unknown as ExtensionAPI);
+    piChief(mockPi as unknown as ExtensionAPI);
 
     expect((mockPi as { registerCommand?: ReturnType<typeof vi.fn> }).registerCommand).toBeUndefined();
     expect([...mockPi.tools.keys()].sort()).toEqual([
@@ -94,12 +95,32 @@ describe("pi-workers extension", () => {
     expect(mockPi.handlers.has("before_agent_start")).toBe(true);
   });
 
+  it("registers internal chief-loop tools only under the internal manager env flag", async () => {
+    const mockPi = createMockPi();
+    const { default: piChief } = await import("../extensions/index.js");
+    process.env.PI_CHIEF_INTERNAL_MANAGER = "1";
+    try {
+      piChief(mockPi as unknown as ExtensionAPI);
+    } finally {
+      delete process.env.PI_CHIEF_INTERNAL_MANAGER;
+    }
+    expect([...mockPi.tools.keys()].sort()).toEqual([
+      "manager_list",
+      "manager_read",
+      "manager_reconcile",
+      "manager_record",
+      "manager_start",
+      "manager_steer",
+      "manager_wait",
+    ]);
+  });
+
   it("initializes worker storage on session start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { default: piWorkers } = await import("../extensions/index.js");
-      piWorkers(mockPi as unknown as ExtensionAPI);
+      const { default: piChief } = await import("../extensions/index.js");
+      piChief(mockPi as unknown as ExtensionAPI);
 
       const sessionStart = getHandler(mockPi, "session_start");
       await sessionStart({ type: "session_start" }, { cwd } as ExtensionContext);
@@ -108,18 +129,19 @@ describe("pi-workers extension", () => {
       const ticketStore = createTicketStore(cwd);
       await ticketStore.initLedgerAsync();
       await ticketStore.createTicketAsync({ title: "Ticket", summary: "summary", context: "context", plan: "plan" });
-      expect(await ticketStore.listTicketsAsync()).toHaveLength(1);
+      const ralphStore = createRalphStore(cwd);
+      expect(ralphStore.listRuns()).toEqual([]);
     } finally {
       cleanup();
     }
   }, 30000);
 
-  it("augments the system prompt with manager-first worker doctrine before agent start", async () => {
+  it("augments the system prompt with chief manager doctrine before agent start", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { default: piWorkers } = await import("../extensions/index.js");
-      piWorkers(mockPi as unknown as ExtensionAPI);
+      const { default: piChief } = await import("../extensions/index.js");
+      piChief(mockPi as unknown as ExtensionAPI);
       const beforeAgentStart = getHandler(mockPi, "before_agent_start");
 
       const result = (await beforeAgentStart(
@@ -128,9 +150,10 @@ describe("pi-workers extension", () => {
       )) as { systemPrompt: string };
 
       expect(result.systemPrompt).toContain("Base system prompt");
-      expect(result.systemPrompt).toContain("Worker state is persisted in SQLite via pi-storage.");
+      expect(result.systemPrompt).toContain("Chief state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain("manager_start");
       expect(result.systemPrompt).toContain("manager_wait");
+      expect(result.systemPrompt).toContain("manager is itself a Ralph loop");
     } finally {
       cleanup();
     }

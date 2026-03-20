@@ -1,15 +1,20 @@
 import { execFileSync } from "node:child_process";
 import type { LoomEntityRecord } from "@pi-loom/pi-storage/storage/contract.js";
 import { appendEntityEvent, upsertEntityByDisplayIdWithLifecycleEvents } from "@pi-loom/pi-storage/storage/entities.js";
+import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
+import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createRalphStore } from "@pi-loom/pi-ralph/extensions/domain/store.js";
+import type { RalphReadResult } from "@pi-loom/pi-ralph/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import type {
   CreateManagerInput,
+  CreateWorkerInput,
   ManagerCanonicalRecord,
   ManagerCheckpointInput,
   ManagerLinkedRefs,
   ManagerListFilter,
+  ManagerLoopView,
   ManagerMessageKind,
   ManagerMessageRecord,
   ManagerMessageStatus,
@@ -21,16 +26,14 @@ import type {
   ManagerWorkerView,
   WorkerReadResult,
 } from "./models.js";
-import { currentTimestamp, normalizeOptionalString, normalizeStringList, summarizeText } from "./normalize.js";
+import { currentTimestamp, normalizeOptionalString, normalizeReviewDecision, normalizeStringList, summarizeText } from "./normalize.js";
 import { renderManagerDetail } from "./render.js";
 import { slugifyWorkerValue } from "./paths.js";
 import { startWorkerLaunchProcess } from "./manager-runtime.js";
 import { createWorkerStore } from "./store.js";
 
 const ENTITY_KIND = "manager" as const;
-const MANAGER_ACTOR = "worker-manager-store" as const;
-
-type ManagerEntityAttributes = ManagerCanonicalRecord;
+const MANAGER_ACTOR = "chief-manager-store" as const;
 
 interface StoredManagerEntityRow {
   id: string;
@@ -60,7 +63,11 @@ function parseStoredJson<T>(value: string | null | undefined, fallback: T): T {
 
 function defaultTargetRef(cwd: string): string {
   try {
-    const branch = execFileSync("git", ["branch", "--show-current"], { cwd, encoding: "utf-8" }).trim();
+    const branch = execFileSync("git", ["branch", "--show-current"], {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
     return branch || "HEAD";
   } catch {
     return "HEAD";
@@ -79,7 +86,7 @@ function normalizeManagerMessageStatus(value: string | null | undefined): Manage
 }
 
 function normalizeManagerMessageKind(value: string | null | undefined): ManagerMessageKind {
-  if (value === "approval" || value === "escalation" || value === "report") {
+  if (value === "review" || value === "escalation" || value === "report") {
     return value;
   }
   return "steer";
@@ -102,13 +109,13 @@ function mergeManagerLinkedRefs(current: ManagerLinkedRefs, input?: Partial<Mana
     return current;
   }
   return {
-    initiativeIds: normalizeStringList([...(current.initiativeIds ?? []), ...(input.initiativeIds ?? [])]),
-    researchIds: normalizeStringList([...(current.researchIds ?? []), ...(input.researchIds ?? [])]),
-    specChangeIds: normalizeStringList([...(current.specChangeIds ?? []), ...(input.specChangeIds ?? [])]),
-    ticketIds: normalizeStringList([...(current.ticketIds ?? []), ...(input.ticketIds ?? [])]),
-    critiqueIds: normalizeStringList([...(current.critiqueIds ?? []), ...(input.critiqueIds ?? [])]),
-    docIds: normalizeStringList([...(current.docIds ?? []), ...(input.docIds ?? [])]),
-    planIds: normalizeStringList([...(current.planIds ?? []), ...(input.planIds ?? [])]),
+    initiativeIds: normalizeStringList([...current.initiativeIds, ...(input.initiativeIds ?? [])]),
+    researchIds: normalizeStringList([...current.researchIds, ...(input.researchIds ?? [])]),
+    specChangeIds: normalizeStringList([...current.specChangeIds, ...(input.specChangeIds ?? [])]),
+    ticketIds: normalizeStringList([...current.ticketIds, ...(input.ticketIds ?? [])]),
+    critiqueIds: normalizeStringList([...current.critiqueIds, ...(input.critiqueIds ?? [])]),
+    docIds: normalizeStringList([...current.docIds, ...(input.docIds ?? [])]),
+    planIds: normalizeStringList([...current.planIds, ...(input.planIds ?? [])]),
   };
 }
 
@@ -125,12 +132,7 @@ function normalizeManagerState(state: ManagerState): ManagerState {
     linkedRefs: normalizeManagerLinkedRefs(state.linkedRefs),
     workerIds: normalizeStringList(state.workerIds),
     workerSignature: normalizeOptionalString(state.workerSignature) ?? "",
-    latestSummary: normalizeOptionalString(state.latestSummary) ?? "",
-    lastRunAt: normalizeOptionalString(state.lastRunAt),
-    runCount:
-      typeof state.runCount === "number" && Number.isFinite(state.runCount) && state.runCount >= 0
-        ? Math.floor(state.runCount)
-        : 0,
+    ralphRunId: normalizeOptionalString(state.ralphRunId) ?? `${slugifyWorkerValue(state.managerId)}-loop`,
   };
 }
 
@@ -148,7 +150,7 @@ function normalizeManagerMessage(message: ManagerMessageRecord): ManagerMessageR
   };
 }
 
-function hasManagerAttributes(attributes: unknown): attributes is ManagerEntityAttributes {
+function hasManagerAttributes(attributes: unknown): attributes is ManagerCanonicalRecord {
   if (!attributes || typeof attributes !== "object") {
     return false;
   }
@@ -156,11 +158,11 @@ function hasManagerAttributes(attributes: unknown): attributes is ManagerEntityA
   return Array.isArray(candidate.messages) && Boolean(candidate.state && typeof candidate.state === "object");
 }
 
-function readManagerAttributes(attributes: unknown): ManagerEntityAttributes | null {
+function readManagerAttributes(attributes: unknown): ManagerCanonicalRecord | null {
   if (!hasManagerAttributes(attributes)) {
     return null;
   }
-  const candidate = attributes as ManagerEntityAttributes;
+  const candidate = attributes as ManagerCanonicalRecord;
   return {
     state: normalizeManagerState(candidate.state),
     messages: candidate.messages.map((message) => normalizeManagerMessage(message as ManagerMessageRecord)),
@@ -248,20 +250,29 @@ function resolveMessages(manager: ManagerReadResult, predicate: (message: Manage
   }
 }
 
+function managerLoopView(run: RalphReadResult): ManagerLoopView {
+  return {
+    runId: run.state.runId,
+    status: run.state.status,
+    phase: run.state.phase,
+    waitingFor: run.state.waitingFor,
+    latestDecision: run.state.latestDecision?.kind ?? null,
+    latestSummary:
+      run.state.postIteration?.workerSummary || run.state.postIteration?.summary || run.state.summary || run.state.objective,
+    nextLaunchPrepared: run.state.nextLaunch.preparedAt,
+  };
+}
+
 function summarizeWorker(worker: WorkerReadResult): ManagerWorkerView {
   return {
     id: worker.state.workerId,
     title: worker.state.title,
     status: worker.state.status,
+    ticketId: worker.state.ticketId,
     branch: worker.state.workspace.branch,
     baseRef: worker.state.workspace.baseRef,
-    ticketIds: [...worker.state.linkedRefs.ticketIds],
-    ralphRunId: worker.state.linkedRefs.ralphRunIds[0] ?? null,
-    latestSummary:
-      worker.state.latestTelemetry.summary ||
-      worker.state.latestCheckpointSummary ||
-      worker.state.summary ||
-      worker.state.objective,
+    ralphRunId: worker.state.ralphRunId,
+    latestSummary: worker.state.summary || worker.state.objective,
   };
 }
 
@@ -283,11 +294,7 @@ function readManagerWorkers(cwd: string, workerIds: string[]): ManagerWorkerView
   });
 }
 
-function buildManagerSummary(
-  state: ManagerState,
-  messages: ManagerMessageRecord[],
-  workers: ManagerWorkerView[],
-): ManagerSummary {
+function buildManagerSummary(state: ManagerState, messages: ManagerMessageRecord[], workers: ManagerWorkerView[], loop: ManagerLoopView): ManagerSummary {
   return {
     id: state.managerId,
     title: state.title,
@@ -296,26 +303,52 @@ function buildManagerSummary(
     ticketCount: state.linkedRefs.ticketIds.length,
     workerCount: workers.length,
     updatedAt: state.updatedAt,
-    latestSummary: state.latestSummary,
+    summary: state.summary,
     pendingMessages: countPendingOutgoingMessages(messages),
+    managerRunStatus: loop.status,
   };
 }
 
-function materializeManagerRecord(
-  cwd: string,
-  state: ManagerState,
-  messages: ManagerMessageRecord[],
-): ManagerReadResult {
+function readManagerLoop(cwd: string, state: ManagerState): RalphReadResult {
+  const store = createRalphStore(cwd);
+  try {
+    return store.readRun(state.ralphRunId);
+  } catch {
+    return store.createRun({
+      runId: state.ralphRunId,
+      title: state.title,
+      objective: state.objective || state.summary || state.title,
+      summary: state.summary || state.objective || state.title,
+      linkedRefs: {
+        initiativeIds: state.linkedRefs.initiativeIds,
+        researchIds: state.linkedRefs.researchIds,
+        specChangeIds: state.linkedRefs.specChangeIds,
+        ticketIds: state.linkedRefs.ticketIds,
+        critiqueIds: state.linkedRefs.critiqueIds,
+        docIds: state.linkedRefs.docIds,
+        planIds: state.linkedRefs.planIds,
+      },
+    });
+  }
+}
+
+function materializeManagerRecord(cwd: string, state: ManagerState, messages: ManagerMessageRecord[]): ManagerReadResult {
   const workers = readManagerWorkers(cwd, state.workerIds);
+  const loop = managerLoopView(readManagerLoop(cwd, state));
   const result: ManagerReadResult = {
     state,
-    summary: buildManagerSummary(state, messages, workers),
+    summary: buildManagerSummary(state, messages, workers, loop),
     messages,
     workers,
+    managerLoop: loop,
     manager: "",
   };
   result.manager = renderManagerDetail(result);
   return result;
+}
+
+function workerIdFor(managerId: string, ticketId: string): string {
+  return slugifyWorkerValue(`${managerId}-${ticketId}`);
 }
 
 async function ticketTitleFor(cwd: string, ticketId: string): Promise<string> {
@@ -327,15 +360,95 @@ async function ticketTitleFor(cwd: string, ticketId: string): Promise<string> {
   }
 }
 
-function workerIdFor(managerId: string, ticketId: string): string {
-  return slugifyWorkerValue(`${managerId}-${ticketId}`);
+function shouldStartWorker(worker: WorkerReadResult): boolean {
+  return worker.state.status === "queued" && worker.launch?.status !== "running";
 }
 
-function shouldRunWorker(worker: WorkerReadResult): boolean {
-  return (
-    (worker.state.status === "requested" || worker.state.status === "ready" || worker.state.status === "active") &&
-    worker.launch?.status !== "running"
+function projectedLinksForManager(manager: ManagerReadResult): ProjectedEntityLinkInput[] {
+  const desired: ProjectedEntityLinkInput[] = [
+    { kind: "references", targetKind: "ralph_run", targetDisplayId: manager.state.ralphRunId },
+  ];
+  for (const initiativeId of manager.state.linkedRefs.initiativeIds) {
+    desired.push({ kind: "references", targetKind: "initiative", targetDisplayId: initiativeId });
+  }
+  for (const researchId of manager.state.linkedRefs.researchIds) {
+    desired.push({ kind: "references", targetKind: "research", targetDisplayId: researchId });
+  }
+  for (const specChangeId of manager.state.linkedRefs.specChangeIds) {
+    desired.push({ kind: "references", targetKind: "spec_change", targetDisplayId: specChangeId });
+  }
+  for (const planId of manager.state.linkedRefs.planIds) {
+    desired.push({ kind: "references", targetKind: "plan", targetDisplayId: planId });
+  }
+  for (const ticketId of manager.state.linkedRefs.ticketIds) {
+    desired.push({ kind: "references", targetKind: "ticket", targetDisplayId: ticketId });
+  }
+  for (const critiqueId of manager.state.linkedRefs.critiqueIds) {
+    desired.push({ kind: "references", targetKind: "critique", targetDisplayId: critiqueId });
+  }
+  for (const docId of manager.state.linkedRefs.docIds) {
+    desired.push({ kind: "references", targetKind: "documentation", targetDisplayId: docId });
+  }
+  return desired;
+}
+
+function validateProjectedLinksSync(
+  storage: ReturnType<typeof openWorkspaceStorageSync>["storage"],
+  spaceId: string,
+  desired: ProjectedEntityLinkInput[],
+  projectionOwner: string,
+): void {
+  const missing = normalizeStringList(
+    desired.flatMap((link) => {
+      const displayId = link.targetDisplayId.trim();
+      if (!displayId || link.required === false) {
+        return [];
+      }
+      const row = storage.db
+        .prepare("SELECT id FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1")
+        .get(spaceId, link.targetKind, displayId) as { id: string } | undefined;
+      return row ? [] : [`${link.targetKind}:${displayId}`];
+    }),
   );
+  if (missing.length > 0) {
+    throw new Error(`Missing projected link targets for chief-manager-store: ${missing.join(", ")}`);
+  }
+}
+
+async function createManagerRalphRunAsync(cwd: string, state: ManagerState): Promise<string> {
+  const run = await createRalphStore(cwd).createRunAsync({
+    runId: `${state.managerId}-loop`,
+    title: state.title,
+    objective: state.objective || state.summary || state.title,
+    summary: state.summary || state.objective || state.title,
+    linkedRefs: {
+      initiativeIds: state.linkedRefs.initiativeIds,
+      researchIds: state.linkedRefs.researchIds,
+      specChangeIds: state.linkedRefs.specChangeIds,
+      ticketIds: state.linkedRefs.ticketIds,
+      critiqueIds: state.linkedRefs.critiqueIds,
+      docIds: state.linkedRefs.docIds,
+      planIds: state.linkedRefs.planIds,
+    },
+  });
+  return run.state.runId;
+}
+
+async function syncManagerRalphRunAsync(cwd: string, manager: ManagerReadResult): Promise<void> {
+  await createRalphStore(cwd).updateRunAsync(manager.state.ralphRunId, {
+    title: manager.state.title,
+    objective: manager.state.objective || manager.state.summary || manager.state.title,
+    summary: manager.state.summary || manager.state.objective || manager.state.title,
+    linkedRefs: {
+      initiativeIds: manager.state.linkedRefs.initiativeIds,
+      researchIds: manager.state.linkedRefs.researchIds,
+      specChangeIds: manager.state.linkedRefs.specChangeIds,
+      ticketIds: manager.state.linkedRefs.ticketIds,
+      critiqueIds: manager.state.linkedRefs.critiqueIds,
+      docIds: manager.state.linkedRefs.docIds,
+      planIds: manager.state.linkedRefs.planIds,
+    },
+  });
 }
 
 export class ManagerStore {
@@ -349,6 +462,7 @@ export class ManagerStore {
     const { storage, identity } = openWorkspaceStorageSync(this.cwd);
     const existing = findStoredManagerRow(this.cwd, manager.state.managerId);
     const previousEntity = existing ? storedManagerRowToEntity(existing) : null;
+    validateProjectedLinksSync(storage, identity.space.id, projectedLinksForManager(manager), MANAGER_ACTOR);
     try {
       const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
         storage,
@@ -361,7 +475,7 @@ export class ManagerStore {
           summary: manager.state.summary || manager.state.objective,
           status: manager.state.status,
           version: (existing?.version ?? 0) + 1,
-          tags: [manager.state.status, manager.state.targetRef, ...manager.state.linkedRefs.ticketIds],
+          tags: [manager.state.status, manager.state.targetRef, manager.state.ralphRunId, ...manager.state.linkedRefs.ticketIds],
           attributes: canonicalManagerAttributes(manager),
           createdAt: existing?.created_at ?? manager.state.createdAt,
           updatedAt: manager.state.updatedAt,
@@ -372,6 +486,14 @@ export class ManagerStore {
           updatedPayload: { change },
         },
       );
+      await syncProjectedEntityLinks({
+        storage,
+        spaceId: identity.space.id,
+        fromEntityId: entity.id,
+        projectionOwner: MANAGER_ACTOR,
+        desired: projectedLinksForManager(manager),
+        timestamp: manager.state.updatedAt,
+      });
       await appendEntityEvent(storage, entity.id, "updated", MANAGER_ACTOR, { change }, manager.state.updatedAt);
     } catch (error) {
       if (previousEntity) {
@@ -399,12 +521,13 @@ export class ManagerStore {
         if (!lowered) {
           return true;
         }
-        return [summary.id, summary.title, summary.latestSummary, summary.targetRef]
-          .join(" ")
-          .toLowerCase()
-          .includes(lowered);
+        return [summary.id, summary.title, summary.summary, summary.targetRef].join(" ").toLowerCase().includes(lowered);
       })
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
+  }
+
+  async listManagersAsync(filter: ManagerListFilter = {}): Promise<ManagerSummary[]> {
+    return this.listManagers(filter);
   }
 
   readManager(ref: string): ManagerReadResult {
@@ -420,32 +543,31 @@ export class ManagerStore {
     return materializeManagerRecord(this.cwd, attributes.state, attributes.messages);
   }
 
-  createManager(input: CreateManagerInput): ManagerReadResult {
-    const linkedRefs = normalizeManagerLinkedRefs(input.linkedRefs);
+  async readManagerAsync(ref: string): Promise<ManagerReadResult> {
+    return this.readManager(ref);
+  }
+
+  async createManagerAsync(input: CreateManagerInput): Promise<ManagerReadResult> {
     const timestamp = currentTimestamp();
-    const state = normalizeManagerState({
+    const baseState = normalizeManagerState({
       managerId: input.managerId ? slugifyWorkerValue(input.managerId) : slugifyWorkerValue(input.title),
       title: input.title,
       objective: normalizeOptionalString(input.objective) ?? "",
-      summary: normalizeOptionalString(input.summary) ?? "",
+      summary: normalizeOptionalString(input.summary) ?? input.title,
       status: "active",
       createdAt: timestamp,
       updatedAt: timestamp,
       targetRef: normalizeOptionalString(input.targetRef) ?? defaultTargetRef(this.cwd),
-      linkedRefs,
+      linkedRefs: normalizeManagerLinkedRefs(input.linkedRefs),
       workerIds: [],
       workerSignature: "",
-      latestSummary: "Manager created.",
-      lastRunAt: null,
-      runCount: 0,
+      ralphRunId: "pending",
     });
-    return materializeManagerRecord(this.cwd, state, []);
-  }
-
-  async createManagerAsync(input: CreateManagerInput): Promise<ManagerReadResult> {
-    const manager = this.createManager(input);
+    const ralphRunId = await createManagerRalphRunAsync(this.cwd, baseState);
+    const state = normalizeManagerState({ ...baseState, ralphRunId });
+    const manager = materializeManagerRecord(this.cwd, state, []);
     await this.persist(manager, "manager_created");
-    return this.readManager(manager.state.managerId);
+    return this.readManager(state.managerId);
   }
 
   async steerManagerAsync(ref: string, input: ManagerSteerInput): Promise<ManagerReadResult> {
@@ -456,35 +578,33 @@ export class ManagerStore {
     if (input.text?.trim()) {
       manager.messages.push(createManagerMessage(manager, "operator_to_manager", "steer", input.text));
     }
-    if (input.workerId && input.approvalStatus) {
+    if (input.workerId && input.reviewDecision) {
       resolveMessages(
         manager,
         (message) =>
-          message.direction === "manager_to_operator" &&
-          message.workerId === input.workerId &&
-          message.kind === "approval",
+          message.direction === "manager_to_operator" && message.workerId === input.workerId && message.kind === "review",
       );
       manager.messages.push(
         createManagerMessage(
           manager,
           "operator_to_manager",
-          "approval",
-          input.text ?? `Approval decision: ${input.approvalStatus}`,
+          "review",
+          input.text ?? `Review decision: ${normalizeReviewDecision(input.reviewDecision)}`,
           input.workerId,
         ),
       );
     }
     manager.state.status = "active";
     manager.state.updatedAt = currentTimestamp();
-    manager.state.latestSummary = summarizeText(input.text ?? `Steered manager ${manager.state.managerId}`);
+    manager.state.summary = summarizeText(input.text ?? `Steered manager ${manager.state.managerId}`);
+    await syncManagerRalphRunAsync(this.cwd, manager);
     await this.persist(manager, "manager_steered");
     return this.readManager(manager.state.managerId);
   }
 
-  private async ensureWorkers(manager: ManagerReadResult): Promise<{ changed: boolean; notes: string[] }> {
+  private async ensureWorkers(manager: ManagerReadResult): Promise<string[]> {
     const workerStore = createWorkerStore(this.cwd);
     const notes: string[] = [];
-    let changed = false;
     for (const ticketId of manager.state.linkedRefs.ticketIds) {
       const expectedWorkerId = workerIdFor(manager.state.managerId, ticketId);
       if (manager.state.workerIds.includes(expectedWorkerId)) {
@@ -495,75 +615,49 @@ export class ManagerStore {
         workerId: expectedWorkerId,
         title: `${manager.state.title} ${ticketTitle}`,
         objective: manager.state.objective,
-        summary: `Managed by ${manager.state.managerId} for ticket ${ticketId}`,
-        linkedRefs: {
-          ...manager.state.linkedRefs,
-          ticketIds: [ticketId],
-        },
-        managerRef: { kind: "manager", ref: manager.state.managerId, label: manager.state.title },
+        summary: `Queued by ${manager.state.managerId} for ticket ${ticketId}`,
+        ticketId,
+        managerId: manager.state.managerId,
+        linkedRefs: manager.state.linkedRefs,
         workspace: { branch: expectedWorkerId, baseRef: manager.state.targetRef },
-      });
+      } satisfies CreateWorkerInput);
       manager.state.workerIds.push(created.state.workerId);
-      changed = true;
-      notes.push(`Spawned worker ${created.state.workerId} for ticket ${ticketId}.`);
+      notes.push(`Created worker ${created.state.workerId} for ticket ${ticketId}.`);
     }
     manager.state.workerIds = normalizeStringList(manager.state.workerIds);
-    return { changed, notes };
+    return notes;
   }
 
-  private async runWorkerIteration(workerId: string): Promise<string> {
-    const workerStore = createWorkerStore(this.cwd);
-    const worker = workerStore.readWorker(workerId);
-    const runId = worker.state.linkedRefs.ralphRunIds[0];
-    if (!runId) {
-      return `Worker ${workerId} is missing a linked Ralph run.`;
-    }
-    const run = createRalphStore(this.cwd).readRun(runId);
-    if (run.state.waitingFor !== "none" || ["completed", "failed", "halted", "archived"].includes(run.state.status)) {
-      return `Worker ${workerId} is not runnable because linked Ralph run ${runId} is ${run.state.status}/${run.state.waitingFor}.`;
-    }
-    const prepared = worker.launch
-      ? await workerStore.prepareLaunchAsync(workerId, true, `Prepared by manager ${worker.state.managerRef.ref}.`)
-      : await workerStore.prepareLaunchAsync(workerId, false, `Prepared by manager ${worker.state.managerRef.ref}.`);
-    const running = await workerStore.startLaunchExecutionAsync(prepared.state.workerId);
-    if (!running.launch) {
-      return `Worker ${workerId} could not prepare a launch descriptor.`;
-    }
-    startWorkerLaunchProcess(this.cwd, workerId);
-    return `Started background Ralph iteration for worker ${workerId}.`;
-  }
-
-  async dispatchManagerWorkAsync(ref: string): Promise<ManagerReadResult> {
+  async reconcileManagerWorkersAsync(ref: string): Promise<ManagerReadResult> {
     const manager = this.readManager(ref);
-    const notes: string[] = [];
-    const ensured = await this.ensureWorkers(manager);
-    if (ensured.changed) {
-      notes.push(...ensured.notes);
-    }
+    const notes = await this.ensureWorkers(manager);
+    const workerStore = createWorkerStore(this.cwd);
 
     for (const workerId of manager.state.workerIds) {
-      const worker = createWorkerStore(this.cwd).readWorker(workerId);
-      if (worker.state.status === "waiting_for_review" || worker.state.status === "completed") {
+      const worker = workerStore.readWorker(workerId);
+      if (!shouldStartWorker(worker)) {
         continue;
       }
-      if (!shouldRunWorker(worker)) {
+      const run = createRalphStore(this.cwd).readRun(worker.state.ralphRunId);
+      if (["completed", "failed", "halted", "archived"].includes(run.state.status) || run.state.waitingFor !== "none") {
         continue;
       }
-      notes.push(await this.runWorkerIteration(workerId));
+      const resume = run.state.postIteration !== null;
+      await workerStore.prepareLaunchAsync(workerId, resume, `Prepared by manager ${manager.state.managerId}.`);
+      await workerStore.startLaunchExecutionAsync(workerId);
+      startWorkerLaunchProcess(this.cwd, workerId);
+      notes.push(`Started worker ${workerId}.`);
     }
 
-    manager.state.updatedAt = currentTimestamp();
-    manager.state.lastRunAt = manager.state.updatedAt;
-    manager.state.runCount += 1;
     manager.state.workerSignature = managerWorkerSignature(readManagerWorkers(this.cwd, manager.state.workerIds));
-    manager.state.latestSummary = summarizeText(
-      notes.join(" ") || manager.state.latestSummary || "No runnable work this cycle.",
-    );
-    await this.persist(manager, "manager_dispatched");
+    manager.state.updatedAt = currentTimestamp();
+    manager.state.summary = summarizeText(notes.join(" ") || manager.state.summary || "No runnable worker changes.");
+    await syncManagerRalphRunAsync(this.cwd, manager);
+    await this.persist(manager, "manager_reconciled");
     return this.readManager(manager.state.managerId);
   }
 
-  async checkpointManagerAsync(ref: string, input: ManagerCheckpointInput): Promise<ManagerReadResult> {
+  async recordManagerStepAsync(ref: string, input: ManagerCheckpointInput): Promise<ManagerReadResult> {
     const manager = this.readManager(ref);
     manager.state.linkedRefs = mergeManagerLinkedRefs(manager.state.linkedRefs, input.linkedRefs);
     if (input.resolveOperatorInput === true) {
@@ -581,6 +675,7 @@ export class ManagerStore {
       await createWorkerStore(this.cwd).recordWorkerOutcomeAsync(update.workerId, {
         status: update.status,
         summary: update.summary,
+        instructions: update.instructions,
         validation: update.validation,
         conflicts: update.conflicts,
         followUps: update.followUps,
@@ -594,22 +689,13 @@ export class ManagerStore {
       manager.state.status = "active";
     }
     if (input.summary?.trim()) {
-      manager.state.latestSummary = summarizeText(input.summary);
+      manager.state.summary = summarizeText(input.summary, 240);
     }
-    manager.state.updatedAt = currentTimestamp();
-    manager.state.lastRunAt = manager.state.updatedAt;
-    manager.state.runCount += 1;
     manager.state.workerSignature = managerWorkerSignature(readManagerWorkers(this.cwd, manager.state.workerIds));
-    await this.persist(manager, "manager_checkpointed");
+    manager.state.updatedAt = currentTimestamp();
+    await syncManagerRalphRunAsync(this.cwd, manager);
+    await this.persist(manager, "manager_recorded");
     return this.readManager(manager.state.managerId);
-  }
-
-  async listManagersAsync(filter: ManagerListFilter = {}): Promise<ManagerSummary[]> {
-    return this.listManagers(filter);
-  }
-
-  async readManagerAsync(ref: string): Promise<ManagerReadResult> {
-    return this.readManager(ref);
   }
 }
 

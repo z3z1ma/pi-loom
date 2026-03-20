@@ -2,7 +2,7 @@
   "name": "pi-loom",
   "version": "0.1.0",
   "private": true,
-  "description": "Pi extension workspace focused on durable AI-native constitutional, research, initiative, specification, planning, ticket, worker, critique, Ralph orchestration, and documentation memory.",
+  "description": "Pi extension workspace focused on durable AI-native constitutional, research, initiative, specification, planning, ticket, chief-orchestrated Ralph execution, critique, and documentation memory.",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "biome check package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md packages",
@@ -23,7 +23,7 @@
     "documentation",
     "initiatives",
     "ticketing",
-    "workers",
+    "chief",
     "workspace",
     "planning",
     "specifications",
@@ -40,7 +40,7 @@
       "./packages/pi-specs/extensions/index.ts",
       "./packages/pi-plans/extensions/index.ts",
       "./packages/pi-ticketing/extensions/index.ts",
-      "./packages/pi-workers/extensions/index.ts",
+      "./packages/pi-chief/extensions/index.ts",
       "./packages/pi-critique/extensions/index.ts",
       "./packages/pi-ralph/extensions/index.ts",
       "./packages/pi-docs/extensions/index.ts"

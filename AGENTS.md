@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Overview
-- `pi-loom` is an npm workspace of ten Pi extensions plus one internal shared package. The extensions implement the Loom stack: constitutional memory, research, initiatives, specs, plans, tickets, workers, critique, Ralph orchestration, and docs.
+- `pi-loom` is an npm workspace of ten Pi extensions plus one internal shared package. The extensions implement the Loom stack: constitutional memory, research, initiatives, specs, plans, tickets, chief orchestration, critique, Ralph orchestration, and docs.
 - Most repo-visible state is materialized under `.loom/`; package source lives under `packages/pi-*`. Several stores also sync canonical entity/projection data through `@pi-loom/pi-storage` as part of the SQLite-first migration.
 - The root `package.json` is the integration point: it declares npm workspaces and loads every extension through `pi.extensions`.
 - Workflow guidance lives primarily in `README.md` plus `packages/*/README.md`; treat those as the first documentation stop before inferring behavior from checked-in `.loom` examples.
@@ -16,14 +16,14 @@
 7. Package entrypoints also export a `_test` object so command handlers, prompt builders, and stores can be exercised directly from Vitest.
 
 ### Layer boundaries
-- Core execution flow: `constitution -> research -> initiatives -> specs -> plans -> tickets`, with `pi-workers` adding a bounded workspace-backed execution substrate alongside ticket execution rather than replacing the ticket ledger.
-- `pi-workers` is the workspace-backed execution substrate; it complements tickets with durable worker state, inbox-driven messaging, checkpoints, manager orchestration, approvals, and consolidation outcomes without replacing the ticket ledger.
-- `pi-workers` is also the only package with two command/tool families: `/worker` + `worker_*` for worker execution and `/manager` + `manager_*` for fleet orchestration.
+- Core execution flow: `constitution -> research -> initiatives -> specs -> plans -> tickets`, with `pi-chief` adding a bounded manager-first execution substrate alongside ticket execution rather than replacing the ticket ledger.
+- `pi-chief` is the manager-first execution substrate; it wraps managers and ticket-bound worker loops on top of Ralph plus managed git worktrees without replacing the ticket ledger.
+- `pi-chief` is the only package whose public AI surface is manager-first while worker loops remain internal implementation details.
 - `pi-critique` is the durable review layer; it does not replace tickets or plans.
 - `pi-ralph` orchestrates bounded plan/execute/review loops across the other layers; it is not a general workflow engine.
 - `pi-docs` is the post-completion explanatory layer.
 - `pi-plans` is the only naming exception among single-command packages: the slash command is `/workplan`, not `/plan`.
-- Command and tool families are paired by layer: `/ticket` + `ticket_*`, `/worker` + `worker_*`, `/manager` + `manager_*`, `/spec` + `spec_*`, `/workplan` + `plan_*`, `/critique` + `critique_*`, `/docs` + `docs_*`, `/ralph` + `ralph_*`.
+- Command and tool families are paired by layer: `/ticket` + `ticket_*`, `manager_*`, `/spec` + `spec_*`, `/workplan` + `plan_*`, `/critique` + `critique_*`, `/docs` + `docs_*`, `/ralph` + `ralph_*`.
 
 ## Key Directories
 - `packages/` — all workspace packages, including the ten Pi extensions plus `pi-storage`.
@@ -33,7 +33,7 @@
   - `packages/pi-specs/` — `.loom/specs/`
   - `packages/pi-plans/` — `.loom/plans/`
   - `packages/pi-ticketing/` — `.loom/tickets/`
-  - `packages/pi-workers/` — `.loom/workers/`
+  - `packages/pi-chief/` — `.loom/workers/`
   - `packages/pi-critique/` — `.loom/critiques/`
   - `packages/pi-ralph/` — `.loom/ralph/`
   - `packages/pi-docs/` — `.loom/docs/`
@@ -79,9 +79,9 @@ Package manifests do not define their own `scripts`; contributor workflows are r
   - `extensions/tools/*.ts` — AI tool registration
   - `extensions/domain/*.ts` — persistence, rendering, normalization, dashboards
   - `extensions/prompts/guidance.ts` and `extensions/prompts/base-*.md` — system prompt augmentation
-- Entry points usually register one slash command + one tool family, initialize the store on `session_start` and `before_agent_start`, and expose a `_test` export. `pi-workers` is the deliberate exception: it registers both manager and worker command/tool surfaces.
+- Entry points usually register one slash command + one tool family, initialize the store on `session_start` and `before_agent_start`, and expose a `_test` export. `pi-chief` is the deliberate exception: it exposes a manager-first public tool surface plus internal chief-loop tools gated for its own background manager subprocess.
 - Stores increasingly follow a projection + canonical-sync pattern: write repo-relative `.loom/` artifacts for reviewability, then sync canonical entity/projection data through `@pi-loom/pi-storage`.
-- Some packages add domain-specific helpers rather than inventing a new top-level layout: `pi-ticketing` adds `graph/query/journal/attachments/checkpoints`, `pi-specs` adds `analysis/checklist/projection`, `pi-workers` adds worker runtime/messaging/checkpoint helpers, and `pi-critique`/`pi-docs`/`pi-ralph` include runtime subprocess helpers.
+- Some packages add domain-specific helpers rather than inventing a new top-level layout: `pi-ticketing` adds `graph/query/journal/attachments/checkpoints`, `pi-specs` adds `analysis/checklist/projection`, `pi-chief` adds manager/worker worktree runtime helpers, and `pi-critique`/`pi-docs`/`pi-ralph` include runtime subprocess helpers.
 - Keep changes aligned with the current repo-materialized + canonical-sync design. If behavior changes, update the store/model/render path, the prompt guidance, the package README, and the matching tests together.
 - Prefer explicit links across layers (`initiative`, `spec`, `ticket`, `worker`, `research`, `critique`, `docs`, `ralph`) over implicit inference. The repository is designed around durable IDs and recorded relationships.
 

@@ -5,7 +5,6 @@ import { createRalphStore } from "@pi-loom/pi-ralph/extensions/domain/store.js";
 import { runRalphLaunch } from "@pi-loom/pi-ralph/extensions/domain/runtime.js";
 import type { RalphLaunchDescriptor } from "@pi-loom/pi-ralph/extensions/domain/models.js";
 import type { PrepareWorkerLaunchInput, WorkerReadResult, WorkerRuntimeDescriptor } from "./models.js";
-import { DEFAULT_WORKER_RUNTIME_KIND } from "./models.js";
 import { getWorkerRuntimeDir } from "./paths.js";
 
 export interface WorkerExecutionResult {
@@ -16,10 +15,6 @@ export interface WorkerExecutionResult {
 
 function runGit(repoRoot: string, args: string[]): string {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf-8" }).trim();
-}
-
-function currentBranch(repoRoot: string): string {
-  return runGit(repoRoot, ["branch", "--show-current"]);
 }
 
 function gitBranchExists(repoRoot: string, branch: string): boolean {
@@ -87,30 +82,21 @@ export function retireWorkerWorkspace(cwd: string, workerId: string, workspaceDi
   }
 }
 
-function linkedRalphRunId(worker: WorkerReadResult): string {
-  const [runId, ...rest] = worker.state.linkedRefs.ralphRunIds;
-  if (!runId || rest.length > 0) {
-    throw new Error(`Worker ${worker.state.workerId} must link exactly one Ralph run before launch.`);
-  }
-  return runId;
-}
-
-function prepareLinkedRalphLaunch(
-  cwd: string,
-  worker: WorkerReadResult,
-  input: PrepareWorkerLaunchInput,
-): RalphLaunchDescriptor {
+function prepareLinkedRalphLaunch(cwd: string, worker: WorkerReadResult, input: PrepareWorkerLaunchInput): RalphLaunchDescriptor {
   const store = createRalphStore(cwd);
-  const runId = linkedRalphRunId(worker);
   const instructions = [
-    `Execute the next Ralph iteration in worktree ${worker.state.workspace.branch}.`,
-    `This worker is the ticket-bound wrapper for linked Ralph run ${runId}.`,
-    "Leave durable worker state truthful before stopping, especially when the work is blocked or ready for review.",
+    `Execute one ticket-bound Ralph iteration in worktree ${worker.state.workspace.branch}.`,
+    `This worker is the ticket wrapper for ticket ${worker.state.ticketId}.`,
+    ...worker.state.pendingInstructions,
+    ...(input.instructions ?? []),
   ];
   const result =
     input.resume === true
-      ? store.resumeRun(runId, { instructions })
-      : store.prepareLaunch(runId, { instructions, focus: worker.state.objective || worker.state.summary });
+      ? store.resumeRun(worker.state.ralphRunId, { instructions })
+      : store.prepareLaunch(worker.state.ralphRunId, {
+          focus: worker.state.objective || worker.state.summary || worker.state.title,
+          instructions,
+        });
   return result.launch;
 }
 
@@ -128,7 +114,7 @@ export function prepareWorkerLaunchDescriptor(
     iteration: ralphLaunch.iteration,
     createdAt: ralphLaunch.createdAt,
     updatedAt: ralphLaunch.createdAt,
-    runtime: ralphLaunch.runtime ?? DEFAULT_WORKER_RUNTIME_KIND,
+    runtime: "subprocess",
     resume: ralphLaunch.resume,
     workspaceDir,
     branch: worker.state.workspace.branch,
@@ -155,7 +141,7 @@ export async function runWorkerLaunch(
       error: "Worker launch descriptor is missing linked Ralph run metadata.",
     };
   }
-  const instructions = Array.isArray(launch.instructions) ? launch.instructions : [];
+
   const execution = await runRalphLaunch(
     launch.workspaceDir,
     {
@@ -167,7 +153,7 @@ export async function runWorkerLaunch(
       packetRef: launch.packetRef,
       launchRef: launch.ralphLaunchRef,
       resume: launch.resume,
-      instructions: [...instructions],
+      instructions: [...launch.instructions],
     },
     signal,
     onUpdate,
