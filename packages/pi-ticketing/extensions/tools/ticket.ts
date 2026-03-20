@@ -31,11 +31,31 @@ const TicketWriteActionEnum = StringEnum(TICKET_WRITE_ACTIONS);
 const TicketCheckpointActionEnum = StringEnum(["create", "read"] as const);
 
 const TicketListParams = Type.Object({
-  status: Type.Optional(TicketStatusEnum),
-  type: Type.Optional(TicketTypeEnum),
-  includeClosed: Type.Optional(Type.Boolean()),
-  includeArchived: Type.Optional(Type.Boolean()),
-  text: Type.Optional(Type.String()),
+  status: Type.Optional(TicketStatusEnum, {
+    description:
+      "Exact status filter. Start with text when discovering work; add status only once you intentionally want a narrower slice.",
+  }),
+  type: Type.Optional(TicketTypeEnum, {
+    description: "Exact type filter. Leave unset for broad discovery unless you already know the ticket kind you want.",
+  }),
+  includeClosed: Type.Optional(
+    Type.Boolean({
+      description:
+        "Closed non-archived tickets are hidden by default. Set true only when you intentionally want closed history included.",
+    }),
+  ),
+  includeArchived: Type.Optional(
+    Type.Boolean({
+      description:
+        "Archived tickets are hidden by default, even when includeClosed is true. Set true only when you intentionally need archived records.",
+    }),
+  ),
+  text: Type.Optional(
+    Type.String({
+      description:
+        "Broad substring search across ticket id and title. Prefer this first when you are unsure of the exact status or type.",
+    }),
+  ),
 });
 
 const TicketReadParams = Type.Object({
@@ -190,11 +210,15 @@ export function registerTicketTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "ticket_list",
     label: "ticket_list",
-    description: "List tickets from the durable local ledger.",
-    promptSnippet: "Inspect backlog, ready work, blocked work, or existing intent before creating a new ticket.",
+    description:
+      "List tickets from the durable local ledger. Prefer broad discovery with text first, then add exact filters only when you intentionally want to narrow the result set.",
+    promptSnippet:
+      "Inspect backlog, ready work, blocked work, or existing intent before creating a new ticket. Start broad with text when uncertain, then narrow with exact filters.",
     promptGuidelines: [
       "Use this tool before creating tickets so you do not duplicate existing work.",
-      "Use status filters to inspect ready or blocked work before proposing sequencing or parallelism.",
+      "Start with text for broad-first discovery when you only know part of the title or intent; exact status and type filters can hide valid matches if you guess wrong.",
+      "Closed tickets are excluded by default, and archived tickets are also excluded by default even when includeClosed is true; opt into those histories only when you intentionally need them.",
+      "Use status filters to inspect ready or blocked work before proposing sequencing or parallelism once you have already narrowed the search intentionally.",
       "Use the existing ledger to inherit durable context, dependencies, and verification expectations before writing a new ticket body.",
     ],
     parameters: TicketListParams,

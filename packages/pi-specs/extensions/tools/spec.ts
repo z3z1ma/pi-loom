@@ -20,8 +20,18 @@ const SpecAnalyzeModeEnum = StringEnum(["analysis", "checklist", "both"] as cons
 
 const SpecListParams = Type.Object({
   status: Type.Optional(SpecStatusEnum),
-  includeArchived: Type.Optional(Type.Boolean()),
-  text: Type.Optional(Type.String()),
+  includeArchived: Type.Optional(
+    Type.Boolean({
+      description:
+        "Include archived spec changes. Archived changes are hidden unless this is true; capability summaries are still listed separately.",
+    }),
+  ),
+  text: Type.Optional(
+    Type.String({
+      description:
+        "Broad text search across spec changes. Start here before adding exact change filters; capability summaries are returned separately.",
+    }),
+  ),
 });
 
 const SpecReadParams = Type.Object({
@@ -116,12 +126,15 @@ export function registerSpecTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "spec_list",
     label: "spec_list",
-    description: "List spec changes and existing capability specs from durable local spec memory.",
+    description:
+      "List spec changes plus the separate capability summary set from durable local spec memory. Start broad with `text`; `status` and `includeArchived` narrow only the change list.",
     promptSnippet:
-      "Inspect relevant existing specs before opening a new change or ensuring linked tickets so the new spec can inherit bounded detail instead of re-inventing it.",
+      "Inspect relevant existing specs before opening a new change or ensuring linked tickets so the new spec can inherit bounded detail instead of re-inventing it; broad text search is the safest first pass when you are rediscovering prior spec work.",
     promptGuidelines: [
       "Use this tool before creating a new spec so you do not duplicate existing capability work.",
-      "Use finalized and archived views to understand whether a capability already has a canonical spec.",
+      "Start with `text` when rediscovering prior spec work by capability, title, or phrase; add `status` only after the broad search is still too wide or when you intentionally want one change-state slice.",
+      "`status` and `includeArchived` apply only to spec changes. Capability summaries are still returned separately and are not filtered by those change filters.",
+      "Archived spec changes are hidden by default; set `includeArchived` when checking whether older finalized or superseded changes already cover the capability.",
     ],
     parameters: SpecListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

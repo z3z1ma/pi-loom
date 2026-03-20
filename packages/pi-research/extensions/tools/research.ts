@@ -41,10 +41,26 @@ const ResearchWriteActionEnum = StringEnum([
 
 const ResearchListParams = Type.Object({
   status: Type.Optional(ResearchStatusEnum),
-  includeArchived: Type.Optional(Type.Boolean()),
-  text: Type.Optional(Type.String()),
-  tag: Type.Optional(Type.String()),
-  keyword: Type.Optional(Type.String()),
+  includeArchived: Type.Optional(
+    Type.Boolean({ description: "Include archived research. Archived records are hidden unless this is true." }),
+  ),
+  text: Type.Optional(
+    Type.String({
+      description: "Broad text search across research records. Start here before adding narrower exact filters.",
+    }),
+  ),
+  tag: Type.Optional(
+    Type.String({
+      description:
+        "Exact tag filter. Add only when you intentionally want to narrow results; the wrong tag hides valid matches.",
+    }),
+  ),
+  keyword: Type.Optional(
+    Type.String({
+      description:
+        "Exact research keyword filter. Use after a broad text search when you know the stored keyword you want.",
+    }),
+  ),
 });
 
 const ResearchReadParams = Type.Object({
@@ -182,12 +198,15 @@ export function registerResearchTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "research_list",
     label: "research_list",
-    description: "List research records from the durable local knowledge memory.",
+    description:
+      "List research records from the durable local knowledge memory. Start broad with `text`, then add exact filters like `tag` or `keyword` only when you intentionally want a narrower slice.",
     promptSnippet:
-      "Inspect existing research before creating a new investigation so you can reuse prior evidence, methodology, rejected paths, and open questions instead of restarting discovery.",
+      "Inspect existing research before creating a new investigation so you can reuse prior evidence, methodology, rejected paths, and open questions instead of restarting discovery; broad text search is the safest first pass when the exact record shape is unknown.",
     promptGuidelines: [
       "Use this tool before opening new exploratory work so you do not fork existing knowledge.",
-      "Inspect archived and active research when evaluating whether uncertainty is already resolved or prior evidence materially narrows the search space.",
+      "Start with `text` and no exact filters when rediscovering prior work by topic, question, or phrase; add `status`, `tag`, or `keyword` only after the broad search is still too wide.",
+      "`tag` and `keyword` are exact filters and can hide valid matches if you guess the stored value wrong.",
+      "Archived research is hidden by default; set `includeArchived` when checking whether older investigations already resolved the uncertainty or should still inform the current search.",
     ],
     parameters: ResearchListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

@@ -170,12 +170,35 @@ export function registerWorkerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "worker_list",
     label: "List Workers",
-    description: "List workspace-backed workers from local Loom memory.",
+    description:
+      "List workspace-backed workers from local Loom memory. Prefer text-first discovery when uncertain; status, telemetryState, and pendingApproval are exact narrowing filters.",
+    promptSnippet:
+      "Inspect existing workers before creating or resuming one. Start with text when you are not certain of the exact state, then add exact filters only to narrow intentionally.",
+    promptGuidelines: [
+      "Use this tool before creating or launching workers so you reuse existing workspace-backed execution records instead of fragmenting work across duplicate workers.",
+      "Prefer text first for broad discovery by worker title, objective summary, or latest checkpoint summary; exact status, telemetryState, and pendingApproval filters can hide the worker you need if you guess the state wrong.",
+      "Use exact filters only when you intentionally want a smaller slice such as workers waiting for approval or workers in a specific telemetry state.",
+    ],
     parameters: Type.Object({
-      status: Type.Optional(WorkerStatusEnum),
-      telemetryState: Type.Optional(WorkerTelemetryEnum),
-      pendingApproval: Type.Optional(Type.Boolean()),
-      text: Type.Optional(Type.String()),
+      status: Type.Optional(WorkerStatusEnum, {
+        description:
+          "Exact worker status filter. Leave unset for broad discovery unless you intentionally want one status bucket.",
+      }),
+      telemetryState: Type.Optional(WorkerTelemetryEnum, {
+        description: "Exact telemetry state filter. Use only when you know the worker is already in that state.",
+      }),
+      pendingApproval: Type.Optional(
+        Type.Boolean({
+          description:
+            "Exact approval-state filter. Set only when you intentionally want approval-pending or approval-clear workers.",
+        }),
+      ),
+      text: Type.Optional(
+        Type.String({
+          description:
+            "Broad substring search across worker title, objective summary, and latest checkpoint summary. Prefer this first when uncertain.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const workers = await getStore(ctx).listWorkersAsync(params);

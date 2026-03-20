@@ -11,6 +11,10 @@ const PlanWriteActionEnum = StringEnum(["init", "create", "update", "archive"] a
 const PlanReadModeEnum = StringEnum(["full", "state", "packet", "plan"] as const);
 const PlanTicketLinkActionEnum = StringEnum(["link", "unlink"] as const);
 
+function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
+  return { ...schema, description } as T;
+}
+
 const ContextRefsSchema = Type.Object({
   roadmapItemIds: Type.Optional(Type.Array(Type.String())),
   initiativeIds: Type.Optional(Type.Array(Type.String())),
@@ -51,10 +55,27 @@ const PlanRevisionSchema = Type.Object({
 });
 
 const PlanListParams = Type.Object({
-  status: Type.Optional(PlanStatusEnum),
-  sourceKind: Type.Optional(PlanSourceTargetKindEnum),
-  text: Type.Optional(Type.String()),
-  linkedTicketId: Type.Optional(Type.String()),
+  status: Type.Optional(
+    withDescription(
+      PlanStatusEnum,
+      "Optional exact status filter: active, paused, completed, archived, or superseded.",
+    ),
+  ),
+  sourceKind: Type.Optional(
+    withDescription(
+      PlanSourceTargetKindEnum,
+      "Optional exact source target kind filter. This matches the plan's upstream anchor (`sourceTarget.kind`): workspace, initiative, spec, or research. Leave it unset when you know the plan name or topic but do not know its anchor kind.",
+    ),
+  ),
+  text: Type.Optional(
+    Type.String({
+      description:
+        "Free-text search over plan id, title, summary, source ref, and source kind. Prefer starting with text alone, then add filters only after you find the right plan family.",
+    }),
+  ),
+  linkedTicketId: Type.Optional(
+    Type.String({ description: "Optional exact ticket id filter for plans linked to a specific ticket." }),
+  ),
 });
 
 const PlanReadParams = Type.Object({
@@ -185,11 +206,14 @@ export function registerPlanTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "plan_list",
     label: "plan_list",
-    description: "List durable execution plans by status, source target, text, or linked ticket.",
-    promptSnippet: "Inspect existing plans before creating a new one so durable execution strategy does not fork.",
+    description:
+      "List durable execution plans. Start broad with `text` when rediscovering a plan by name, topic, or source context; add exact filters such as `status`, `sourceKind`, or `linkedTicketId` only when you intentionally want a narrower result set.",
+    promptSnippet:
+      "Inspect existing plans before creating a new one so durable execution strategy does not fork; broad text search is the safest first pass when you do not yet know the exact source anchor or status.",
     promptGuidelines: [
       "Use this tool before writing a new plan so broader execution strategy stays consolidated.",
-      "Filter by linked ticket or source target when rediscovering the plan that should absorb new work.",
+      "When rediscovering an existing plan, start with `text` and no exact filters; `status`, `sourceKind`, and `linkedTicketId` all narrow by exact stored values, and `sourceKind` in particular matches the upstream anchor type (`workspace`, `initiative`, `spec`, or `research`).",
+      "Add exact filters only after the broad search is still too wide or when you intentionally need one specific execution-plan slice.",
     ],
     parameters: PlanListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

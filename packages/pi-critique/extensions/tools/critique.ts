@@ -74,11 +74,25 @@ const CritiqueTargetSchema = Type.Object({
 });
 
 const CritiqueListParams = Type.Object({
-  status: Type.Optional(CritiqueStatusEnum),
-  verdict: Type.Optional(CritiqueVerdictEnum),
-  targetKind: Type.Optional(CritiqueTargetKindEnum),
-  focusArea: Type.Optional(CritiqueFocusAreaEnum),
-  text: Type.Optional(Type.String()),
+  status: Type.Optional(CritiqueStatusEnum, {
+    description: "Exact critique status filter. Start with text first unless you intentionally want one status bucket.",
+  }),
+  verdict: Type.Optional(CritiqueVerdictEnum, {
+    description: "Exact verdict filter. Useful for targeted triage after broad discovery.",
+  }),
+  targetKind: Type.Optional(CritiqueTargetKindEnum, {
+    description: "Exact target kind filter. Leave unset unless you already know the critique target type.",
+  }),
+  focusArea: Type.Optional(CritiqueFocusAreaEnum, {
+    description:
+      "Exact focus-area filter. This narrows to critiques whose recorded focus areas include the chosen value.",
+  }),
+  text: Type.Optional(
+    Type.String({
+      description:
+        "Broad substring search across critique id, title, target ref, target kind, and focus areas. Prefer this first when uncertain.",
+    }),
+  ),
 });
 
 const CritiqueReadParams = Type.Object({
@@ -243,11 +257,13 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "critique_list",
     label: "critique_list",
-    description: "List durable critique records by status, target, focus area, or verdict.",
+    description:
+      "List durable critique records. Prefer broad discovery with text first, then add exact status, verdict, target, or focus-area filters only when you intentionally want a narrower slice.",
     promptSnippet:
-      "Inspect existing critiques before starting a new review so prior evidence, verdict reasoning, and follow-up findings are not duplicated or contradicted.",
+      "Inspect existing critiques before starting a new review so prior evidence, verdict reasoning, and follow-up findings are not duplicated or contradicted. Start broad with text when uncertain, then narrow deliberately.",
     promptGuidelines: [
       "Use this tool to discover whether the target already has a durable critique record.",
+      "Prefer text first for broad discovery by critique id, title, target ref, or focus area; exact filters can hide valid matches if you guess the stored status, verdict, target kind, or focus area wrong.",
       "Filter by focus area or verdict when triaging follow-up review work and when you need the strongest existing evidence trail first.",
     ],
     parameters: CritiqueListParams,

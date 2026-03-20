@@ -30,9 +30,20 @@ const InitiativeWriteActionEnum = StringEnum([
 
 const InitiativeListParams = Type.Object({
   status: Type.Optional(InitiativeStatusEnum),
-  includeArchived: Type.Optional(Type.Boolean()),
-  text: Type.Optional(Type.String()),
-  tag: Type.Optional(Type.String()),
+  includeArchived: Type.Optional(
+    Type.Boolean({ description: "Include archived initiatives. Archived initiatives are hidden unless this is true." }),
+  ),
+  text: Type.Optional(
+    Type.String({
+      description: "Broad text search across initiative records. Start here before adding narrower exact filters.",
+    }),
+  ),
+  tag: Type.Optional(
+    Type.String({
+      description:
+        "Exact tag filter. Add only when you intentionally want to narrow results; the wrong tag hides valid matches.",
+    }),
+  ),
 });
 
 const InitiativeReadParams = Type.Object({
@@ -154,12 +165,15 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "initiative_list",
     label: "initiative_list",
-    description: "List initiatives from the durable local strategic memory layer.",
+    description:
+      "List initiatives from the durable local strategic memory layer. Start broad with `text`, then add exact filters like `tag` only when you intentionally want a narrower strategic slice.",
     promptSnippet:
-      "Inspect strategic context before creating a new initiative or assuming work has no long-horizon container.",
+      "Inspect strategic context before creating a new initiative or assuming work has no long-horizon container; broad text search is the safest first pass when the exact initiative title or tag is uncertain.",
     promptGuidelines: [
       "Use this tool before creating a new initiative so you do not fork program-level context.",
-      "Inspect active initiatives before opening new cross-cutting specs or tickets that may already belong to strategic work.",
+      "Start with `text` and no exact filters when rediscovering initiative context by theme, objective, or phrase; add `status` or `tag` only after the broad search is still too wide.",
+      "`tag` is an exact filter and can hide valid matches if you guess the stored tag wrong.",
+      "Archived initiatives are hidden by default; set `includeArchived` when checking whether older strategy still governs the current work or was explicitly retired.",
     ],
     parameters: InitiativeListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

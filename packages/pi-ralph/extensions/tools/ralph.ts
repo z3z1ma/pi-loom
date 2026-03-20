@@ -14,6 +14,10 @@ import { renderDashboard, renderLaunchDescriptor, renderRalphDetail } from "../d
 import { runRalphLaunch } from "../domain/runtime.js";
 import { createRalphStore } from "../domain/store.js";
 
+function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
+  return { ...schema, description } as T;
+}
+
 const RalphRunStatusEnum = StringEnum([
   "planned",
   "active",
@@ -32,6 +36,7 @@ const RalphRunPhaseEnum = StringEnum([
   "completed",
   "halted",
 ] as const);
+const RalphDecisionKindEnum = StringEnum(["continue", "pause", "complete", "halt", "escalate"] as const);
 const RalphWaitingForEnum = StringEnum(["none", "verifier", "critique", "operator"] as const);
 const RalphIterationStatusEnum = StringEnum([
   "pending",
@@ -130,11 +135,36 @@ const IterationInputSchema = Type.Object({
 });
 
 const RalphListParams = Type.Object({
-  status: Type.Optional(RalphRunStatusEnum),
-  phase: Type.Optional(RalphRunPhaseEnum),
-  decision: Type.Optional(StringEnum(["continue", "pause", "complete", "halt", "escalate"] as const)),
-  waitingFor: Type.Optional(RalphWaitingForEnum),
-  text: Type.Optional(Type.String()),
+  status: Type.Optional(
+    withDescription(
+      RalphRunStatusEnum,
+      "Optional exact run status filter. Leave it unset on the first pass unless you intentionally want one run-state slice.",
+    ),
+  ),
+  phase: Type.Optional(
+    withDescription(
+      RalphRunPhaseEnum,
+      "Optional exact orchestration phase filter. Use this only when you already know which lifecycle phase you need.",
+    ),
+  ),
+  decision: Type.Optional(
+    withDescription(
+      RalphDecisionKindEnum,
+      "Optional exact latest-decision filter. This matches the stored continuation decision kind and can hide valid runs if guessed incorrectly.",
+    ),
+  ),
+  waitingFor: Type.Optional(
+    withDescription(
+      RalphWaitingForEnum,
+      "Optional exact waiting-state filter for paused or review-gated runs. Use it when triaging a known blocker class, not as the first discovery step.",
+    ),
+  ),
+  text: Type.Optional(
+    Type.String({
+      description:
+        "Free-text search over Ralph run id, title, objective, notes, and related indexed content. Prefer starting with text alone, then add exact filters only after the broad search is still too wide.",
+    }),
+  ),
 });
 
 const RalphReadParams = Type.Object({
@@ -154,7 +184,7 @@ const RalphWriteParams = Type.Object({
   critiqueLink: Type.Optional(CritiqueLinkSchema),
   latestDecision: Type.Optional(
     Type.Object({
-      kind: StringEnum(["continue", "pause", "complete", "halt", "escalate"] as const),
+      kind: RalphDecisionKindEnum,
       reason: StringEnum([
         "goal_reached",
         "verifier_blocked",
@@ -320,12 +350,14 @@ export function registerRalphTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "ralph_list",
     label: "ralph_list",
-    description: "List durable Ralph runs by status, phase, waiting state, or text filter.",
+    description:
+      "List durable Ralph runs. Start broad with `text` when rediscovering a run by title, objective, or recent context; add exact filters such as `status`, `phase`, `decision`, or `waitingFor` only when you intentionally want a narrower slice.",
     promptSnippet:
-      "Inspect existing Ralph runs before starting a new long-horizon loop so orchestration state does not fork.",
+      "Inspect existing Ralph runs before starting a new long-horizon loop so orchestration state does not fork; broad text search is the safest first pass when you do not yet know the exact run state.",
     promptGuidelines: [
       "Use this tool to rediscover the run that should absorb new iteration work.",
-      "Filter by waiting state when triaging paused or review-gated Ralph runs.",
+      "When rediscovering a run, start with `text` and no exact filters; `status`, `phase`, `decision`, and `waitingFor` all narrow by exact stored values and can hide valid runs if guessed wrong.",
+      "Use `waitingFor` when intentionally triaging paused or review-gated runs after the broad search, not as the default discovery path.",
     ],
     parameters: RalphListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

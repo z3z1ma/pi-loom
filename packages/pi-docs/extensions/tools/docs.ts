@@ -13,6 +13,10 @@ const DocSourceTargetKindEnum = StringEnum(["initiative", "spec", "ticket", "cri
 const DocsWriteActionEnum = StringEnum(["init", "create", "update", "archive"] as const);
 const DocsReadModeEnum = StringEnum(["full", "state", "packet", "document"] as const);
 
+function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
+  return { ...schema, description } as T;
+}
+
 const ContextRefsSchema = Type.Object({
   roadmapItemIds: Type.Optional(Type.Array(Type.String())),
   initiativeIds: Type.Optional(Type.Array(Type.String())),
@@ -28,12 +32,39 @@ const SourceTargetSchema = Type.Object({
 });
 
 const DocsListParams = Type.Object({
-  status: Type.Optional(DocStatusEnum),
-  docType: Type.Optional(DocTypeEnum),
-  sectionGroup: Type.Optional(DocSectionGroupEnum),
-  sourceKind: Type.Optional(DocSourceTargetKindEnum),
-  topic: Type.Optional(Type.String()),
-  text: Type.Optional(Type.String()),
+  status: Type.Optional(
+    withDescription(DocStatusEnum, "Optional exact status filter: active, archived, or superseded."),
+  ),
+  docType: Type.Optional(
+    withDescription(
+      DocTypeEnum,
+      "Optional exact documentation type filter. Leave it unset on the first pass unless you already know the durable doc classification.",
+    ),
+  ),
+  sectionGroup: Type.Optional(
+    withDescription(
+      DocSectionGroupEnum,
+      "Optional exact section-group filter for the rendered docs area (`overviews`, `guides`, `concepts`, or `operations`).",
+    ),
+  ),
+  sourceKind: Type.Optional(
+    withDescription(
+      DocSourceTargetKindEnum,
+      "Optional exact source target kind filter (`initiative`, `spec`, `ticket`, `critique`, or `workspace`). Leave it unset when you know the topic but not the upstream anchor kind.",
+    ),
+  ),
+  topic: Type.Optional(
+    Type.String({
+      description:
+        "Optional exact topic filter. Use this only when you already know the durable guide topic slug you want; guessed values can hide relevant documents.",
+    }),
+  ),
+  text: Type.Optional(
+    Type.String({
+      description:
+        "Free-text search over documentation id, title, summary, source ref, and other indexed content. Prefer starting with text alone, then add exact filters only after the result set is still too broad.",
+    }),
+  ),
 });
 
 const DocsReadParams = Type.Object({
@@ -136,12 +167,14 @@ export function registerDocsTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "docs_list",
     label: "docs_list",
-    description: "List durable documentation records by status, type, topic, or source target.",
+    description:
+      "List durable documentation records. Start broad with `text` when rediscovering a doc by title, topic, or source context; add exact filters such as `docType`, `sectionGroup`, `sourceKind`, or `topic` only when you intentionally want a narrower slice.",
     promptSnippet:
-      "Inspect existing documentation records before creating new docs so substantial durable explanations stay focused, non-duplicative, and attached to the right record.",
+      "Inspect existing documentation records before creating new docs so substantial durable explanations stay focused, non-duplicative, and attached to the right record; broad text search is the safest first pass when you do not know the exact doc classification yet.",
     promptGuidelines: [
       "Use this tool before creating a new documentation record so high-level topics stay consolidated in one durable, high-context document instead of fragmenting into shallow duplicates.",
-      "Filter by doc type or topic when deciding which durable document should absorb a completed change and carry the fuller explanation forward.",
+      "When rediscovering a durable document, start with `text` and no exact filters; `docType`, `sectionGroup`, `sourceKind`, and `topic` narrow by exact stored values and can hide valid matches if guessed wrong.",
+      "Add exact filters only after the broad search is still too wide or when you intentionally need one specific documentation slice.",
     ],
     parameters: DocsListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
