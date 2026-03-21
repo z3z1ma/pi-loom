@@ -814,6 +814,18 @@ export class TicketStore {
     text: string,
     metadata: Record<string, unknown> = {},
   ): Promise<TicketReadResult> {
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    return storage.transact((tx) => this.addJournalEntryWithStorage(tx, identity, ref, kind, text, metadata));
+  }
+
+  async addJournalEntryWithStorage(
+    storage: LoomCanonicalStorage,
+    identity: WorkspaceIdentity,
+    ref: string,
+    kind: JournalKind,
+    text: string,
+    metadata: Record<string, unknown> = {},
+  ): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
     const timestamp = currentTimestamp();
     current.ticket.frontmatter["updated-at"] = timestamp;
@@ -821,7 +833,7 @@ export class TicketStore {
       ...current.journal,
       createJournalEntry(current.summary.id, kind, text.trim(), timestamp, metadata, current.journal.length + 1),
     ];
-    await this.upsertCanonicalRecord(current);
+    await this.upsertCanonicalRecordWithStorage(storage, identity, current);
     return this.readTicketAsync(current.summary.id);
   }
 

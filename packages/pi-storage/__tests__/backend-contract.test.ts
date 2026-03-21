@@ -125,6 +125,62 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
   expect(await storage.listRuntimeAttachments(worktree.id)).toEqual([]);
 }
 
+async function seedSqliteConcurrencyWorkspace(storage: SqliteLoomCatalog): Promise<void> {
+  const timestamps = {
+    createdAt: "2026-03-21T00:00:00.000Z",
+    updatedAt: "2026-03-21T00:00:00.000Z",
+  };
+
+  const space: LoomSpaceRecord = {
+    id: "space-concurrency",
+    slug: "concurrency",
+    title: "Concurrency",
+    description: "Concurrency test space",
+    repositoryIds: ["repo-concurrency"],
+    ...timestamps,
+  };
+  const repository: LoomRepositoryRecord = {
+    id: "repo-concurrency",
+    spaceId: space.id,
+    slug: "repo-concurrency",
+    displayName: "Repo Concurrency",
+    defaultBranch: "main",
+    remoteUrls: ["git@github.com:example/repo-concurrency.git"],
+    ...timestamps,
+  };
+  const worktree: LoomWorktreeRecord = {
+    id: "worktree-concurrency",
+    repositoryId: repository.id,
+    branch: "main",
+    baseRef: "main",
+    logicalKey: "worktree:repo-concurrency:main",
+    status: "attached",
+    ...timestamps,
+  };
+
+  await storage.upsertSpace(space);
+  await storage.upsertRepository(repository);
+  await storage.upsertWorktree(worktree);
+}
+
+function concurrencyTicket(id: string, displayId: string): LoomEntityRecord {
+  return {
+    id,
+    kind: "ticket",
+    spaceId: "space-concurrency",
+    owningRepositoryId: "repo-concurrency",
+    displayId,
+    title: displayId,
+    summary: `Ticket ${displayId}`,
+    status: "open",
+    version: 1,
+    tags: ["concurrency"],
+    attributes: {},
+    createdAt: "2026-03-21T00:00:00.000Z",
+    updatedAt: "2026-03-21T00:00:00.000Z",
+  };
+}
+
 describe("pi-storage backend contract", () => {
   const cleanupPaths: string[] = [];
 
@@ -200,4 +256,94 @@ describe("pi-storage backend contract", () => {
       }
     });
   }
+
+  it("serializes overlapping sqlite transactions and hides uncommitted writes from parallel callers", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "pi-storage-concurrency-"));
+    cleanupPaths.push(root);
+    process.env.PI_LOOM_ROOT = root;
+    ensureLoomCatalogDirs(getLoomCatalogPaths());
+
+    const storage = new SqliteLoomCatalog();
+    try {
+      await seedSqliteConcurrencyWorkspace(storage);
+
+      let releaseOuter: () => void = () => {};
+      const outerHeld = new Promise<void>((resolve) => {
+        releaseOuter = resolve;
+      });
+      let markOuterStarted: () => void = () => {};
+      const outerStarted = new Promise<void>((resolve) => {
+        markOuterStarted = resolve;
+      });
+
+      const first = storage.transact(async (tx) => {
+        await tx.upsertEntity(concurrencyTicket("ticket-1", "t-1001"));
+        markOuterStarted();
+        await outerHeld;
+      });
+
+      await outerStarted;
+
+      let secondSettled = false;
+      const second = storage
+        .transact(async (tx) => {
+          await tx.upsertEntity(concurrencyTicket("ticket-2", "t-1002"));
+        })
+        .then(() => {
+          secondSettled = true;
+        });
+
+      let readSettled = false;
+      const readDuringWrite = storage.getEntity("ticket-1").then((entity) => {
+        readSettled = true;
+        return entity;
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(secondSettled).toBe(false);
+      expect(readSettled).toBe(false);
+
+      releaseOuter();
+      await first;
+      await second;
+
+      await expect(readDuringWrite).resolves.toMatchObject({ id: "ticket-1", displayId: "t-1001" });
+      await expect(storage.getEntity("ticket-2")).resolves.toMatchObject({ id: "ticket-2", displayId: "t-1002" });
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("supports nested sqlite transactions with savepoint rollback", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "pi-storage-nested-"));
+    cleanupPaths.push(root);
+    process.env.PI_LOOM_ROOT = root;
+    ensureLoomCatalogDirs(getLoomCatalogPaths());
+
+    const storage = new SqliteLoomCatalog();
+    try {
+      await seedSqliteConcurrencyWorkspace(storage);
+
+      await storage.transact(async (tx) => {
+        await tx.upsertEntity(concurrencyTicket("ticket-outer", "t-2001"));
+
+        await expect(
+          tx.transact(async (nested) => {
+            await nested.upsertEntity(concurrencyTicket("ticket-inner", "t-2002"));
+            throw new Error("nested failure");
+          }),
+        ).rejects.toThrow("nested failure");
+
+        await tx.upsertEntity(concurrencyTicket("ticket-after", "t-2003"));
+      });
+
+      await expect(storage.getEntity("ticket-outer")).resolves.toMatchObject({ displayId: "t-2001" });
+      await expect(storage.getEntity("ticket-after")).resolves.toMatchObject({ displayId: "t-2003" });
+      await expect(storage.getEntity("ticket-inner")).resolves.toBeNull();
+    } finally {
+      storage.close();
+    }
+  });
 });

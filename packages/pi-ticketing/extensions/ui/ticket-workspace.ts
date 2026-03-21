@@ -886,6 +886,7 @@ function buildMenuOptions(
           state.selectedByTab.detail = menu.ref;
           state.menu = null;
           setActiveTab(state, "detail", model);
+          return undefined;
         },
       });
     }
@@ -895,6 +896,7 @@ function buildMenuOptions(
         description: "Open the bounded status menu",
         perform: () => {
           state.menu = { kind: "status", ref: menu.ref, selectedIndex: 0 };
+          return undefined;
         },
       },
       {
@@ -937,6 +939,7 @@ function buildMenuOptions(
         description: "Choose a field to edit",
         perform: () => {
           state.menu = { kind: "edit", ref: menu.ref, selectedIndex: 0 };
+          return undefined;
         },
       },
       {
@@ -944,6 +947,7 @@ function buildMenuOptions(
         description: "Add or remove blockers and prerequisites",
         perform: () => {
           state.menu = { kind: "dependency", ref: menu.ref, selectedIndex: 0 };
+          return undefined;
         },
       },
     );
@@ -1154,33 +1158,31 @@ export function renderTicketWorkspaceText(snapshot: TicketWorkspaceSnapshot): st
       ].join("\n");
     }
     case "detail":
-      return snapshot.detail
-        ? [
-            renderTicketDetail(snapshot.detail),
-            "",
-            "Recent journal:",
-            ...(snapshot.detail.journal.length > 0
-              ? snapshot.detail.journal.slice(-5).map((entry) => `${entry.createdAt} [${entry.kind}] ${entry.text}`)
-              : ["(none)"]),
-            "",
-            "Checkpoints:",
-            ...(snapshot.detail.checkpoints.length > 0
-              ? snapshot.detail.checkpoints.map((checkpoint) => `${checkpoint.id} ${checkpoint.title}`)
-              : ["(none)"]),
-            "",
-            "Attachments:",
-            ...(snapshot.detail.attachments.length > 0
-              ? snapshot.detail.attachments.map((attachment) => `${attachment.label} (${attachment.mediaType})`)
-              : ["(none)"]),
-          ].join("\n")
-        : (() => {
-            const summary = model.tickets.find((ticket) => ticket.id === snapshot.view.ref) ?? null;
-            return summary
-              ? [`Ticket workbench: detail (${summary.id})`, "", ...previewLines(summary, null, snapshot.graph)].join(
-                  "\n",
-                )
-              : `Unknown ticket: ${snapshot.view.ref}`;
-          })();
+      if (snapshot.detail) {
+        return [
+          renderTicketDetail(snapshot.detail),
+          "",
+          "Recent journal:",
+          ...(snapshot.detail.journal.length > 0
+            ? snapshot.detail.journal.slice(-5).map((entry) => `${entry.createdAt} [${entry.kind}] ${entry.text}`)
+            : ["(none)"]),
+          "",
+          "Checkpoints:",
+          ...(snapshot.detail.checkpoints.length > 0
+            ? snapshot.detail.checkpoints.map((checkpoint) => `${checkpoint.id} ${checkpoint.title}`)
+            : ["(none)"]),
+          "",
+          "Attachments:",
+          ...(snapshot.detail.attachments.length > 0
+            ? snapshot.detail.attachments.map((attachment) => `${attachment.label} (${attachment.mediaType})`)
+            : ["(none)"]),
+        ].join("\n");
+      }
+      const detailRef = snapshot.view.ref;
+      const summary = model.tickets.find((ticket) => ticket.id === detailRef) ?? null;
+      return summary
+        ? [`Ticket workbench: detail (${summary.id})`, "", ...previewLines(summary, null, snapshot.graph)].join("\n")
+        : `Unknown ticket: ${detailRef}`;
   }
 }
 
@@ -1333,7 +1335,7 @@ export async function openInteractiveTicketWorkspace(
                 ]
             : state.activeTab === "detail"
               ? [...main]
-              : width >= 96 && state.activeTab !== "detail"
+              : width >= 96
                 ? combineColumns(main, sidebar, mainWidth, sideWidth)
                 : [...main, "", ...sidebar];
 

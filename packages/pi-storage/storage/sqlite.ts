@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 import type {
   LoomCanonicalStorage,
@@ -52,6 +53,60 @@ async function resolveDatabaseCtor(): Promise<SqliteDatabaseCtor> {
 
 const LoadedSqliteDatabase = await resolveDatabaseCtor();
 
+interface SqliteExecutionContext {
+  transactionDepth: number;
+}
+
+class SqliteExecutionGate {
+  private locked = false;
+  private readonly waiters: Array<() => void> = [];
+  private readonly context = new AsyncLocalStorage<SqliteExecutionContext>();
+
+  async runExclusive<T>(run: () => Promise<T>): Promise<T> {
+    const current = this.context.getStore();
+    if (current) {
+      return run();
+    }
+
+    if (this.locked) {
+      await new Promise<void>((resolve) => {
+        this.waiters.push(resolve);
+      });
+    }
+    this.locked = true;
+
+    try {
+      return await this.context.run({ transactionDepth: 0 }, run);
+    } finally {
+      const next = this.waiters.shift();
+      if (next) {
+        next();
+      } else {
+        this.locked = false;
+      }
+    }
+  }
+
+  currentTransactionDepth(): number {
+    return this.context.getStore()?.transactionDepth ?? 0;
+  }
+
+  async runNestedTransaction<T>(run: () => Promise<T>): Promise<T> {
+    const current = this.context.getStore();
+    if (!current) {
+      return run();
+    }
+    return this.context.run({ transactionDepth: current.transactionDepth + 1 }, run);
+  }
+}
+
+let nextSavepointSequence = 0;
+
+function nextSavepointName(): string {
+  nextSavepointSequence += 1;
+  return `loom_sp_${String(nextSavepointSequence).padStart(6, "0")}`;
+}
+
 function encode(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
@@ -82,6 +137,7 @@ function runNamed(statement: SqliteStatementLike, params: SqliteNamedParams): vo
 
 function migrate(db: SqliteDatabaseLike): void {
   db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA busy_timeout = 30000");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(`
     CREATE TABLE IF NOT EXISTS spaces (
@@ -286,44 +342,66 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
   constructor(
     protected readonly db: SqliteDatabaseLike,
     private active = true,
+    private readonly gate?: SqliteExecutionGate,
+    private readonly commitSql = "COMMIT",
+    private readonly rollbackSql = "ROLLBACK",
   ) {}
+
+  private async serialize<T>(run: () => T | Promise<T>): Promise<T> {
+    if (!this.gate) {
+      return await run();
+    }
+    return this.gate.runExclusive(async () => await run());
+  }
 
   async commit(): Promise<void> {
     if (this.active) {
-      this.db.exec("COMMIT");
+      await this.serialize(async () => {
+        this.db.exec(this.commitSql);
+      });
       this.active = false;
     }
   }
 
   async rollback(): Promise<void> {
     if (this.active) {
-      this.db.exec("ROLLBACK");
+      await this.serialize(async () => {
+        this.db.exec(this.rollbackSql);
+      });
       this.active = false;
     }
   }
 
   async getSpace(id: string): Promise<LoomSpaceRecord | null> {
-    const row = this.db.prepare("SELECT * FROM spaces WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-    return row ? rowToSpace(row) : null;
+    return this.serialize(async () => {
+      const row = this.db.prepare("SELECT * FROM spaces WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+      return row ? rowToSpace(row) : null;
+    });
   }
 
   async listRepositories(spaceId: string): Promise<LoomRepositoryRecord[]> {
-    return this.db
-      .prepare("SELECT * FROM repositories WHERE space_id = ? ORDER BY slug")
-      .all(spaceId)
-      .map((row: unknown) => rowToRepository(row as Record<string, unknown>));
+    return this.serialize(async () =>
+      this.db
+        .prepare("SELECT * FROM repositories WHERE space_id = ? ORDER BY slug")
+        .all(spaceId)
+        .map((row: unknown) => rowToRepository(row as Record<string, unknown>)),
+    );
   }
 
   async listWorktrees(repositoryId: string): Promise<LoomWorktreeRecord[]> {
-    return this.db
-      .prepare("SELECT * FROM worktrees WHERE repository_id = ? ORDER BY logical_key")
-      .all(repositoryId)
-      .map((row: unknown) => rowToWorktree(row as Record<string, unknown>));
+    return this.serialize(async () =>
+      this.db
+        .prepare("SELECT * FROM worktrees WHERE repository_id = ? ORDER BY logical_key")
+        .all(repositoryId)
+        .map((row: unknown) => rowToWorktree(row as Record<string, unknown>)),
+    );
   }
 
   async getEntity(id: string): Promise<LoomEntityRecord | null> {
-    const row = this.db.prepare("SELECT * FROM entities WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-    return row ? rowToEntity(row) : null;
+    return this.serialize(async () => {
+      const row = this.db.prepare("SELECT * FROM entities WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+      return row ? rowToEntity(row) : null;
+    });
   }
 
   async getEntityByDisplayId(
@@ -331,67 +409,78 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
     kind: LoomEntityRecord["kind"],
     displayId: string,
   ): Promise<LoomEntityRecord | null> {
-    const row = this.db
-      .prepare("SELECT * FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1")
-      .get(spaceId, kind, displayId) as Record<string, unknown> | undefined;
-    return row ? rowToEntity(row) : null;
+    return this.serialize(async () => {
+      const row = this.db
+        .prepare("SELECT * FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1")
+        .get(spaceId, kind, displayId) as Record<string, unknown> | undefined;
+      return row ? rowToEntity(row) : null;
+    });
   }
 
   async listEntities(spaceId?: string, kind?: LoomEntityRecord["kind"]): Promise<LoomEntityRecord[]> {
-    if (spaceId && kind) {
+    return this.serialize(async () => {
+      if (spaceId && kind) {
+        return this.db
+          .prepare("SELECT * FROM entities WHERE space_id = ? AND kind = ? ORDER BY id")
+          .all(spaceId, kind)
+          .map((row: unknown) => rowToEntity(row as Record<string, unknown>));
+      }
+      if (spaceId) {
+        return this.db
+          .prepare("SELECT * FROM entities WHERE space_id = ? ORDER BY id")
+          .all(spaceId)
+          .map((row: unknown) => rowToEntity(row as Record<string, unknown>));
+      }
+      if (kind) {
+        return this.db
+          .prepare("SELECT * FROM entities WHERE kind = ? ORDER BY id")
+          .all(kind)
+          .map((row: unknown) => rowToEntity(row as Record<string, unknown>));
+      }
       return this.db
-        .prepare("SELECT * FROM entities WHERE space_id = ? AND kind = ? ORDER BY id")
-        .all(spaceId, kind)
+        .prepare("SELECT * FROM entities ORDER BY id")
+        .all()
         .map((row: unknown) => rowToEntity(row as Record<string, unknown>));
-    }
-    if (spaceId) {
-      return this.db
-        .prepare("SELECT * FROM entities WHERE space_id = ? ORDER BY id")
-        .all(spaceId)
-        .map((row: unknown) => rowToEntity(row as Record<string, unknown>));
-    }
-    if (kind) {
-      return this.db
-        .prepare("SELECT * FROM entities WHERE kind = ? ORDER BY id")
-        .all(kind)
-        .map((row: unknown) => rowToEntity(row as Record<string, unknown>));
-    }
-    return this.db
-      .prepare("SELECT * FROM entities ORDER BY id")
-      .all()
-      .map((row: unknown) => rowToEntity(row as Record<string, unknown>));
+    });
   }
 
   async listLinks(entityId: string): Promise<LoomEntityLinkRecord[]> {
-    return this.db
-      .prepare("SELECT * FROM links WHERE from_entity_id = ? OR to_entity_id = ? ORDER BY id")
-      .all(entityId, entityId)
-      .map((row: unknown) => rowToLink(row as Record<string, unknown>));
+    return this.serialize(async () =>
+      this.db
+        .prepare("SELECT * FROM links WHERE from_entity_id = ? OR to_entity_id = ? ORDER BY id")
+        .all(entityId, entityId)
+        .map((row: unknown) => rowToLink(row as Record<string, unknown>)),
+    );
   }
 
   async listEvents(entityId: string): Promise<LoomEntityEventRecord[]> {
-    return this.db
-      .prepare("SELECT * FROM events WHERE entity_id = ? ORDER BY sequence")
-      .all(entityId)
-      .map((row: unknown) => rowToEvent(row as Record<string, unknown>));
+    return this.serialize(async () =>
+      this.db
+        .prepare("SELECT * FROM events WHERE entity_id = ? ORDER BY sequence")
+        .all(entityId)
+        .map((row: unknown) => rowToEvent(row as Record<string, unknown>)),
+    );
   }
 
   async listRuntimeAttachments(worktreeId?: string): Promise<LoomRuntimeAttachment[]> {
-    if (worktreeId) {
+    return this.serialize(async () => {
+      if (worktreeId) {
+        return this.db
+          .prepare("SELECT * FROM runtime_attachments WHERE worktree_id = ? ORDER BY id")
+          .all(worktreeId)
+          .map((row: unknown) => rowToRuntimeAttachment(row as Record<string, unknown>));
+      }
       return this.db
-        .prepare("SELECT * FROM runtime_attachments WHERE worktree_id = ? ORDER BY id")
-        .all(worktreeId)
+        .prepare("SELECT * FROM runtime_attachments ORDER BY id")
+        .all()
         .map((row: unknown) => rowToRuntimeAttachment(row as Record<string, unknown>));
-    }
-    return this.db
-      .prepare("SELECT * FROM runtime_attachments ORDER BY id")
-      .all()
-      .map((row: unknown) => rowToRuntimeAttachment(row as Record<string, unknown>));
+    });
   }
 
   async upsertSpace(record: LoomSpaceRecord): Promise<void> {
-    runNamed(
-      this.db.prepare(`
+    return this.serialize(async () => {
+      runNamed(
+        this.db.prepare(`
         INSERT INTO spaces (id, slug, title, description, repository_ids_json, created_at, updated_at)
         VALUES (@id, @slug, @title, @description, @repository_ids_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -401,21 +490,23 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           repository_ids_json = excluded.repository_ids_json,
           updated_at = excluded.updated_at
       `),
-      {
-        id: record.id,
-        slug: record.slug,
-        title: record.title,
-        description: record.description,
-        repository_ids_json: encode(record.repositoryIds),
-        created_at: record.createdAt,
-        updated_at: record.updatedAt,
-      },
-    );
+        {
+          id: record.id,
+          slug: record.slug,
+          title: record.title,
+          description: record.description,
+          repository_ids_json: encode(record.repositoryIds),
+          created_at: record.createdAt,
+          updated_at: record.updatedAt,
+        },
+      );
+    });
   }
 
   async upsertRepository(record: LoomRepositoryRecord): Promise<void> {
-    runNamed(
-      this.db.prepare(`
+    return this.serialize(async () => {
+      runNamed(
+        this.db.prepare(`
         INSERT INTO repositories (id, space_id, slug, display_name, default_branch, remote_urls_json, created_at, updated_at)
         VALUES (@id, @space_id, @slug, @display_name, @default_branch, @remote_urls_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -426,22 +517,24 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           remote_urls_json = excluded.remote_urls_json,
           updated_at = excluded.updated_at
       `),
-      {
-        id: record.id,
-        space_id: record.spaceId,
-        slug: record.slug,
-        display_name: record.displayName,
-        default_branch: record.defaultBranch,
-        remote_urls_json: encode(record.remoteUrls),
-        created_at: record.createdAt,
-        updated_at: record.updatedAt,
-      },
-    );
+        {
+          id: record.id,
+          space_id: record.spaceId,
+          slug: record.slug,
+          display_name: record.displayName,
+          default_branch: record.defaultBranch,
+          remote_urls_json: encode(record.remoteUrls),
+          created_at: record.createdAt,
+          updated_at: record.updatedAt,
+        },
+      );
+    });
   }
 
   async upsertWorktree(record: LoomWorktreeRecord): Promise<void> {
-    runNamed(
-      this.db.prepare(`
+    return this.serialize(async () => {
+      runNamed(
+        this.db.prepare(`
         INSERT INTO worktrees (id, repository_id, branch, base_ref, logical_key, status, created_at, updated_at)
         VALUES (@id, @repository_id, @branch, @base_ref, @logical_key, @status, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -452,22 +545,24 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           status = excluded.status,
           updated_at = excluded.updated_at
       `),
-      {
-        id: record.id,
-        repository_id: record.repositoryId,
-        branch: record.branch,
-        base_ref: record.baseRef,
-        logical_key: record.logicalKey,
-        status: record.status,
-        created_at: record.createdAt,
-        updated_at: record.updatedAt,
-      },
-    );
+        {
+          id: record.id,
+          repository_id: record.repositoryId,
+          branch: record.branch,
+          base_ref: record.baseRef,
+          logical_key: record.logicalKey,
+          status: record.status,
+          created_at: record.createdAt,
+          updated_at: record.updatedAt,
+        },
+      );
+    });
   }
 
   async upsertEntity(record: LoomEntityRecord): Promise<void> {
-    runNamed(
-      this.db.prepare(`
+    return this.serialize(async () => {
+      runNamed(
+        this.db.prepare(`
         INSERT INTO entities (id, kind, space_id, owning_repository_id, display_id, title, summary, status, version, tags_json, attributes_json, created_at, updated_at)
         VALUES (@id, @kind, @space_id, @owning_repository_id, @display_id, @title, @summary, @status, @version, @tags_json, @attributes_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -483,31 +578,35 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           attributes_json = excluded.attributes_json,
           updated_at = excluded.updated_at
       `),
-      {
-        id: record.id,
-        kind: record.kind,
-        space_id: record.spaceId,
-        owning_repository_id: record.owningRepositoryId,
-        display_id: record.displayId,
-        title: record.title,
-        summary: record.summary,
-        status: record.status,
-        version: record.version,
-        tags_json: encode(record.tags),
-        attributes_json: encode(record.attributes),
-        created_at: record.createdAt,
-        updated_at: record.updatedAt,
-      },
-    );
+        {
+          id: record.id,
+          kind: record.kind,
+          space_id: record.spaceId,
+          owning_repository_id: record.owningRepositoryId,
+          display_id: record.displayId,
+          title: record.title,
+          summary: record.summary,
+          status: record.status,
+          version: record.version,
+          tags_json: encode(record.tags),
+          attributes_json: encode(record.attributes),
+          created_at: record.createdAt,
+          updated_at: record.updatedAt,
+        },
+      );
+    });
   }
 
   async removeEntity(id: string): Promise<void> {
-    this.db.prepare("DELETE FROM entities WHERE id = ?").run(id);
+    return this.serialize(async () => {
+      this.db.prepare("DELETE FROM entities WHERE id = ?").run(id);
+    });
   }
 
   async upsertLink(record: LoomEntityLinkRecord): Promise<void> {
-    runNamed(
-      this.db.prepare(`
+    return this.serialize(async () => {
+      runNamed(
+        this.db.prepare(`
         INSERT INTO links (id, kind, from_entity_id, to_entity_id, metadata_json, created_at, updated_at)
         VALUES (@id, @kind, @from_entity_id, @to_entity_id, @metadata_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -517,25 +616,29 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           metadata_json = excluded.metadata_json,
           updated_at = excluded.updated_at
       `),
-      {
-        id: record.id,
-        kind: record.kind,
-        from_entity_id: record.fromEntityId,
-        to_entity_id: record.toEntityId,
-        metadata_json: encode(record.metadata),
-        created_at: record.createdAt,
-        updated_at: record.updatedAt,
-      },
-    );
+        {
+          id: record.id,
+          kind: record.kind,
+          from_entity_id: record.fromEntityId,
+          to_entity_id: record.toEntityId,
+          metadata_json: encode(record.metadata),
+          created_at: record.createdAt,
+          updated_at: record.updatedAt,
+        },
+      );
+    });
   }
 
   async removeLink(id: string): Promise<void> {
-    this.db.prepare("DELETE FROM links WHERE id = ?").run(id);
+    return this.serialize(async () => {
+      this.db.prepare("DELETE FROM links WHERE id = ?").run(id);
+    });
   }
 
   async appendEvent(record: LoomEntityEventRecord): Promise<void> {
-    runNamed(
-      this.db.prepare(`
+    return this.serialize(async () => {
+      runNamed(
+        this.db.prepare(`
         INSERT INTO events (id, entity_id, kind, sequence, created_at, actor, payload_json)
         VALUES (@id, @entity_id, @kind, @sequence, @created_at, @actor, @payload_json)
         ON CONFLICT(id) DO UPDATE SET
@@ -544,25 +647,29 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           actor = excluded.actor,
           payload_json = excluded.payload_json
       `),
-      {
-        id: record.id,
-        entity_id: record.entityId,
-        kind: record.kind,
-        sequence: record.sequence,
-        created_at: record.createdAt,
-        actor: record.actor,
-        payload_json: encode(record.payload),
-      },
-    );
+        {
+          id: record.id,
+          entity_id: record.entityId,
+          kind: record.kind,
+          sequence: record.sequence,
+          created_at: record.createdAt,
+          actor: record.actor,
+          payload_json: encode(record.payload),
+        },
+      );
+    });
   }
 
   async removeEvent(id: string): Promise<void> {
-    this.db.prepare("DELETE FROM events WHERE id = ?").run(id);
+    return this.serialize(async () => {
+      this.db.prepare("DELETE FROM events WHERE id = ?").run(id);
+    });
   }
 
   async upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void> {
-    runNamed(
-      this.db.prepare(`
+    return this.serialize(async () => {
+      runNamed(
+        this.db.prepare(`
         INSERT INTO runtime_attachments (id, worktree_id, kind, locator, process_id, lease_expires_at, metadata_json, created_at, updated_at)
         VALUES (@id, @worktree_id, @kind, @locator, @process_id, @lease_expires_at, @metadata_json, @created_at, @updated_at)
         ON CONFLICT(id) DO UPDATE SET
@@ -574,35 +681,61 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
           metadata_json = excluded.metadata_json,
           updated_at = excluded.updated_at
       `),
-      {
-        id: record.id,
-        worktree_id: record.worktreeId,
-        kind: record.kind,
-        locator: record.locator,
-        process_id: record.processId,
-        lease_expires_at: record.leaseExpiresAt,
-        metadata_json: encode(record.metadata),
-        created_at: record.createdAt,
-        updated_at: record.updatedAt,
-      },
-    );
+        {
+          id: record.id,
+          worktree_id: record.worktreeId,
+          kind: record.kind,
+          locator: record.locator,
+          process_id: record.processId,
+          lease_expires_at: record.leaseExpiresAt,
+          metadata_json: encode(record.metadata),
+          created_at: record.createdAt,
+          updated_at: record.updatedAt,
+        },
+      );
+    });
   }
 
   async removeRuntimeAttachment(id: string): Promise<void> {
-    this.db.prepare("DELETE FROM runtime_attachments WHERE id = ?").run(id);
+    return this.serialize(async () => {
+      this.db.prepare("DELETE FROM runtime_attachments WHERE id = ?").run(id);
+    });
   }
 
   async transact<T>(run: (tx: LoomCanonicalTransaction) => Promise<T>): Promise<T> {
-    const nested = new SqliteLoomCatalogTx(this.db);
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const result = await run(nested);
-      await nested.commit();
-      return result;
-    } catch (error) {
-      await nested.rollback();
-      throw error;
-    }
+    return this.serialize(async () => {
+      const insideExistingTransaction = this.active || (this.gate?.currentTransactionDepth() ?? 0) > 0;
+      if (!insideExistingTransaction) {
+        const nested = new SqliteLoomCatalogTx(this.db, true, this.gate);
+        this.db.exec("BEGIN IMMEDIATE");
+        try {
+          const result = this.gate ? await this.gate.runNestedTransaction(() => run(nested)) : await run(nested);
+          await nested.commit();
+          return result;
+        } catch (error) {
+          await nested.rollback();
+          throw error;
+        }
+      }
+
+      const savepointName = nextSavepointName();
+      const nested = new SqliteLoomCatalogTx(
+        this.db,
+        true,
+        this.gate,
+        `RELEASE SAVEPOINT ${savepointName}`,
+        `ROLLBACK TO SAVEPOINT ${savepointName}; RELEASE SAVEPOINT ${savepointName}`,
+      );
+      this.db.exec(`SAVEPOINT ${savepointName}`);
+      try {
+        const result = this.gate ? await this.gate.runNestedTransaction(() => run(nested)) : await run(nested);
+        await nested.commit();
+        return result;
+      } catch (error) {
+        await nested.rollback();
+        throw error;
+      }
+    });
   }
 }
 
@@ -612,7 +745,7 @@ export class SqliteLoomCatalog extends SqliteLoomCatalogTx implements LoomCanoni
   constructor(databasePath = ensureLoomCatalogDirs(getLoomCatalogPaths()).catalogPath) {
     const db = new LoadedSqliteDatabase(databasePath);
     migrate(db);
-    super(db, false);
+    super(db, false, new SqliteExecutionGate());
     this.db = db;
   }
 
