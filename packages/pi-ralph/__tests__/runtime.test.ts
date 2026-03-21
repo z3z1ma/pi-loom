@@ -1,13 +1,37 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { spawnMock } = vi.hoisted(() => ({
+  spawnMock: vi.fn(),
+}));
+
+vi.mock("node:child_process", () => ({
+  spawn: spawnMock,
+}));
+
+afterEach(() => {
+  spawnMock.mockReset();
+});
+
 import { buildRalphDashboard } from "../extensions/domain/dashboard.js";
 import type { RalphLaunchDescriptor, RalphRunState } from "../extensions/domain/models.js";
 import { renderLaunchDescriptor, renderLaunchPrompt } from "../extensions/domain/render.js";
-import { getPiSpawnCommand, resolvePiCliScript, resolveRalphExtensionRoot } from "../extensions/domain/runtime.js";
+import {
+  captureParentHarnessSpawnEnv,
+  extractAssistantMessageEnd,
+  getPiSpawnCommand,
+  PI_PARENT_HARNESS_ARGV1_ENV,
+  PI_PARENT_HARNESS_EXEC_ARGV_ENV,
+  PI_PARENT_HARNESS_EXEC_PATH_ENV,
+  resolvePiCliScript,
+  resolveRalphExtensionRoot,
+  runRalphLaunch,
+} from "../extensions/domain/runtime.js";
 import { createRalphStore } from "../extensions/domain/store.js";
 
 describe("ralph runtime spawn resolution", () => {
@@ -78,13 +102,72 @@ describe("ralph runtime spawn resolution", () => {
   it("reuses the current script entrypoint when running under a JS runtime", () => {
     const command = getPiSpawnCommand(["--mode", "json"], {
       execPath: "/usr/local/bin/node",
+      execArgv: ["--loader", "tsx", "--no-warnings"],
       argv1: "/custom-fork/dist/omp-cli.js",
       existsSync: (filePath) => filePath === "/custom-fork/dist/omp-cli.js",
     });
 
     expect(command).toEqual({
       command: "/usr/local/bin/node",
-      args: ["/custom-fork/dist/omp-cli.js", "--mode", "json"],
+      args: ["--loader", "tsx", "--no-warnings", "/custom-fork/dist/omp-cli.js", "--mode", "json"],
+    });
+  });
+
+  it("prefers inherited parent harness metadata over daemon-local process values", () => {
+    const command = getPiSpawnCommand(["--mode", "json"], {
+      execPath: "/usr/local/bin/node",
+      execArgv: ["--experimental-strip-types"],
+      argv1: "/daemon/manager-daemon.ts",
+      env: {
+        [PI_PARENT_HARNESS_EXEC_PATH_ENV]: "/usr/local/bin/node",
+        [PI_PARENT_HARNESS_EXEC_ARGV_ENV]: JSON.stringify(["--import", "tsx"]),
+        [PI_PARENT_HARNESS_ARGV1_ENV]: "/original/bin/pi.js",
+      },
+      existsSync: (filePath) => filePath === "/original/bin/pi.js",
+    });
+
+    expect(command).toEqual({
+      command: "/usr/local/bin/node",
+      args: ["--import", "tsx", "/original/bin/pi.js", "--mode", "json"],
+    });
+  });
+
+  it("falls back to current execArgv when inherited execArgv metadata is malformed", () => {
+    const command = getPiSpawnCommand(["--mode", "json"], {
+      execPath: "/usr/local/bin/node",
+      execArgv: ["--loader", "tsx"],
+      argv1: "/custom-fork/dist/omp-cli.js",
+      env: {
+        [PI_PARENT_HARNESS_EXEC_PATH_ENV]: "/usr/local/bin/node",
+        [PI_PARENT_HARNESS_EXEC_ARGV_ENV]: "not-json",
+      },
+      existsSync: (filePath) => filePath === "/custom-fork/dist/omp-cli.js",
+    });
+
+    expect(command).toEqual({
+      command: "/usr/local/bin/node",
+      args: ["--loader", "tsx", "/custom-fork/dist/omp-cli.js", "--mode", "json"],
+    });
+  });
+
+  it("serializes inherited parent harness metadata while preserving empty execArgv overrides", () => {
+    expect(
+      captureParentHarnessSpawnEnv(
+        {
+          [PI_PARENT_HARNESS_EXEC_PATH_ENV]: "/opt/tools/pi",
+          [PI_PARENT_HARNESS_EXEC_ARGV_ENV]: JSON.stringify([]),
+          [PI_PARENT_HARNESS_ARGV1_ENV]: "/original/bin/pi.js",
+        },
+        {
+          execPath: "/usr/local/bin/node",
+          execArgv: ["--experimental-strip-types"],
+          argv1: "/daemon/manager-daemon.ts",
+        },
+      ),
+    ).toEqual({
+      [PI_PARENT_HARNESS_EXEC_PATH_ENV]: "/opt/tools/pi",
+      [PI_PARENT_HARNESS_EXEC_ARGV_ENV]: JSON.stringify([]),
+      [PI_PARENT_HARNESS_ARGV1_ENV]: "/original/bin/pi.js",
     });
   });
 
@@ -121,6 +204,30 @@ describe("ralph runtime spawn resolution", () => {
     ).toBe("/pkg/dist/cli.js");
   });
 
+  it("preserves runtime arguments when falling back to the package bin script", () => {
+    const packageJsonPath = "/pkg/package.json";
+    const packageJson = JSON.stringify({ bin: { pi: "dist/cli.js" } });
+
+    const command = getPiSpawnCommand(["--mode", "json", "--no-session"], {
+      execPath: "/usr/local/bin/node",
+      execArgv: ["--import", "tsx"],
+      argv1: "resume from packet",
+      existsSync: (filePath) => filePath === "/pkg/dist/cli.js",
+      readFileSync: (filePath) => {
+        if (filePath !== packageJsonPath) {
+          throw new Error(`Unexpected path ${filePath}`);
+        }
+        return packageJson;
+      },
+      resolvePackageJson: () => packageJsonPath,
+    });
+
+    expect(command).toEqual({
+      command: "/usr/local/bin/node",
+      args: ["--import", "tsx", "/pkg/dist/cli.js", "--mode", "json", "--no-session"],
+    });
+  });
+
   it("falls back to the pi command when no script path can be resolved", () => {
     const command = getPiSpawnCommand(["--mode", "json", "--no-session"], {
       execPath: "/usr/local/bin/node",
@@ -137,6 +244,75 @@ describe("ralph runtime spawn resolution", () => {
     expect(command).toEqual({
       command: "pi",
       args: ["--mode", "json", "--no-session"],
+    });
+  });
+
+  it("extracts structured assistant errors from JSON message_end events", () => {
+    expect(
+      extractAssistantMessageEnd(
+        JSON.stringify({
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [],
+            errorMessage: "Subprocess hit a verifier blocker.",
+          },
+        }),
+      ),
+    ).toEqual({
+      text: undefined,
+      errorText: "Subprocess hit a verifier blocker.",
+    });
+  });
+
+  it("surfaces structured assistant errors in runtime launch results", async () => {
+    class MockStream extends EventEmitter {
+      setEncoding(): this {
+        return this;
+      }
+    }
+
+    class MockProcess extends EventEmitter {
+      stdout = new MockStream();
+      stderr = new MockStream();
+      kill = vi.fn();
+    }
+
+    const child = new MockProcess();
+    spawnMock.mockReturnValueOnce(child as never);
+
+    const launch: RalphLaunchDescriptor = {
+      runId: "run-structured-error",
+      iterationId: "iter-001",
+      iteration: 1,
+      createdAt: "2026-03-20T12:00:00.000Z",
+      runtime: "subprocess",
+      packetRef: "ralph-run:run-structured-error:packet",
+      launchRef: "ralph-run:run-structured-error:launch",
+      resume: false,
+      instructions: [],
+    };
+
+    const resultPromise = runRalphLaunch("/workspace/project", launch, undefined);
+    child.stdout.emit(
+      "data",
+      Buffer.from(
+        `${JSON.stringify({
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [],
+            errorMessage: "Structured runtime failure from JSON mode.",
+          },
+        })}\n`,
+      ),
+    );
+    child.emit("close", 1);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      exitCode: 1,
+      output: "",
+      stderr: "Structured runtime failure from JSON mode.",
     });
   });
 });

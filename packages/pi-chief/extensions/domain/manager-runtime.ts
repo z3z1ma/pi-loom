@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRalphStore } from "@pi-loom/pi-ralph/extensions/domain/store.js";
-import { runRalphLaunch, type RalphExecutionResult } from "@pi-loom/pi-ralph/extensions/domain/runtime.js";
+import {
+  captureParentHarnessSpawnEnv,
+  runRalphLaunch,
+  type RalphExecutionResult,
+} from "@pi-loom/pi-ralph/extensions/domain/runtime.js";
 import type { ManagerReadResult } from "./models.js";
 import { createManagerStore } from "./manager-store.js";
 
@@ -35,6 +39,10 @@ function spawnTsProcess(scriptPath: string, cwd: string, args: string[], detache
     detached,
     stdio: detached ? "ignore" : "inherit",
     shell: false,
+    env: {
+      ...process.env,
+      ...captureParentHarnessSpawnEnv(),
+    },
   });
   if (detached) {
     proc.unref();

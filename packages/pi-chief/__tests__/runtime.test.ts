@@ -1,20 +1,113 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
 import { runWorkerLaunch } from "../extensions/domain/runtime.js";
 import { createWorkerStore } from "../extensions/domain/store.js";
 
-vi.mock("@pi-loom/pi-ralph/extensions/domain/runtime.js", () => ({
-  runRalphLaunch: vi.fn(),
+const { spawnMock } = vi.hoisted(() => ({
+  spawnMock: vi.fn(),
 }));
+
+vi.mock("node:child_process", async () => {
+  const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  return {
+    ...actual,
+    spawn: spawnMock,
+  };
+});
+
+vi.mock("@pi-loom/pi-ralph/extensions/domain/runtime.js", async () => {
+  const actual = await vi.importActual<typeof import("@pi-loom/pi-ralph/extensions/domain/runtime.js")>(
+    "@pi-loom/pi-ralph/extensions/domain/runtime.js",
+  );
+  return {
+    ...actual,
+    runRalphLaunch: vi.fn(),
+  };
+});
+
+afterEach(() => {
+  spawnMock.mockReset();
+});
 
 function createGitWorkspace(): { cwd: string; cleanup: () => void } {
   return createSeededGitWorkspace({ prefix: "pi-chief-runtime-" });
 }
 
 describe("worker runtime", () => {
+  it("propagates original parent harness metadata through detached daemon hops", async () => {
+    const originalExecPath = process.execPath;
+    const originalExecArgv = [...process.execArgv];
+    const originalArgv1 = process.argv[1];
+    const originalParentExecPath = process.env.PI_PARENT_HARNESS_EXEC_PATH;
+    const originalParentExecArgv = process.env.PI_PARENT_HARNESS_EXEC_ARGV;
+    const originalParentArgv1 = process.env.PI_PARENT_HARNESS_ARGV1;
+    const unref = vi.fn();
+    spawnMock.mockReturnValue({ unref } as never);
+
+    try {
+      process.execArgv = ["--experimental-strip-types"];
+      process.argv[1] = "/daemon/manager-daemon.ts";
+      process.env.PI_PARENT_HARNESS_EXEC_PATH = "/usr/local/bin/node";
+      process.env.PI_PARENT_HARNESS_EXEC_ARGV = JSON.stringify(["--import", "tsx"]);
+      process.env.PI_PARENT_HARNESS_ARGV1 = "/original/bin/pi.js";
+
+      const { startManagerDaemon, startWorkerLaunchProcess } = await import("../extensions/domain/manager-runtime.js");
+      startManagerDaemon("/workspace/project", "manager-001");
+      startWorkerLaunchProcess("/workspace/project", "worker-001");
+
+      expect(spawnMock).toHaveBeenNthCalledWith(
+        1,
+        originalExecPath,
+        ["--experimental-strip-types", expect.stringContaining("manager-daemon.ts"), "/workspace/project", "manager-001"],
+        expect.objectContaining({
+          cwd: "/workspace/project",
+          detached: true,
+          stdio: "ignore",
+          shell: false,
+          env: expect.objectContaining({
+            PI_PARENT_HARNESS_EXEC_PATH: "/usr/local/bin/node",
+            PI_PARENT_HARNESS_EXEC_ARGV: JSON.stringify(["--import", "tsx"]),
+            PI_PARENT_HARNESS_ARGV1: "/original/bin/pi.js",
+          }),
+        }),
+      );
+      expect(spawnMock).toHaveBeenNthCalledWith(
+        2,
+        originalExecPath,
+        ["--experimental-strip-types", expect.stringContaining("worker-launcher.ts"), "/workspace/project", "worker-001"],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            PI_PARENT_HARNESS_EXEC_PATH: "/usr/local/bin/node",
+            PI_PARENT_HARNESS_EXEC_ARGV: JSON.stringify(["--import", "tsx"]),
+            PI_PARENT_HARNESS_ARGV1: "/original/bin/pi.js",
+          }),
+        }),
+      );
+      expect(unref).toHaveBeenCalledTimes(2);
+    } finally {
+      process.execArgv = originalExecArgv;
+      process.argv[1] = originalArgv1;
+      if (originalParentExecPath === undefined) {
+        delete process.env.PI_PARENT_HARNESS_EXEC_PATH;
+      } else {
+        process.env.PI_PARENT_HARNESS_EXEC_PATH = originalParentExecPath;
+      }
+      if (originalParentExecArgv === undefined) {
+        delete process.env.PI_PARENT_HARNESS_EXEC_ARGV;
+      } else {
+        process.env.PI_PARENT_HARNESS_EXEC_ARGV = originalParentExecArgv;
+      }
+      if (originalParentArgv1 === undefined) {
+        delete process.env.PI_PARENT_HARNESS_ARGV1;
+      } else {
+        process.env.PI_PARENT_HARNESS_ARGV1 = originalParentArgv1;
+      }
+    }
+  });
+
   it("provisions and retires Git worktree-backed worker attachments", async () => {
     const { cwd, cleanup } = createGitWorkspace();
     try {

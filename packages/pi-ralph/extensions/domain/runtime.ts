@@ -11,7 +11,9 @@ const require = createRequire(import.meta.url);
 export interface PiSpawnDeps {
   platform?: NodeJS.Platform;
   execPath?: string;
+  execArgv?: string[];
   argv1?: string;
+  env?: NodeJS.ProcessEnv;
   existsSync?: (filePath: string) => boolean;
   readFileSync?: (filePath: string, encoding: "utf-8") => string;
   resolvePackageJson?: () => string;
@@ -31,6 +33,10 @@ export interface RalphExecutionResult {
   stderr: string;
 }
 
+export const PI_PARENT_HARNESS_EXEC_PATH_ENV = "PI_PARENT_HARNESS_EXEC_PATH";
+export const PI_PARENT_HARNESS_EXEC_ARGV_ENV = "PI_PARENT_HARNESS_EXEC_ARGV";
+export const PI_PARENT_HARNESS_ARGV1_ENV = "PI_PARENT_HARNESS_ARGV1";
+
 function isRunnableNodeScript(filePath: string, existsSync: (filePath: string) => boolean): boolean {
   if (!existsSync(filePath)) return false;
   return /\.(?:mjs|cjs|js)$/i.test(filePath);
@@ -43,6 +49,87 @@ function isGenericJsRuntime(execPath: string): boolean {
 
 function normalizePath(filePath: string): string {
   return path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
+}
+
+function appendErrorText(stderr: string, errorText: string): string {
+  if (!errorText) return stderr;
+  if (!stderr) return errorText;
+  return `${stderr.trimEnd()}\n${errorText}`;
+}
+
+function trimToUndefined(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function parseExecArgvOverride(value: string | undefined): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) && parsed.every((item) => typeof item === "string") ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getInheritedParentHarnessSpawnDeps(env: NodeJS.ProcessEnv): Pick<PiSpawnDeps, "execPath" | "execArgv" | "argv1"> {
+  return {
+    execPath: trimToUndefined(env[PI_PARENT_HARNESS_EXEC_PATH_ENV]),
+    execArgv: parseExecArgvOverride(env[PI_PARENT_HARNESS_EXEC_ARGV_ENV]),
+    argv1: trimToUndefined(env[PI_PARENT_HARNESS_ARGV1_ENV]),
+  };
+}
+
+function resolvePiSpawnDeps(deps: PiSpawnDeps = {}): Required<Pick<PiSpawnDeps, "execPath" | "execArgv" | "argv1">> {
+  const env = deps.env ?? process.env;
+  const inherited = getInheritedParentHarnessSpawnDeps(env);
+  return {
+    execPath: inherited.execPath ?? deps.execPath ?? process.execPath,
+    execArgv: inherited.execArgv ?? deps.execArgv ?? process.execArgv,
+    argv1: inherited.argv1 ?? deps.argv1 ?? process.argv[1],
+  };
+}
+
+export function captureParentHarnessSpawnEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  deps: Pick<PiSpawnDeps, "execPath" | "execArgv" | "argv1"> = {},
+): Record<string, string> {
+  const resolved = resolvePiSpawnDeps({ env, ...deps });
+  const forwardedEnv: Record<string, string> = {
+    [PI_PARENT_HARNESS_EXEC_PATH_ENV]: resolved.execPath,
+    [PI_PARENT_HARNESS_EXEC_ARGV_ENV]: JSON.stringify(resolved.execArgv),
+  };
+  if (resolved.argv1) {
+    forwardedEnv[PI_PARENT_HARNESS_ARGV1_ENV] = resolved.argv1;
+  }
+  return forwardedEnv;
+}
+
+export function extractAssistantMessageEnd(line: string): { text?: string; errorText?: string } | null {
+  try {
+    const event = JSON.parse(line) as {
+      type?: string;
+      errorMessage?: string;
+      message?: {
+        role?: string;
+        errorMessage?: string;
+        content?: Array<{ type?: string; text?: string }>;
+      };
+    };
+    if (event.type !== "message_end" || event.message?.role !== "assistant") {
+      return null;
+    }
+
+    return {
+      text: trimToUndefined(event.message.content?.find((part) => part.type === "text")?.text),
+      errorText: trimToUndefined(event.message.errorMessage ?? event.errorMessage),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function readJsonFile<T>(filePath: string): T | null {
@@ -104,7 +191,7 @@ export function resolvePiPackageRoot(): string | undefined {
 export function resolvePiCliScript(deps: PiSpawnDeps = {}): string | undefined {
   const existsSync = deps.existsSync ?? fs.existsSync;
   const readFileSync = deps.readFileSync ?? ((filePath, encoding) => fs.readFileSync(filePath, encoding));
-  const argv1 = deps.argv1 ?? process.argv[1];
+  const { argv1 } = resolvePiSpawnDeps(deps);
 
   if (argv1) {
     const argvPath = normalizePath(argv1);
@@ -140,8 +227,7 @@ export function resolvePiCliScript(deps: PiSpawnDeps = {}): string | undefined {
 }
 
 export function getPiSpawnCommand(args: string[], deps: PiSpawnDeps = {}): PiSpawnCommand {
-  const execPath = deps.execPath ?? process.execPath;
-  const argv1 = deps.argv1 ?? process.argv[1];
+  const { execPath, execArgv, argv1 } = resolvePiSpawnDeps(deps);
   const existsSync = deps.existsSync ?? fs.existsSync;
 
   if (argv1) {
@@ -149,7 +235,7 @@ export function getPiSpawnCommand(args: string[], deps: PiSpawnDeps = {}): PiSpa
     if (isRunnableNodeScript(argvPath, existsSync)) {
       return {
         command: execPath,
-        args: [argvPath, ...args],
+        args: [...execArgv, argvPath, ...args],
       };
     }
   }
@@ -165,7 +251,7 @@ export function getPiSpawnCommand(args: string[], deps: PiSpawnDeps = {}): PiSpa
   if (piCliPath) {
     return {
       command: execPath,
-      args: [piCliPath, ...args],
+      args: [...execArgv, piCliPath, ...args],
     };
   }
 
@@ -202,22 +288,18 @@ export async function runRalphLaunch(
     if (!line.trim()) {
       return;
     }
-    try {
-      const event = JSON.parse(line) as {
-        type?: string;
-        message?: {
-          role?: string;
-          content?: Array<{ type?: string; text?: string }>;
-        };
-      };
-      if (event.type === "message_end" && event.message?.role === "assistant") {
-        const text = event.message.content?.find((part) => part.type === "text")?.text?.trim();
-        if (text) {
-          output = text;
-          onUpdate?.(text);
-        }
-      }
-    } catch {}
+    const assistantMessage = extractAssistantMessageEnd(line);
+    if (!assistantMessage) {
+      return;
+    }
+
+    if (assistantMessage.text) {
+      output = assistantMessage.text;
+      onUpdate?.(assistantMessage.text);
+    }
+    if (assistantMessage.errorText) {
+      stderr = appendErrorText(stderr, assistantMessage.errorText);
+    }
   };
 
   proc.stdout.on("data", (data: Buffer | string) => {
@@ -239,7 +321,7 @@ export async function runRalphLaunch(
       args: command.args,
       exitCode: 1,
       output,
-      stderr: `${stderr}${error.message}`,
+      stderr: appendErrorText(stderr, error.message),
     });
   });
 
