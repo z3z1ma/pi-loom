@@ -11,5 +11,5 @@ export function getBaseChiefGuidance(): string {
 }
 
 export function buildChiefSystemPrompt(_cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nChief state is persisted in SQLite via pi-storage. Prefer manager-first orchestration, manager-as-Ralph-loop execution, and daemon polling between iterations over transcript-heavy coordination.`;
+  return `${BASE_GUIDANCE}\n\nChief state is persisted in SQLite via pi-storage. Prefer manager-first orchestration, manager-as-Ralph-loop execution, and in-process scheduler coordination between iterations over transcript-heavy coordination.`;
 }

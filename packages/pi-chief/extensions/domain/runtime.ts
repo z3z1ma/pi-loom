@@ -114,7 +114,7 @@ export function prepareWorkerLaunchDescriptor(
     iteration: ralphLaunch.iteration,
     createdAt: ralphLaunch.createdAt,
     updatedAt: ralphLaunch.createdAt,
-    runtime: "subprocess",
+    runtime: "session",
     resume: ralphLaunch.resume,
     workspaceDir,
     branch: worker.state.workspace.branch,
@@ -122,7 +122,7 @@ export function prepareWorkerLaunchDescriptor(
     packetRef: ralphLaunch.packetRef,
     ralphLaunchRef: ralphLaunch.launchRef,
     instructions: [...ralphLaunch.instructions],
-    command: ["pi", "ralph", ralphLaunch.resume ? "resume" : "launch", ralphLaunch.runId],
+    command: ["session-runtime", "ralph", ralphLaunch.resume ? "resume" : "launch", ralphLaunch.runId],
     pid: null,
     status: "prepared",
     note: input.note?.trim() ?? "Prepared linked Ralph iteration.",
@@ -133,6 +133,7 @@ export async function runWorkerLaunch(
   launch: WorkerRuntimeDescriptor,
   signal?: AbortSignal,
   onUpdate?: (text: string) => void,
+  runtimeEnv?: Record<string, string | undefined>,
 ): Promise<WorkerExecutionResult> {
   if (!launch.ralphRunId || !launch.iterationId || !launch.packetRef || !launch.ralphLaunchRef) {
     return {
@@ -149,7 +150,7 @@ export async function runWorkerLaunch(
       iterationId: launch.iterationId,
       iteration: launch.iteration,
       createdAt: launch.createdAt,
-      runtime: launch.runtime,
+      runtime: "session",
       packetRef: launch.packetRef,
       launchRef: launch.ralphLaunchRef,
       resume: launch.resume,
@@ -157,6 +158,7 @@ export async function runWorkerLaunch(
     },
     signal,
     onUpdate,
+    runtimeEnv,
   );
 
   if (signal?.aborted) {

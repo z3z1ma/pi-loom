@@ -10,7 +10,7 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 - `ralph_*` tools for list/read/run/checkpoint workflows
 - canonical run records stored in SQLite with iteration history and post-iteration checkpoints; packets and dashboards are rendered on demand from the SQLite store
 - policy-aware run state that records linked Loom refs, verifier summaries, critique links, and explicit continuation decisions
-- fresh-context launch descriptors plus a default subprocess runtime for single-iteration Ralph launch and resume execution
+- fresh-context launch descriptors plus a default session runtime for single-iteration Ralph launch and resume execution
 - extension lifecycle hooks that initialize the Ralph ledger for orchestration state management
 
 ## Design boundaries
@@ -26,12 +26,12 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 
 ## Artifact policy
 
-- `launch.json` is a runtime-only handoff descriptor for a specific fresh-session or subprocess launch; it should not be treated as durable canonical state
+- `launch.json` is a runtime-only handoff descriptor for a specific fresh-session or session-runtime launch; it should not be treated as durable canonical state
 - rendered run records and dashboards are derived views computed on demand from the SQLite store
 
 ## Current implementation status
 
-The package ships a human-facing `/ralph` command plus a minimal AI-facing tool surface. `ralph_run` is the primary loop tool: it creates or resumes a run, executes bounded fresh-context subprocess iterations under the hood, and returns durable post-iteration state. `ralph_checkpoint` is the safe low-level commit tool used by a fresh Ralph worker session to persist one complete iteration outcome. SQLite-backed run tracking, policy-aware iteration tracking, post-iteration checkpoint rendering, and subprocess-backed single-iteration execution remain the underlying model.
+The package ships a human-facing `/ralph` command plus a minimal AI-facing tool surface. `ralph_run` is the primary loop tool: it creates or resumes a run, executes bounded fresh-context session-runtime iterations under the hood, and returns durable post-iteration state. `ralph_checkpoint` is the safe low-level commit tool used by a fresh Ralph worker session to persist one complete iteration outcome. SQLite-backed run tracking, policy-aware iteration tracking, post-iteration checkpoint rendering, and session-backed single-iteration execution remain the underlying model.
 
 
 ## Local use

@@ -1,9 +1,10 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { RalphReadResult, RalphRunStatus } from "./models.js";
-import { runRalphLaunch, type RalphExecutionResult } from "./runtime.js";
+import { buildParentSessionRuntimeEnv, runRalphLaunch, type RalphExecutionResult } from "./runtime.js";
 import { createRalphStore } from "./store.js";
 
-type RalphContextLike = Pick<ExtensionContext, "cwd" | "sessionManager"> | Pick<ExtensionCommandContext, "cwd" | "sessionManager">;
+type RalphContextLike = Pick<ExtensionContext, "cwd" | "model" | "sessionManager"> |
+  Pick<ExtensionCommandContext, "cwd" | "model" | "sessionManager">;
 
 export interface ExecuteRalphLoopInput {
   ref?: string;
@@ -48,6 +49,10 @@ export interface ExecuteRalphLoopResult {
   run: RalphReadResult;
   created: boolean;
   steps: RalphLoopStepResult[];
+}
+
+export function hasTrustedPostIteration(run: RalphReadResult, iterationId: string): boolean {
+  return run.state.postIteration !== null && run.state.postIteration.iterationId === iterationId && run.state.postIteration.decision !== null;
 }
 
 function isTerminalStatus(status: RalphRunStatus): boolean {
@@ -157,13 +162,16 @@ async function persistRuntimeFailure(
   await store.appendIterationAsync(ref, {
     id: iterationId,
     status: "failed",
-    summary: execution.stderr || execution.output || "Ralph subprocess exited unsuccessfully before finishing the iteration.",
-    workerSummary: execution.exitCode === 0 ? "The subprocess returned success without durable Ralph iteration state." : `Subprocess exited with code ${execution.exitCode}.`,
-    notes: ["Subprocess exited without leaving a durable post-iteration checkpoint."],
+    summary: execution.stderr || execution.output || "Ralph session runtime exited unsuccessfully before finishing the iteration.",
+    workerSummary:
+      execution.exitCode === 0
+        ? "The session-backed launch returned without durable Ralph iteration state."
+        : `Session runtime exited with code ${execution.exitCode}.`,
+    notes: ["Session-backed launch exited without leaving a durable post-iteration checkpoint."],
   });
   return store.decideRunAsync(ref, {
     runtimeFailure: true,
-    summary: execution.stderr || execution.output || "Ralph subprocess exited unsuccessfully before finishing the iteration.",
+    summary: execution.stderr || execution.output || "Ralph session runtime exited unsuccessfully before finishing the iteration.",
     decidedBy: "runtime",
   });
 }
@@ -175,15 +183,14 @@ async function executePreparedIteration(
   run: RalphReadResult,
 ): Promise<{ run: RalphReadResult; execution: RalphExecutionResult }> {
   const store = createRalphStore(ctx.cwd);
-  const execution = await runRalphLaunch(ctx.cwd, run.launch, signal, undefined);
+  const runtimeEnv = await buildParentSessionRuntimeEnv({
+    model: ctx.model,
+  });
+  const execution = await runRalphLaunch(ctx.cwd, run.launch, signal, undefined, runtimeEnv);
   let updated = await store.readRunAsync(ref);
+  const hasDurableCheckpoint = hasTrustedPostIteration(updated, run.launch.iterationId);
 
-  if (
-    execution.exitCode !== 0 ||
-    updated.state.postIteration?.iterationId !== run.launch.iterationId ||
-    updated.state.postIteration?.decision === null ||
-    updated.state.postIteration === null
-  ) {
+  if (!hasDurableCheckpoint) {
     updated = await persistRuntimeFailure(ctx.cwd, ref, execution, run.launch.iterationId);
   }
 
@@ -271,7 +278,7 @@ export function renderLoopResult(result: ExecuteRalphLoopResult): string {
 
   const lastStep = result.steps.at(-1);
   if (lastStep) {
-    summary.push(`Last subprocess exit code: ${lastStep.exitCode}`);
+    summary.push(`Last session runtime exit code: ${lastStep.exitCode}`);
     if (lastStep.output) {
       summary.push("", "Latest output:", lastStep.output);
     } else if (lastStep.stderr) {

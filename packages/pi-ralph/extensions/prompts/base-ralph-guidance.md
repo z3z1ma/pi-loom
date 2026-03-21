@@ -27,9 +27,9 @@ Default Ralph posture:
 
 Use Ralph tools to:
 - list and inspect bounded Ralph runs
-- use `ralph_run` as the primary AI-facing loop tool for bounded subprocess execution
+- use `ralph_run` as the primary AI-facing loop tool for bounded session-runtime execution
 - use `ralph_read` between iterations to inspect packets, dashboards, and durable run state
-- use `ralph_checkpoint` inside a fresh Ralph worker session to commit one complete bounded iteration outcome
+- use `ralph_checkpoint` inside a fresh Ralph worker session to commit one complete iteration outcome
 
 Ralph remains directly usable on its own. Its user-facing surfaces should stay Ralph-native even when higher-level orchestration layers choose to build on top of it.
 

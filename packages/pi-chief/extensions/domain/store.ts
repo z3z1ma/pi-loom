@@ -696,6 +696,26 @@ export class WorkerStore {
     return this.readWorker(worker.state.workerId);
   }
 
+  async requeueLaunchExecutionAsync(ref: string, note?: string): Promise<WorkerReadResult> {
+    const worker = this.readWorker(ref);
+    if (!worker.launch) {
+      throw new Error("Worker launch descriptor has not been prepared");
+    }
+    const updatedAt = currentTimestamp();
+    worker.launch = {
+      ...worker.launch,
+      updatedAt,
+      status: "prepared",
+      pid: null,
+      note: normalizeOptionalString(note) ?? worker.launch.note,
+    };
+    worker.state.status = "queued";
+    worker.state.summary = normalizeOptionalString(note) ?? worker.state.summary;
+    worker.state.updatedAt = updatedAt;
+    await this.persist(worker, "launch_requeued");
+    return this.readWorker(worker.state.workerId);
+  }
+
   async finishLaunchExecutionAsync(ref: string, execution: WorkerExecutionResult): Promise<WorkerReadResult> {
     const worker = this.readWorker(ref);
     if (!worker.launch) {

@@ -26,6 +26,7 @@ vi.mock("@sinclair/typebox", () => ({
 }));
 
 vi.mock("../extensions/domain/runtime.js", () => ({
+  buildParentSessionRuntimeEnv: vi.fn(async () => ({})),
   runRalphLaunch: vi.fn(),
 }));
 
@@ -100,7 +101,7 @@ describe("ralph tools", () => {
           id: launch.iterationId,
           status: "accepted",
           summary: "Completed one bounded Ralph iteration.",
-          workerSummary: "Durable checkpoint persisted from the subprocess.",
+          workerSummary: "Durable checkpoint persisted from the session runtime.",
           decision: {
             kind: "continue",
             reason: "unknown",

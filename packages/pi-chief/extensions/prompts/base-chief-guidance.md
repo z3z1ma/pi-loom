@@ -13,19 +13,19 @@ Worker doctrine:
 - A worker is a ticket-bound Ralph loop running inside one managed git worktree.
 - A worker never self-loops. After each bounded Ralph iteration, it waits for the manager to inspect the durable result and decide what happens next.
 
-Daemon doctrine:
-- The daemon polls durable storage between iterations.
-- The daemon does not poll the LLM while manager or worker Ralph loops are still running.
-- The daemon only re-enters the manager loop when no loops are running and the durable state says the manager must reason again.
+Scheduler doctrine:
+- The in-process scheduler reacts to durable storage changes between iterations while the parent process stays alive.
+- The scheduler does not re-enter the manager loop while manager or worker Ralph loops are still running.
+- The scheduler only re-enters the manager loop when no loops are running and the durable state says the manager must reason again.
 
 Steerability doctrine:
 - The operator steers orchestration between manager passes.
 - Use `manager_steer` to answer escalations, provide strategy updates, record review decisions, or change the target ref.
-- Use `manager_wait` to block until the background daemon has something to say or the manager completes.
+- Use `manager_wait` to block until the in-process scheduler has something to say or the manager completes.
 
 Boundary doctrine:
 - Pi Ralph remains the canonical bounded fresh-context loop engine.
-- Pi Chief adds managed git worktrees, chief state, and the polling daemon above raw Ralph loops.
+- Pi Chief adds managed git worktrees, chief state, and the in-process scheduler above raw Ralph loops.
 - Tickets remain the live execution ledger.
 - Ralph remains standalone and directly usable outside Pi Chief.
 

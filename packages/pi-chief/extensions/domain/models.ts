@@ -3,8 +3,8 @@ import type { WorkerArtifactPaths } from "./paths.js";
 
 export const WORKER_STATUSES = ["queued", "running", "waiting_for_manager", "completed", "failed", "retired"] as const;
 export const WORKSPACE_STRATEGIES = ["git-worktree"] as const;
-export const WORKER_RUNTIME_KINDS = ["subprocess"] as const;
-export const DEFAULT_WORKER_RUNTIME_KIND = "subprocess" as const;
+export const WORKER_RUNTIME_KINDS = ["session"] as const;
+export const DEFAULT_WORKER_RUNTIME_KIND = "session" as const;
 export const MANAGER_STATUSES = ["active", "waiting_for_input", "completed", "failed", "archived"] as const;
 export const MANAGER_MESSAGE_DIRECTIONS = ["operator_to_manager", "manager_to_operator"] as const;
 export const MANAGER_MESSAGE_KINDS = ["steer", "review", "escalation", "report"] as const;

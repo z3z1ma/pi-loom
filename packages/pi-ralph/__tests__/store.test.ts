@@ -285,14 +285,14 @@ describe("RalphStore durable memory", () => {
     vi.setSystemTime(new Date("2026-03-15T14:11:00.000Z"));
     const launched = store.prepareLaunch(created.state.runId, { focus: "Investigate blocker" });
     expect(launched.launch).toMatchObject({
-      runtime: "subprocess",
+      runtime: "session",
       iterationId: "iter-001",
       iteration: 1,
       resume: false,
     });
     expect(launched.state.nextIterationId).toBe("iter-001");
     expect(launched.state.nextLaunch).toMatchObject({
-      runtime: "subprocess",
+      runtime: "session",
       resume: false,
       preparedAt: "2026-03-15T14:11:00.000Z",
     });
@@ -448,13 +448,13 @@ describe("RalphStore durable memory", () => {
     expect(resumed.launch).toMatchObject({
       iterationId: "iter-002",
       iteration: 2,
-      runtime: "subprocess",
+      runtime: "session",
       resume: true,
     });
     expect(resumed.state.nextIterationId).toBe("iter-002");
     expect(resumed.state.lastIterationNumber).toBe(2);
     expect(resumed.state.nextLaunch).toMatchObject({
-      runtime: "subprocess",
+      runtime: "session",
       resume: true,
       preparedAt: "2026-03-15T14:33:00.000Z",
     });
@@ -510,7 +510,7 @@ describe("RalphStore durable memory", () => {
     const launched = store.prepareLaunch(cleared.state.runId, { focus: "Resume after approval" });
     expect(launched.launch).toMatchObject({
       iterationId: "iter-001",
-      runtime: "subprocess",
+      runtime: "session",
     });
   }, 90000);
 });

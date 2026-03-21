@@ -35,8 +35,8 @@ vi.mock("../extensions/domain/manager-runtime.js", async () => {
   );
   return {
     ...actual,
-    startManagerDaemon: vi.fn(),
-    startWorkerLaunchProcess: vi.fn(),
+    scheduleManagerLoop: vi.fn(),
+    scheduleWorkerLaunch: vi.fn(),
     waitForManagerUpdate: vi.fn(async (cwd: string, ref: string) => createManagerStore(cwd).readManager(ref)),
   };
 });
@@ -90,7 +90,7 @@ describe("manager tools", () => {
     ]);
   });
 
-  it("starts a manager with its own linked Ralph run and background daemon", async () => {
+  it("starts a manager with its own linked Ralph run and schedules background execution", async () => {
     const { cwd, cleanup } = createWorkspace();
     try {
       await createWorkerTicket(cwd);
@@ -113,8 +113,8 @@ describe("manager tools", () => {
       const manager = await createManagerStore(cwd).readManagerAsync("chief-manager");
       expect(manager.state.ralphRunId).toBe("chief-manager-loop");
       expect(createRalphStore(cwd).readRun(manager.state.ralphRunId).state.title).toBe("Chief Manager");
-      const { startManagerDaemon } = await import("../extensions/domain/manager-runtime.js");
-      expect(vi.mocked(startManagerDaemon)).toHaveBeenCalledWith(cwd, "chief-manager");
+      const { scheduleManagerLoop } = await import("../extensions/domain/manager-runtime.js");
+      expect(vi.mocked(scheduleManagerLoop)).toHaveBeenCalledWith(cwd, "chief-manager", expect.any(Object));
     } finally {
       cleanup();
     }
@@ -148,8 +148,8 @@ describe("manager tools", () => {
       const worker = createWorkerStore(cwd).readWorker(reread.workers[0]!.id);
       expect(worker.state.status).toBe("running");
       expect(worker.launch?.status).toBe("running");
-      const { startWorkerLaunchProcess } = await import("../extensions/domain/manager-runtime.js");
-      expect(vi.mocked(startWorkerLaunchProcess)).toHaveBeenCalledWith(cwd, worker.state.workerId);
+      const { scheduleWorkerLaunch } = await import("../extensions/domain/manager-runtime.js");
+      expect(vi.mocked(scheduleWorkerLaunch)).toHaveBeenCalledWith(cwd, worker.state.workerId);
     } finally {
       cleanup();
     }

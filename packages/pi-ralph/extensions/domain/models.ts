@@ -147,7 +147,7 @@ export interface RalphLaunchDescriptor {
   iterationId: string;
   iteration: number;
   createdAt: string;
-  runtime: "subprocess" | "descriptor_only";
+  runtime: "session" | "descriptor_only";
   packetRef: string;
   launchRef: string;
   resume: boolean;

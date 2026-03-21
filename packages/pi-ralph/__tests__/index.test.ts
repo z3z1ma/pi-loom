@@ -31,11 +31,12 @@ vi.mock("@sinclair/typebox", () => ({
 }));
 
 vi.mock("../extensions/domain/runtime.js", () => ({
+  buildParentSessionRuntimeEnv: vi.fn(async () => ({})),
   runRalphLaunch: vi.fn(async () => ({
     command: "pi",
     args: ["--mode", "json"],
     exitCode: 0,
-    output: "Mocked Ralph subprocess output",
+    output: "Mocked Ralph session runtime output",
     stderr: "",
   })),
 }));

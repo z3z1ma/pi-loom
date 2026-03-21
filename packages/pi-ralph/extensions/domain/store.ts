@@ -222,7 +222,7 @@ function filterAndSortRalphSummaries(records: RalphReadResult[], filter: RalphLi
 
 function normalizeNextLaunchState(input: Partial<RalphNextLaunchState> | null | undefined): RalphNextLaunchState {
   return {
-    runtime: input?.runtime === "subprocess" || input?.runtime === "descriptor_only" ? input.runtime : null,
+    runtime: input?.runtime === "session" || input?.runtime === "descriptor_only" ? input.runtime : null,
     resume: input?.resume === true,
     preparedAt: normalizeOptionalString(input?.preparedAt),
     instructions: normalizeStringList(input?.instructions),
@@ -1161,7 +1161,7 @@ export class RalphStore {
       iterationId: nextIteration.id,
       iteration: nextIteration.iteration,
       createdAt: state.nextLaunch.preparedAt ?? currentTimestamp(),
-      runtime: state.nextLaunch.runtime ?? (state.nextLaunch.preparedAt ? "subprocess" : "descriptor_only"),
+      runtime: state.nextLaunch.runtime ?? (state.nextLaunch.preparedAt ? "session" : "descriptor_only"),
       packetRef: toRalphPacketRef(state.runId),
       launchRef: toRalphLaunchRef(state.runId),
       resume: state.nextLaunch.resume,
@@ -1536,7 +1536,7 @@ export class RalphStore {
       iterationId: iteration.id,
       iteration: iteration.iteration,
       createdAt: state.nextLaunch.preparedAt ?? currentTimestamp(),
-      runtime: "subprocess",
+      runtime: "session",
       packetRef: toRalphPacketRef(state.runId),
       launchRef: toRalphLaunchRef(state.runId),
       resume: input.resume === true,
@@ -1851,7 +1851,7 @@ export class RalphStore {
       waitingFor: "none",
       nextIterationId: latest.id,
       nextLaunch: normalizeNextLaunchState({
-        runtime: "subprocess",
+        runtime: "session",
         resume: input.resume === true,
         preparedAt: currentTimestamp(),
         instructions:

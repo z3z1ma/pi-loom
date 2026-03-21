@@ -29,7 +29,7 @@ import type {
 import { currentTimestamp, normalizeOptionalString, normalizeReviewDecision, normalizeStringList, summarizeText } from "./normalize.js";
 import { renderManagerDetail } from "./render.js";
 import { slugifyWorkerValue } from "./paths.js";
-import { startWorkerLaunchProcess } from "./manager-runtime.js";
+import { scheduleWorkerLaunch } from "./manager-runtime.js";
 import { createWorkerStore } from "./store.js";
 
 const ENTITY_KIND = "manager" as const;
@@ -645,7 +645,7 @@ export class ManagerStore {
       const resume = run.state.postIteration !== null;
       await workerStore.prepareLaunchAsync(workerId, resume, `Prepared by manager ${manager.state.managerId}.`);
       await workerStore.startLaunchExecutionAsync(workerId);
-      startWorkerLaunchProcess(this.cwd, workerId);
+      scheduleWorkerLaunch(this.cwd, workerId);
       notes.push(`Started worker ${workerId}.`);
     }
 

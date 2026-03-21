@@ -349,13 +349,13 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     name: "ralph_run",
     label: "ralph_run",
     description:
-      "Create or continue a Ralph run, execute up to N bounded fresh-context subprocess iterations under the hood, and return the resulting durable state for the next caller to inspect.",
+      "Create or continue a Ralph run, execute up to N bounded fresh-context session-runtime iterations under the hood, and return the resulting durable state for the next caller to inspect.",
     promptSnippet:
-      "Use this as the primary Ralph loop tool: it handles the create or resume, one-bounded-iteration subprocess execution, durable-state inspection, and repeat logic for you.",
+      "Use this as the primary Ralph loop tool: it handles the create or resume, one-bounded-iteration session-runtime execution, durable-state inspection, and repeat logic for you.",
     promptGuidelines: [
       "For a new loop, provide a prompt and optional iteration count; the run will be initialized from the prompt plus current conversation context.",
       "For an existing loop, provide `ref` and optionally a steering prompt, then inspect the returned durable state before deciding whether to call `ralph_run` again.",
-      "This tool intentionally executes bounded subprocess iterations; it does not keep a hidden long-running transcript alive.",
+      "This tool intentionally executes bounded session-runtime iterations; it does not keep a hidden long-running transcript alive.",
     ],
     parameters: RalphRunParams,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {

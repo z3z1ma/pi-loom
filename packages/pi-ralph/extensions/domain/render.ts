@@ -201,7 +201,7 @@ export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor):
   return [
     `Execute one bounded Ralph iteration for run ${launch.runId} using ${launch.packetRef}.`,
     "",
-    "This is a fresh Ralph worker session. Do not continue the prior worker transcript.",
+    "This is a fresh Ralph session-runtime worker. Do not continue the prior worker transcript.",
     `Iteration: ${launch.iteration} (${launch.iterationId})`,
     `Mode: ${launch.resume ? "resume" : "fresh launch"}`,
     "",
@@ -215,7 +215,7 @@ export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor):
     "At minimum before finishing:",
     `- Call ralph_checkpoint ref=${launch.runId} once with the complete bounded-iteration outcome.`,
     "- If the run should continue, leave the next step explicit rather than claiming completion vaguely.",
-    "- A clean subprocess exit without durable post-iteration state is a failure.",
+    "- A clean session-runtime exit without durable post-iteration state is a failure.",
   ].join("\n");
 }
 

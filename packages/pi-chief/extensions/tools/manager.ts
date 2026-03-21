@@ -1,9 +1,10 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { buildParentSessionRuntimeEnv } from "@pi-loom/pi-ralph/extensions/domain/runtime.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { Type } from "@sinclair/typebox";
 import { createManagerStore } from "../domain/manager-store.js";
-import { startManagerDaemon, waitForManagerUpdate } from "../domain/manager-runtime.js";
+import { scheduleManagerLoop, waitForManagerUpdate } from "../domain/manager-runtime.js";
 import { renderManagerDetail, renderManagerList } from "../domain/render.js";
 
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
@@ -73,9 +74,9 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     name: "manager_start",
     label: "manager_start",
     description:
-      "Create a durable manager from a spec, initiative, plan, ticket set, or free-text objective, create its linked Ralph loop, start the background daemon, and optionally wait for the first update.",
+      "Create a durable manager from a spec, initiative, plan, ticket set, or free-text objective, create its linked Ralph loop, schedule in-process background execution, and optionally wait for the first update.",
     promptSnippet:
-      "Start managers from whatever broad context you actually have. The manager loop can create missing research/spec/plan/ticket structure before it reconciles workers.",
+      "Start managers from whatever broad context you actually have. The manager loop can create missing research/spec/plan/ticket structure before it reconciles workers on the in-process scheduler.",
     parameters: Type.Object({
       title: Type.String(),
       objective: Type.Optional(Type.String()),
@@ -94,7 +95,10 @@ export function registerManagerTools(pi: ExtensionAPI): void {
         targetRef: params.targetRef,
         linkedRefs: params.linkedRefs,
       });
-      startManagerDaemon(ctx.cwd, manager.state.managerId);
+      const runtimeEnv = await buildParentSessionRuntimeEnv({
+        model: ctx.model,
+      });
+      scheduleManagerLoop(ctx.cwd, manager.state.managerId, runtimeEnv);
       if (params.wait === true) {
         const updated = await waitForManagerUpdate(ctx.cwd, manager.state.managerId, { timeoutMs: params.timeoutMs });
         return machineResult({ manager: updated }, renderManagerDetail(updated));
@@ -108,7 +112,7 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     label: "manager_wait",
     description:
       "Block until a manager has something to say, reaches a terminal state, or the wait timeout expires. Use this after starting or steering a manager.",
-    promptSnippet: "Use this to wait on the background manager daemon instead of polling manager_read manually.",
+    promptSnippet: "Use this to wait on the in-process manager scheduler instead of polling manager_read manually.",
     parameters: Type.Object({
       ref: Type.String(),
       timeoutMs: Type.Optional(Type.Number()),
@@ -123,9 +127,9 @@ export function registerManagerTools(pi: ExtensionAPI): void {
     name: "manager_steer",
     label: "manager_steer",
     description:
-      "Provide operator steerability between manager passes: answer escalations, provide guidance, record review decisions, or change the target ref. The background daemon is restarted automatically afterward, and you may optionally wait for the next update.",
+      "Provide operator steerability between manager passes: answer escalations, provide guidance, record review decisions, or change the target ref. In-process background execution is rescheduled automatically afterward, and you may optionally wait for the next update.",
     promptSnippet:
-      "Use this between manager updates to answer what the manager asked, then let the background daemon continue on its own.",
+      "Use this between manager updates to answer what the manager asked, then let the in-process scheduler continue on its own.",
     parameters: Type.Object({
       ref: Type.String(),
       text: Type.Optional(Type.String()),
@@ -142,7 +146,10 @@ export function registerManagerTools(pi: ExtensionAPI): void {
         reviewDecision: params.reviewDecision,
         targetRef: params.targetRef,
       });
-      startManagerDaemon(ctx.cwd, manager.state.managerId);
+      const runtimeEnv = await buildParentSessionRuntimeEnv({
+        model: ctx.model,
+      });
+      scheduleManagerLoop(ctx.cwd, manager.state.managerId, runtimeEnv);
       if (params.wait === true) {
         const updated = await waitForManagerUpdate(ctx.cwd, manager.state.managerId, { timeoutMs: params.timeoutMs });
         return machineResult({ manager: updated }, renderManagerDetail(updated));
