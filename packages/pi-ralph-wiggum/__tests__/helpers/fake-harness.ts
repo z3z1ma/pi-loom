@@ -122,7 +122,7 @@ class FakeSession {
   }
 
   getAllTools() {
-    return [{ name: "read" }, { name: "ralph_checkpoint" }, { name: "manager_record" }];
+    return [{ name: "read" }, { name: "ralph_checkpoint" }];
   }
 
   async setActiveToolsByName(toolNames) {

@@ -19,12 +19,12 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 
 `pi-ralph-wiggum` is intentionally narrower than a general workflow engine.
 
-- Ralph is a bounded orchestration primitive, not a replacement for plans, tickets, critique, or higher-level worker/manager abstractions
+- Ralph is a bounded orchestration primitive, not a replacement for plans, tickets, critique, or a general-purpose orchestration layer
 - plans remain the execution-strategy layer
 - tickets remain the live execution ledger and the comprehensive definition of each unit of work
 - critique remains the review layer backed by canonical SQLite records
 - docs remain the post-completion explanatory layer
-- future broader worker orchestration stays outside this package unless explicitly specified
+- broader orchestration concerns stay outside this package unless explicitly specified
 
 ## Artifact policy
 
@@ -36,7 +36,7 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 
 The package ships a human-facing `/ralph` command plus an AI-facing tool surface centered on `ralph_run`, `ralph_read`, `ralph_checkpoint`, and Ralph-native background job helpers. `ralph_run` is the primary loop tool: it creates or resumes a run, executes bounded fresh-context session-runtime iterations under the hood, streams progress during foreground execution, and can launch the same work in background when the caller wants a job id instead of blocking.
 
-`ralph_checkpoint` remains the only trusted way for a fresh Ralph worker session to commit a bounded iteration outcome. A session-runtime exit without a durable checkpoint is treated as failure and recorded as such. SQLite-backed run tracking, policy-aware iteration tracking, durable runtime artifact capture, background job lifecycle management, and session-backed single-iteration execution now make up the underlying execution model.
+`ralph_checkpoint` remains the only trusted way for a fresh Ralph session-runtime launch to commit a bounded iteration outcome. A session-runtime exit without a durable checkpoint is treated as failure and recorded as such. SQLite-backed run tracking, policy-aware iteration tracking, durable runtime artifact capture, background job lifecycle management, and session-backed single-iteration execution now make up the underlying execution model.
 
 
 ## Local use

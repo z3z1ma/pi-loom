@@ -2,7 +2,7 @@
 
 A `pi-packages`-style workspace for Loom's durable, AI-native memory and execution extensions.
 
-This repository ships extension packages including `pi-constitution`, `pi-research`, `pi-initiatives`, `pi-specs`, `pi-plans`, `pi-ticketing`, `pi-chief-wiggum`, `pi-critique`, `pi-ralph-wiggum`, and `pi-docs`. Canonical state for all of them is persisted in SQLite via `pi-storage` and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` while defining its own Loom architecture.
+This repository ships extension packages including `pi-constitution`, `pi-research`, `pi-initiatives`, `pi-specs`, `pi-plans`, `pi-ticketing`, `pi-critique`, `pi-ralph-wiggum`, and `pi-docs`. Canonical state for all of them is persisted in SQLite via `pi-storage` and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` while defining its own Loom architecture.
 
 Constitutional memory is the highest-order project context in this workspace. It captures durable vision, principles, constraints, roadmap items, and decisions that shape every lower layer. It is intentionally separate from `AGENTS.md`: constitutional state persisted in SQLite via pi-storage defines enduring project truth, while `AGENTS.md` remains operational guidance for how the harness or a directory should behave during execution.
 
@@ -13,7 +13,6 @@ Constitutional memory is the highest-order project context in this workspace. It
 - `packages/pi-initiatives/` — initiative memory extension package
 - `packages/pi-plans/` — planning memory extension package
 - `packages/pi-ticketing/` — ticketing extension package
-- `packages/pi-chief-wiggum/` — manager-first orchestration package above ticket-bound Ralph-wiggum workers
 - `packages/pi-specs/` — specification memory extension package
 - `packages/pi-critique/` — critique memory extension package
 - `packages/pi-ralph-wiggum/` — Ralph Wiggum loop orchestration extension package
@@ -61,7 +60,7 @@ The current Loom stack is:
 - specs for durable declarative behavior contracts that stay independent of current implementation details
 - plans for durable execution strategy and linked multi-ticket rollouts
 - tickets for durable execution state
-- chief orchestration for durable manager state, managed git worktrees, and ticket-bound worker Ralph loops that surround tickets without replacing them as shared repo truth
+- Ralph orchestration for bounded plan/execute/review loops that compose with tickets and related Loom context without replacing tickets as shared repo truth
 - critique for durable adversarial review packets, verdicts, findings, and follow-up work
 - docs for durable high-level architecture, workflow, concept, and operations understanding after completed work changes the system narrative
 
@@ -81,7 +80,7 @@ The execution layer focuses on durable ticket state:
 - dependency graph queries for ready/blocked work
 - AI-facing tools plus built-in ticketing guidance
 
-Chief orchestration currently centers on a bounded manager loop plus ticket-bound worker Ralph loops. Ralph composes with plans, tickets, chief state, critique, and related Loom artifacts as the orchestration surface instead of acting as a generic workflow engine.
+Ralph composes with plans, tickets, critique, docs, and related Loom artifacts as the bounded orchestration surface instead of acting as a generic workflow engine.
 
 Workers are the local execution substrate: they keep control-plane and runtime-adjacent scratch state local to a worktree, but they are not themselves the shared execution ledger. Tickets are synchronized from the SQLite-backed execution layer via pi-storage.
 

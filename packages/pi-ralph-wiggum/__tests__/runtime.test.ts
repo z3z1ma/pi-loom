@@ -440,11 +440,11 @@ describe("ralph runtime session execution", () => {
       }
       emitEvent({
         type: "tool_call_start",
-        toolCall: { id: "tool-001", name: "manager_record" },
+        toolCall: { id: "tool-001", name: "read" },
       });
       emitEvent({
         type: "tool_call_end",
-        toolCall: { id: "tool-001", name: "manager_record" },
+        toolCall: { id: "tool-001", name: "read" },
       });
     };
 
@@ -467,13 +467,13 @@ describe("ralph runtime session execution", () => {
         expect.objectContaining({
           type: "tool_execution",
           phase: "start",
-          toolName: "manager_record",
+          toolName: "read",
           toolCallId: "tool-001",
         }),
         expect.objectContaining({
           type: "tool_execution",
           phase: "end",
-          toolName: "manager_record",
+          toolName: "read",
           toolCallId: "tool-001",
         }),
       ]),

@@ -9,7 +9,6 @@ import { createRalphStore } from "@pi-loom/pi-ralph-wiggum/extensions/domain/sto
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { createWorkerStore } from "@pi-loom/pi-chief-wiggum/extensions/domain/store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findEntityByDisplayId } from "../storage/entities.js";
 import { openWorkspaceStorage } from "../storage/workspace.js";
@@ -54,7 +53,7 @@ describe("execution-layer canonical link projection", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("projects canonical links for plans, tickets, workers, critique, and Ralph and fixes stale plan refs", async () => {
+  it("projects canonical links for plans, tickets, critique, and Ralph and fixes stale plan refs", async () => {
     const initiativeStore = createInitiativeStore(workspace);
     const researchStore = createResearchStore(workspace);
     const specStore = createSpecStore(workspace);
@@ -63,7 +62,6 @@ describe("execution-layer canonical link projection", () => {
     const planStore = createPlanStore(workspace);
     const critiqueStore = createCritiqueStore(workspace);
     const ralphStore = createRalphStore(workspace);
-    const workerStore = createWorkerStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-19T03:00:00.000Z"));
     const initiative = await initiativeStore.createInitiative({ title: "Execution graph" });
@@ -150,37 +148,6 @@ describe("execution-layer canonical link projection", () => {
       },
     });
 
-    const createdWorker = await workerStore.createWorkerAsync({
-      title: "Execution graph worker",
-      ticketId: foundation.summary.id,
-      ralphRunId: ralph.state.runId,
-      managerId: "execution-graph-chief",
-    });
-
-    const { storage, identity } = await openWorkspaceStorage(workspace);
-    await vi.waitFor(async () => {
-      const workerEntity = await findEntityByDisplayId(
-        storage,
-        identity.space.id,
-        "worker",
-        createdWorker.state.workerId,
-      );
-      expect(workerEntity?.version).toBe(1);
-    });
-    const updatedWorker = await workerStore.recordWorkerOutcomeAsync(createdWorker.state.workerId, {
-      status: "queued",
-      summary: "Queue the execution graph work",
-    });
-    await vi.waitFor(async () => {
-      const updatedWorkerEntity = await findEntityByDisplayId(
-        storage,
-        identity.space.id,
-        "worker",
-        updatedWorker.state.workerId,
-      );
-      expect(updatedWorkerEntity?.version).toBe(2);
-    });
-
     expect(await outgoingLinks(workspace, "plan", plan.state.planId)).toEqual(
       expect.arrayContaining([
         { kind: "belongs_to", targetKind: "spec_change", targetDisplayId: spec.state.changeId },
@@ -199,15 +166,6 @@ describe("execution-layer canonical link projection", () => {
         { kind: "references", targetKind: "research", targetDisplayId: research.state.researchId },
       ]),
     );
-
-    await vi.waitFor(async () => {
-      expect(await outgoingLinks(workspace, "worker", createdWorker.state.workerId)).toEqual(
-        expect.arrayContaining([
-          { kind: "implements", targetKind: "ticket", targetDisplayId: foundation.summary.id },
-          { kind: "references", targetKind: "ralph_run", targetDisplayId: ralph.state.runId },
-        ]),
-      );
-    });
 
     await vi.waitFor(async () => {
       expect(await outgoingLinks(workspace, "critique", critique.state.critiqueId)).toEqual(
