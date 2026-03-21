@@ -2,7 +2,7 @@
 
 A `pi-packages`-style workspace for Loom's durable, AI-native memory and execution extensions.
 
-This repository ships extension packages including `pi-constitution`, `pi-research`, `pi-initiatives`, `pi-specs`, `pi-plans`, `pi-ticketing`, `pi-chief`, `pi-critique`, `pi-ralph`, and `pi-docs`. Canonical state for all of them is persisted in SQLite via `pi-storage` and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` while defining its own Loom architecture.
+This repository ships extension packages including `pi-constitution`, `pi-research`, `pi-initiatives`, `pi-specs`, `pi-plans`, `pi-ticketing`, `pi-chief-wiggum`, `pi-critique`, `pi-ralph-wiggum`, and `pi-docs`. Canonical state for all of them is persisted in SQLite via `pi-storage` and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` while defining its own Loom architecture.
 
 Constitutional memory is the highest-order project context in this workspace. It captures durable vision, principles, constraints, roadmap items, and decisions that shape every lower layer. It is intentionally separate from `AGENTS.md`: constitutional state persisted in SQLite via pi-storage defines enduring project truth, while `AGENTS.md` remains operational guidance for how the harness or a directory should behave during execution.
 
@@ -13,10 +13,10 @@ Constitutional memory is the highest-order project context in this workspace. It
 - `packages/pi-initiatives/` — initiative memory extension package
 - `packages/pi-plans/` — planning memory extension package
 - `packages/pi-ticketing/` — ticketing extension package
-- `packages/pi-chief/` — manager-first orchestration package above ticket-bound Ralph workers
+- `packages/pi-chief-wiggum/` — manager-first orchestration package above ticket-bound Ralph-wiggum workers
 - `packages/pi-specs/` — specification memory extension package
 - `packages/pi-critique/` — critique memory extension package
-- `packages/pi-ralph/` — Ralph loop orchestration extension package
+- `packages/pi-ralph-wiggum/` — Ralph Wiggum loop orchestration extension package
 - `packages/pi-docs/` — documentation memory extension package
 - `packages/pi-storage/` — internal storage-contract package for shared canonical state
 - `.agents/resources/` — reference material

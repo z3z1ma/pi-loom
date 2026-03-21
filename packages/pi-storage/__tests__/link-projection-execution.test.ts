@@ -5,11 +5,11 @@ import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/stor
 import { createDocumentationStore } from "@pi-loom/pi-docs/extensions/domain/store.js";
 import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
-import { createRalphStore } from "@pi-loom/pi-ralph/extensions/domain/store.js";
+import { createRalphStore } from "@pi-loom/pi-ralph-wiggum/extensions/domain/store.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { createWorkerStore } from "@pi-loom/pi-chief/extensions/domain/store.js";
+import { createWorkerStore } from "@pi-loom/pi-chief-wiggum/extensions/domain/store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findEntityByDisplayId } from "../storage/entities.js";
 import { openWorkspaceStorage } from "../storage/workspace.js";
