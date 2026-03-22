@@ -1,57 +1,88 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import {
-  type ExecuteRalphLoopInput,
-  type ExecuteRalphLoopResult,
-  ensureRalphRun,
-  executeRalphLoop,
-  isRalphLoopExecutionInFlight,
-  renderLoopResult,
-  reserveDurableLaunch,
-} from "../domain/loop.js";
+import type { ExecuteRalphLoopResult } from "../domain/loop.js";
+import { findActiveRalphRun } from "../domain/loop.js";
+import { renderRalphDetail } from "../domain/render.js";
 import { createRalphStore } from "../domain/store.js";
-import { type RalphLiveCommandWidgetState, renderRalphCommandWidgetLines } from "../ui/renderers.js";
+import { resolveTargetRalphRun, startRalphLoopJob, stopRalphLoop } from "../tools/ralph.js";
 
-const RALPH_COMMAND_USAGE =
-  "Usage: /ralph plan <spec-ref> [steering prompt]\n   or: /ralph run <spec-ref> <plan-ref> <ticket-ref> [steering prompt]\n   or: /ralph resume <run-ref> [steering prompt]";
-let activeRalphHeaderToken = 0;
-const activeRalphWidgets = new Map<number, { ctx: ExtensionCommandContext; state: RalphLiveCommandWidgetState }>();
-const RALPH_WIDGET_KEY = "ralph-live-run";
+const RALPH_COMMAND_USAGE = [
+  "Usage: /ralph start <plan-ref> [steering prompt]",
+  "   or: /ralph stop [run-ref]",
+  "   or: /ralph steer <text>",
+  "   or: /ralph steer ref <run-ref> <text>",
+  "   or: /ralph status [run-ref]",
+].join("\n");
+const RALPH_STATUS_KEY = "ralph-live-run";
 
-function parseLoopArgs(args: string): ExecuteRalphLoopInput {
+interface RalphStartArgs {
+  kind: "start";
+  planRef: string;
+  prompt?: string;
+}
+
+interface RalphStopArgs {
+  kind: "stop";
+  ref?: string;
+}
+
+interface RalphSteerArgs {
+  kind: "steer";
+  ref?: string;
+  text: string;
+}
+
+interface RalphStatusArgs {
+  kind: "status";
+  ref?: string;
+}
+
+type RalphCommandArgs = RalphStartArgs | RalphStopArgs | RalphSteerArgs | RalphStatusArgs;
+
+function parseLoopArgs(args: string): RalphCommandArgs {
   const trimmed = args.trim();
   if (!trimmed) {
     throw new Error(RALPH_COMMAND_USAGE);
   }
 
-  const resumeMatch = trimmed.match(/^resume\s+(\S+)(?:\s+([\s\S]+))?$/i);
-  if (resumeMatch) {
+  const startMatch = trimmed.match(/^start\s+(\S+)(?:\s+([\s\S]+))?$/i);
+  if (startMatch) {
     return {
-      ref: (resumeMatch[1] ?? "").trim(),
-      prompt: (resumeMatch[2] ?? "").trim() || undefined,
+      kind: "start",
+      planRef: (startMatch[1] ?? "").trim(),
+      prompt: (startMatch[2] ?? "").trim() || undefined,
     };
   }
 
-  const planMatch = trimmed.match(/^plan\s+(\S+)(?:\s+([\s\S]+))?$/i);
-  if (planMatch) {
+  const stopMatch = trimmed.match(/^stop(?:\s+(\S+))?$/i);
+  if (stopMatch) {
     return {
-      prompt: (planMatch[2] ?? "").trim() || undefined,
-      scope: {
-        mode: "plan",
-        specRef: (planMatch[1] ?? "").trim(),
-      },
+      kind: "stop",
+      ref: (stopMatch[1] ?? "").trim() || undefined,
     };
   }
 
-  const runMatch = trimmed.match(/^run\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+([\s\S]+))?$/i);
-  if (runMatch) {
+  const steerRefMatch = trimmed.match(/^steer\s+ref\s+(\S+)\s+([\s\S]+)$/i);
+  if (steerRefMatch) {
     return {
-      prompt: (runMatch[4] ?? "").trim() || undefined,
-      scope: {
-        mode: "execute",
-        specRef: (runMatch[1] ?? "").trim(),
-        planRef: (runMatch[2] ?? "").trim(),
-        ticketRef: (runMatch[3] ?? "").trim(),
-      },
+      kind: "steer",
+      ref: (steerRefMatch[1] ?? "").trim(),
+      text: (steerRefMatch[2] ?? "").trim(),
+    };
+  }
+
+  const steerMatch = trimmed.match(/^steer\s+([\s\S]+)$/i);
+  if (steerMatch) {
+    return {
+      kind: "steer",
+      text: (steerMatch[1] ?? "").trim(),
+    };
+  }
+
+  const statusMatch = trimmed.match(/^status(?:\s+(\S+))?$/i);
+  if (statusMatch) {
+    return {
+      kind: "status",
+      ref: (statusMatch[1] ?? "").trim() || undefined,
     };
   }
 
@@ -60,147 +91,74 @@ function parseLoopArgs(args: string): ExecuteRalphLoopInput {
 
 export interface RalphCommandExecution {
   text: string;
-  result: ExecuteRalphLoopResult;
+  result: ExecuteRalphLoopResult | null;
   prompt: string | null;
-}
-
-function notifyProgress(ctx: ExtensionCommandContext, message: string): void {
-  if (!message.trim()) {
-    return;
-  }
-  if (typeof ctx.ui?.notify === "function") {
-    ctx.ui.notify(message, "info");
-  }
-}
-
-function summarizeActiveRalphStatus(line: string, activeCount: number): string {
-  if (activeCount <= 1) {
-    return line;
-  }
-  const suffix = line.replace(/^⏳ Ralph\s*·\s*/, "").trim();
-  return suffix.length > 0
-    ? `⏳ Ralph · ${activeCount} active · showing newest · ${suffix}`
-    : `⏳ Ralph · ${activeCount} active`;
-}
-
-function renderTopRalphWidget(): void {
-  const active = [...activeRalphWidgets.entries()].sort((left, right) => left[0] - right[0]).at(-1) ?? null;
-  if (!active) {
-    return;
-  }
-  const [token, payload] = active;
-  const line = renderRalphCommandWidgetLines(payload.state)[0] ?? "⏳ Ralph";
-  payload.ctx.ui.setStatus(RALPH_WIDGET_KEY, summarizeActiveRalphStatus(line, activeRalphWidgets.size));
-  for (const [otherToken, otherPayload] of activeRalphWidgets.entries()) {
-    if (otherToken === token) {
-      continue;
-    }
-    otherPayload.ctx.ui.setStatus(RALPH_WIDGET_KEY, undefined);
-  }
-}
-
-async function rollbackReservedLaunch(
-  ctx: ExtensionCommandContext,
-  reservedRunId: string,
-  reservedIterationId: string,
-  previousState: ExecuteRalphLoopResult["run"]["state"],
-  summary: string,
-): Promise<void> {
-  const store = createRalphStore(ctx.cwd);
-  const current = await store.readRunAsync(reservedRunId);
-  if (current.state.nextIterationId !== reservedIterationId || current.state.nextLaunch.runtime !== "session") {
-    return;
-  }
-  await store.cancelLaunchAsync(reservedRunId, previousState, reservedIterationId, summary);
 }
 
 export async function handleRalphCommand(args: string, ctx: ExtensionCommandContext): Promise<RalphCommandExecution> {
   await createRalphStore(ctx.cwd).initLedgerAsync();
-  const input = parseLoopArgs(args);
-  const ensured = await ensureRalphRun(ctx, input);
-  const hasPreparedLaunch =
-    ensured.run.state.nextLaunch?.runtime === "session" && ensured.run.state.nextIterationId !== null;
-  if (isRalphLoopExecutionInFlight(ctx.cwd, ensured.run.state.runId)) {
-    throw new Error(
-      `Ralph run ${ensured.run.state.runId} already has an in-flight loop execution in workspace ${ctx.cwd}.`,
-    );
-  }
+  const parsed = parseLoopArgs(args);
 
-  let reservedWasFresh = false;
-  let reserved = ensured.run;
-  if (!hasPreparedLaunch) {
-    reserved = await reserveDurableLaunch(ctx, input, ensured.run, ensured.created);
-    reservedWasFresh = true;
-  } else if (input.prompt?.trim()) {
-    throw new Error(
-      `Ralph run ${ensured.run.state.runId} already has a prepared launch; resume it without new steering or clear the prepared launch first.`,
-    );
-  }
-
-  const headerToken = ++activeRalphHeaderToken;
-  const widgetState: RalphLiveCommandWidgetState | null =
-    ctx.hasUI && typeof ctx.ui?.setStatus === "function"
-      ? {
-          cwd: ctx.cwd,
-          runId: reserved.state.runId,
-          prompt: input.prompt ?? null,
-          startedAt: Date.now(),
-          initialRuntimeArtifactCount: ensured.run.runtimeArtifacts.length,
-          updates: [],
-        }
-      : null;
-
-  const applyWidget = () => {
-    if (!widgetState) {
-      return;
-    }
-    activeRalphWidgets.set(headerToken, { ctx, state: widgetState });
-    renderTopRalphWidget();
-  };
-
-  if (widgetState) {
-    applyWidget();
-  }
-
-  try {
-    const result = await executeRalphLoop(ctx, { ...input, ref: reserved.state.runId }, undefined, {
-      onUpdate: (message) => {
-        if (!message.trim()) {
-          return;
-        }
-        if (!widgetState) {
-          notifyProgress(ctx, message);
-          return;
-        }
-        widgetState.updates = [...widgetState.updates, message].slice(-8);
-        applyWidget();
-      },
-    });
-    const normalizedResult = ensured.created ? { ...result, created: true } : result;
-    return {
-      text: renderLoopResult(normalizedResult),
-      result: normalizedResult,
-      prompt: input.prompt ?? null,
-    };
-  } catch (error) {
-    if (reservedWasFresh) {
-      await rollbackReservedLaunch(
-        ctx,
-        reserved.state.runId,
-        reserved.launch.iterationId,
-        ensured.run.state,
-        "Ralph command launch failed before a worker session started.",
-      );
-    }
-    throw error;
-  } finally {
-    if (widgetState) {
-      activeRalphWidgets.delete(headerToken);
-      if (activeRalphWidgets.size === 0) {
-        ctx.ui.setStatus(RALPH_WIDGET_KEY, undefined);
-      } else {
-        renderTopRalphWidget();
+  switch (parsed.kind) {
+    case "start": {
+      const active = await findActiveRalphRun(ctx.cwd);
+      const activePlanId = active?.state.scope.planId ?? null;
+      if (active && activePlanId && activePlanId !== parsed.planRef) {
+        throw new Error(
+          `Workspace ${ctx.cwd} already has active Ralph loop ${active.summary.id} for plan ${activePlanId}. Stop it before starting plan ${parsed.planRef}.`,
+        );
       }
+      const started = await startRalphLoopJob(
+        ctx,
+        active && activePlanId === parsed.planRef
+          ? { ref: active.state.runId, prompt: parsed.prompt }
+          : { planRef: parsed.planRef, prompt: parsed.prompt },
+        async (text) => {
+          if (typeof ctx.ui?.setStatus === "function") {
+            ctx.ui.setStatus(
+              RALPH_STATUS_KEY,
+              text.trim() ? `⏳ Ralph · ${text.trim()}` : `⏳ Ralph · ${parsed.planRef}`,
+            );
+          }
+        },
+      );
+      return {
+        text: started.alreadyRunning
+          ? `Managed Ralph loop ${started.run.summary.id} is already running as job ${started.jobId}.`
+          : `Started managed Ralph loop ${started.run.summary.id} for plan ${started.run.state.scope.planId ?? parsed.planRef} as job ${started.jobId}.`,
+        result: null,
+        prompt: parsed.prompt ?? null,
+      };
+    }
+    case "stop": {
+      const stopped = await stopRalphLoop(ctx, parsed.ref);
+      if (typeof ctx.ui?.setStatus === "function") {
+        ctx.ui.setStatus(RALPH_STATUS_KEY, undefined);
+      }
+      return {
+        text: stopped.cancelledJobId
+          ? `Requested stop for Ralph loop ${stopped.run.summary.id} and cancelled job ${stopped.cancelledJobId}.`
+          : `Requested stop for Ralph loop ${stopped.run.summary.id}.`,
+        result: null,
+        prompt: null,
+      };
+    }
+    case "steer": {
+      const target = await resolveTargetRalphRun(ctx, parsed.ref);
+      await createRalphStore(ctx.cwd).queueSteeringAsync(target.state.runId, parsed.text);
+      return {
+        text: `Queued steering for Ralph loop ${target.summary.id}.`,
+        result: null,
+        prompt: parsed.text,
+      };
+    }
+    case "status": {
+      const run = await resolveTargetRalphRun(ctx, parsed.ref);
+      return {
+        text: renderRalphDetail(run),
+        result: null,
+        prompt: null,
+      };
     }
   }
 }

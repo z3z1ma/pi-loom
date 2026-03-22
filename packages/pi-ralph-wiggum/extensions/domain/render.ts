@@ -77,9 +77,9 @@ function renderLinkedRefs(state: RalphRunState): string {
 function renderScope(state: RalphRunState): string {
   return [
     `- mode: ${state.scope.mode}`,
-    `- governing spec: ${state.scope.specChangeId}`,
+    `- governing spec: ${state.scope.specChangeId ?? "(none)"}`,
     `- governing plan: ${state.scope.planId ?? "(none)"}`,
-    `- active ticket: ${state.scope.ticketId ?? "(none)"}`,
+    `- active ticket: ${state.activeTicketId ?? state.scope.ticketId ?? "(none)"}`,
     `- roadmap items: ${state.scope.roadmapItemIds.join(", ") || "(none)"}`,
     `- initiatives: ${state.scope.initiativeIds.join(", ") || "(none)"}`,
     `- research: ${state.scope.researchIds.join(", ") || "(none)"}`,
@@ -99,6 +99,12 @@ function renderPacketContext(state: RalphRunState): string {
     "- prior iteration learnings:",
     ...renderBulletList(
       state.packetContext.priorIterationLearnings.length > 0 ? state.packetContext.priorIterationLearnings : ["(none)"],
+    ).split("\n"),
+    "- pending steering:",
+    ...renderBulletList(
+      state.steeringQueue.filter((entry) => entry.consumedAt === null).map((entry) => entry.text).length > 0
+        ? state.steeringQueue.filter((entry) => entry.consumedAt === null).map((entry) => entry.text)
+        : ["(none)"],
     ).split("\n"),
   ].join("\n");
 }
@@ -214,6 +220,15 @@ export function renderRalphMarkdown(
       renderSection("Verifier Summary", renderVerifier(state)),
       renderSection("Critique Links", renderCritiques(state)),
       renderSection("Latest Decision", renderDecision(state)),
+      renderSection(
+        "Loop Control",
+        [
+          `- scheduler: ${state.scheduler.status}`,
+          `- scheduler job: ${state.scheduler.jobId ?? "(none)"}`,
+          `- scheduler note: ${state.scheduler.note ?? "(none)"}`,
+          `- stop request: ${state.stopRequest ? `${state.stopRequest.summary} @ ${state.stopRequest.requestedAt}` : "(none)"}`,
+        ].join("\n"),
+      ),
       renderSection("Post-Iteration Checkpoint", renderPostIteration(state)),
       renderSection("Next Launch State", renderNextLaunch(state)),
       renderSection("Runtime Artifacts", renderRuntimeArtifacts(runtimeArtifacts)),
@@ -226,8 +241,9 @@ export function renderRalphDetail(result: RalphReadResult): string {
   const latestRuntime = result.runtimeArtifacts.at(-1) ?? null;
   return [
     renderRalphSummary(result.summary),
-    `Scope: ${result.state.scope.mode} / spec=${result.state.scope.specChangeId} / plan=${result.state.scope.planId ?? "none"} / ticket=${result.state.scope.ticketId ?? "none"}`,
+    `Scope: ${result.state.scope.mode} / spec=${result.state.scope.specChangeId ?? "none"} / plan=${result.state.scope.planId ?? "none"} / ticket=${result.state.activeTicketId ?? result.state.scope.ticketId ?? "none"}`,
     `Waiting for: ${result.state.waitingFor}`,
+    `Scheduler: ${result.state.scheduler.status}${result.state.scheduler.jobId ? ` (${result.state.scheduler.jobId})` : ""}`,
     `Plans: ${result.state.linkedRefs.planIds.join(", ") || "none"}`,
     `Tickets: ${result.state.linkedRefs.ticketIds.join(", ") || "none"}`,
     `Critiques: ${result.state.linkedRefs.critiqueIds.join(", ") || "none"}`,
@@ -259,7 +275,7 @@ export function renderLaunchDescriptor(_cwd: string, launch: RalphLaunchDescript
 
 export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor): string {
   return [
-    `Execute one bounded Ralph iteration for run ${launch.runId} using ${launch.packetRef}.`,
+    `Execute one bounded Ralph iteration for managed run ${launch.runId} using ${launch.packetRef}.`,
     "",
     "This is a fresh Ralph session-runtime worker. Do not continue the prior worker transcript.",
     `Iteration: ${launch.iteration} (${launch.iterationId})`,
@@ -267,8 +283,9 @@ export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor):
     "",
     "Before acting:",
     `- Read ${launch.packetRef}.`,
-    "- Treat the governing spec, plan, ticket, and constitutional context in the packet as canonical source material.",
+    "- Treat the governing plan, optional spec, active ticket, steering, and constitutional context in the packet as canonical source material.",
     "- Work only one bounded iteration; do not silently self-loop.",
+    "- If the packet has no active ticket, this iteration exists only to create and sequence the plan's missing ticket set before exiting.",
     `- Persist status, verifier evidence, critique references, and the continuation decision through \`ralph_checkpoint\` using iterationId=${launch.iterationId}.`,
     "- Exit after writing the durable post-iteration state that the next caller will inspect.",
     "",

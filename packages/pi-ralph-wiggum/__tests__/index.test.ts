@@ -156,6 +156,8 @@ describe("pi-ralph-wiggum extension", () => {
       "ralph_list",
       "ralph_read",
       "ralph_run",
+      "ralph_steer",
+      "ralph_stop",
     ]);
     expect(mockPi.handlers.has("session_start")).toBe(true);
     expect(mockPi.handlers.has("session_switch")).toBe(true);
@@ -183,7 +185,7 @@ describe("pi-ralph-wiggum extension", () => {
 
     const sessionStart = getHandler(mockPi, "session_start");
     const { ctx, ui } = createCommandContext("/workspace/ralph-index");
-    ui.getEditorText.mockReturnValue("/ralph x1 investigate issue durability");
+    ui.getEditorText.mockReturnValue("/ralph start plan-1 tighten verifier gating");
 
     await sessionStart({ type: "session_start" }, ctx as unknown as ExtensionContext);
 
@@ -196,7 +198,7 @@ describe("pi-ralph-wiggum extension", () => {
     await Promise.resolve();
 
     expect(ui.setEditorText).toHaveBeenCalledWith("");
-    expect(handleRalphCommand).toHaveBeenCalledWith("x1 investigate issue durability", ctx);
+    expect(handleRalphCommand).toHaveBeenCalledWith("start plan-1 tighten verifier gating", ctx);
     expect(mockPi.sendMessage).toHaveBeenCalledWith(
       {
         customType: "ralph-command-result",
@@ -228,9 +230,9 @@ describe("pi-ralph-wiggum extension", () => {
 
     const command = getCommand(mockPi, "ralph");
     const { ctx, ui } = createCommandContext("/workspace/ralph-index");
-    await command.handler("x2 investigate issue durability", ctx);
+    await command.handler("start plan-1 tighten verifier gating", ctx);
 
-    expect(handleRalphCommand).toHaveBeenCalledWith("x2 investigate issue durability", ctx);
+    expect(handleRalphCommand).toHaveBeenCalledWith("start plan-1 tighten verifier gating", ctx);
     expect(mockPi.sendMessage).toHaveBeenCalledWith(
       {
         customType: "ralph-command-result",

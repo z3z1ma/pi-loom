@@ -65,7 +65,9 @@ describe("ralph runtime session execution", () => {
 
     expect(renderLaunchDescriptor("/tmp/different-root", launch)).toContain("Packet ref: ralph-run:run-123:packet");
     const prompt = renderLaunchPrompt("/tmp/different-root", launch);
-    expect(prompt).toContain("Execute one bounded Ralph iteration for run run-123 using ralph-run:run-123:packet.");
+    expect(prompt).toContain(
+      "Execute one bounded Ralph iteration for managed run run-123 using ralph-run:run-123:packet.",
+    );
     expect(prompt).toContain(
       "Persist status, verifier evidence, critique references, and the continuation decision through `ralph_checkpoint` using iterationId=iter-001.",
     );

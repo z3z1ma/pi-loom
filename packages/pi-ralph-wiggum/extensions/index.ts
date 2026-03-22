@@ -100,7 +100,7 @@ export default function piRalph(pi: ExtensionAPI): void {
   );
 
   pi.registerCommand(RALPH_COMMAND, {
-    description: "Run a bounded Ralph loop from the current conversation and prompt",
+    description: "Control the managed plan-anchored bounded Ralph loop for this workspace",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       await launchRalphCommand(pi, args, ctx);
     },

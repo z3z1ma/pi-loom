@@ -46,6 +46,7 @@ export const RALPH_DECISION_REASONS = [
   "unknown",
 ] as const;
 export const RALPH_SCOPE_MODES = ["plan", "execute"] as const;
+export const RALPH_SCHEDULER_STATUSES = ["idle", "running", "waiting", "stopping", "completed"] as const;
 
 export type RalphRunStatus = (typeof RALPH_RUN_STATUSES)[number];
 export type RalphRunPhase = (typeof RALPH_RUN_PHASES)[number];
@@ -60,6 +61,7 @@ export type RalphCritiqueVerdict = (typeof RALPH_CRITIQUE_VERDICTS)[number];
 export type RalphDecisionKind = (typeof RALPH_DECISION_KINDS)[number];
 export type RalphDecisionReason = (typeof RALPH_DECISION_REASONS)[number];
 export type RalphScopeMode = (typeof RALPH_SCOPE_MODES)[number];
+export type RalphSchedulerStatus = (typeof RALPH_SCHEDULER_STATUSES)[number];
 
 export interface RalphLinkedRefs {
   roadmapItemIds: string[];
@@ -74,7 +76,7 @@ export interface RalphLinkedRefs {
 
 export interface RalphRunScope {
   mode: RalphScopeMode;
-  specChangeId: string;
+  specChangeId: string | null;
   planId: string | null;
   ticketId: string | null;
   roadmapItemIds: string[];
@@ -87,11 +89,35 @@ export interface RalphRunScope {
 export interface RalphPacketContext {
   capturedAt: string;
   constitutionBrief: string;
-  specContext: string;
+  specContext: string | null;
   planContext: string | null;
   ticketContext: string | null;
   priorIterationLearnings: string[];
   operatorNotes: string | null;
+}
+
+export interface RalphSteeringEntry {
+  id: string;
+  text: string;
+  createdAt: string;
+  source: "operator";
+  consumedAt: string | null;
+  consumedIterationId: string | null;
+}
+
+export interface RalphStopRequest {
+  requestedAt: string;
+  requestedBy: "operator";
+  summary: string;
+  cancelRunning: boolean;
+  handledAt: string | null;
+}
+
+export interface RalphSchedulerState {
+  status: RalphSchedulerStatus;
+  updatedAt: string | null;
+  jobId: string | null;
+  note: string | null;
 }
 
 export interface RalphPolicySnapshot {
@@ -258,7 +284,11 @@ export interface RalphRunState {
   summary: string;
   linkedRefs: RalphLinkedRefs;
   scope: RalphRunScope;
+  activeTicketId: string | null;
   packetContext: RalphPacketContext;
+  steeringQueue: RalphSteeringEntry[];
+  stopRequest: RalphStopRequest | null;
+  scheduler: RalphSchedulerState;
   policySnapshot: RalphPolicySnapshot;
   verifierSummary: RalphVerifierSummary;
   critiqueLinks: RalphCritiqueLink[];
@@ -352,6 +382,10 @@ export interface CreateRalphRunInput {
   linkedRefs?: Partial<RalphLinkedRefs>;
   scope?: RalphRunScope;
   packetContext?: RalphPacketContext;
+  activeTicketId?: string | null;
+  steeringQueue?: RalphSteeringEntry[];
+  stopRequest?: RalphStopRequest | null;
+  scheduler?: Partial<RalphSchedulerState>;
   policySnapshot?: Partial<RalphPolicySnapshot>;
   verifierSummary?: Partial<RalphVerifierSummary>;
   critiqueLinks?: RalphCritiqueLink[];
@@ -366,6 +400,10 @@ export interface UpdateRalphRunInput {
   linkedRefs?: Partial<RalphLinkedRefs>;
   scope?: RalphRunScope;
   packetContext?: RalphPacketContext;
+  activeTicketId?: string | null;
+  steeringQueue?: RalphSteeringEntry[];
+  stopRequest?: RalphStopRequest | null;
+  scheduler?: Partial<RalphSchedulerState>;
   policySnapshot?: Partial<RalphPolicySnapshot>;
   verifierSummary?: Partial<RalphVerifierSummary>;
   critiqueLinks?: RalphCritiqueLink[];
@@ -373,6 +411,7 @@ export interface UpdateRalphRunInput {
   waitingFor?: RalphWaitingFor;
   status?: RalphRunStatus;
   phase?: RalphRunPhase;
+  stopReason?: RalphDecisionReason | null;
 }
 
 export interface AppendRalphIterationInput {

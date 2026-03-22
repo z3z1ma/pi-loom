@@ -7,22 +7,29 @@ describe("ralph prompt guidance", () => {
     const guidance = getBaseRalphGuidance();
 
     expect(guidance).toContain("Ralph is a first-class Loom orchestration layer.");
-    expect(guidance).toContain("durable loop over planning, execution, critique, and revision");
-    expect(guidance).toContain("concrete problem framing that explains why the run exists now");
+    expect(guidance).toContain("durable managed loop over execution, critique, revision, and operator steering");
+    expect(guidance).toContain("concrete problem framing that explains why the loop exists now");
     expect(guidance).toContain("verifier evidence, critique verdicts, acceptance signals, and unresolved blockers");
     expect(guidance).toContain(
-      "decision rationale covering why the run continued, paused, escalated, stopped, or changed focus",
+      "decision rationale covering why the loop continued, paused, halted, completed, or changed focus",
     );
     expect(guidance).toContain("assumptions, scope boundaries, risks, dependencies, edge cases, and open questions");
-    expect(guidance).toContain("fresh-context launch descriptors and bounded packets");
+    expect(guidance).toContain("durable steering, stop requests, and packet context");
     expect(guidance).toContain("long transcripts as a liability");
-    expect(guidance).toContain("execute one bounded iteration at a time");
+    expect(guidance).toContain("run one bounded iteration at a time");
     expect(guidance).toContain("reject shallow run updates");
     expect(guidance).toContain(
-      "fresh-context launch descriptors and bounded packets that are detailed enough for a later caller to resume truthfully without chat residue",
+      "anchor the loop to one governing plan; inherit the governing spec from that plan when present",
     );
+    expect(guidance).toContain("maintain one managed Ralph loop per workspace");
+    expect(guidance).toContain("synthesize ticket scope inside the managed loop");
     expect(guidance).toContain("Ralph remains directly usable on its own");
-    expect(guidance).toContain("Ralph orchestrates over those artifacts as the bounded loop layer");
+    expect(guidance).toContain("Ralph orchestrates over those artifacts as the managed loop layer");
+    expect(guidance).toContain(
+      "use `ralph_run` to start a new managed loop with `planRef` or continue an existing loop with `ref`",
+    );
+    expect(guidance).toContain("use `ralph_steer` to queue durable steering for the next iteration boundary");
+    expect(guidance).toContain("use `ralph_stop` to request a clean stop for the managed loop");
   });
 
   it("builds a system prompt that preserves base doctrine and workspace Ralph root", () => {
@@ -39,11 +46,13 @@ describe("ralph prompt guidance", () => {
   it("keeps Ralph tool prompt guidance aligned with the detail-first doctrine", () => {
     const toolSource = readFileSync(new URL("../extensions/tools/ralph.ts", import.meta.url), "utf8");
 
-    expect(toolSource).toContain("Loom-native Ralph loop tool");
-    expect(toolSource).toContain("executes one explicit ticket instead of a loose prompt");
-    expect(toolSource).toContain("safe way for a fresh Ralph worker session to commit its bounded iteration outcome");
-    expect(toolSource).toContain("Use one Ralph checkpoint call per bounded iteration");
-    expect(toolSource).toContain("background: true");
+    expect(toolSource).toContain("durable implementation workplan should advance through ticket-sized iterations");
+    expect(toolSource).toContain("One managed loop serves each workspace");
+    expect(toolSource).toContain(
+      "Use this tool from the fresh Ralph worker session that owns the launched iteration id",
+    );
+    expect(toolSource).toContain("Commit one complete iteration outcome at a time");
+    expect(toolSource).toContain("Background execution is well suited to multi-ticket delivery");
     expect(toolSource).toContain("ralph_job_wait");
   });
 });

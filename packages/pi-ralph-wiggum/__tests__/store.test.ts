@@ -91,7 +91,7 @@ describe("RalphStore durable memory", () => {
       critiqueRequired: true,
       verifierRequired: true,
     });
-    expect(created.state.packetSummary).toContain("executing ticket ticket-456 under plan plan-123 for spec spec-789");
+    expect(created.state.packetSummary).toContain("looping plan plan-123 under spec spec-789 on ticket ticket-456");
     expect(created.state.scope).toMatchObject({
       mode: "execute",
       specChangeId: "spec-789",
@@ -541,7 +541,7 @@ describe("RalphStore durable memory", () => {
     expect(decided.state.stopReason).toBeNull();
   });
 
-  it("completes cleanly after passing verification and prepares canonical resume launches with fresh iteration ids", () => {
+  it("keeps plan-anchored completion decisions loop-managed even when the worker reports completion", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:20:00.000Z"));
@@ -579,19 +579,18 @@ describe("RalphStore durable memory", () => {
     });
 
     expect(completed.state.latestDecision).toMatchObject({
-      kind: "complete",
-      reason: "goal_reached",
+      kind: "continue",
+      reason: "worker_requested_completion",
     });
-    expect(completed.state.status).toBe("completed");
-    expect(completed.state.phase).toBe("completed");
+    expect(completed.state.status).toBe("active");
+    expect(completed.state.phase).toBe("deciding");
     expect(completed.state.nextIterationId).toBeNull();
     expect(completed.state.nextLaunch).toMatchObject({
       runtime: null,
       resume: false,
       preparedAt: null,
-      instructions: [],
     });
-    expect(completed.state.stopReason).toBe("goal_reached");
+    expect(completed.state.stopReason).toBeNull();
 
     vi.setSystemTime(new Date("2026-03-15T14:30:00.000Z"));
     const resumableRun = createExecutionRun(store, {

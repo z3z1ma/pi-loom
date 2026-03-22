@@ -18,33 +18,13 @@ type RalphContextLike =
 
 export interface ExecuteRalphLoopInput {
   ref?: string;
+  planRef?: string;
   prompt?: string;
-  title?: string;
   iterations?: number;
-  linkedRefs?: {
-    roadmapItemIds?: string[];
-    initiativeIds?: string[];
-    researchIds?: string[];
-    specChangeIds?: string[];
-    ticketIds?: string[];
-    critiqueIds?: string[];
-    docIds?: string[];
-    planIds?: string[];
-  };
-  scope?: {
-    mode?: "plan" | "execute";
-    specRef?: string;
-    planRef?: string;
-    ticketRef?: string;
-    roadmapItemIds?: string[];
-    initiativeIds?: string[];
-    researchIds?: string[];
-    critiqueIds?: string[];
-    docIds?: string[];
-  };
   policySnapshot?: {
     mode?: "strict" | "balanced" | "expedite";
     maxRuntimeMinutes?: number;
+    maxIterations?: number;
     tokenBudget?: number;
     verifierRequired?: boolean;
     critiqueRequired?: boolean;
@@ -74,6 +54,21 @@ export interface ExecuteRalphLoopResult {
 export interface ExecuteRalphLoopOptions {
   onUpdate?: (text: string) => void;
   jobId?: string | null;
+}
+
+interface ManagedPlanSnapshot {
+  planId: string;
+  planTitle: string;
+  specChangeId: string | null;
+  roadmapItemIds: string[];
+  initiativeIds: string[];
+  researchIds: string[];
+  critiqueIds: string[];
+  docIds: string[];
+  orderedTicketIds: string[];
+  openTicketIds: string[];
+  readyTicketIds: string[];
+  blockedTicketIds: string[];
 }
 
 export interface EnsureRalphRunResult {
@@ -113,6 +108,17 @@ export function hasDurableActiveLaunch(run: RalphReadResult): boolean {
   return run.state.nextLaunch.runtime === "session" && run.state.nextIterationId !== null;
 }
 
+export async function findActiveRalphRun(cwd: string): Promise<RalphReadResult | null> {
+  const runs = await createRalphStore(cwd).listRunsAsync({});
+  const current = [...runs]
+    .filter((run) => !isTerminalStatus(run.status) && run.status !== "archived")
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+  if (!current) {
+    return null;
+  }
+  return createRalphStore(cwd).readRunAsync(current.id);
+}
+
 export async function reserveDurableLaunch(
   ctx: RalphContextLike,
   input: ExecuteRalphLoopInput,
@@ -126,24 +132,30 @@ export async function reserveDurableLaunch(
   }
 
   const store = createRalphStore(ctx.cwd);
+  const steeringText = pendingSteeringText(run) ?? input.prompt;
   const refreshed = await store.updateRunAsync(run.state.runId, {
     packetContext: await buildPacketContext(
       ctx.cwd,
       run.state.scope,
-      input.prompt,
+      steeringText,
       summarizePriorLearnings(run, run.state.scope),
     ),
   });
-  const focus = input.prompt?.trim() || refreshed.state.objective;
+  const focus = steeringText?.trim() || refreshed.state.objective;
   const instructions = created
     ? refreshed.state.nextLaunch.instructions
-    : input.prompt?.trim()
-      ? [`Primary objective for the next bounded iteration: ${input.prompt.trim()}`]
+    : steeringText?.trim()
+      ? [`Primary objective for the next bounded iteration: ${steeringText.trim()}`]
       : undefined;
 
-  return refreshed.state.postIteration === null
-    ? await store.prepareLaunchAsync(refreshed.state.runId, { focus, instructions, requireFresh: true })
-    : await store.resumeRunAsync(refreshed.state.runId, { focus, instructions, requireFresh: true });
+  const reserved =
+    refreshed.state.postIteration === null
+      ? await store.prepareLaunchAsync(refreshed.state.runId, { focus, instructions, requireFresh: true })
+      : await store.resumeRunAsync(refreshed.state.runId, { focus, instructions, requireFresh: true });
+
+  return steeringText?.trim()
+    ? await store.consumeQueuedSteeringAsync(reserved.state.runId, reserved.launch.iterationId)
+    : reserved;
 }
 
 function isTerminalStatus(status: RalphRunStatus): boolean {
@@ -157,51 +169,55 @@ function truncate(text: string, maxLength: number): string {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
-type RalphRunScopeInput = NonNullable<ExecuteRalphLoopInput["scope"]>;
-
-function normalizeScopeInput(input: RalphRunScopeInput): RalphRunScopeInput {
+async function readManagedPlanSnapshot(cwd: string, planRef: string): Promise<ManagedPlanSnapshot> {
+  const plan = await createPlanStore(cwd).readPlan(planRef);
+  const tickets = await createTicketStore(cwd).listTicketsAsync({ includeClosed: true });
+  const graph = await createTicketStore(cwd).graphAsync();
+  const planTicketIds = plan.state.linkedTickets.map((link) => link.ticketId);
+  const linkedTickets = tickets.filter((ticket) => planTicketIds.includes(ticket.id));
+  const openTicketIds = linkedTickets.filter((ticket) => !ticket.closed).map((ticket) => ticket.id);
+  const readyTicketIds = graph.ready.filter((ticketId) => openTicketIds.includes(ticketId));
+  const blockedTicketIds = graph.blocked.filter((ticketId) => openTicketIds.includes(ticketId));
+  const specChangeId =
+    plan.state.sourceTarget.kind === "spec"
+      ? plan.state.sourceTarget.ref
+      : (plan.state.contextRefs.specChangeIds[0] ?? null);
   return {
-    mode: input.mode === "plan" ? "plan" : "execute",
-    specRef: input.specRef?.trim(),
-    planRef: input.planRef?.trim(),
-    ticketRef: input.ticketRef?.trim(),
-    roadmapItemIds: input.roadmapItemIds?.map((value) => value.trim()).filter(Boolean),
-    initiativeIds: input.initiativeIds?.map((value) => value.trim()).filter(Boolean),
-    researchIds: input.researchIds?.map((value) => value.trim()).filter(Boolean),
-    critiqueIds: input.critiqueIds?.map((value) => value.trim()).filter(Boolean),
-    docIds: input.docIds?.map((value) => value.trim()).filter(Boolean),
+    planId: plan.state.planId,
+    planTitle: plan.state.title,
+    specChangeId,
+    roadmapItemIds: plan.state.contextRefs.roadmapItemIds,
+    initiativeIds: plan.state.contextRefs.initiativeIds,
+    researchIds: plan.state.contextRefs.researchIds,
+    critiqueIds: plan.state.contextRefs.critiqueIds,
+    docIds: plan.state.contextRefs.docIds,
+    orderedTicketIds: planTicketIds,
+    openTicketIds,
+    readyTicketIds,
+    blockedTicketIds,
   };
 }
 
-function assertValidScopeInput(scope: RalphRunScopeInput): asserts scope is RalphRunScopeInput & { specRef: string } {
-  if (!scope.specRef) {
-    throw new Error("specRef is required when creating a new Ralph run.");
-  }
-  if (scope.mode === "execute") {
-    if (!scope.planRef) {
-      throw new Error("planRef is required for execute-mode Ralph runs.");
-    }
-    if (!scope.ticketRef) {
-      throw new Error("ticketRef is required for execute-mode Ralph runs.");
-    }
-  }
-  if (scope.mode === "plan" && scope.ticketRef) {
-    throw new Error("plan-mode Ralph runs must not declare an active ticket.");
-  }
+function toManagedRunScope(snapshot: ManagedPlanSnapshot, ticketId: string | null = null): RalphRunScope {
+  return {
+    mode: "execute",
+    specChangeId: snapshot.specChangeId,
+    planId: snapshot.planId,
+    ticketId,
+    roadmapItemIds: snapshot.roadmapItemIds,
+    initiativeIds: snapshot.initiativeIds,
+    researchIds: snapshot.researchIds,
+    critiqueIds: snapshot.critiqueIds,
+    docIds: snapshot.docIds,
+  };
 }
 
-function toRunScope(scope: RalphRunScopeInput & { specRef: string }): RalphRunScope {
-  return {
-    mode: scope.mode ?? "execute",
-    specChangeId: scope.specRef,
-    planId: scope.planRef ?? null,
-    ticketId: scope.mode === "execute" ? (scope.ticketRef ?? null) : null,
-    roadmapItemIds: scope.roadmapItemIds ?? [],
-    initiativeIds: scope.initiativeIds ?? [],
-    researchIds: scope.researchIds ?? [],
-    critiqueIds: scope.critiqueIds ?? [],
-    docIds: scope.docIds ?? [],
-  };
+function pendingSteeringText(run: RalphReadResult): string | undefined {
+  const pending = run.state.steeringQueue.filter((entry) => entry.consumedAt === null);
+  if (pending.length === 0) {
+    return undefined;
+  }
+  return pending.map((entry) => entry.text).join("\n\n");
 }
 
 async function buildPacketContext(
@@ -214,7 +230,7 @@ async function buildPacketContext(
     .readConstitution()
     .catch(() => null);
   const spec = await createSpecStore(cwd)
-    .readChange(scope.specChangeId)
+    .readChange(scope.specChangeId ?? "")
     .catch(() => null);
   const plan = scope.planId
     ? await createPlanStore(cwd)
@@ -253,7 +269,9 @@ async function buildPacketContext(
           .join("\n\n"),
         5000,
       )
-    : `Spec ${scope.specChangeId} could not be resolved from durable storage.`;
+    : scope.specChangeId
+      ? `Spec ${scope.specChangeId} could not be resolved from durable storage.`
+      : null;
   const planContext = plan
     ? truncate(
         [
@@ -318,39 +336,45 @@ function summarizePriorLearnings(run: RalphReadResult | null, scope: RalphRunSco
     .map((line) => truncate(line, 240));
 }
 
+function selectNextTicket(snapshot: ManagedPlanSnapshot): string | null {
+  if (snapshot.readyTicketIds.length > 0) {
+    return snapshot.orderedTicketIds.find((ticketId) => snapshot.readyTicketIds.includes(ticketId)) ?? null;
+  }
+  if (snapshot.openTicketIds.length > 0) {
+    return snapshot.orderedTicketIds.find((ticketId) => snapshot.openTicketIds.includes(ticketId)) ?? null;
+  }
+  return null;
+}
+
+function formatBlockingSummary(snapshot: ManagedPlanSnapshot): string {
+  if (snapshot.blockedTicketIds.length === 0) {
+    return `Plan ${snapshot.planId} has no runnable open tickets.`;
+  }
+  return `Plan ${snapshot.planId} is blocked on tickets: ${snapshot.blockedTicketIds.join(", ")}.`;
+}
+
 function deriveTitle(
   scope: RalphRunScope,
-  specTitle: string,
+  _specTitle: string | null,
   planTitle: string | null,
-  ticketTitle: string | null,
+  _ticketTitle: string | null,
 ): string {
-  if (scope.mode === "plan") {
-    return truncate(`Plan ${scope.specChangeId}: ${specTitle}`, 80);
-  }
-  return truncate(`${scope.ticketId ?? scope.specChangeId}: ${ticketTitle ?? planTitle ?? specTitle}`, 80);
+  return truncate(`Ralph ${scope.planId ?? "(unscoped-plan)"}: ${planTitle ?? "Managed loop"}`, 80);
 }
 
 function buildObjective(scope: RalphRunScope, steeringPrompt: string | undefined): string {
-  const base =
-    scope.mode === "plan"
-      ? `Create or refine the Loom workplan for spec ${scope.specChangeId}${scope.planId ? ` using plan ${scope.planId}` : ""}.`
-      : `Complete ticket ${scope.ticketId ?? "(unassigned)"} under plan ${scope.planId ?? "(none)"} for spec ${scope.specChangeId}.`;
+  const base = `Complete all in-scope tickets for plan ${scope.planId ?? "(none)"}${scope.specChangeId ? ` under governing spec ${scope.specChangeId}` : ""}.`;
   return steeringPrompt?.trim() ? `${base}\n\nOperator notes: ${steeringPrompt.trim()}` : base;
 }
 
 function buildSummary(scope: RalphRunScope, steeringPrompt: string | undefined): string {
-  const base =
-    scope.mode === "plan"
-      ? `Ralph planning run anchored to spec ${scope.specChangeId}${scope.planId ? ` and plan ${scope.planId}` : ""}.`
-      : `Ralph execution run for ticket ${scope.ticketId ?? "(unassigned)"} under plan ${scope.planId ?? "(none)"}.`;
+  const base = `Managed Ralph loop for plan ${scope.planId ?? "(none)"}${scope.specChangeId ? ` with governing spec ${scope.specChangeId}` : ""}.`;
   return truncate(steeringPrompt?.trim() ? `${base} ${steeringPrompt.trim()}` : base, 160);
 }
 
 function buildRunInstructions(scope: RalphRunScope, steeringPrompt: string | undefined): string[] {
   const instructions = [
-    scope.mode === "plan"
-      ? `Create or refine the plan for spec ${scope.specChangeId}.`
-      : `Execute only ticket ${scope.ticketId ?? "(unassigned)"} under plan ${scope.planId ?? "(none)"} for spec ${scope.specChangeId}.`,
+    `Operate only within plan ${scope.planId ?? "(none)"}${scope.specChangeId ? ` and its governing spec ${scope.specChangeId}` : ""}.`,
     "Perform one bounded Ralph iteration and persist a single durable checkpoint before exit.",
   ];
   if (steeringPrompt?.trim()) {
@@ -784,26 +808,340 @@ export async function ensureRalphRun(
   if (input.ref) {
     return { run: await store.readRunAsync(input.ref), created: false };
   }
-  if (!input.scope) {
-    throw new Error("scope is required when creating a new Ralph run");
+  if (!input.planRef) {
+    throw new Error("planRef is required when creating a new managed Ralph run");
   }
-  const normalizedScopeInput = normalizeScopeInput(input.scope);
-  assertValidScopeInput(normalizedScopeInput);
-  const scope = toRunScope(normalizedScopeInput);
-  const spec = await createSpecStore(ctx.cwd).readChange(scope.specChangeId);
-  const plan = scope.planId ? await createPlanStore(ctx.cwd).readPlan(scope.planId) : null;
-  const ticket = scope.ticketId ? await createTicketStore(ctx.cwd).readTicketAsync(scope.ticketId) : null;
+  const snapshot = await readManagedPlanSnapshot(ctx.cwd, input.planRef);
+  const scope = toManagedRunScope(snapshot, null);
+  const spec = snapshot.specChangeId
+    ? await createSpecStore(ctx.cwd)
+        .readChange(snapshot.specChangeId)
+        .catch(() => null)
+    : null;
   const packetContext = await buildPacketContext(ctx.cwd, scope, input.prompt, []);
   const created = await store.createRunAsync({
-    title: deriveTitle(scope, spec.state.title, plan?.state.title ?? null, ticket?.summary.title ?? null),
+    title: deriveTitle(scope, spec?.state.title ?? null, snapshot.planTitle, null),
     objective: buildObjective(scope, input.prompt),
     summary: buildSummary(scope, input.prompt),
     scope,
+    activeTicketId: null,
     packetContext,
+    steeringQueue: input.prompt?.trim()
+      ? [
+          {
+            id: "steer-001",
+            text: input.prompt.trim(),
+            createdAt: new Date().toISOString(),
+            source: "operator",
+            consumedAt: null,
+            consumedIterationId: null,
+          },
+        ]
+      : [],
+    scheduler: {
+      status: "idle",
+      updatedAt: new Date().toISOString(),
+      jobId: null,
+      note: "Managed Ralph loop created.",
+    },
     policySnapshot: input.policySnapshot,
     launchInstructions: buildRunInstructions(scope, input.prompt),
   });
   return { run: created, created: true };
+}
+
+function managedDecision(
+  kind: "continue" | "pause" | "complete" | "halt",
+  reason: "goal_reached" | "manual_review_required" | "operator_requested" | "policy_blocked" | "unknown",
+  summary: string,
+  decidedBy: "policy" | "operator" = "policy",
+): NonNullable<RalphReadResult["state"]["latestDecision"]> {
+  return {
+    kind,
+    reason,
+    summary,
+    decidedAt: new Date().toISOString(),
+    decidedBy,
+    blockingRefs: [],
+  };
+}
+
+async function syncManagedRunScope(
+  ctx: RalphContextLike,
+  run: RalphReadResult,
+  activeTicketId: string | null,
+  steeringPrompt: string | undefined,
+): Promise<{ run: RalphReadResult; snapshot: ManagedPlanSnapshot }> {
+  const snapshot = await readManagedPlanSnapshot(
+    ctx.cwd,
+    run.state.scope.planId ?? run.state.linkedRefs.planIds[0] ?? "",
+  );
+  const scope = toManagedRunScope(snapshot, activeTicketId);
+  const packetContext = await buildPacketContext(ctx.cwd, scope, steeringPrompt, summarizePriorLearnings(run, scope));
+  return {
+    snapshot,
+    run: await createRalphStore(ctx.cwd).updateRunAsync(run.state.runId, {
+      scope,
+      activeTicketId,
+      packetContext,
+      scheduler: { updatedAt: new Date().toISOString() },
+    }),
+  };
+}
+
+async function reconcileManagedRunAfterIteration(
+  ctx: RalphContextLike,
+  run: RalphReadResult,
+): Promise<RalphReadResult> {
+  const store = createRalphStore(ctx.cwd);
+  const snapshot = await readManagedPlanSnapshot(
+    ctx.cwd,
+    run.state.scope.planId ?? run.state.linkedRefs.planIds[0] ?? "",
+  );
+  const activeTicketId = selectNextTicket(snapshot);
+  const steeringText = pendingSteeringText(run);
+
+  if (run.state.stopRequest && run.state.stopRequest.handledAt === null) {
+    const acknowledged = await store.acknowledgeStopRequestAsync(run.state.runId);
+    return store.updateRunAsync(acknowledged.state.runId, {
+      latestDecision: managedDecision(
+        "halt",
+        "operator_requested",
+        run.state.stopRequest.summary || "Operator requested the Ralph loop to stop.",
+        "operator",
+      ),
+      status: "halted",
+      phase: "halted",
+      waitingFor: "none",
+      stopReason: "operator_requested",
+      scheduler: {
+        status: "completed",
+        updatedAt: new Date().toISOString(),
+        note: "Operator stop request acknowledged.",
+      },
+      activeTicketId: null,
+    });
+  }
+
+  if (run.state.latestDecision?.kind === "halt") {
+    return store.updateRunAsync(run.state.runId, {
+      scheduler: { status: "completed", updatedAt: new Date().toISOString(), note: run.state.latestDecision.summary },
+    });
+  }
+
+  if (run.state.latestDecision?.kind === "pause" || run.state.latestDecision?.kind === "escalate") {
+    return store.updateRunAsync(run.state.runId, {
+      scheduler: { status: "waiting", updatedAt: new Date().toISOString(), note: run.state.latestDecision.summary },
+    });
+  }
+
+  if (snapshot.orderedTicketIds.length === 0) {
+    return store.updateRunAsync(run.state.runId, {
+      latestDecision: managedDecision(
+        "pause",
+        "manual_review_required",
+        `Plan ${snapshot.planId} still has no linked tickets after the ticket-synthesis iteration.`,
+      ),
+      status: "paused",
+      phase: "reviewing",
+      waitingFor: "operator",
+      stopReason: "manual_review_required",
+      scheduler: {
+        status: "waiting",
+        updatedAt: new Date().toISOString(),
+        note: "Waiting for ticket synthesis review.",
+      },
+      activeTicketId: null,
+      packetContext: await buildPacketContext(
+        ctx.cwd,
+        toManagedRunScope(snapshot, null),
+        steeringText,
+        summarizePriorLearnings(run, toManagedRunScope(snapshot, null)),
+      ),
+    });
+  }
+
+  if (snapshot.openTicketIds.length === 0) {
+    return store.updateRunAsync(run.state.runId, {
+      latestDecision: managedDecision(
+        "complete",
+        "goal_reached",
+        `All plan-linked tickets for ${snapshot.planId} are closed.`,
+      ),
+      status: "completed",
+      phase: "completed",
+      waitingFor: "none",
+      stopReason: "goal_reached",
+      scheduler: { status: "completed", updatedAt: new Date().toISOString(), note: "Managed Ralph loop completed." },
+      activeTicketId: null,
+      scope: toManagedRunScope(snapshot, null),
+      packetContext: await buildPacketContext(
+        ctx.cwd,
+        toManagedRunScope(snapshot, null),
+        steeringText,
+        summarizePriorLearnings(run, toManagedRunScope(snapshot, null)),
+      ),
+    });
+  }
+
+  if (!activeTicketId) {
+    return store.updateRunAsync(run.state.runId, {
+      latestDecision: managedDecision("pause", "policy_blocked", formatBlockingSummary(snapshot)),
+      status: "paused",
+      phase: "reviewing",
+      waitingFor: "operator",
+      stopReason: "policy_blocked",
+      scheduler: { status: "waiting", updatedAt: new Date().toISOString(), note: formatBlockingSummary(snapshot) },
+      activeTicketId: null,
+      scope: toManagedRunScope(snapshot, null),
+      packetContext: await buildPacketContext(
+        ctx.cwd,
+        toManagedRunScope(snapshot, null),
+        steeringText,
+        summarizePriorLearnings(run, toManagedRunScope(snapshot, null)),
+      ),
+    });
+  }
+
+  const synchronized = await syncManagedRunScope(ctx, run, activeTicketId, steeringText);
+  return store.updateRunAsync(synchronized.run.state.runId, {
+    latestDecision: managedDecision(
+      "continue",
+      "unknown",
+      `Continue the managed Ralph loop with ticket ${activeTicketId}.`,
+    ),
+    status: "active",
+    phase: "deciding",
+    waitingFor: "none",
+    stopReason: null,
+    scheduler: { status: "running", updatedAt: new Date().toISOString(), note: `Next ticket ${activeTicketId}.` },
+  });
+}
+
+async function prepareManagedIteration(
+  ctx: RalphContextLike,
+  input: ExecuteRalphLoopInput,
+  run: RalphReadResult,
+): Promise<{ run: RalphReadResult; shouldExecute: boolean }> {
+  const snapshot = await readManagedPlanSnapshot(
+    ctx.cwd,
+    run.state.scope.planId ?? run.state.linkedRefs.planIds[0] ?? "",
+  );
+  const steeringText = pendingSteeringText(run) ?? input.prompt;
+  const store = createRalphStore(ctx.cwd);
+
+  if (run.state.stopRequest && run.state.stopRequest.handledAt === null) {
+    const halted = await store.acknowledgeStopRequestAsync(run.state.runId);
+    return {
+      shouldExecute: false,
+      run: await store.updateRunAsync(halted.state.runId, {
+        latestDecision: managedDecision("halt", "operator_requested", run.state.stopRequest.summary, "operator"),
+        status: "halted",
+        phase: "halted",
+        waitingFor: "none",
+        stopReason: "operator_requested",
+        scheduler: { status: "completed", updatedAt: new Date().toISOString(), note: run.state.stopRequest.summary },
+        activeTicketId: null,
+      }),
+    };
+  }
+
+  if ((run.state.waitingFor === "operator" || run.state.status === "paused") && !steeringText) {
+    return {
+      shouldExecute: false,
+      run: await store.updateRunAsync(run.state.runId, {
+        scheduler: {
+          status: "waiting",
+          updatedAt: new Date().toISOString(),
+          note: run.state.latestDecision?.summary ?? "Waiting for operator input.",
+        },
+      }),
+    };
+  }
+
+  if (run.state.waitingFor === "critique" || run.state.waitingFor === "verifier") {
+    return {
+      shouldExecute: false,
+      run: await store.updateRunAsync(run.state.runId, {
+        scheduler: {
+          status: "waiting",
+          updatedAt: new Date().toISOString(),
+          note: run.state.latestDecision?.summary ?? "Waiting for external review signals.",
+        },
+      }),
+    };
+  }
+
+  if (snapshot.orderedTicketIds.length === 0) {
+    const synchronized = await syncManagedRunScope(ctx, run, null, steeringText);
+    return {
+      shouldExecute: true,
+      run: await store.updateRunAsync(synchronized.run.state.runId, {
+        objective: `Create and sequence the initial ticket set for plan ${snapshot.planId}.`,
+        summary: `Managed Ralph loop is synthesizing plan tickets for ${snapshot.planId}.`,
+        status: "active",
+        phase: "deciding",
+        waitingFor: "none",
+        stopReason: null,
+        scheduler: {
+          status: "running",
+          updatedAt: new Date().toISOString(),
+          note: "Synthesizing missing plan tickets.",
+        },
+      }),
+    };
+  }
+
+  if (snapshot.openTicketIds.length === 0) {
+    return {
+      shouldExecute: false,
+      run: await store.updateRunAsync(run.state.runId, {
+        latestDecision: managedDecision(
+          "complete",
+          "goal_reached",
+          `All plan-linked tickets for ${snapshot.planId} are closed.`,
+        ),
+        status: "completed",
+        phase: "completed",
+        waitingFor: "none",
+        stopReason: "goal_reached",
+        scheduler: { status: "completed", updatedAt: new Date().toISOString(), note: "Managed Ralph loop completed." },
+        activeTicketId: null,
+        scope: toManagedRunScope(snapshot, null),
+      }),
+    };
+  }
+
+  const activeTicketId = selectNextTicket(snapshot);
+  if (!activeTicketId) {
+    return {
+      shouldExecute: false,
+      run: await store.updateRunAsync(run.state.runId, {
+        latestDecision: managedDecision("pause", "policy_blocked", formatBlockingSummary(snapshot)),
+        status: "paused",
+        phase: "reviewing",
+        waitingFor: "operator",
+        stopReason: "policy_blocked",
+        scheduler: { status: "waiting", updatedAt: new Date().toISOString(), note: formatBlockingSummary(snapshot) },
+        activeTicketId: null,
+        scope: toManagedRunScope(snapshot, null),
+      }),
+    };
+  }
+
+  const synchronized = await syncManagedRunScope(ctx, run, activeTicketId, steeringText);
+  return {
+    shouldExecute: true,
+    run: await store.updateRunAsync(synchronized.run.state.runId, {
+      objective: `Advance ticket ${activeTicketId} under plan ${snapshot.planId} to its truthful next state.`,
+      summary: `Managed Ralph loop is executing ticket ${activeTicketId} under plan ${snapshot.planId}.`,
+      status: "active",
+      phase: "deciding",
+      waitingFor: "none",
+      stopReason: null,
+      scheduler: { status: "running", updatedAt: new Date().toISOString(), note: `Executing ${activeTicketId}.` },
+    }),
+  };
 }
 
 export async function executeRalphLoop(
@@ -822,10 +1160,49 @@ export async function executeRalphLoop(
   inFlightLoopExecutions.add(executionKey);
 
   try {
-    if (!isTerminalStatus(run.state.status) && run.state.waitingFor === "none") {
+    if (!run.state.scope.planId) {
+      if (!isTerminalStatus(run.state.status) && run.state.waitingFor === "none") {
+        const launch = hasDurableActiveLaunch(run) ? run : await reserveDurableLaunch(ctx, input, run, ensured.created);
+        const executed = await executePreparedIteration(ctx, run.state.runId, signal, launch, options);
+        run = executed.run;
+        if (iterationExecuted(run, launch.launch.iterationId)) {
+          steps.push({
+            iterationId: launch.launch.iterationId,
+            iteration: launch.launch.iteration,
+            exitCode: executed.execution.exitCode,
+            output: executed.execution.output,
+            stderr: executed.execution.stderr,
+            finalStatus: run.state.status,
+            finalDecision: run.state.latestDecision?.kind ?? null,
+          });
+        }
+      }
+
+      run = await createRalphStore(ctx.cwd).setSchedulerAsync(run.state.runId, {
+        jobId: null,
+        updatedAt: new Date().toISOString(),
+        status: run.state.scheduler.status === "running" ? "waiting" : run.state.scheduler.status,
+      });
+      return { run, created: ensured.created, steps };
+    }
+
+    run = await createRalphStore(ctx.cwd).setSchedulerAsync(run.state.runId, {
+      status: "running",
+      updatedAt: new Date().toISOString(),
+      jobId: options.jobId ?? null,
+      note: `Managed Ralph loop started for ${run.state.scope.planId ?? "(none)"}.`,
+    });
+
+    while (!isTerminalStatus(run.state.status)) {
+      const prepared = await prepareManagedIteration(ctx, input, run);
+      run = prepared.run;
+      if (!prepared.shouldExecute || isTerminalStatus(run.state.status)) {
+        break;
+      }
+
       const launch = hasDurableActiveLaunch(run) ? run : await reserveDurableLaunch(ctx, input, run, ensured.created);
       const executed = await executePreparedIteration(ctx, run.state.runId, signal, launch, options);
-      run = executed.run;
+      run = await reconcileManagedRunAfterIteration(ctx, executed.run);
       if (iterationExecuted(run, launch.launch.iterationId)) {
         steps.push({
           iterationId: launch.launch.iterationId,
@@ -837,8 +1214,17 @@ export async function executeRalphLoop(
           finalDecision: run.state.latestDecision?.kind ?? null,
         });
       }
+
+      if (run.state.scheduler.status !== "running") {
+        break;
+      }
     }
 
+    run = await createRalphStore(ctx.cwd).setSchedulerAsync(run.state.runId, {
+      jobId: null,
+      updatedAt: new Date().toISOString(),
+      status: run.state.scheduler.status === "running" ? "waiting" : run.state.scheduler.status,
+    });
     return { run, created: ensured.created, steps };
   } finally {
     inFlightLoopExecutions.delete(executionKey);

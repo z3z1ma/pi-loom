@@ -41,6 +41,9 @@ import type {
   RalphRunStatus,
   RalphRuntimeArtifactStatus,
   RalphRuntimeEvent,
+  RalphSchedulerState,
+  RalphSteeringEntry,
+  RalphStopRequest,
   RalphVerifierSourceKind,
   RalphVerifierSummary,
   RalphVerifierVerdict,
@@ -742,9 +745,7 @@ function normalizeRunScope(
     normalizeOptionalString(input?.ticketId) ?? normalizeOptionalString(linkedRefs?.ticketIds?.[0]);
   const inferredPlanId = normalizeOptionalString(input?.planId) ?? normalizeOptionalString(linkedRefs?.planIds?.[0]);
   const inferredSpecId =
-    normalizeOptionalString(input?.specChangeId) ??
-    normalizeOptionalString(linkedRefs?.specChangeIds?.[0]) ??
-    "legacy-unscoped-spec";
+    normalizeOptionalString(input?.specChangeId) ?? normalizeOptionalString(linkedRefs?.specChangeIds?.[0]);
   const mode = input?.mode === "execute" || (input?.mode !== "plan" && inferredTicketId !== null) ? "execute" : "plan";
   return {
     mode,
@@ -764,7 +765,7 @@ function linkedRefsFromScope(scope: RalphRunScope): Partial<RalphLinkedRefs> {
     roadmapItemIds: scope.roadmapItemIds,
     initiativeIds: scope.initiativeIds,
     researchIds: scope.researchIds,
-    specChangeIds: [scope.specChangeId],
+    specChangeIds: scope.specChangeId ? [scope.specChangeId] : [],
     ticketIds: scope.ticketId ? [scope.ticketId] : [],
     critiqueIds: scope.critiqueIds,
     docIds: scope.docIds,
@@ -778,12 +779,75 @@ function normalizePacketContext(
   return {
     capturedAt: normalizeOptionalString(input?.capturedAt) ?? currentTimestamp(),
     constitutionBrief: input?.constitutionBrief?.trim() ?? "",
-    specContext: input?.specContext?.trim() ?? "",
+    specContext: normalizeOptionalString(input?.specContext),
     planContext: normalizeOptionalString(input?.planContext),
     ticketContext: normalizeOptionalString(input?.ticketContext),
     priorIterationLearnings: normalizeStringList(input?.priorIterationLearnings),
     operatorNotes: normalizeOptionalString(input?.operatorNotes),
   };
+}
+
+function normalizeSteeringQueue(entries: readonly RalphSteeringEntry[] | null | undefined): RalphSteeringEntry[] {
+  if (!entries) {
+    return [];
+  }
+  const latest = new Map<string, RalphSteeringEntry>();
+  for (const entry of entries) {
+    const id = entry.id.trim();
+    if (!id) {
+      continue;
+    }
+    latest.set(id, {
+      id,
+      text: entry.text.trim(),
+      createdAt: entry.createdAt,
+      source: "operator",
+      consumedAt: normalizeOptionalString(entry.consumedAt),
+      consumedIterationId: normalizeOptionalString(entry.consumedIterationId),
+    });
+  }
+  return [...latest.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+function normalizeStopRequest(input: RalphStopRequest | null | undefined): RalphStopRequest | null {
+  if (!input) {
+    return null;
+  }
+  return {
+    requestedAt: input.requestedAt,
+    requestedBy: "operator",
+    summary: input.summary.trim(),
+    cancelRunning: input.cancelRunning !== false,
+    handledAt: normalizeOptionalString(input.handledAt),
+  };
+}
+
+function normalizeSchedulerState(
+  input: Partial<RalphSchedulerState> | RalphSchedulerState | undefined,
+): RalphSchedulerState {
+  const status =
+    input?.status === "running" ||
+    input?.status === "waiting" ||
+    input?.status === "stopping" ||
+    input?.status === "completed"
+      ? input.status
+      : "idle";
+  return {
+    status,
+    updatedAt: normalizeOptionalString(input?.updatedAt),
+    jobId: normalizeOptionalString(input?.jobId),
+    note: normalizeOptionalString(input?.note),
+  };
+}
+
+function mergeSchedulerState(
+  current: RalphSchedulerState,
+  input: Partial<RalphSchedulerState> | undefined,
+): RalphSchedulerState {
+  if (!input) {
+    return current;
+  }
+  return normalizeSchedulerState({ ...current, ...input });
 }
 
 function mergeLinkedRefs(current: RalphLinkedRefs, next: Partial<RalphLinkedRefs> | undefined): RalphLinkedRefs {
@@ -1045,9 +1109,17 @@ function normalizeStoredRunState(state: RalphRunState): RalphRunState {
     summary: state.summary?.trim() ?? "",
     linkedRefs: normalizeLinkedRefs(state.linkedRefs),
     scope: normalizeRunScope((state as RalphRunState & { scope?: RalphRunScope }).scope, state.linkedRefs),
+    activeTicketId: normalizeOptionalString(
+      (state as RalphRunState & { activeTicketId?: string | null }).activeTicketId,
+    ),
     packetContext: normalizePacketContext(
       (state as RalphRunState & { packetContext?: RalphPacketContext }).packetContext,
     ),
+    steeringQueue: normalizeSteeringQueue(
+      (state as RalphRunState & { steeringQueue?: RalphSteeringEntry[] }).steeringQueue,
+    ),
+    stopRequest: normalizeStopRequest((state as RalphRunState & { stopRequest?: RalphStopRequest | null }).stopRequest),
+    scheduler: normalizeSchedulerState((state as RalphRunState & { scheduler?: RalphSchedulerState }).scheduler),
     policySnapshot: normalizePolicySnapshot(state.policySnapshot),
     verifierSummary: normalizeVerifierSummary(state.verifierSummary),
     critiqueLinks: normalizeCritiqueLinks(state.critiqueLinks),
@@ -1135,10 +1207,7 @@ function isCheckpointIterationAllowed(state: RalphRunState, iterationId: string)
 }
 
 function createPacketSummary(state: RalphRunState): string {
-  const scopeLabel =
-    state.scope.mode === "plan"
-      ? `planning spec ${state.scope.specChangeId}${state.scope.planId ? ` against plan ${state.scope.planId}` : ""}`
-      : `executing ticket ${state.scope.ticketId ?? "(unassigned)"} under plan ${state.scope.planId ?? "(none)"} for spec ${state.scope.specChangeId}`;
+  const scopeLabel = `looping plan ${state.scope.planId ?? "(none)"}${state.scope.specChangeId ? ` under spec ${state.scope.specChangeId}` : ""}${state.activeTicketId ? ` on ticket ${state.activeTicketId}` : ""}`;
   return summarizeText(
     `${state.title}. ${scopeLabel}. ${state.objective}`,
     `Ralph orchestration run for ${state.title}.`,
@@ -1360,9 +1429,9 @@ export class RalphStore {
         "Authoritative Scope",
         [
           `- mode: ${state.scope.mode}`,
-          `- governing spec: ${state.scope.specChangeId}`,
+          `- governing spec: ${state.scope.specChangeId ?? "(none)"}`,
           `- governing plan: ${state.scope.planId ?? "(none)"}`,
-          `- active ticket: ${state.scope.ticketId ?? "(none)"}`,
+          `- active ticket: ${state.activeTicketId ?? state.scope.ticketId ?? "(none)"}`,
           `- roadmap items: ${state.scope.roadmapItemIds.join(", ") || "(none)"}`,
           `- initiatives: ${state.scope.initiativeIds.join(", ") || "(none)"}`,
           `- research: ${state.scope.researchIds.join(", ") || "(none)"}`,
@@ -1385,6 +1454,14 @@ export class RalphStore {
         ),
       ),
       renderSection("Operator Notes", state.packetContext.operatorNotes ?? "(none)"),
+      renderSection(
+        "Steering Queue",
+        renderBulletList(
+          state.steeringQueue.filter((entry) => entry.consumedAt === null).map((entry) => entry.text).length > 0
+            ? state.steeringQueue.filter((entry) => entry.consumedAt === null).map((entry) => entry.text)
+            : ["(none)"],
+        ),
+      ),
       renderSection(
         "Policy Snapshot",
         [
@@ -1434,6 +1511,15 @@ export class RalphStore {
               `- blocking refs: ${state.latestDecision.blockingRefs.join(", ") || "(none)"}`,
             ].join("\n")
           : "(none)",
+      ),
+      renderSection(
+        "Loop Control",
+        [
+          `- scheduler: ${state.scheduler.status}`,
+          `- scheduler job: ${state.scheduler.jobId ?? "(none)"}`,
+          `- scheduler note: ${state.scheduler.note ?? "(none)"}`,
+          `- stop request: ${state.stopRequest ? `${state.stopRequest.summary} @ ${state.stopRequest.requestedAt}` : "(none)"}`,
+        ].join("\n"),
       ),
       renderSection("Post-Iteration Checkpoint", postIterationLines),
       renderSection("Next Launch State", nextLaunchLines),
@@ -1694,7 +1780,11 @@ export class RalphStore {
       summary: summarizeText(input.summary ?? input.objective, `Ralph orchestration run for ${title}.`),
       linkedRefs,
       scope,
+      activeTicketId: normalizeOptionalString(input.activeTicketId) ?? scope.ticketId,
       packetContext: normalizePacketContext(input.packetContext),
+      steeringQueue: normalizeSteeringQueue(input.steeringQueue),
+      stopRequest: normalizeStopRequest(input.stopRequest),
+      scheduler: normalizeSchedulerState(input.scheduler),
       policySnapshot: normalizePolicySnapshot(input.policySnapshot),
       verifierSummary: normalizeVerifierSummary(input.verifierSummary),
       critiqueLinks: normalizeCritiqueLinks(input.critiqueLinks),
@@ -1865,66 +1955,30 @@ export class RalphStore {
       };
     }
 
-    if (latestStatus === "accepted") {
-      if (state.scope.mode === "plan") {
-        if (input.workerRequestedCompletion) {
-          return {
-            kind: "complete",
-            reason: "goal_reached",
-            summary:
-              input.summary?.trim() ||
-              "The planning iteration completed and the resulting Loom plan context is ready for the next caller.",
-            decidedAt: currentTimestamp(),
-            decidedBy,
-            blockingRefs,
-          };
-        }
-        return {
-          kind: "pause",
-          reason: "manual_review_required",
-          summary:
-            input.summary?.trim() ||
-            "The planning iteration completed, but the next caller must inspect the updated plan before another bounded step.",
-          decidedAt: currentTimestamp(),
-          decidedBy: "policy",
-          blockingRefs,
-        };
-      }
-
-      if (input.workerRequestedCompletion && verifierSatisfied) {
-        return {
-          kind: "complete",
-          reason: "goal_reached",
-          summary:
-            input.summary?.trim() ||
-            `Ticket ${state.scope.ticketId ?? "(unassigned)"} is complete and the policy gates permit stopping the Ralph run.`,
-          decidedAt: currentTimestamp(),
-          decidedBy,
-          blockingRefs,
-        };
-      }
+    if (latestStatus === "accepted" && state.scope.planId) {
+      return {
+        kind: "continue",
+        reason: input.workerRequestedCompletion ? "worker_requested_completion" : "unknown",
+        summary:
+          input.summary?.trim() ||
+          (input.workerRequestedCompletion
+            ? "The worker reported a truthful stopping point for this bounded iteration. The managed loop must inspect the governing plan ticket graph before deciding whether to continue or stop."
+            : "The bounded iteration finished. The managed loop must inspect the governing plan ticket graph before deciding what happens next."),
+        decidedAt: currentTimestamp(),
+        decidedBy,
+        blockingRefs,
+      };
     }
 
     if (input.workerRequestedCompletion) {
-      if (state.policySnapshot.stopWhenVerified && verifierSatisfied && latestStatus === "accepted") {
-        return {
-          kind: "complete",
-          reason: "goal_reached",
-          summary:
-            input.summary?.trim() || "The worker reported completion and the policy gates permit stopping the run.",
-          decidedAt: currentTimestamp(),
-          decidedBy,
-          blockingRefs,
-        };
-      }
       return {
         kind: "continue",
         reason: "worker_requested_completion",
         summary:
           input.summary?.trim() ||
-          (state.policySnapshot.stopWhenVerified
-            ? "The worker reported completion, but the verifier has not yet satisfied the stop condition."
-            : "The worker reported completion, but the policy requires another explicit step before stopping."),
+          (state.policySnapshot.stopWhenVerified && verifierSatisfied
+            ? "The worker reported completion, but the managed loop still needs to inspect the governing plan ticket graph before stopping."
+            : "The worker reported completion, but the managed loop still requires another explicit loop-level decision before stopping."),
         decidedAt: currentTimestamp(),
         decidedBy: "policy",
         blockingRefs,
@@ -2068,7 +2122,15 @@ export class RalphStore {
           : current.state.summary,
       linkedRefs,
       scope,
+      activeTicketId:
+        input.activeTicketId !== undefined
+          ? normalizeOptionalString(input.activeTicketId)
+          : (normalizeOptionalString(scope.ticketId) ?? current.state.activeTicketId),
       packetContext: input.packetContext ? normalizePacketContext(input.packetContext) : current.state.packetContext,
+      steeringQueue: input.steeringQueue ? normalizeSteeringQueue(input.steeringQueue) : current.state.steeringQueue,
+      stopRequest:
+        input.stopRequest !== undefined ? normalizeStopRequest(input.stopRequest) : current.state.stopRequest,
+      scheduler: mergeSchedulerState(current.state.scheduler, input.scheduler),
       policySnapshot: mergePolicySnapshot(current.state.policySnapshot, input.policySnapshot),
       verifierSummary: mergeVerifierSummary(current.state.verifierSummary, input.verifierSummary),
       critiqueLinks: input.critiqueLinks
@@ -2079,6 +2141,10 @@ export class RalphStore {
       waitingFor,
       status: input.status ? normalizeRunStatus(input.status) : current.state.status,
       phase: input.phase ? normalizeRunPhase(input.phase) : current.state.phase,
+      stopReason:
+        input.stopReason !== undefined
+          ? (normalizeOptionalString(input.stopReason) as RalphContinuationDecision["reason"] | null)
+          : current.state.stopReason,
       updatedAt: currentTimestamp(),
     };
     return this.writeArtifacts(nextState);
@@ -2404,6 +2470,77 @@ export class RalphStore {
     return result;
   }
 
+  queueSteering(ref: string, text: string): RalphReadResult {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      throw new Error("Ralph steering text is required.");
+    }
+    const current = this.readRun(ref);
+    const entry: RalphSteeringEntry = {
+      id: nextSequenceId(
+        "steer",
+        current.state.steeringQueue.map((steering) => steering.id),
+      ),
+      text: trimmed,
+      createdAt: currentTimestamp(),
+      source: "operator",
+      consumedAt: null,
+      consumedIterationId: null,
+    };
+    return this.updateRun(ref, {
+      steeringQueue: [...current.state.steeringQueue, entry],
+      scheduler: {
+        status: current.state.scheduler.status === "completed" ? "idle" : current.state.scheduler.status,
+        updatedAt: currentTimestamp(),
+        note: "Operator steering queued for the next Ralph iteration.",
+      },
+    });
+  }
+
+  consumeQueuedSteering(ref: string, iterationId: string): RalphReadResult {
+    const current = this.readRun(ref);
+    const consumedAt = currentTimestamp();
+    return this.updateRun(ref, {
+      steeringQueue: current.state.steeringQueue.map((entry) =>
+        entry.consumedAt ? entry : { ...entry, consumedAt, consumedIterationId: iterationId },
+      ),
+      scheduler: { updatedAt: consumedAt },
+    });
+  }
+
+  requestStop(ref: string, summary?: string, cancelRunning = true): RalphReadResult {
+    const current = this.readRun(ref);
+    return this.updateRun(ref, {
+      stopRequest: {
+        requestedAt: currentTimestamp(),
+        requestedBy: "operator",
+        summary: summary?.trim() || "Operator requested the Ralph loop to stop.",
+        cancelRunning,
+        handledAt: null,
+      },
+      scheduler: {
+        status: cancelRunning ? "stopping" : current.state.scheduler.status,
+        updatedAt: currentTimestamp(),
+        note: summary?.trim() || "Operator requested the Ralph loop to stop.",
+      },
+    });
+  }
+
+  acknowledgeStopRequest(ref: string): RalphReadResult {
+    const current = this.readRun(ref);
+    if (!current.state.stopRequest) {
+      return current;
+    }
+    return this.updateRun(ref, {
+      stopRequest: { ...current.state.stopRequest, handledAt: currentTimestamp() },
+      scheduler: { updatedAt: currentTimestamp() },
+    });
+  }
+
+  setScheduler(ref: string, scheduler: Partial<RalphSchedulerState>): RalphReadResult {
+    return this.updateRun(ref, { scheduler });
+  }
+
   prepareLaunch(ref: string, input: PrepareRalphLaunchInput = {}): RalphReadResult {
     const current = this.readRun(ref);
     if (["completed", "halted", "failed", "archived"].includes(current.state.status)) {
@@ -2570,6 +2707,26 @@ export class RalphStore {
 
   async decideRunAsync(ref: string, input: DecideRalphRunInput): Promise<RalphReadResult> {
     return this.decideRun(ref, input);
+  }
+
+  async queueSteeringAsync(ref: string, text: string): Promise<RalphReadResult> {
+    return this.queueSteering(ref, text);
+  }
+
+  async consumeQueuedSteeringAsync(ref: string, iterationId: string): Promise<RalphReadResult> {
+    return this.consumeQueuedSteering(ref, iterationId);
+  }
+
+  async requestStopAsync(ref: string, summary?: string, cancelRunning = true): Promise<RalphReadResult> {
+    return this.requestStop(ref, summary, cancelRunning);
+  }
+
+  async acknowledgeStopRequestAsync(ref: string): Promise<RalphReadResult> {
+    return this.acknowledgeStopRequest(ref);
+  }
+
+  async setSchedulerAsync(ref: string, scheduler: Partial<RalphSchedulerState>): Promise<RalphReadResult> {
+    return this.setScheduler(ref, scheduler);
   }
 
   async prepareLaunchAsync(ref: string, input: PrepareRalphLaunchInput = {}): Promise<RalphReadResult> {
