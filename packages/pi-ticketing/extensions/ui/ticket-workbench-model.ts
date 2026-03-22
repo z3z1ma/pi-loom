@@ -29,12 +29,26 @@ export interface TicketWorkbenchModel {
   byStatus: Record<TicketStatus, TicketSummary[]>;
 }
 
+export interface TicketOverviewSections {
+  ready: TicketSummary[];
+  attention: TicketSummary[];
+  recent: TicketSummary[];
+  attentionUsesBlocked: boolean;
+  recentUsesClosed: boolean;
+}
+
+export const OVERVIEW_MAX_TICKETS_PER_SECTION = 3;
+
 export function orderedTickets(tickets: TicketSummary[]): TicketSummary[] {
   return [...tickets].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 export function updatedTickets(tickets: TicketSummary[]): TicketSummary[] {
   return [...tickets].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+export function createdTickets(tickets: TicketSummary[]): TicketSummary[] {
+  return [...tickets].sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
 }
 
 export function statusCount(tickets: TicketSummary[], status: TicketStatus): number {
@@ -118,14 +132,21 @@ export function uniqueTickets(tickets: TicketSummary[]): TicketSummary[] {
   return [...byId.values()];
 }
 
+export function getOverviewSections(model: TicketWorkbenchModel): TicketOverviewSections {
+  const attentionUsesBlocked = model.blocked.length > 0;
+  const recentUsesClosed = model.recentClosed.length > 0;
+  return {
+    ready: model.ready,
+    attention: attentionUsesBlocked ? model.blocked.map((entry) => entry.ticket) : model.active,
+    recent: recentUsesClosed ? model.recentClosed : model.recent,
+    attentionUsesBlocked,
+    recentUsesClosed,
+  };
+}
+
 export function getOverviewTickets(model: TicketWorkbenchModel): TicketSummary[] {
-  return uniqueTickets([
-    ...model.ready.slice(0, 4),
-    ...model.blocked.slice(0, 3).map((entry) => entry.ticket),
-    ...model.active.slice(0, 3),
-    ...model.recentClosed.slice(0, 3),
-    ...model.recent.slice(0, 3),
-  ]);
+  const sections = getOverviewSections(model);
+  return uniqueTickets([...sections.ready, ...sections.attention, ...sections.recent]);
 }
 
 export function getInboxTickets(model: TicketWorkbenchModel, filter?: "ready" | "blocked"): TicketSummary[] {

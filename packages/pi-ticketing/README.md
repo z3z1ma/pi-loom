@@ -2,7 +2,7 @@
 
 `pi-ticketing` adds a durable, local ticket ledger to pi-compatible runtimes.
 
-When active, the extension teaches the model to create, update, query, and rely on tickets for non-trivial work. Ticket state is persisted durably in SQLite via pi-storage, with journal history, checkpoint metadata, inline attachment data, linked upstream context, and an audit trail. Each record lives under an opaque canonical storage entity id while the human-facing ticket display id stays stable as `t-####`; tool refs and rendered views use the display id, not the opaque storage id. Rendered ticket markdown and other outputs are generated from canonical SQLite records in memory or exported explicitly when needed; they are snapshots, not durable repo state.
+When active, the extension teaches the model to create, update, query, and rely on tickets for non-trivial work. Ticket state is persisted durably in SQLite via pi-storage, with journal history, checkpoint metadata, inline attachment data, linked upstream context, and an audit trail. Each record lives under an opaque canonical storage entity id while the human-facing ticket display id stays stable as a repo-prefixed identifier such as `pl-####`; tool refs and rendered views use the display id, not the opaque storage id. Rendered ticket markdown and other outputs are generated from canonical SQLite records in memory or exported explicitly when needed; they are snapshots, not durable repo state.
 
 Tickets are intended to be detail-first execution records and complete units of work, not blurbs. A good ticket captures enough self-contained context for truthful resumption at the execution layer that a capable newcomer can understand what problem is being solved, why it matters now, what generally needs to happen, and what evidence means the work is done: relevant assumptions and constraints, scope and non-goals, concrete acceptance criteria, plan-aligned implementation detail, dependencies, risks, edge cases, verification expectations, and durable journal updates as reality changes. Keep that detail at the ticket layer without turning tickets into replacement specs, plans, or docs.
 
@@ -77,7 +77,7 @@ The `ticket_*` tools remain machine-facing and intentionally more explicit than 
 
 Use them when an agent needs structured access to the ledger, complete ticket bodies, graph state, or direct mutation operations. They are not the human UX surface.
 
-Ticket refs accepted by the tools are the truthful human-facing forms the store resolves: `t-####`, `#t-####`, `@t-####`, `ticket:t-####`, a markdown filename such as `t-0001.md`, or a markdown path whose basename is the ticket id. Opaque canonical storage entity ids are internal and not supported tool refs.
+Ticket refs accepted by the tools are the truthful human-facing forms the store resolves: repo-prefixed ids such as `pl-####`, `#pl-####`, `@pl-####`, `ticket:pl-####`, a markdown filename such as `pl-0001.md`, or a markdown path whose basename is the ticket id. Opaque canonical storage entity ids are internal and not supported tool refs.
 
 Status is exposed in two layers on purpose:
 

@@ -125,7 +125,7 @@ describe("ticket tools", () => {
           properties: { ref: { description: string } };
         }
       ).properties.ref.description,
-    ).toContain("`ticket:t-0001`");
+    ).toContain("`ticket:pl-0001`");
     expect(getTool(mockPi, "ticket_checkpoint").promptGuidelines).toContain(
       "Checkpoint bodies should preserve the critical execution detail needed for truthful resumption, including state, decisions, risks, acceptance progress, and verification status, so a later worker can tell what remains and how completion will be judged.",
     );

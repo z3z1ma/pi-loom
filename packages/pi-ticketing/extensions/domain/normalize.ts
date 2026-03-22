@@ -38,12 +38,34 @@ function expectEnum<T extends string>(label: string, value: string | undefined, 
   throw new Error(`Invalid ${label}: ${value}`);
 }
 
-export function normalizeTicketId(value: string): string {
+const TICKET_ID_PATTERN = /^(?<prefix>[a-z][a-z0-9]{0,5})-(?<sequence>\d{4})$/i;
+
+export function parseTicketIdParts(value: string): { prefix: string; sequence: number } {
   const trimmed = value.trim().toLowerCase();
-  if (!/^t-\d{4}$/.test(trimmed)) {
+  const match = TICKET_ID_PATTERN.exec(trimmed);
+  if (!match?.groups) {
     throw new Error(`Invalid ticket id: ${value}`);
   }
-  return trimmed;
+  return {
+    prefix: match.groups.prefix,
+    sequence: Number.parseInt(match.groups.sequence, 10),
+  };
+}
+
+export function formatTicketId(prefix: string, sequence: number): string {
+  const normalizedPrefix = prefix.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9]{0,5}$/.test(normalizedPrefix)) {
+    throw new Error(`Invalid ticket prefix: ${prefix}`);
+  }
+  if (!Number.isFinite(sequence) || sequence < 0) {
+    throw new Error(`Invalid ticket sequence: ${sequence}`);
+  }
+  return `${normalizedPrefix}-${String(Math.trunc(sequence)).padStart(4, "0")}`;
+}
+
+export function normalizeTicketId(value: string): string {
+  const parsed = parseTicketIdParts(value);
+  return formatTicketId(parsed.prefix, parsed.sequence);
 }
 
 export function normalizeTicketRef(value: string): string {

@@ -30,7 +30,14 @@ import type {
   TicketSummary,
   UpdateTicketInput,
 } from "./models.js";
-import { currentTimestamp, normalizeOptionalString, normalizeStringList, normalizeTicketRef } from "./normalize.js";
+import {
+  currentTimestamp,
+  formatTicketId,
+  normalizeOptionalString,
+  normalizeStringList,
+  normalizeTicketRef,
+  parseTicketIdParts,
+} from "./normalize.js";
 import { getAttachmentSourceRef, getCheckpointRef, getTicketRef } from "./paths.js";
 import { filterTickets, summarizeTickets } from "./query.js";
 
@@ -61,6 +68,58 @@ function nextNumericId(existingIds: string[], prefix: string): string {
     return Number.isFinite(numeric) ? Math.max(currentMax, numeric) : currentMax;
   }, 0);
   return `${prefix}-${String(max + 1).padStart(4, "0")}`;
+}
+
+function tokenizePrefixSource(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function deriveBaseTicketPrefix(label: string): string {
+  const tokens = tokenizePrefixSource(label);
+  if (tokens.length === 0) {
+    return "t";
+  }
+  if (tokens.length === 1) {
+    return tokens[0].slice(0, 2) || "t";
+  }
+  return (
+    tokens
+      .map((token) => token[0])
+      .join("")
+      .slice(0, 6) || "t"
+  );
+}
+
+function expandedTicketPrefixCandidates(label: string, basePrefix: string): string[] {
+  const tokens = tokenizePrefixSource(label);
+  if (tokens.length === 0) {
+    return [basePrefix];
+  }
+  const candidates = new Set<string>([basePrefix]);
+  const flattened = tokens.length === 1 ? tokens[0] : `${tokens[0][0] ?? ""}${tokens.slice(1).join("")}`;
+  for (let length = Math.max(basePrefix.length + 1, 2); length <= Math.min(6, flattened.length); length += 1) {
+    candidates.add(flattened.slice(0, length));
+  }
+  return [...candidates].filter((candidate) => /^[a-z][a-z0-9]{0,5}$/.test(candidate));
+}
+
+function resolveRepositoryTicketPrefixLabel(identity: WorkspaceIdentity): string {
+  if (identity.repository.remoteUrls.length === 0) {
+    return "";
+  }
+  return identity.repository.displayName || identity.repository.slug;
+}
+
+function inferExistingTicketPrefix(ticketId: string): string | null {
+  try {
+    return parseTicketIdParts(ticketId).prefix;
+  } catch {
+    return null;
+  }
 }
 
 function parseTicketRef(value: string): string {
@@ -332,11 +391,60 @@ export class TicketStore {
     return parseTicketRef(ref);
   }
 
-  private nextTicketId(records: TicketReadResult[]): string {
-    return nextNumericId(
-      records.map((record) => record.summary.id),
-      "t",
+  private async resolveTicketDisplayPrefix(
+    storage: LoomCanonicalStorage,
+    identity: WorkspaceIdentity,
+  ): Promise<string> {
+    const ticketEntities = await storage.listEntities(identity.space.id, ENTITY_KIND);
+    const currentRepoPrefixes = ticketEntities
+      .filter((entity) => entity.owningRepositoryId === identity.repository.id)
+      .map((entity) => inferExistingTicketPrefix(entity.displayId ?? ""))
+      .filter((value): value is string => Boolean(value));
+    if (currentRepoPrefixes.length > 0) {
+      const counts = new Map<string, number>();
+      for (const prefix of currentRepoPrefixes) {
+        counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+      }
+      return [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0][0];
+    }
+
+    const label = resolveRepositoryTicketPrefixLabel(identity);
+    if (!label) {
+      return "t";
+    }
+
+    const usedByOtherRepos = new Set(
+      ticketEntities
+        .filter((entity) => entity.owningRepositoryId !== null && entity.owningRepositoryId !== identity.repository.id)
+        .map((entity) => inferExistingTicketPrefix(entity.displayId ?? ""))
+        .filter((value): value is string => Boolean(value)),
     );
+    const basePrefix = deriveBaseTicketPrefix(label);
+    for (const candidate of expandedTicketPrefixCandidates(label, basePrefix)) {
+      if (!usedByOtherRepos.has(candidate)) {
+        return candidate;
+      }
+    }
+    let suffix = 2;
+    while (usedByOtherRepos.has(`${basePrefix}${suffix}`)) {
+      suffix += 1;
+    }
+    return `${basePrefix}${suffix}`;
+  }
+
+  private nextTicketId(records: TicketReadResult[], prefix: string): string {
+    const max = records.reduce((currentMax, record) => {
+      try {
+        const parsed = parseTicketIdParts(record.summary.id);
+        if (parsed.prefix !== prefix) {
+          return currentMax;
+        }
+        return Math.max(currentMax, parsed.sequence);
+      } catch {
+        return currentMax;
+      }
+    }, 0);
+    return formatTicketId(prefix, max + 1);
   }
 
   private nextCheckpointId(records: TicketReadResult[]): string {
@@ -430,8 +538,10 @@ export class TicketStore {
   async createTicketAsync(input: CreateTicketInput): Promise<TicketReadResult> {
     this.initLedger();
     const timestamp = currentTimestamp();
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const existing = await this.canonicalRecords();
-    const ticketId = this.nextTicketId(existing);
+    const ticketPrefix = await this.resolveTicketDisplayPrefix(storage, identity);
+    const ticketId = this.nextTicketId(existing, ticketPrefix);
     const ticketRecord: TicketRecord = {
       frontmatter: {
         id: ticketId,

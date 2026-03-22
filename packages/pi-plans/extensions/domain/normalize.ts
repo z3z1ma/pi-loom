@@ -111,7 +111,7 @@ export function normalizeContextRefs(input: Partial<PlanContextRefs> | undefined
 
 export function normalizeTicketId(value: string): string {
   const trimmed = value.trim();
-  if (!/^t-\d{4}$/i.test(trimmed)) {
+  if (!/^[a-z][a-z0-9]{0,5}-\d{4}$/i.test(trimmed)) {
     throw new Error(`Invalid ticket id: ${value}`);
   }
   return trimmed.toLowerCase();

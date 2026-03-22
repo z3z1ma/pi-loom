@@ -78,7 +78,7 @@ const TicketListParams = Type.Object({
 const TicketReadParams = Type.Object({
   ref: Type.String({
     description:
-      "Human-facing ticket ref: `t-0001`, `#t-0001`, `@t-0001`, `ticket:t-0001`, a markdown filename, or a markdown path. Canonical storage entity ids stay opaque and are not accepted here.",
+      "Human-facing ticket ref: repo-prefixed ids such as `pl-0001`, `#pl-0001`, `@pl-0001`, `ticket:pl-0001`, a markdown filename, or a markdown path. Canonical storage entity ids stay opaque and are not accepted here.",
   }),
 });
 
@@ -87,7 +87,7 @@ const TicketWriteParams = Type.Object({
   ref: Type.Optional(
     Type.String({
       description:
-        "Existing human-facing ticket ref for non-create actions: `t-0001`, `#t-0001`, `@t-0001`, `ticket:t-0001`, a markdown filename, or a markdown path.",
+        "Existing human-facing ticket ref for non-create actions: repo-prefixed ids such as `pl-0001`, `#pl-0001`, `@pl-0001`, `ticket:pl-0001`, a markdown filename, or a markdown path.",
     }),
   ),
   title: Type.Optional(Type.String()),
@@ -130,7 +130,7 @@ const TicketGraphParams = Type.Object({
   ref: Type.Optional(
     Type.String({
       description:
-        "Optional human-facing ticket ref: `t-0001`, `#t-0001`, `@t-0001`, `ticket:t-0001`, a markdown filename, or a markdown path.",
+        "Optional human-facing ticket ref: repo-prefixed ids such as `pl-0001`, `#pl-0001`, `@pl-0001`, `ticket:pl-0001`, a markdown filename, or a markdown path.",
     }),
   ),
 });
@@ -139,7 +139,7 @@ const TicketCheckpointParams = Type.Object({
   action: TicketCheckpointActionEnum,
   ref: Type.String({
     description:
-      "Human-facing ticket ref: `t-0001`, `#t-0001`, `@t-0001`, `ticket:t-0001`, a markdown filename, or a markdown path.",
+      "Human-facing ticket ref: repo-prefixed ids such as `pl-0001`, `#pl-0001`, `@pl-0001`, `ticket:pl-0001`, a markdown filename, or a markdown path.",
   }),
   title: Type.Optional(Type.String()),
   body: Type.Optional(Type.String()),

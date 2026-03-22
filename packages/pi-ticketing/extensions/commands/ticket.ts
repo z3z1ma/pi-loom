@@ -260,7 +260,7 @@ async function performWorkspaceAction(
         throw new Error(`Closed ticket ${action.ref} must be reopened before dependencies can change.`);
       }
       const prompt = action.mode === "add" ? `Add dependency to ${action.ref}` : `Remove dependency from ${action.ref}`;
-      const ref = action.dependencyRef ?? (await ctx.ui.input(prompt, "t-0001 or #t-0001"));
+      const ref = action.dependencyRef ?? (await ctx.ui.input(prompt, "pl-0001 or #pl-0001"));
       if (!ref?.trim()) {
         return { kind: "detail", ref: action.ref };
       }

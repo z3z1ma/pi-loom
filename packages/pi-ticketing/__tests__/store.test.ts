@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSeededGitWorkspace } from "../../pi-storage/__tests__/helpers/git-fixture.js";
 import { getCheckpointRef, getTicketRef } from "../extensions/domain/paths.js";
 import { createTicketStore } from "../extensions/domain/store.js";
 
@@ -20,6 +21,23 @@ describe("TicketStore canonical storage", () => {
     vi.useRealTimers();
     delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it("derives repo-prefixed ticket display ids for seeded git workspaces", async () => {
+    const { cwd, cleanup } = createSeededGitWorkspace({
+      prefix: "pi-ticketing-prefix-",
+      packageName: "pi-loom",
+      remoteUrl: "https://github.com/example/pi-loom.git",
+    });
+    try {
+      const store = createTicketStore(cwd);
+      vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+      const created = await store.createTicketAsync({ title: "Prefixed ticket id" });
+      expect(created.summary.id).toBe("pl-0001");
+      expect(created.summary.ref).toBe("ticket:pl-0001");
+    } finally {
+      cleanup();
+    }
   });
 
   it("writes canonical ticket records and preserves stable refs across close and reopen", async () => {

@@ -10,13 +10,16 @@ import type {
 import { renderTicketDetail } from "../domain/render.js";
 import type { TicketStore } from "../domain/store.js";
 import {
+  createdTickets,
   createTicketWorkbenchModel,
   filterTicketsByQuery,
   getBoardTickets,
   getInboxTickets,
+  getOverviewSections,
   getOverviewTickets,
   getTicketById,
   nextActionLines,
+  OVERVIEW_MAX_TICKETS_PER_SECTION,
   orderedTickets,
   recentChangeLines,
   type TicketWorkbenchModel,
@@ -128,6 +131,7 @@ const SIDEBAR_LINES = 24;
 const MENU_LINES = 8;
 const NARROW_MAIN_BOX_LINES = 18;
 const NARROW_SIDEBAR_LINES = 9;
+const OVERVIEW_CHROME_LINES = 9;
 
 const EDITABLE_FIELDS: TicketWorkspaceField[] = [
   "title",
@@ -356,7 +360,7 @@ function tabView(tab: TicketWorkbenchTabId, state: WorkbenchState): TicketWorksp
 }
 
 function listTickets(state: WorkbenchState, model: TicketWorkbenchModel): TicketSummary[] {
-  return filterTicketsByQuery(model.tickets, state.listSearchQuery);
+  return filterTicketsByQuery(createdTickets(model.tickets), state.listSearchQuery);
 }
 
 function syncTabSelection(state: WorkbenchState, tab: TicketWorkbenchTabId, tickets: TicketSummary[]): string | null {
@@ -548,6 +552,7 @@ function renderOverview(
   maxLines: number,
 ): string[] {
   const selectedRef = selectedTicketRef(state, model);
+  const sections = getOverviewSections(model);
   const blockers = new Map(
     model.blocked.map((entry) => [entry.ticket.id, `blocked by ${entry.blockers.join(", ") || "unknown"}`]),
   );
@@ -563,51 +568,50 @@ function renderOverview(
       theme.fg("dim", `Next: ${nextActionLines(model.tickets).join(" • ")}`),
       "",
       theme.fg("dim", "Ready now"),
-      ...ticketRows(model.ready, selectedRef, theme, width, 1),
+      ...ticketRows(sections.ready, selectedRef, theme, width, 1),
       "",
-      ...(model.blocked.length > 0
+      ...(sections.attentionUsesBlocked
         ? [
             theme.fg("dim", "Blocked attention"),
-            ...ticketRows(
-              model.blocked.map((entry) => entry.ticket),
-              selectedRef,
-              theme,
-              width,
-              1,
-              blockers,
-            ),
+            ...ticketRows(sections.attention, selectedRef, theme, width, 1, blockers),
           ]
         : [
-            theme.fg("dim", "Recently closed"),
-            ...ticketRows(model.recentClosed, selectedRef, theme, width, 1, recentClosedExtras),
+            theme.fg("dim", sections.recentUsesClosed ? "Recently closed" : "Recent movement"),
+            ...(sections.recentUsesClosed
+              ? ticketRows(sections.recent, selectedRef, theme, width, 1, recentClosedExtras)
+              : ticketRows(sections.recent, selectedRef, theme, width, 1)),
           ]),
     ];
   }
 
-  const compactTickets = Math.max(1, Math.min(2, Math.floor((maxLines - 9) / 6) || 1));
+  const compactTickets = Math.max(
+    1,
+    Math.min(OVERVIEW_MAX_TICKETS_PER_SECTION, Math.floor((maxLines - OVERVIEW_CHROME_LINES) / 6) || 1),
+  );
+  const sectionSeparator = compactTickets >= OVERVIEW_MAX_TICKETS_PER_SECTION ? [] : [""];
   return [
     renderWidgetCounts(model, theme),
     theme.fg("dim", `Next: ${nextActionLines(model.tickets).join(" • ")}`),
     "",
     theme.fg("dim", "Ready now"),
-    ...ticketRows(model.ready, selectedRef, theme, width, compactTickets),
-    "",
-    theme.fg("dim", model.blocked.length > 0 ? "Blocked attention" : "Active now"),
-    ...(model.blocked.length > 0
+    ...ticketRows(sections.ready, selectedRef, theme, width, compactTickets),
+    ...sectionSeparator,
+    theme.fg("dim", sections.attentionUsesBlocked ? "Blocked attention" : "Active now"),
+    ...(sections.attentionUsesBlocked
       ? ticketRows(
-          model.blocked.map((entry) => entry.ticket),
+          sections.attention,
           selectedRef,
           theme,
           width,
           compactTickets,
           blockers,
         )
-      : ticketRows(model.active, selectedRef, theme, width, compactTickets)),
-    "",
-    theme.fg("dim", model.recentClosed.length > 0 ? "Recently closed" : "Recent movement"),
-    ...(model.recentClosed.length > 0
-      ? ticketRows(model.recentClosed, selectedRef, theme, width, compactTickets, recentClosedExtras)
-      : ticketRows(model.recent, selectedRef, theme, width, compactTickets)),
+      : ticketRows(sections.attention, selectedRef, theme, width, compactTickets)),
+    ...sectionSeparator,
+    theme.fg("dim", sections.recentUsesClosed ? "Recently closed" : "Recent movement"),
+    ...(sections.recentUsesClosed
+      ? ticketRows(sections.recent, selectedRef, theme, width, compactTickets, recentClosedExtras)
+      : ticketRows(sections.recent, selectedRef, theme, width, compactTickets)),
   ];
 }
 
@@ -680,6 +684,23 @@ function renderList(
   ];
 }
 
+function boardVisibleTicketsPerLane(maxLines: number, activeLaneCount: number): number {
+  if (activeLaneCount <= 0) {
+    return 1;
+  }
+
+  const headerLines = 5;
+  const laneChromeLines = activeLaneCount * 2;
+  const availableTicketLines = Math.max(0, maxLines - headerLines - laneChromeLines);
+  const perLaneTicketLines = Math.floor(availableTicketLines / activeLaneCount);
+
+  if (perLaneTicketLines <= 2) {
+    return 1;
+  }
+
+  return Math.max(1, Math.floor((perLaneTicketLines - 1) / 2));
+}
+
 function renderBoard(
   state: WorkbenchState,
   model: TicketWorkbenchModel,
@@ -693,7 +714,7 @@ function renderBoard(
   );
   const activeStatuses: TicketStatus[] = ["ready", "in_progress", "review", "blocked", "open"];
   const activeSections = activeStatuses.filter((status) => model.byStatus[status].length > 0);
-  const visiblePerLane = activeSections.length <= 2 ? 2 : 1;
+  const visiblePerLane = boardVisibleTicketsPerLane(maxLines, activeSections.length);
   const lines = [
     theme.fg("accent", "Action board"),
     theme.fg(
@@ -1206,7 +1227,7 @@ export async function openInteractiveTicketWorkspace(
           overview: getOverviewTickets(model)[0]?.id ?? null,
           inbox:
             getInboxTickets(model, snapshot.view.kind === "board" ? snapshot.view.filter : undefined)[0]?.id ?? null,
-          list: model.tickets[0]?.id ?? null,
+          list: createdTickets(model.tickets)[0]?.id ?? null,
           board: getBoardTickets(model)[0]?.id ?? null,
           timeline: model.timeline[0]?.id ?? null,
           detail: snapshot.detail?.summary.id ?? (snapshot.view.kind === "detail" ? snapshot.view.ref : null),

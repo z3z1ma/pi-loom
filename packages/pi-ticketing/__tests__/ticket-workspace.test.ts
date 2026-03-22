@@ -281,33 +281,126 @@ describe("ticket overlay workbench", () => {
     }
   });
 
-  it("lets overview selection scroll deeper ready items into view", async () => {
+  it("shows bounded multi-ticket overview sections in the default layout", async () => {
     const { cwd, cleanup } = createTempWorkspace();
+    vi.useFakeTimers();
     try {
       const store = createTicketStore(cwd);
-      let targetId = "";
       for (let index = 0; index < 4; index += 1) {
-        const created = await store.createTicketAsync({ title: `Overview ready ${index + 1}` });
-        if (index === 3) {
-          targetId = created.summary.id;
-        }
+        vi.setSystemTime(new Date(`2026-03-22T00:00:0${index + 1}.000Z`));
+        await store.createTicketAsync({ title: `Overview ready ${index + 1}` });
       }
+
+      for (let index = 0; index < 4; index += 1) {
+        vi.setSystemTime(new Date(`2026-03-22T00:01:0${index + 1}.000Z`));
+        const created = await store.createTicketAsync({ title: `Overview active ${index + 1}` });
+        await store.updateTicketAsync(created.summary.id, { status: "in_progress" });
+      }
+
+      for (let index = 0; index < 4; index += 1) {
+        vi.setSystemTime(new Date(`2026-03-22T00:02:0${index + 1}.000Z`));
+        const created = await store.createTicketAsync({ title: `Overview closed ${index + 1}` });
+        vi.setSystemTime(new Date(`2026-03-22T00:03:0${index + 1}.000Z`));
+        await store.closeTicketAsync(created.summary.id, "done");
+      }
+
       const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "home" });
       let rendered = "";
+      let lineCount = 0;
 
       const custom = vi.fn(async (factory: FakeCustomFactory) => {
         const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
-        component.handleInput("\u001b[B");
-        component.handleInput("\u001b[B");
-        component.handleInput("\u001b[B");
-        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        const lines = component.render(OVERLAY_WIDTH);
+        lineCount = lines.length;
+        rendered = lines.join("\n");
         return null;
       });
 
       await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
-      expect(rendered).toContain(targetId);
-      expect(rendered).toContain("Overview ready 4");
+
+      const readyVisible = [1, 2, 3, 4].filter((index) => rendered.includes(`Overview ready ${index}`));
+      const activeVisible = [1, 2, 3, 4].filter((index) => rendered.includes(`Overview active ${index}`));
+      const closedVisible = [1, 2, 3, 4].filter((index) => rendered.includes(`Overview closed ${index}`));
+
+      expect(readyVisible).toEqual([1, 2, 3]);
+      expect(activeVisible).toEqual([1, 2, 3]);
+      expect(closedVisible).toEqual([2, 3, 4]);
+      expect(rendered).not.toContain("Overview ready 4");
+      expect(rendered).not.toContain("Overview active 4");
+      expect(rendered).not.toContain("Overview closed 1");
+      expect(lineCount).toBeLessThanOrEqual(OVERLAY_MAX_HEIGHT);
     } finally {
+      vi.useRealTimers();
+      cleanup();
+    }
+  });
+
+  it("keeps overview navigation aligned while scrolling deeper within rendered sections", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    vi.useFakeTimers();
+    try {
+      const store = createTicketStore(cwd);
+      let readyFourId = "";
+      for (let index = 0; index < 4; index += 1) {
+        vi.setSystemTime(new Date(`2026-03-22T00:00:0${index + 1}.000Z`));
+        const created = await store.createTicketAsync({ title: `Overview ready ${index + 1}` });
+        if (index === 3) {
+          readyFourId = created.summary.id;
+        }
+      }
+      let activeOneId = "";
+      let closedLeadId = "";
+      for (let index = 0; index < 4; index += 1) {
+        vi.setSystemTime(new Date(`2026-03-22T00:01:0${index + 1}.000Z`));
+        const created = await store.createTicketAsync({ title: `Overview active ${index + 1}` });
+        if (index === 0) {
+          activeOneId = created.summary.id;
+        }
+        await store.updateTicketAsync(created.summary.id, { status: "in_progress" });
+      }
+      for (let index = 0; index < 4; index += 1) {
+        vi.setSystemTime(new Date(`2026-03-22T00:02:0${index + 1}.000Z`));
+        const created = await store.createTicketAsync({ title: `Overview closed ${index + 1}` });
+        if (index === 3) {
+          closedLeadId = created.summary.id;
+        }
+        vi.setSystemTime(new Date(`2026-03-22T00:03:0${index + 1}.000Z`));
+        await store.closeTicketAsync(created.summary.id, "done");
+      }
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "home" });
+      const renders: string[] = [];
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        renders.push(component.render(OVERLAY_WIDTH).join("\n"));
+        for (let index = 0; index < 3; index += 1) {
+          component.handleInput("\u001b[B");
+        }
+        renders.push(component.render(OVERLAY_WIDTH).join("\n"));
+        component.handleInput("\u001b[B");
+        renders.push(component.render(OVERLAY_WIDTH).join("\n"));
+        for (let index = 0; index < 4; index += 1) {
+          component.handleInput("\u001b[B");
+        }
+        renders.push(component.render(OVERLAY_WIDTH).join("\n"));
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(renders[0]).toContain("Selected • t-0001");
+      expect(renders[0]).not.toContain("Overview ready 4");
+      expect(renders[1]).toContain(`Selected • ${readyFourId}`);
+      expect(renders[1]).toContain("Overview ready 4");
+      expect(renders[1]).not.toContain("Overview active 4");
+      expect(renders[2]).toContain(`Selected • ${activeOneId}`);
+      expect(renders[2]).toContain("Overview active 1");
+      expect(renders[2]).not.toContain(`Selected • ${readyFourId}`);
+      expect(renders[3]).toContain(`Selected • ${closedLeadId}`);
+      expect(renders[3]).toContain("Overview closed 4");
+      expect(renders[3]).not.toContain("Overview active 4");
+      expect(renders[3]).not.toContain("Overview closed 1");
+    } finally {
+      vi.useRealTimers();
       cleanup();
     }
   });
@@ -334,6 +427,34 @@ describe("ticket overlay workbench", () => {
       expect(rendered).toContain("Recent timeline");
       expect(rendered).toContain("Esc close");
     } finally {
+      cleanup();
+    }
+  });
+
+  it("sorts the list tab by newest created tickets first", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    vi.useFakeTimers();
+    try {
+      const store = createTicketStore(cwd);
+      vi.setSystemTime(new Date("2026-03-22T00:00:01.000Z"));
+      const first = await store.createTicketAsync({ title: "First ticket" });
+      vi.setSystemTime(new Date("2026-03-22T00:00:02.000Z"));
+      const second = await store.createTicketAsync({ title: "Second ticket" });
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "list" });
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(rendered.indexOf(second.summary.id)).toBeLessThan(rendered.indexOf(first.summary.id));
+      expect(rendered).toContain(`Selected • ${second.summary.id}`);
+      expect(rendered).toContain("Second ticket");
+    } finally {
+      vi.useRealTimers();
       cleanup();
     }
   });
@@ -558,6 +679,45 @@ describe("ticket overlay workbench", () => {
     }
   });
 
+  it("shows multiple tickets per populated board lane when the default layout has room", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const store = createTicketStore(cwd);
+      for (let index = 0; index < 3; index += 1) {
+        await store.createTicketAsync({ title: `Board ready ${index + 1}` });
+      }
+      for (let index = 0; index < 3; index += 1) {
+        const created = await store.createTicketAsync({ title: `Board active ${index + 1}` });
+        await store.updateTicketAsync(created.summary.id, { status: "in_progress" });
+      }
+      for (let index = 0; index < 3; index += 1) {
+        const created = await store.createTicketAsync({ title: `Board review ${index + 1}` });
+        await store.updateTicketAsync(created.summary.id, { status: "review" });
+      }
+      const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "board" });
+      let rendered = "";
+
+      const custom = vi.fn(async (factory: FakeCustomFactory) => {
+        const component = factory({ requestRender: () => {} }, createTheme(), {}, () => undefined);
+        rendered = component.render(OVERLAY_WIDTH).join("\n");
+        return null;
+      });
+
+      await openInteractiveTicketWorkspace(createInteractiveContext(cwd, custom), store, snapshot);
+      expect(rendered).toContain("Board ready 1");
+      expect(rendered).toContain("Board ready 2");
+      expect(rendered).not.toContain("Board ready 3");
+      expect(rendered).toContain("Board active 1");
+      expect(rendered).toContain("Board active 2");
+      expect(rendered).not.toContain("Board active 3");
+      expect(rendered).toContain("Board review 1");
+      expect(rendered).toContain("Board review 2");
+      expect(rendered).not.toContain("Board review 3");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("renders the timeline as a grouped activity feed", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
@@ -717,6 +877,7 @@ describe("ticket overlay workbench", () => {
       const custom = vi.fn(async (factory: FakeCustomFactory) => {
         return await new Promise<TicketWorkspaceAction | null>((resolve) => {
           const component = factory({ requestRender: () => {} }, createTheme(), {}, resolve);
+          component.handleInput("\u001b[B");
           component.handleInput("a");
           component.handleInput("\u001b[B");
           component.handleInput("\u001b[B");
