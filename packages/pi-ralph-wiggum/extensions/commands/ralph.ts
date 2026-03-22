@@ -87,13 +87,24 @@ function notifyProgress(ctx: ExtensionCommandContext, message: string): void {
   }
 }
 
+function summarizeActiveRalphStatus(line: string, activeCount: number): string {
+  if (activeCount <= 1) {
+    return line;
+  }
+  const suffix = line.replace(/^⏳ Ralph\s*·\s*/, "").trim();
+  return suffix.length > 0
+    ? `⏳ Ralph · ${activeCount} active · showing newest · ${suffix}`
+    : `⏳ Ralph · ${activeCount} active`;
+}
+
 function renderTopRalphWidget(): void {
   const active = [...activeRalphWidgets.entries()].sort((left, right) => left[0] - right[0]).at(-1) ?? null;
   if (!active) {
     return;
   }
   const [token, payload] = active;
-  payload.ctx.ui.setStatus(RALPH_WIDGET_KEY, renderRalphCommandWidgetLines(payload.state)[0]);
+  const line = renderRalphCommandWidgetLines(payload.state)[0] ?? "⏳ Ralph";
+  payload.ctx.ui.setStatus(RALPH_WIDGET_KEY, summarizeActiveRalphStatus(line, activeRalphWidgets.size));
   for (const [otherToken, otherPayload] of activeRalphWidgets.entries()) {
     if (otherToken === token) {
       continue;

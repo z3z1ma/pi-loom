@@ -68,6 +68,20 @@ function createContext(cwd: string): {
   };
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("/ralph command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -174,6 +188,87 @@ describe("/ralph command", () => {
       undefined,
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     );
+  });
+
+  it("shows aggregate status when multiple Ralph commands overlap and restores the prior line afterward", async () => {
+    const first = createContext("/workspace/ralph-command");
+    const second = createContext("/workspace/ralph-command");
+    const firstDeferred = deferred<never>();
+    const secondDeferred = deferred<never>();
+
+    vi.mocked(ensureRalphRun)
+      .mockResolvedValueOnce({
+        created: true,
+        run: {
+          state: { runId: "run-one", objective: "first run", postIteration: null },
+          summary: { id: "run-one", status: "planned", phase: "preparing", title: "First Loop" },
+          runtimeArtifacts: [],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        created: true,
+        run: {
+          state: { runId: "run-two", objective: "second run", postIteration: null },
+          summary: { id: "run-two", status: "planned", phase: "preparing", title: "Second Loop" },
+          runtimeArtifacts: [],
+        },
+      } as never);
+
+    vi.mocked(reserveDurableLaunch)
+      .mockResolvedValueOnce({
+        state: { runId: "run-one" },
+        launch: { iterationId: "iter-1" },
+      } as never)
+      .mockResolvedValueOnce({
+        state: { runId: "run-two" },
+        launch: { iterationId: "iter-2" },
+      } as never);
+
+    vi.mocked(executeRalphLoop)
+      .mockImplementationOnce(async () => firstDeferred.promise as never)
+      .mockImplementationOnce(async () => secondDeferred.promise as never);
+
+    const firstPromise = handleRalphCommand("first run", first.ctx);
+    await flushMicrotasks();
+    const secondPromise = handleRalphCommand("second run", second.ctx);
+    await flushMicrotasks();
+
+    expect(second.ui.setStatus).toHaveBeenCalledWith(
+      "ralph-live-run",
+      expect.stringContaining("2 active · showing newest"),
+    );
+    expect(first.ui.setStatus).toHaveBeenCalledWith("ralph-live-run", undefined);
+
+    secondDeferred.resolve({
+      created: true,
+      steps: [],
+      run: {
+        summary: { id: "run-two", status: "active", phase: "executing", title: "Second Loop" },
+        state: { latestDecision: null, waitingFor: "none", postIteration: null },
+        runtimeArtifacts: [],
+      },
+    } as never);
+    await secondPromise;
+    await flushMicrotasks();
+
+    const restoredStatus = first.ui.setStatus.mock.calls.at(-1)?.[1];
+    expect(restoredStatus).toEqual(expect.stringContaining("⏳ Ralph · Loop"));
+    expect(restoredStatus).not.toContain("2 active");
+
+    firstDeferred.resolve({
+      created: true,
+      steps: [],
+      run: {
+        summary: { id: "run-one", status: "active", phase: "executing", title: "First Loop" },
+        state: { latestDecision: null, waitingFor: "none", postIteration: null },
+        runtimeArtifacts: [],
+      },
+    } as never);
+    await firstPromise;
+    await flushMicrotasks();
+
+    expect(first.ui.setStatus).toHaveBeenLastCalledWith("ralph-live-run", undefined);
+    expect(second.ui.setWidget).not.toHaveBeenCalled();
   });
 
   it("rejects bare resume input instead of starting a new run", async () => {
