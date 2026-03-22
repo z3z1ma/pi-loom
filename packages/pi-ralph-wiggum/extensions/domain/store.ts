@@ -30,10 +30,13 @@ import type {
   RalphLinkedRefs,
   RalphListFilter,
   RalphNextLaunchState,
+  RalphPacketContext,
   RalphPolicyMode,
   RalphPolicySnapshot,
+  RalphPostIterationState,
   RalphReadResult,
   RalphRunPhase,
+  RalphRunScope,
   RalphRunState,
   RalphRunStatus,
   RalphRuntimeArtifactStatus,
@@ -731,6 +734,58 @@ function normalizeLinkedRefs(input: Partial<RalphLinkedRefs> | undefined): Ralph
   };
 }
 
+function normalizeRunScope(
+  input: Partial<RalphRunScope> | RalphRunScope | undefined,
+  linkedRefs?: Partial<RalphLinkedRefs>,
+): RalphRunScope {
+  const inferredTicketId =
+    normalizeOptionalString(input?.ticketId) ?? normalizeOptionalString(linkedRefs?.ticketIds?.[0]);
+  const inferredPlanId = normalizeOptionalString(input?.planId) ?? normalizeOptionalString(linkedRefs?.planIds?.[0]);
+  const inferredSpecId =
+    normalizeOptionalString(input?.specChangeId) ??
+    normalizeOptionalString(linkedRefs?.specChangeIds?.[0]) ??
+    "legacy-unscoped-spec";
+  const mode = input?.mode === "execute" || (input?.mode !== "plan" && inferredTicketId !== null) ? "execute" : "plan";
+  return {
+    mode,
+    specChangeId: inferredSpecId,
+    planId: mode === "execute" ? inferredPlanId : inferredPlanId,
+    ticketId: mode === "execute" ? inferredTicketId : null,
+    roadmapItemIds: normalizeStringList(input?.roadmapItemIds ?? linkedRefs?.roadmapItemIds),
+    initiativeIds: normalizeStringList(input?.initiativeIds ?? linkedRefs?.initiativeIds),
+    researchIds: normalizeStringList(input?.researchIds ?? linkedRefs?.researchIds),
+    critiqueIds: normalizeStringList(input?.critiqueIds ?? linkedRefs?.critiqueIds),
+    docIds: normalizeStringList(input?.docIds ?? linkedRefs?.docIds),
+  };
+}
+
+function linkedRefsFromScope(scope: RalphRunScope): Partial<RalphLinkedRefs> {
+  return {
+    roadmapItemIds: scope.roadmapItemIds,
+    initiativeIds: scope.initiativeIds,
+    researchIds: scope.researchIds,
+    specChangeIds: [scope.specChangeId],
+    ticketIds: scope.ticketId ? [scope.ticketId] : [],
+    critiqueIds: scope.critiqueIds,
+    docIds: scope.docIds,
+    planIds: scope.planId ? [scope.planId] : [],
+  };
+}
+
+function normalizePacketContext(
+  input: Partial<RalphPacketContext> | RalphPacketContext | undefined,
+): RalphPacketContext {
+  return {
+    capturedAt: normalizeOptionalString(input?.capturedAt) ?? currentTimestamp(),
+    constitutionBrief: input?.constitutionBrief?.trim() ?? "",
+    specContext: input?.specContext?.trim() ?? "",
+    planContext: normalizeOptionalString(input?.planContext),
+    ticketContext: normalizeOptionalString(input?.ticketContext),
+    priorIterationLearnings: normalizeStringList(input?.priorIterationLearnings),
+    operatorNotes: normalizeOptionalString(input?.operatorNotes),
+  };
+}
+
 function mergeLinkedRefs(current: RalphLinkedRefs, next: Partial<RalphLinkedRefs> | undefined): RalphLinkedRefs {
   if (!next) {
     return current;
@@ -934,6 +989,8 @@ function normalizeIteration(record: RalphIterationRecord): RalphIterationRecord 
     focus: record.focus.trim(),
     summary: record.summary.trim(),
     workerSummary: record.workerSummary.trim(),
+    scope: normalizeRunScope(record.scope),
+    packetContext: normalizePacketContext(record.packetContext),
     verifier: normalizeVerifierSummary(record.verifier),
     critiqueLinks: normalizeCritiqueLinks(record.critiqueLinks),
     decision: normalizeDecision(record.decision),
@@ -966,6 +1023,8 @@ function toPostIterationState(iteration: RalphIterationRecord | null) {
     focus: iteration.focus,
     summary: iteration.summary,
     workerSummary: iteration.workerSummary,
+    scope: iteration.scope,
+    packetContext: iteration.packetContext,
     verifier: iteration.verifier,
     critiqueLinks: iteration.critiqueLinks,
     decision: iteration.decision,
@@ -985,6 +1044,10 @@ function normalizeStoredRunState(state: RalphRunState): RalphRunState {
     objective: state.objective?.trim() ?? "",
     summary: state.summary?.trim() ?? "",
     linkedRefs: normalizeLinkedRefs(state.linkedRefs),
+    scope: normalizeRunScope((state as RalphRunState & { scope?: RalphRunScope }).scope, state.linkedRefs),
+    packetContext: normalizePacketContext(
+      (state as RalphRunState & { packetContext?: RalphPacketContext }).packetContext,
+    ),
     policySnapshot: normalizePolicySnapshot(state.policySnapshot),
     verifierSummary: normalizeVerifierSummary(state.verifierSummary),
     critiqueLinks: normalizeCritiqueLinks(state.critiqueLinks),
@@ -1004,6 +1067,13 @@ function normalizeStoredRunState(state: RalphRunState): RalphRunState {
           focus: state.postIteration.focus.trim(),
           summary: state.postIteration.summary.trim(),
           workerSummary: state.postIteration.workerSummary.trim(),
+          scope: normalizeRunScope(
+            (state.postIteration as RalphPostIterationState & { scope?: RalphRunScope }).scope,
+            state.linkedRefs,
+          ),
+          packetContext: normalizePacketContext(
+            (state.postIteration as RalphPostIterationState & { packetContext?: RalphPacketContext }).packetContext,
+          ),
           verifier: normalizeVerifierSummary(state.postIteration.verifier),
           critiqueLinks: normalizeCritiqueLinks(state.postIteration.critiqueLinks),
           decision: normalizeDecision(state.postIteration.decision),
@@ -1065,14 +1135,12 @@ function isCheckpointIterationAllowed(state: RalphRunState, iterationId: string)
 }
 
 function createPacketSummary(state: RalphRunState): string {
-  const refs = [
-    ...state.linkedRefs.planIds,
-    ...state.linkedRefs.ticketIds,
-    ...state.linkedRefs.critiqueIds,
-    ...state.linkedRefs.specChangeIds,
-  ];
+  const scopeLabel =
+    state.scope.mode === "plan"
+      ? `planning spec ${state.scope.specChangeId}${state.scope.planId ? ` against plan ${state.scope.planId}` : ""}`
+      : `executing ticket ${state.scope.ticketId ?? "(unassigned)"} under plan ${state.scope.planId ?? "(none)"} for spec ${state.scope.specChangeId}`;
   return summarizeText(
-    `${state.title}. ${state.objective} ${refs.length > 0 ? `Linked refs: ${refs.join(", ")}.` : ""}`,
+    `${state.title}. ${scopeLabel}. ${state.objective}`,
     `Ralph orchestration run for ${state.title}.`,
   );
 }
@@ -1284,12 +1352,39 @@ export class RalphStore {
           `- status: ${state.status}`,
           `- phase: ${state.phase}`,
           `- waiting for: ${state.waitingFor}`,
-          `- last iteration number: ${state.lastIterationNumber}`,
           `- stop reason: ${state.stopReason ?? "(none)"}`,
+          `- last iteration number: ${state.lastIterationNumber}`,
+        ].join("\n"),
+      ),
+      renderSection(
+        "Authoritative Scope",
+        [
+          `- mode: ${state.scope.mode}`,
+          `- governing spec: ${state.scope.specChangeId}`,
+          `- governing plan: ${state.scope.planId ?? "(none)"}`,
+          `- active ticket: ${state.scope.ticketId ?? "(none)"}`,
+          `- roadmap items: ${state.scope.roadmapItemIds.join(", ") || "(none)"}`,
+          `- initiatives: ${state.scope.initiativeIds.join(", ") || "(none)"}`,
+          `- research: ${state.scope.researchIds.join(", ") || "(none)"}`,
+          `- critiques: ${state.scope.critiqueIds.join(", ") || "(none)"}`,
+          `- docs: ${state.scope.docIds.join(", ") || "(none)"}`,
         ].join("\n"),
       ),
       renderSection("Objective", state.objective || "(none)"),
       renderSection("Summary", state.summary || "(none)"),
+      renderSection("Constitution Brief", state.packetContext.constitutionBrief || "(none)"),
+      renderSection("Spec Context", state.packetContext.specContext || "(none)"),
+      renderSection("Plan Context", state.packetContext.planContext ?? "(none)"),
+      renderSection("Ticket Context", state.packetContext.ticketContext ?? "(none)"),
+      renderSection(
+        "Prior Iteration Learnings",
+        renderBulletList(
+          state.packetContext.priorIterationLearnings.length > 0
+            ? state.packetContext.priorIterationLearnings
+            : ["(none)"],
+        ),
+      ),
+      renderSection("Operator Notes", state.packetContext.operatorNotes ?? "(none)"),
       renderSection(
         "Policy Snapshot",
         [
@@ -1356,9 +1451,10 @@ export class RalphStore {
         "Execution Guidance",
         [
           "- Perform one bounded iteration only.",
-          "- Read the linked durable artifacts instead of relying on prior chat state.",
+          "- Execute only the authoritative active scope described above.",
+          "- Treat the spec, plan, and ticket context in this packet as the canonical source for this iteration.",
           "- Persist verifier evidence, critique references, and the continuation decision back into the Ralph run so the next caller can inspect the post-iteration state after exit.",
-          "- Do not report completion unless the policy gates actually permit completion.",
+          "- Do not report completion unless the current ticket or planning scope is actually complete and the policy gates permit stopping.",
         ].join("\n"),
       ),
     ].join("\n\n")}\n`;
@@ -1584,6 +1680,8 @@ export class RalphStore {
     if (!title) {
       throw new Error("Ralph run title is required");
     }
+    const scope = normalizeRunScope(input.scope, input.linkedRefs);
+    const linkedRefs = mergeLinkedRefs(normalizeLinkedRefs(input.linkedRefs), linkedRefsFromScope(scope));
     return {
       runId,
       title,
@@ -1594,7 +1692,9 @@ export class RalphStore {
       updatedAt: timestamp,
       objective: input.objective?.trim() ?? "",
       summary: summarizeText(input.summary ?? input.objective, `Ralph orchestration run for ${title}.`),
-      linkedRefs: normalizeLinkedRefs(input.linkedRefs),
+      linkedRefs,
+      scope,
+      packetContext: normalizePacketContext(input.packetContext),
       policySnapshot: normalizePolicySnapshot(input.policySnapshot),
       verifierSummary: normalizeVerifierSummary(input.verifierSummary),
       critiqueLinks: normalizeCritiqueLinks(input.critiqueLinks),
@@ -1632,6 +1732,7 @@ export class RalphStore {
       !state.policySnapshot.verifierRequired || (state.verifierSummary.verdict === "pass" && verifierIsFresh);
     const verifierBlocking = state.policySnapshot.verifierRequired && state.verifierSummary.blocker && verifierIsFresh;
     const blockingRefs = normalizeStringList([...(input.blockingRefs ?? []), ...blockingCritiques]);
+    const latestStatus = state.postIteration?.status ?? null;
 
     if (input.operatorRequestedStop) {
       return {
@@ -1751,8 +1852,61 @@ export class RalphStore {
         blockingRefs,
       };
     }
+    if (latestStatus === "rejected") {
+      return {
+        kind: "pause",
+        reason: "manual_review_required",
+        summary:
+          input.summary?.trim() ||
+          "The latest bounded iteration rejected the current Ralph scope and requires explicit revision planning before continuing.",
+        decidedAt: currentTimestamp(),
+        decidedBy: "policy",
+        blockingRefs,
+      };
+    }
+
+    if (latestStatus === "accepted") {
+      if (state.scope.mode === "plan") {
+        if (input.workerRequestedCompletion) {
+          return {
+            kind: "complete",
+            reason: "goal_reached",
+            summary:
+              input.summary?.trim() ||
+              "The planning iteration completed and the resulting Loom plan context is ready for the next caller.",
+            decidedAt: currentTimestamp(),
+            decidedBy,
+            blockingRefs,
+          };
+        }
+        return {
+          kind: "pause",
+          reason: "manual_review_required",
+          summary:
+            input.summary?.trim() ||
+            "The planning iteration completed, but the next caller must inspect the updated plan before another bounded step.",
+          decidedAt: currentTimestamp(),
+          decidedBy: "policy",
+          blockingRefs,
+        };
+      }
+
+      if (input.workerRequestedCompletion && verifierSatisfied) {
+        return {
+          kind: "complete",
+          reason: "goal_reached",
+          summary:
+            input.summary?.trim() ||
+            `Ticket ${state.scope.ticketId ?? "(unassigned)"} is complete and the policy gates permit stopping the Ralph run.`,
+          decidedAt: currentTimestamp(),
+          decidedBy,
+          blockingRefs,
+        };
+      }
+    }
+
     if (input.workerRequestedCompletion) {
-      if (state.policySnapshot.stopWhenVerified && verifierSatisfied) {
+      if (state.policySnapshot.stopWhenVerified && verifierSatisfied && latestStatus === "accepted") {
         return {
           kind: "complete",
           reason: "goal_reached",
@@ -1899,6 +2053,11 @@ export class RalphStore {
   updateRun(ref: string, input: UpdateRalphRunInput): RalphReadResult {
     const current = this.readRun(ref);
     const waitingFor = input.waitingFor ? normalizeWaitingFor(input.waitingFor) : current.state.waitingFor;
+    const scope = input.scope ? normalizeRunScope(input.scope, current.state.linkedRefs) : current.state.scope;
+    const linkedRefs = mergeLinkedRefs(
+      input.linkedRefs ? mergeLinkedRefs(current.state.linkedRefs, input.linkedRefs) : current.state.linkedRefs,
+      linkedRefsFromScope(scope),
+    );
     const nextState: RalphRunState = {
       ...current.state,
       title: input.title?.trim() || current.state.title,
@@ -1907,7 +2066,9 @@ export class RalphStore {
         input.summary !== undefined
           ? summarizeText(input.summary, current.state.summary || `Ralph run ${current.state.runId}`)
           : current.state.summary,
-      linkedRefs: mergeLinkedRefs(current.state.linkedRefs, input.linkedRefs),
+      linkedRefs,
+      scope,
+      packetContext: input.packetContext ? normalizePacketContext(input.packetContext) : current.state.packetContext,
       policySnapshot: mergePolicySnapshot(current.state.policySnapshot, input.policySnapshot),
       verifierSummary: mergeVerifierSummary(current.state.verifierSummary, input.verifierSummary),
       critiqueLinks: input.critiqueLinks
@@ -1965,6 +2126,12 @@ export class RalphStore {
       focus: input.focus?.trim() ?? existing?.focus ?? current.state.objective,
       summary: input.summary?.trim() ?? existing?.summary ?? "",
       workerSummary: input.workerSummary?.trim() ?? existing?.workerSummary ?? "",
+      scope: input.scope
+        ? normalizeRunScope(input.scope, current.state.linkedRefs)
+        : (existing?.scope ?? current.state.scope),
+      packetContext: input.packetContext
+        ? normalizePacketContext(input.packetContext)
+        : (existing?.packetContext ?? current.state.packetContext),
       verifier,
       critiqueLinks,
       decision,

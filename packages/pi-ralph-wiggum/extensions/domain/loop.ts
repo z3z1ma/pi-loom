@@ -1,5 +1,9 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { RalphReadResult, RalphRunStatus } from "./models.js";
+import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
+import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
+import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
+import type { RalphPacketContext, RalphReadResult, RalphRunScope, RalphRunStatus } from "./models.js";
 import {
   buildParentSessionRuntimeEnv,
   type RalphExecutionResult,
@@ -27,9 +31,19 @@ export interface ExecuteRalphLoopInput {
     docIds?: string[];
     planIds?: string[];
   };
+  scope?: {
+    mode?: "plan" | "execute";
+    specRef?: string;
+    planRef?: string;
+    ticketRef?: string;
+    roadmapItemIds?: string[];
+    initiativeIds?: string[];
+    researchIds?: string[];
+    critiqueIds?: string[];
+    docIds?: string[];
+  };
   policySnapshot?: {
     mode?: "strict" | "balanced" | "expedite";
-    maxIterations?: number;
     maxRuntimeMinutes?: number;
     tokenBudget?: number;
     verifierRequired?: boolean;
@@ -112,35 +126,28 @@ export async function reserveDurableLaunch(
   }
 
   const store = createRalphStore(ctx.cwd);
-  const focus = input.prompt?.trim() || run.state.objective;
+  const refreshed = await store.updateRunAsync(run.state.runId, {
+    packetContext: await buildPacketContext(
+      ctx.cwd,
+      run.state.scope,
+      input.prompt,
+      summarizePriorLearnings(run, run.state.scope),
+    ),
+  });
+  const focus = input.prompt?.trim() || refreshed.state.objective;
   const instructions = created
-    ? run.state.nextLaunch.instructions
+    ? refreshed.state.nextLaunch.instructions
     : input.prompt?.trim()
       ? [`Primary objective for the next bounded iteration: ${input.prompt.trim()}`]
       : undefined;
 
-  return run.state.postIteration === null
-    ? await store.prepareLaunchAsync(run.state.runId, { focus, instructions, requireFresh: true })
-    : await store.resumeRunAsync(run.state.runId, { focus, instructions, requireFresh: true });
+  return refreshed.state.postIteration === null
+    ? await store.prepareLaunchAsync(refreshed.state.runId, { focus, instructions, requireFresh: true })
+    : await store.resumeRunAsync(refreshed.state.runId, { focus, instructions, requireFresh: true });
 }
 
 function isTerminalStatus(status: RalphRunStatus): boolean {
   return ["completed", "halted", "failed", "archived"].includes(status);
-}
-
-function shouldContinue(run: RalphReadResult): boolean {
-  return (
-    run.state.latestDecision?.kind === "continue" &&
-    run.state.waitingFor === "none" &&
-    !isTerminalStatus(run.state.status)
-  );
-}
-
-function normalizeLoopCount(value: number | undefined): number {
-  if (!Number.isFinite(value) || !value || value < 1) {
-    return 1;
-  }
-  return Math.min(10, Math.floor(value));
 }
 
 function truncate(text: string, maxLength: number): string {
@@ -150,87 +157,206 @@ function truncate(text: string, maxLength: number): string {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
-function extractText(content: unknown): string {
-  if (typeof content === "string") {
-    return content.trim();
+type RalphRunScopeInput = NonNullable<ExecuteRalphLoopInput["scope"]>;
+
+function normalizeScopeInput(input: RalphRunScopeInput): RalphRunScopeInput {
+  return {
+    mode: input.mode === "plan" ? "plan" : "execute",
+    specRef: input.specRef?.trim(),
+    planRef: input.planRef?.trim(),
+    ticketRef: input.ticketRef?.trim(),
+    roadmapItemIds: input.roadmapItemIds?.map((value) => value.trim()).filter(Boolean),
+    initiativeIds: input.initiativeIds?.map((value) => value.trim()).filter(Boolean),
+    researchIds: input.researchIds?.map((value) => value.trim()).filter(Boolean),
+    critiqueIds: input.critiqueIds?.map((value) => value.trim()).filter(Boolean),
+    docIds: input.docIds?.map((value) => value.trim()).filter(Boolean),
+  };
+}
+
+function assertValidScopeInput(scope: RalphRunScopeInput): asserts scope is RalphRunScopeInput & { specRef: string } {
+  if (!scope.specRef) {
+    throw new Error("specRef is required when creating a new Ralph run.");
   }
-  if (!Array.isArray(content)) {
-    return "";
+  if (scope.mode === "execute") {
+    if (!scope.planRef) {
+      throw new Error("planRef is required for execute-mode Ralph runs.");
+    }
+    if (!scope.ticketRef) {
+      throw new Error("ticketRef is required for execute-mode Ralph runs.");
+    }
   }
-  return content
-    .flatMap((part) => {
-      if (typeof part === "string") {
-        return [part];
-      }
-      if (!part || typeof part !== "object") {
-        return [];
-      }
-      const candidate = part as { type?: unknown; text?: unknown };
-      if (candidate.type === "text" && typeof candidate.text === "string") {
-        return [candidate.text];
-      }
-      return [];
+  if (scope.mode === "plan" && scope.ticketRef) {
+    throw new Error("plan-mode Ralph runs must not declare an active ticket.");
+  }
+}
+
+function toRunScope(scope: RalphRunScopeInput & { specRef: string }): RalphRunScope {
+  return {
+    mode: scope.mode ?? "execute",
+    specChangeId: scope.specRef,
+    planId: scope.planRef ?? null,
+    ticketId: scope.mode === "execute" ? (scope.ticketRef ?? null) : null,
+    roadmapItemIds: scope.roadmapItemIds ?? [],
+    initiativeIds: scope.initiativeIds ?? [],
+    researchIds: scope.researchIds ?? [],
+    critiqueIds: scope.critiqueIds ?? [],
+    docIds: scope.docIds ?? [],
+  };
+}
+
+async function buildPacketContext(
+  cwd: string,
+  scope: RalphRunScope,
+  steeringPrompt: string | undefined,
+  priorIterationLearnings: string[],
+): Promise<RalphPacketContext> {
+  const constitution = await createConstitutionalStore(cwd)
+    .readConstitution()
+    .catch(() => null);
+  const spec = await createSpecStore(cwd)
+    .readChange(scope.specChangeId)
+    .catch(() => null);
+  const plan = scope.planId
+    ? await createPlanStore(cwd)
+        .readPlan(scope.planId)
+        .catch(() => null)
+    : null;
+  const ticket = scope.ticketId
+    ? await createTicketStore(cwd)
+        .readTicketAsync(scope.ticketId)
+        .catch(() => null)
+    : null;
+
+  const constitutionBrief = constitution
+    ? truncate(
+        [
+          constitution.state.visionSummary,
+          constitution.state.strategicDirectionSummary,
+          ...constitution.state.currentFocus,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        2400,
+      )
+    : "No constitutional record resolved for this workspace.";
+  const specContext = spec
+    ? truncate(
+        [
+          `${spec.summary.id} [${spec.summary.status}] ${spec.state.title}`,
+          spec.state.proposalSummary,
+          spec.state.designNotes,
+          ...spec.state.requirements
+            .slice(0, 8)
+            .map((requirement) => `${requirement.text} Acceptance: ${requirement.acceptance.join("; ")}`),
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        5000,
+      )
+    : `Spec ${scope.specChangeId} could not be resolved from durable storage.`;
+  const planContext = plan
+    ? truncate(
+        [
+          `${plan.summary.id} [${plan.summary.status}] ${plan.state.title}`,
+          plan.state.summary,
+          plan.state.contextAndOrientation,
+          plan.state.planOfWork,
+          plan.state.concreteSteps,
+          plan.state.validation,
+          plan.state.linkedTickets
+            .map((link) => `${link.ticketId}${link.role ? ` (${link.role})` : ""} @${link.order}`)
+            .join("\n"),
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        5000,
+      )
+    : null;
+  const ticketContext = ticket
+    ? truncate(
+        [
+          `${ticket.summary.id} [${ticket.summary.status}] ${ticket.summary.title}`,
+          ticket.ticket.body.summary,
+          ticket.ticket.body.context,
+          ticket.ticket.body.plan,
+          `Acceptance:\n${ticket.ticket.frontmatter.acceptance.map((line) => `- ${line}`).join("\n") || "- (none)"}`,
+          ticket.ticket.body.verification,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        5000,
+      )
+    : null;
+
+  return {
+    capturedAt: new Date().toISOString(),
+    constitutionBrief,
+    specContext,
+    planContext,
+    ticketContext,
+    priorIterationLearnings,
+    operatorNotes: steeringPrompt?.trim() || null,
+  };
+}
+
+function summarizePriorLearnings(run: RalphReadResult | null, scope: RalphRunScope): string[] {
+  if (!run) {
+    return [];
+  }
+  return run.iterations
+    .filter((iteration) => iteration.scope.ticketId === scope.ticketId && iteration.scope.planId === scope.planId)
+    .slice(-4)
+    .flatMap((iteration) => {
+      const lines = [
+        iteration.summary ? `Iteration ${iteration.iteration}: ${iteration.summary}` : "",
+        iteration.workerSummary ? `Worker: ${iteration.workerSummary}` : "",
+        iteration.decision ? `Decision: ${iteration.decision.kind} — ${iteration.decision.summary}` : "",
+        ...iteration.notes,
+      ].filter(Boolean);
+      return lines;
     })
-    .join("\n")
-    .trim();
+    .map((line) => truncate(line, 240));
 }
 
-function buildConversationContext(ctx: RalphContextLike): string {
-  const branch = (ctx.sessionManager?.getBranch?.() ?? []) as Array<{
-    type?: string;
-    message?: { role?: string; content?: unknown };
-  }>;
-  const messages = branch
-    .filter((entry) => entry.type === "message" && entry.message)
-    .map((entry) => entry.message)
-    .filter((message): message is { role?: string; content?: unknown } => Boolean(message))
-    .filter((message) => message.role === "user" || message.role === "assistant")
-    .slice(-6)
-    .map((message) => {
-      const text = extractText(message.content);
-      if (!text) {
-        return "";
-      }
-      return `${message.role}: ${text}`;
-    })
-    .filter(Boolean);
-
-  return truncate(messages.join("\n\n"), 4000);
-}
-
-function deriveTitle(prompt: string, override?: string): string {
-  const candidate = (override?.trim() || prompt.trim()).replace(/\s+/g, " ");
-  return truncate(candidate, 80) || "Ralph loop";
-}
-
-function buildObjective(prompt: string, conversationContext: string): string {
-  if (!conversationContext) {
-    return prompt.trim();
+function deriveTitle(
+  scope: RalphRunScope,
+  specTitle: string,
+  planTitle: string | null,
+  ticketTitle: string | null,
+): string {
+  if (scope.mode === "plan") {
+    return truncate(`Plan ${scope.specChangeId}: ${specTitle}`, 80);
   }
-  return [`Operator prompt:`, prompt.trim(), `Current session context:`, conversationContext].join("\n\n");
+  return truncate(`${scope.ticketId ?? scope.specChangeId}: ${ticketTitle ?? planTitle ?? specTitle}`, 80);
 }
 
-function buildSummary(prompt: string, conversationContext: string): string {
-  const base = conversationContext
-    ? `Run derived from the current session context and prompt: ${prompt.trim()}`
-    : prompt.trim();
-  return truncate(base, 120);
+function buildObjective(scope: RalphRunScope, steeringPrompt: string | undefined): string {
+  const base =
+    scope.mode === "plan"
+      ? `Create or refine the Loom workplan for spec ${scope.specChangeId}${scope.planId ? ` using plan ${scope.planId}` : ""}.`
+      : `Complete ticket ${scope.ticketId ?? "(unassigned)"} under plan ${scope.planId ?? "(none)"} for spec ${scope.specChangeId}.`;
+  return steeringPrompt?.trim() ? `${base}\n\nOperator notes: ${steeringPrompt.trim()}` : base;
 }
 
-function buildInstructions(prompt: string | undefined, conversationContext: string): string[] | undefined {
-  const instructions: string[] = [];
-  if (prompt?.trim()) {
-    instructions.push(`Primary objective for the next bounded iteration: ${prompt.trim()}`);
+function buildSummary(scope: RalphRunScope, steeringPrompt: string | undefined): string {
+  const base =
+    scope.mode === "plan"
+      ? `Ralph planning run anchored to spec ${scope.specChangeId}${scope.planId ? ` and plan ${scope.planId}` : ""}.`
+      : `Ralph execution run for ticket ${scope.ticketId ?? "(unassigned)"} under plan ${scope.planId ?? "(none)"}.`;
+  return truncate(steeringPrompt?.trim() ? `${base} ${steeringPrompt.trim()}` : base, 160);
+}
+
+function buildRunInstructions(scope: RalphRunScope, steeringPrompt: string | undefined): string[] {
+  const instructions = [
+    scope.mode === "plan"
+      ? `Create or refine the plan for spec ${scope.specChangeId}.`
+      : `Execute only ticket ${scope.ticketId ?? "(unassigned)"} under plan ${scope.planId ?? "(none)"} for spec ${scope.specChangeId}.`,
+    "Perform one bounded Ralph iteration and persist a single durable checkpoint before exit.",
+  ];
+  if (steeringPrompt?.trim()) {
+    instructions.push(`Operator notes: ${steeringPrompt.trim()}`);
   }
-  if (conversationContext) {
-    instructions.push(`Current session context:\n${conversationContext}`);
-  }
-  return instructions.length > 0 ? instructions : undefined;
-}
-
-function buildSteeringInstructions(prompt: string | undefined): string[] | undefined {
-  const trimmed = prompt?.trim();
-  return trimmed ? [`Primary objective for the next bounded iteration: ${trimmed}`] : undefined;
+  return instructions;
 }
 
 function appendRuntimeOutput(current: string, next: string): string {
@@ -658,17 +784,24 @@ export async function ensureRalphRun(
   if (input.ref) {
     return { run: await store.readRunAsync(input.ref), created: false };
   }
-  if (!input.prompt?.trim()) {
-    throw new Error("prompt is required when creating a new Ralph run");
+  if (!input.scope) {
+    throw new Error("scope is required when creating a new Ralph run");
   }
-  const conversationContext = buildConversationContext(ctx);
+  const normalizedScopeInput = normalizeScopeInput(input.scope);
+  assertValidScopeInput(normalizedScopeInput);
+  const scope = toRunScope(normalizedScopeInput);
+  const spec = await createSpecStore(ctx.cwd).readChange(scope.specChangeId);
+  const plan = scope.planId ? await createPlanStore(ctx.cwd).readPlan(scope.planId) : null;
+  const ticket = scope.ticketId ? await createTicketStore(ctx.cwd).readTicketAsync(scope.ticketId) : null;
+  const packetContext = await buildPacketContext(ctx.cwd, scope, input.prompt, []);
   const created = await store.createRunAsync({
-    title: deriveTitle(input.prompt, input.title),
-    objective: buildObjective(input.prompt, conversationContext),
-    summary: buildSummary(input.prompt, conversationContext),
-    linkedRefs: input.linkedRefs,
+    title: deriveTitle(scope, spec.state.title, plan?.state.title ?? null, ticket?.summary.title ?? null),
+    objective: buildObjective(scope, input.prompt),
+    summary: buildSummary(scope, input.prompt),
+    scope,
+    packetContext,
     policySnapshot: input.policySnapshot,
-    launchInstructions: buildInstructions(input.prompt, conversationContext),
+    launchInstructions: buildRunInstructions(scope, input.prompt),
   });
   return { run: created, created: true };
 }
@@ -679,11 +812,8 @@ export async function executeRalphLoop(
   signal?: AbortSignal,
   options: ExecuteRalphLoopOptions = {},
 ): Promise<ExecuteRalphLoopResult> {
-  const store = createRalphStore(ctx.cwd);
-  const loopCount = normalizeLoopCount(input.iterations);
   const ensured = await ensureRalphRun(ctx, input);
   let run = ensured.run;
-  const steeringInstructions = ensured.created ? undefined : buildSteeringInstructions(input.prompt);
   const steps: RalphLoopStepResult[] = [];
   const executionKey = loopExecutionKey(ctx.cwd, run.state.runId);
   if (inFlightLoopExecutions.has(executionKey)) {
@@ -692,23 +822,8 @@ export async function executeRalphLoop(
   inFlightLoopExecutions.add(executionKey);
 
   try {
-    for (let stepIndex = 0; stepIndex < loopCount; stepIndex += 1) {
-      if (isTerminalStatus(run.state.status) || run.state.waitingFor !== "none") {
-        break;
-      }
-
-      const launch = hasDurableActiveLaunch(run)
-        ? run
-        : run.state.postIteration === null
-          ? await store.prepareLaunchAsync(run.state.runId, {
-              focus: input.prompt?.trim() || run.state.objective,
-              instructions: stepIndex === 0 ? steeringInstructions : undefined,
-            })
-          : await store.resumeRunAsync(run.state.runId, {
-              focus: stepIndex === 0 ? input.prompt?.trim() || run.state.objective : undefined,
-              instructions: stepIndex === 0 ? steeringInstructions : undefined,
-            });
-
+    if (!isTerminalStatus(run.state.status) && run.state.waitingFor === "none") {
+      const launch = hasDurableActiveLaunch(run) ? run : await reserveDurableLaunch(ctx, input, run, ensured.created);
       const executed = await executePreparedIteration(ctx, run.state.runId, signal, launch, options);
       run = executed.run;
       if (iterationExecuted(run, launch.launch.iterationId)) {
@@ -721,10 +836,6 @@ export async function executeRalphLoop(
           finalStatus: run.state.status,
           finalDecision: run.state.latestDecision?.kind ?? null,
         });
-      }
-
-      if (!shouldContinue(run)) {
-        break;
       }
     }
 

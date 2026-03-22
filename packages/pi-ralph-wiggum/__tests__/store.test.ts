@@ -5,7 +5,37 @@ import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/stor
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CreateRalphRunInput } from "../extensions/domain/models.js";
 import { createRalphStore } from "../extensions/domain/store.js";
+
+function createExecutionRun(
+  store: ReturnType<typeof createRalphStore>,
+  input: Omit<CreateRalphRunInput, "scope" | "packetContext">,
+) {
+  return store.createRun({
+    ...input,
+    scope: {
+      mode: "execute",
+      specChangeId: input.linkedRefs?.specChangeIds?.[0] ?? "spec-789",
+      planId: input.linkedRefs?.planIds?.[0] ?? "plan-123",
+      ticketId: input.linkedRefs?.ticketIds?.[0] ?? "ticket-456",
+      roadmapItemIds: input.linkedRefs?.roadmapItemIds ?? [],
+      initiativeIds: input.linkedRefs?.initiativeIds ?? [],
+      researchIds: input.linkedRefs?.researchIds ?? [],
+      critiqueIds: input.linkedRefs?.critiqueIds ?? [],
+      docIds: input.linkedRefs?.docIds ?? [],
+    },
+    packetContext: {
+      capturedAt: new Date().toISOString(),
+      constitutionBrief: "Brief constitutional guidance.",
+      specContext: "Spec context for the anchored Ralph run.",
+      planContext: "Plan context for the anchored Ralph run.",
+      ticketContext: "Ticket context for the anchored Ralph run.",
+      priorIterationLearnings: [],
+      operatorNotes: null,
+    },
+  });
+}
 
 describe("RalphStore durable memory", () => {
   let workspace: string;
@@ -25,7 +55,7 @@ describe("RalphStore durable memory", () => {
     const store = createRalphStore(workspace);
 
     const ledger = store.initLedger();
-    const created = store.createRun({
+    const created = createExecutionRun(store, {
       title: "Ralph Rollout",
       objective: "Coordinate one bounded orchestration loop.",
       linkedRefs: {
@@ -61,7 +91,13 @@ describe("RalphStore durable memory", () => {
       critiqueRequired: true,
       verifierRequired: true,
     });
-    expect(created.state.packetSummary).toContain("Linked refs: plan-123, ticket-456, spec-789.");
+    expect(created.state.packetSummary).toContain("executing ticket ticket-456 under plan plan-123 for spec spec-789");
+    expect(created.state.scope).toMatchObject({
+      mode: "execute",
+      specChangeId: "spec-789",
+      planId: "plan-123",
+      ticketId: "ticket-456",
+    });
     expect(created.launch).toMatchObject({
       runId: "ralph-rollout",
       iterationId: "iter-001",
@@ -122,7 +158,7 @@ describe("RalphStore durable memory", () => {
     vi.setSystemTime(new Date("2026-03-15T15:00:00.000Z"));
     const store = createRalphStore(workspace);
 
-    const created = store.createRun({
+    const created = createExecutionRun(store, {
       title: "Canonical Ralph Payload",
       objective: "Persist only canonical state and rebuild rich reads on demand.",
       policySnapshot: {
@@ -273,7 +309,7 @@ describe("RalphStore durable memory", () => {
       contextRefs: { ticketIds: ["ticket-456"] },
     });
 
-    const created = store.createRun({
+    const created = createExecutionRun(store, {
       title: "Blocked Ralph Run",
       objective: "Pause when verifier evidence or critique findings block progress.",
       policySnapshot: {
@@ -367,7 +403,7 @@ describe("RalphStore durable memory", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:15:00.000Z"));
-    const run = store.createRun({
+    const run = createExecutionRun(store, {
       title: "Verifier Concerns Run",
       objective: "Keep verifier concerns distinct from hard blockers.",
       policySnapshot: {
@@ -413,7 +449,7 @@ describe("RalphStore durable memory", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:19:00.000Z"));
-    const run = store.createRun({
+    const run = createExecutionRun(store, {
       title: "Verifier Blocker Run",
       objective: "Pause only when verifier evidence is an actual blocker.",
       policySnapshot: {
@@ -460,7 +496,7 @@ describe("RalphStore durable memory", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:23:00.000Z"));
-    const run = store.createRun({
+    const run = createExecutionRun(store, {
       title: "Verifier Satisfaction Run",
       objective: "Require verifier satisfaction before completion.",
       policySnapshot: {
@@ -509,7 +545,7 @@ describe("RalphStore durable memory", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:20:00.000Z"));
-    const cleanRun = store.createRun({
+    const cleanRun = createExecutionRun(store, {
       title: "Clean Completion Run",
       objective: "Stop once the verifier passes and the worker requests completion.",
       policySnapshot: {
@@ -558,7 +594,7 @@ describe("RalphStore durable memory", () => {
     expect(completed.state.stopReason).toBe("goal_reached");
 
     vi.setSystemTime(new Date("2026-03-15T14:30:00.000Z"));
-    const resumableRun = store.createRun({
+    const resumableRun = createExecutionRun(store, {
       title: "Resume Launch Run",
       objective: "Prepare a fresh iteration after an accepted prior iteration.",
     });
@@ -627,7 +663,7 @@ describe("RalphStore durable memory", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:50:00.000Z"));
-    const run = store.createRun({
+    const run = createExecutionRun(store, {
       title: "Fresh verifier evidence run",
       objective: "Require verifier evidence from the latest bounded iteration before completion.",
       policySnapshot: {
@@ -686,7 +722,7 @@ describe("RalphStore durable memory", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:57:00.000Z"));
-    const run = store.createRun({
+    const run = createExecutionRun(store, {
       title: "Stale verifier update run",
       objective: "Do not re-gate a newer iteration with stale verifier evidence.",
       policySnapshot: {
@@ -755,7 +791,7 @@ describe("RalphStore durable memory", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:40:00.000Z"));
-    const gated = store.createRun({
+    const gated = createExecutionRun(store, {
       title: "Manual approval run",
       objective: "Require operator approval before continuing.",
       policySnapshot: {

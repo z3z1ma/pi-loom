@@ -20,6 +20,8 @@ vi.mock("../extensions/domain/loop.js", () => ({
         runId: input.ref ?? "reserved-run",
         objective: input.prompt ?? "",
         postIteration: null,
+        nextLaunch: { runtime: null, resume: false, preparedAt: null, instructions: [] },
+        nextIterationId: null,
       },
       summary: {
         id: input.ref ?? "reserved-run",
@@ -31,7 +33,10 @@ vi.mock("../extensions/domain/loop.js", () => ({
     },
   })),
   isRalphLoopExecutionInFlight: vi.fn(() => false),
-  reserveDurableLaunch: vi.fn(async (_ctx, _input, run) => run),
+  reserveDurableLaunch: vi.fn(async (_ctx, _input, run) => ({
+    ...run,
+    launch: { iterationId: "iter-001" },
+  })),
 }));
 
 vi.mock("../extensions/domain/store.js", () => ({
@@ -39,9 +44,31 @@ vi.mock("../extensions/domain/store.js", () => ({
     initLedgerAsync: vi.fn(async () => ({ initialized: true, root: ".loom" })),
     readRun: vi.fn((ref: string) => ({
       summary: { id: ref, status: "active", phase: "executing", title: "Loop" },
-      state: { latestDecision: null, waitingFor: "none", postIteration: null, lastIterationNumber: 0 },
+      state: {
+        latestDecision: null,
+        waitingFor: "none",
+        postIteration: null,
+        lastIterationNumber: 0,
+        nextLaunch: { runtime: null, resume: false, preparedAt: null, instructions: [] },
+        nextIterationId: null,
+      },
       runtimeArtifacts: [],
+      iterations: [],
     })),
+    readRunAsync: vi.fn(async (ref: string) => ({
+      summary: { id: ref, status: "active", phase: "executing", title: "Loop" },
+      state: {
+        latestDecision: null,
+        waitingFor: "none",
+        postIteration: null,
+        lastIterationNumber: 0,
+        nextLaunch: { runtime: null, resume: false, preparedAt: null, instructions: [] },
+        nextIterationId: null,
+      },
+      runtimeArtifacts: [],
+      iterations: [],
+    })),
+    cancelLaunchAsync: vi.fn(async () => ({})),
   })),
 }));
 
@@ -56,12 +83,7 @@ function createContext(cwd: string): {
       hasUI: true,
       ui,
       sessionManager: {
-        getBranch: () => [
-          {
-            type: "message",
-            message: { role: "user", content: [{ type: "text", text: "We need a robust retry loop." }] },
-          },
-        ],
+        getBranch: () => [],
       },
     } as unknown as ExtensionCommandContext,
     ui,
@@ -94,6 +116,8 @@ describe("/ralph command", () => {
               runId: input.ref ?? "reserved-run",
               objective: input.prompt ?? "",
               postIteration: null,
+              nextLaunch: { runtime: null, resume: false, preparedAt: null, instructions: [] },
+              nextIterationId: null,
             },
             summary: {
               id: input.ref ?? "reserved-run",
@@ -106,26 +130,36 @@ describe("/ralph command", () => {
         }) as never,
     );
     vi.mocked(isRalphLoopExecutionInFlight).mockReturnValue(false);
-    vi.mocked(reserveDurableLaunch).mockImplementation(async (_ctx, _input, run) => run as never);
+    vi.mocked(reserveDurableLaunch).mockImplementation(
+      async (_ctx, _input, run) =>
+        ({
+          ...run,
+          launch: { iterationId: "iter-001" },
+        }) as never,
+    );
   });
 
-  it("runs the foreground Ralph happy path and forwards progress to the human UI", async () => {
+  it("runs an anchored execute-mode Ralph command and forwards progress to the UI status line", async () => {
     const { ctx, ui } = createContext("/workspace/ralph-command");
     vi.mocked(executeRalphLoop).mockImplementationOnce(async (_ctx, input, _signal, options) => {
       options?.onUpdate?.("Ralph iteration progress update");
-      expect(input).toMatchObject({ prompt: "investigate bounded loops", iterations: 2 });
+      expect(input).toMatchObject({
+        ref: "reserved-run",
+        prompt: "tighten verifier gating",
+        scope: { mode: "execute", specRef: "spec-1", planRef: "plan-1", ticketRef: "t-1001" },
+      });
       return {
         created: true,
         steps: [],
         run: {
-          summary: { id: "investigate-bounded-loops", status: "active", phase: "executing", title: "Loop" },
+          summary: { id: "t-1001", status: "active", phase: "executing", title: "Loop" },
           state: { latestDecision: null, waitingFor: "none", postIteration: null },
           runtimeArtifacts: [],
         },
       } as never;
     });
 
-    const result = await handleRalphCommand("x2 investigate bounded loops", ctx);
+    const result = await handleRalphCommand("run spec-1 plan-1 t-1001 tighten verifier gating", ctx);
 
     expect(createRalphStore).toHaveBeenCalledWith("/workspace/ralph-command");
     expect(executeRalphLoop).toHaveBeenCalledTimes(1);
@@ -137,28 +171,32 @@ describe("/ralph command", () => {
     expect(renderLoopResult).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
       text: "Rendered Ralph summary",
-      prompt: "investigate bounded loops",
+      prompt: "tighten verifier gating",
       result: expect.objectContaining({ created: true }),
     });
   });
 
-  it("defaults to one foreground iteration when no xN prefix is supplied", async () => {
+  it("supports planning-mode Ralph commands anchored to a spec", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
     vi.mocked(executeRalphLoop).mockResolvedValueOnce({
       created: true,
       steps: [],
       run: {
-        summary: { id: "shape-the-initial-run-carefully", status: "active", phase: "executing", title: "Loop" },
+        summary: { id: "spec-1", status: "active", phase: "executing", title: "Loop" },
         state: { latestDecision: null, waitingFor: "none", postIteration: null },
         runtimeArtifacts: [],
       },
     } as never);
 
-    await handleRalphCommand("shape the initial run carefully", ctx);
+    await handleRalphCommand("plan spec-1 refresh workplan sequencing", ctx);
 
     expect(executeRalphLoop).toHaveBeenCalledWith(
       ctx,
-      { ref: "reserved-run", prompt: "shape the initial run carefully", iterations: 1 },
+      {
+        ref: "reserved-run",
+        prompt: "refresh workplan sequencing",
+        scope: { mode: "plan", specRef: "spec-1" },
+      },
       undefined,
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     );
@@ -166,6 +204,20 @@ describe("/ralph command", () => {
 
   it("supports explicitly resuming a durable run without forking a new one", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
+    vi.mocked(ensureRalphRun).mockResolvedValueOnce({
+      created: false,
+      run: {
+        state: {
+          runId: "existing-run",
+          objective: "resume",
+          postIteration: null,
+          nextLaunch: { runtime: null, resume: false, preparedAt: null, instructions: [] },
+          nextIterationId: null,
+        },
+        summary: { id: "existing-run", status: "active", phase: "deciding", title: "Existing Loop" },
+        runtimeArtifacts: [],
+      },
+    } as never);
     vi.mocked(executeRalphLoop).mockResolvedValueOnce({
       created: false,
       steps: [],
@@ -176,14 +228,13 @@ describe("/ralph command", () => {
       },
     } as never);
 
-    await handleRalphCommand("resume existing-run x2 tighten verification gating", ctx);
+    await handleRalphCommand("resume existing-run tighten verification gating", ctx);
 
     expect(executeRalphLoop).toHaveBeenCalledWith(
       ctx,
       {
         ref: "existing-run",
         prompt: "tighten verification gating",
-        iterations: 2,
       },
       undefined,
       expect.objectContaining({ onUpdate: expect.any(Function) }),
@@ -200,7 +251,13 @@ describe("/ralph command", () => {
       .mockResolvedValueOnce({
         created: true,
         run: {
-          state: { runId: "run-one", objective: "first run", postIteration: null },
+          state: {
+            runId: "run-one",
+            objective: "first run",
+            postIteration: null,
+            nextLaunch: { runtime: null, resume: false, preparedAt: null, instructions: [] },
+            nextIterationId: null,
+          },
           summary: { id: "run-one", status: "planned", phase: "preparing", title: "First Loop" },
           runtimeArtifacts: [],
         },
@@ -208,29 +265,29 @@ describe("/ralph command", () => {
       .mockResolvedValueOnce({
         created: true,
         run: {
-          state: { runId: "run-two", objective: "second run", postIteration: null },
+          state: {
+            runId: "run-two",
+            objective: "second run",
+            postIteration: null,
+            nextLaunch: { runtime: null, resume: false, preparedAt: null, instructions: [] },
+            nextIterationId: null,
+          },
           summary: { id: "run-two", status: "planned", phase: "preparing", title: "Second Loop" },
           runtimeArtifacts: [],
         },
       } as never);
 
     vi.mocked(reserveDurableLaunch)
-      .mockResolvedValueOnce({
-        state: { runId: "run-one" },
-        launch: { iterationId: "iter-1" },
-      } as never)
-      .mockResolvedValueOnce({
-        state: { runId: "run-two" },
-        launch: { iterationId: "iter-2" },
-      } as never);
+      .mockResolvedValueOnce({ state: { runId: "run-one" }, launch: { iterationId: "iter-1" } } as never)
+      .mockResolvedValueOnce({ state: { runId: "run-two" }, launch: { iterationId: "iter-2" } } as never);
 
     vi.mocked(executeRalphLoop)
       .mockImplementationOnce(async () => firstDeferred.promise as never)
       .mockImplementationOnce(async () => secondDeferred.promise as never);
 
-    const firstPromise = handleRalphCommand("first run", first.ctx);
+    const firstPromise = handleRalphCommand("run spec-1 plan-1 t-1001 first run", first.ctx);
     await flushMicrotasks();
-    const secondPromise = handleRalphCommand("second run", second.ctx);
+    const secondPromise = handleRalphCommand("run spec-1 plan-1 t-1002 second run", second.ctx);
     await flushMicrotasks();
 
     expect(second.ui.setStatus).toHaveBeenCalledWith(
@@ -271,28 +328,24 @@ describe("/ralph command", () => {
     expect(second.ui.setWidget).not.toHaveBeenCalled();
   });
 
-  it("rejects bare resume input instead of starting a new run", async () => {
+  it("rejects bare resume input with the new anchored usage", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
 
-    await expect(handleRalphCommand("resume", ctx)).rejects.toThrow("Usage: /ralph [xN] <prompt>");
-
+    await expect(handleRalphCommand("resume", ctx)).rejects.toThrow("Usage: /ralph plan <spec-ref>");
     expect(executeRalphLoop).not.toHaveBeenCalled();
   });
 
-  it("rejects bare xN input instead of treating it as a prompt", async () => {
+  it("rejects legacy prompt-first commands", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
 
-    await expect(handleRalphCommand("x2", ctx)).rejects.toThrow("Usage: /ralph [xN] <prompt>");
-
+    await expect(handleRalphCommand("investigate bounded loops", ctx)).rejects.toThrow("Usage: /ralph plan <spec-ref>");
     expect(executeRalphLoop).not.toHaveBeenCalled();
   });
 
-  it("rejects empty command input with a usage error before launching Ralph", async () => {
+  it("rejects empty command input with anchored usage", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
 
-    await expect(handleRalphCommand("   ", ctx)).rejects.toThrow("Usage: /ralph [xN] <prompt>");
-
+    await expect(handleRalphCommand("   ", ctx)).rejects.toThrow("Usage: /ralph plan <spec-ref>");
     expect(executeRalphLoop).not.toHaveBeenCalled();
-    expect(renderLoopResult).not.toHaveBeenCalled();
   });
 });

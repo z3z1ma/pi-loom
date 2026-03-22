@@ -6,14 +6,14 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 
 ## Capabilities
 
-- `/ralph` human command for running a bounded Ralph loop from the current conversation and prompt
+- `/ralph` human command for running either spec-anchored planning iterations or plan-and-ticket-anchored execution iterations
 - `ralph_*` tools for list/read/run/checkpoint workflows plus Ralph-native background job inspection, waiting, and cancellation
 - canonical run records stored in SQLite with iteration history and post-iteration checkpoints; packets and dashboards are rendered on demand from the SQLite store
-- policy-aware run state that records linked Loom refs, verifier summaries, critique links, and explicit continuation decisions
+- policy-aware run state that records authoritative Loom execution scope, verifier summaries, critique links, explicit continuation decisions, and packet context snapshots
 - fresh-context launch descriptors plus a default session runtime for single-iteration Ralph launch and resume execution
 - durable per-iteration runtime artifacts that capture launch lifecycle, streamed assistant output, tool execution events, stderr/error text, and missing-checkpoint failures
 - runtime-limit and token-budget enforcement that halts runs explicitly when bounded execution exceeds the configured policy
-- strict resume/checkpoint integrity: resumed runs do not inherit ambient transcript context, stale checkpoint ids are rejected, and a fresh continuation decision is required before a post-iteration relaunch
+- strict resume/checkpoint integrity: resumed runs do not inherit ambient transcript context, stale checkpoint ids are rejected, one bounded iteration executes per call, and a fresh continuation decision is required before a post-iteration relaunch
 - task-style TUI rendering for `ralph_run` and Ralph job tools, plus structured human command result/error messages for `/ralph`
 - background Ralph execution backed by an in-process async job manager so long-running bounded iterations can be started, inspected, awaited, and cancelled without losing durable run truth
 - extension lifecycle hooks that initialize the Ralph ledger for orchestration state management
@@ -37,14 +37,15 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 
 ## Current implementation status
 
-The package ships a human-facing `/ralph` command plus an AI-facing tool surface centered on `ralph_run`, `ralph_read`, `ralph_checkpoint`, and Ralph-native background job helpers. `ralph_run` is the primary loop tool: it creates or resumes a run, executes bounded fresh-context session-runtime iterations under the hood, streams progress during foreground execution, and can launch the same work in background when the caller wants a job id instead of blocking.
+The package ships a human-facing `/ralph` command plus an AI-facing tool surface centered on `ralph_run`, `ralph_read`, `ralph_checkpoint`, and Ralph-native background job helpers. `ralph_run` is the primary loop tool: it creates or resumes a run anchored to explicit Loom scope, executes exactly one bounded fresh-context session-runtime iteration, streams progress during foreground execution, and can launch the same one-iteration work in background when the caller wants a job id instead of blocking.
 
 Human command usage:
 
-- `/ralph [xN] <prompt>` — create a new bounded Ralph run from the current conversation and prompt
-- `/ralph resume <run-ref> [xN] [steering prompt]` — resume a durable run explicitly, without implicitly injecting the ambient transcript into the fresh iteration packet
+- `/ralph plan <spec-ref> [steering prompt]` — create a spec-anchored planning run that exists to create or refine a Loom workplan
+- `/ralph run <spec-ref> <plan-ref> <ticket-ref> [steering prompt]` — create an execution run anchored to one governing spec, one governing plan, and one active ticket
+- `/ralph resume <run-ref> [steering prompt]` — resume a durable run explicitly, without implicitly injecting the ambient transcript into the fresh iteration packet
 
-`ralph_checkpoint` remains the only trusted way for a fresh Ralph session-runtime launch to commit a bounded iteration outcome. A session-runtime exit without a durable checkpoint is treated as failure and recorded as such. SQLite-backed run tracking, policy-aware iteration tracking, durable runtime artifact capture, background job lifecycle management, and session-backed single-iteration execution now make up the underlying execution model.
+`ralph_checkpoint` remains the only trusted way for a fresh Ralph session-runtime launch to commit a bounded iteration outcome. A session-runtime exit without a durable checkpoint is treated as failure and recorded as such. SQLite-backed run tracking, policy-aware iteration tracking, authoritative spec/plan/ticket scope, durable packet lineage, central continuation decisions, durable runtime artifact capture, background job lifecycle management, and session-backed single-iteration execution now make up the underlying execution model.
 
 
 ## Local use

@@ -205,13 +205,19 @@ export function renderRalphCommandWidgetLines(state: RalphLiveCommandWidgetState
 }
 
 export function renderRalphRunCall(args: Record<string, unknown>, theme: Theme): Component {
+  const scope = args.scope && typeof args.scope === "object" ? (args.scope as Record<string, unknown>) : null;
   const target = typeof args.ref === "string" && args.ref.trim() ? args.ref.trim() : "new run";
   const prompt =
-    typeof args.prompt === "string" && args.prompt.trim() ? truncateToWidth(args.prompt.trim(), 50) : "(no prompt)";
-  const iterationText =
-    typeof args.iterations === "number" && Number.isFinite(args.iterations) ? `x${args.iterations}` : "x1";
+    typeof args.steeringPrompt === "string" && args.steeringPrompt.trim()
+      ? truncateToWidth(args.steeringPrompt.trim(), 50)
+      : "(no steering)";
+  const scopeLabel = scope
+    ? [scope.mode, scope.specRef, scope.planRef, scope.ticketRef]
+        .filter((value) => typeof value === "string" && value)
+        .join("/")
+    : "resume";
   const mode = args.background === true ? theme.fg("warning", "background") : theme.fg("accent", "foreground");
-  const text = `${theme.fg("toolTitle", theme.bold("ralph_run"))} ${theme.fg("accent", target)} ${theme.fg("dim", iterationText)} ${META_SEPARATOR} ${mode} ${META_SEPARATOR} ${theme.fg("dim", prompt)}`;
+  const text = `${theme.fg("toolTitle", theme.bold("ralph_run"))} ${theme.fg("accent", target)} ${META_SEPARATOR} ${theme.fg("dim", scopeLabel)} ${META_SEPARATOR} ${mode} ${META_SEPARATOR} ${theme.fg("dim", prompt)}`;
   return new Text(text, 0, 0);
 }
 

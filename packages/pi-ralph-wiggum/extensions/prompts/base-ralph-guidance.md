@@ -21,6 +21,7 @@ Ralph is distinct from the other Loom layers:
 Default Ralph posture:
 - treat long transcripts as a liability; prefer fresh-context iterations, but make the durable packet detailed enough to stand on its own between launches
 - execute one bounded iteration at a time, persist useful post-iteration state, then exit cleanly
+- anchor each execution run to one governing spec and, for build work, one governing plan plus one active ticket instead of a free-form objective alone
 - require explicit stop policies; do not trust model confidence alone
 - ground continuation decisions in verifier outputs, critique findings, and linked acceptance signals
 - preserve why the run continued, paused, escalated, or stopped so later callers can resume truthfully
@@ -36,9 +37,10 @@ Use Ralph tools to:
 Ralph remains directly usable on its own. Its user-facing surfaces should stay Ralph-native even when higher-level orchestration layers choose to build on top of it.
 
 AI-direct Ralph usage should be explicit rather than inferred:
-- for a new loop, call `ralph_run` with a prompt (and optionally an iteration count)
+- for a new planning run, call `ralph_run` with `scope.mode = "plan"` plus the governing spec ref
+- for a new execution run, call `ralph_run` with `scope.mode = "execute"` plus the governing spec ref, plan ref, and active ticket ref
 - set `background: true` on `ralph_run` when the bounded iteration will take a while and you want a Ralph job id instead of blocking
 - inspect the durable result with `ralph_read` if you need more detail
 - use `ralph_job_wait` or `ralph_job_cancel` rather than inventing ad hoc polling or cancellation behavior for background Ralph work
-- if the latest decision is `continue`, call `ralph_run` again to execute more bounded iterations
+- if the latest decision is `continue`, call `ralph_run` again for the next single bounded iteration after inspecting the durable packet and scope
 - do not manually reconstruct the low-level create/launch/read choreography unless you are implementing Ralph itself

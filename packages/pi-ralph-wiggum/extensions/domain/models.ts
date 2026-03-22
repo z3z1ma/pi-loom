@@ -45,6 +45,7 @@ export const RALPH_DECISION_REASONS = [
   "worker_requested_completion",
   "unknown",
 ] as const;
+export const RALPH_SCOPE_MODES = ["plan", "execute"] as const;
 
 export type RalphRunStatus = (typeof RALPH_RUN_STATUSES)[number];
 export type RalphRunPhase = (typeof RALPH_RUN_PHASES)[number];
@@ -58,6 +59,7 @@ export type RalphCritiqueLinkKind = (typeof RALPH_CRITIQUE_LINK_KINDS)[number];
 export type RalphCritiqueVerdict = (typeof RALPH_CRITIQUE_VERDICTS)[number];
 export type RalphDecisionKind = (typeof RALPH_DECISION_KINDS)[number];
 export type RalphDecisionReason = (typeof RALPH_DECISION_REASONS)[number];
+export type RalphScopeMode = (typeof RALPH_SCOPE_MODES)[number];
 
 export interface RalphLinkedRefs {
   roadmapItemIds: string[];
@@ -68,6 +70,28 @@ export interface RalphLinkedRefs {
   critiqueIds: string[];
   docIds: string[];
   planIds: string[];
+}
+
+export interface RalphRunScope {
+  mode: RalphScopeMode;
+  specChangeId: string;
+  planId: string | null;
+  ticketId: string | null;
+  roadmapItemIds: string[];
+  initiativeIds: string[];
+  researchIds: string[];
+  critiqueIds: string[];
+  docIds: string[];
+}
+
+export interface RalphPacketContext {
+  capturedAt: string;
+  constitutionBrief: string;
+  specContext: string;
+  planContext: string | null;
+  ticketContext: string | null;
+  priorIterationLearnings: string[];
+  operatorNotes: string | null;
 }
 
 export interface RalphPolicySnapshot {
@@ -134,6 +158,8 @@ export interface RalphIterationRecord {
   focus: string;
   summary: string;
   workerSummary: string;
+  scope: RalphRunScope;
+  packetContext: RalphPacketContext;
   verifier: RalphVerifierSummary;
   critiqueLinks: RalphCritiqueLink[];
   decision: RalphContinuationDecision | null;
@@ -149,6 +175,8 @@ export interface RalphPostIterationState {
   focus: string;
   summary: string;
   workerSummary: string;
+  scope: RalphRunScope;
+  packetContext: RalphPacketContext;
   verifier: RalphVerifierSummary;
   critiqueLinks: RalphCritiqueLink[];
   decision: RalphContinuationDecision | null;
@@ -229,6 +257,8 @@ export interface RalphRunState {
   objective: string;
   summary: string;
   linkedRefs: RalphLinkedRefs;
+  scope: RalphRunScope;
+  packetContext: RalphPacketContext;
   policySnapshot: RalphPolicySnapshot;
   verifierSummary: RalphVerifierSummary;
   critiqueLinks: RalphCritiqueLink[];
@@ -320,6 +350,8 @@ export interface CreateRalphRunInput {
   objective?: string;
   summary?: string;
   linkedRefs?: Partial<RalphLinkedRefs>;
+  scope?: RalphRunScope;
+  packetContext?: RalphPacketContext;
   policySnapshot?: Partial<RalphPolicySnapshot>;
   verifierSummary?: Partial<RalphVerifierSummary>;
   critiqueLinks?: RalphCritiqueLink[];
@@ -332,6 +364,8 @@ export interface UpdateRalphRunInput {
   objective?: string;
   summary?: string;
   linkedRefs?: Partial<RalphLinkedRefs>;
+  scope?: RalphRunScope;
+  packetContext?: RalphPacketContext;
   policySnapshot?: Partial<RalphPolicySnapshot>;
   verifierSummary?: Partial<RalphVerifierSummary>;
   critiqueLinks?: RalphCritiqueLink[];
@@ -350,6 +384,8 @@ export interface AppendRalphIterationInput {
   focus?: string;
   summary?: string;
   workerSummary?: string;
+  scope?: RalphRunScope;
+  packetContext?: RalphPacketContext;
   verifier?: Partial<RalphVerifierSummary>;
   critiqueLinks?: RalphCritiqueLink[];
   decision?: RalphContinuationDecision | null;

@@ -74,6 +74,35 @@ function renderLinkedRefs(state: RalphRunState): string {
   ].join("\n");
 }
 
+function renderScope(state: RalphRunState): string {
+  return [
+    `- mode: ${state.scope.mode}`,
+    `- governing spec: ${state.scope.specChangeId}`,
+    `- governing plan: ${state.scope.planId ?? "(none)"}`,
+    `- active ticket: ${state.scope.ticketId ?? "(none)"}`,
+    `- roadmap items: ${state.scope.roadmapItemIds.join(", ") || "(none)"}`,
+    `- initiatives: ${state.scope.initiativeIds.join(", ") || "(none)"}`,
+    `- research: ${state.scope.researchIds.join(", ") || "(none)"}`,
+    `- critiques: ${state.scope.critiqueIds.join(", ") || "(none)"}`,
+    `- docs: ${state.scope.docIds.join(", ") || "(none)"}`,
+  ].join("\n");
+}
+
+function renderPacketContext(state: RalphRunState): string {
+  return [
+    `- captured at: ${state.packetContext.capturedAt}`,
+    `- constitution brief: ${state.packetContext.constitutionBrief || "(none)"}`,
+    `- spec context: ${state.packetContext.specContext || "(none)"}`,
+    `- plan context: ${state.packetContext.planContext ?? "(none)"}`,
+    `- ticket context: ${state.packetContext.ticketContext ?? "(none)"}`,
+    `- operator notes: ${state.packetContext.operatorNotes ?? "(none)"}`,
+    "- prior iteration learnings:",
+    ...renderBulletList(
+      state.packetContext.priorIterationLearnings.length > 0 ? state.packetContext.priorIterationLearnings : ["(none)"],
+    ).split("\n"),
+  ].join("\n");
+}
+
 function renderIterations(iterations: RalphIterationRecord[]): string {
   if (iterations.length === 0) {
     return "(none)";
@@ -164,6 +193,8 @@ export function renderRalphMarkdown(
     joinNonEmpty([
       renderSection("Objective", state.objective || "(empty)"),
       renderSection("Summary", state.summary || "(empty)"),
+      renderSection("Authoritative Scope", renderScope(state)),
+      renderSection("Packet Context", renderPacketContext(state)),
       renderSection("Linked Refs", renderLinkedRefs(state)),
       renderSection(
         "Policy Snapshot",
@@ -195,6 +226,7 @@ export function renderRalphDetail(result: RalphReadResult): string {
   const latestRuntime = result.runtimeArtifacts.at(-1) ?? null;
   return [
     renderRalphSummary(result.summary),
+    `Scope: ${result.state.scope.mode} / spec=${result.state.scope.specChangeId} / plan=${result.state.scope.planId ?? "none"} / ticket=${result.state.scope.ticketId ?? "none"}`,
     `Waiting for: ${result.state.waitingFor}`,
     `Plans: ${result.state.linkedRefs.planIds.join(", ") || "none"}`,
     `Tickets: ${result.state.linkedRefs.ticketIds.join(", ") || "none"}`,
@@ -235,7 +267,7 @@ export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor):
     "",
     "Before acting:",
     `- Read ${launch.packetRef}.`,
-    "- Treat plans, tickets, critique, and other Loom records as canonical source material.",
+    "- Treat the governing spec, plan, ticket, and constitutional context in the packet as canonical source material.",
     "- Work only one bounded iteration; do not silently self-loop.",
     `- Persist status, verifier evidence, critique references, and the continuation decision through \`ralph_checkpoint\` using iterationId=${launch.iterationId}.`,
     "- Exit after writing the durable post-iteration state that the next caller will inspect.",

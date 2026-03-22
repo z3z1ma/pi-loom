@@ -1,5 +1,6 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import {
+  type ExecuteRalphLoopInput,
   type ExecuteRalphLoopResult,
   ensureRalphRun,
   executeRalphLoop,
@@ -10,66 +11,51 @@ import {
 import { createRalphStore } from "../domain/store.js";
 import { type RalphLiveCommandWidgetState, renderRalphCommandWidgetLines } from "../ui/renderers.js";
 
-const RALPH_COMMAND_USAGE = "Usage: /ralph [xN] <prompt>\n   or: /ralph resume <run-ref> [xN] [steering prompt]";
+const RALPH_COMMAND_USAGE =
+  "Usage: /ralph plan <spec-ref> [steering prompt]\n   or: /ralph run <spec-ref> <plan-ref> <ticket-ref> [steering prompt]\n   or: /ralph resume <run-ref> [steering prompt]";
 let activeRalphHeaderToken = 0;
 const activeRalphWidgets = new Map<number, { ctx: ExtensionCommandContext; state: RalphLiveCommandWidgetState }>();
 const RALPH_WIDGET_KEY = "ralph-live-run";
 
-function parseIterations(raw: string | undefined): number {
-  const trimmed = raw?.trim();
-  if (!trimmed) {
-    return 1;
-  }
-  const match = trimmed.match(/^x(\d+)$/i);
-  if (!match) {
-    throw new Error(RALPH_COMMAND_USAGE);
-  }
-  const iterations = Number.parseInt(match[1] ?? "1", 10);
-  if (!Number.isFinite(iterations) || iterations < 1) {
-    throw new Error(RALPH_COMMAND_USAGE);
-  }
-  return iterations;
-}
-
-function parseLoopArgs(args: string): { iterations: number; prompt?: string; ref?: string } {
+function parseLoopArgs(args: string): ExecuteRalphLoopInput {
   const trimmed = args.trim();
   if (!trimmed) {
     throw new Error(RALPH_COMMAND_USAGE);
   }
-  if (/^resume\b/i.test(trimmed) && !/^resume\s+\S+/i.test(trimmed)) {
-    throw new Error(RALPH_COMMAND_USAGE);
-  }
-  if (/^x\d+$/i.test(trimmed)) {
-    throw new Error(RALPH_COMMAND_USAGE);
-  }
 
-  const resumeMatch = trimmed.match(/^resume\s+(\S+)(?:\s+(x\d+))?(?:\s+([\s\S]+))?$/i);
+  const resumeMatch = trimmed.match(/^resume\s+(\S+)(?:\s+([\s\S]+))?$/i);
   if (resumeMatch) {
-    const ref = (resumeMatch[1] ?? "").trim();
-    if (!ref) {
-      throw new Error(RALPH_COMMAND_USAGE);
-    }
-    const prompt = (resumeMatch[3] ?? "").trim();
     return {
-      ref,
-      iterations: parseIterations(resumeMatch[2]),
-      prompt: prompt || undefined,
+      ref: (resumeMatch[1] ?? "").trim(),
+      prompt: (resumeMatch[2] ?? "").trim() || undefined,
     };
   }
 
-  const match = trimmed.match(/^x(\d+)\s+([\s\S]+)$/i);
-  if (!match) {
-    return { iterations: 1, prompt: trimmed };
+  const planMatch = trimmed.match(/^plan\s+(\S+)(?:\s+([\s\S]+))?$/i);
+  if (planMatch) {
+    return {
+      prompt: (planMatch[2] ?? "").trim() || undefined,
+      scope: {
+        mode: "plan",
+        specRef: (planMatch[1] ?? "").trim(),
+      },
+    };
   }
 
-  const iterations = parseIterations(`x${match[1] ?? "1"}`);
-
-  const prompt = (match[2] ?? "").trim();
-  if (!prompt) {
-    throw new Error(RALPH_COMMAND_USAGE);
+  const runMatch = trimmed.match(/^run\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+([\s\S]+))?$/i);
+  if (runMatch) {
+    return {
+      prompt: (runMatch[4] ?? "").trim() || undefined,
+      scope: {
+        mode: "execute",
+        specRef: (runMatch[1] ?? "").trim(),
+        planRef: (runMatch[2] ?? "").trim(),
+        ticketRef: (runMatch[3] ?? "").trim(),
+      },
+    };
   }
 
-  return { iterations, prompt };
+  throw new Error(RALPH_COMMAND_USAGE);
 }
 
 export interface RalphCommandExecution {
@@ -130,12 +116,7 @@ async function rollbackReservedLaunch(
 
 export async function handleRalphCommand(args: string, ctx: ExtensionCommandContext): Promise<RalphCommandExecution> {
   await createRalphStore(ctx.cwd).initLedgerAsync();
-  const parsed = parseLoopArgs(args);
-  const input = {
-    ref: parsed.ref,
-    prompt: parsed.prompt,
-    iterations: parsed.iterations,
-  };
+  const input = parseLoopArgs(args);
   const ensured = await ensureRalphRun(ctx, input);
   const hasPreparedLaunch =
     ensured.run.state.nextLaunch?.runtime === "session" && ensured.run.state.nextIterationId !== null;
@@ -144,29 +125,25 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
       `Ralph run ${ensured.run.state.runId} already has an in-flight loop execution in workspace ${ctx.cwd}.`,
     );
   }
+
   let reservedWasFresh = false;
-  const reserved =
-    parsed.ref && hasPreparedLaunch
-      ? parsed.prompt
-        ? ensured.run.state.nextLaunch.resume
-          ? await createRalphStore(ctx.cwd).resumeRunAsync(ensured.run.state.runId, {
-              focus: parsed.prompt,
-              instructions: [`Primary objective for the next bounded iteration: ${parsed.prompt}`],
-            })
-          : await createRalphStore(ctx.cwd).prepareLaunchAsync(ensured.run.state.runId, {
-              focus: parsed.prompt,
-              instructions: [`Primary objective for the next bounded iteration: ${parsed.prompt}`],
-            })
-        : ensured.run
-      : await reserveDurableLaunch(ctx, input, ensured.run, ensured.created);
-  reservedWasFresh = !(parsed.ref && hasPreparedLaunch);
+  let reserved = ensured.run;
+  if (!hasPreparedLaunch) {
+    reserved = await reserveDurableLaunch(ctx, input, ensured.run, ensured.created);
+    reservedWasFresh = true;
+  } else if (input.prompt?.trim()) {
+    throw new Error(
+      `Ralph run ${ensured.run.state.runId} already has a prepared launch; resume it without new steering or clear the prepared launch first.`,
+    );
+  }
+
   const headerToken = ++activeRalphHeaderToken;
   const widgetState: RalphLiveCommandWidgetState | null =
     ctx.hasUI && typeof ctx.ui?.setStatus === "function"
       ? {
           cwd: ctx.cwd,
           runId: reserved.state.runId,
-          prompt: parsed.prompt ?? null,
+          prompt: input.prompt ?? null,
           startedAt: Date.now(),
           initialRuntimeArtifactCount: ensured.run.runtimeArtifacts.length,
           updates: [],
@@ -203,7 +180,7 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
     return {
       text: renderLoopResult(normalizedResult),
       result: normalizedResult,
-      prompt: parsed.prompt ?? null,
+      prompt: input.prompt ?? null,
     };
   } catch (error) {
     if (reservedWasFresh) {

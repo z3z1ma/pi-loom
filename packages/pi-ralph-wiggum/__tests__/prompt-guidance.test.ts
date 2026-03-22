@@ -39,8 +39,8 @@ describe("ralph prompt guidance", () => {
   it("keeps Ralph tool prompt guidance aligned with the detail-first doctrine", () => {
     const toolSource = readFileSync(new URL("../extensions/tools/ralph.ts", import.meta.url), "utf8");
 
-    expect(toolSource).toContain("primary Ralph loop tool");
-    expect(toolSource).toContain("prompt plus current conversation context");
+    expect(toolSource).toContain("Loom-native Ralph loop tool");
+    expect(toolSource).toContain("executes one explicit ticket instead of a loose prompt");
     expect(toolSource).toContain("safe way for a fresh Ralph worker session to commit its bounded iteration outcome");
     expect(toolSource).toContain("Use one Ralph checkpoint call per bounded iteration");
     expect(toolSource).toContain("background: true");

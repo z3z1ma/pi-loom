@@ -69,15 +69,16 @@ const RalphCritiqueVerdictEnum = StringEnum(["pass", "concerns", "blocked", "nee
 const RalphReadModeEnum = StringEnum(["full", "state", "packet", "run", "dashboard"] as const);
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 
-const LinkedRefsSchema = Type.Object({
+const RalphRunScopeSchema = Type.Object({
+  mode: StringEnum(["plan", "execute"] as const),
+  specRef: Type.String(),
+  planRef: Type.Optional(Type.String()),
+  ticketRef: Type.Optional(Type.String()),
   roadmapItemIds: Type.Optional(Type.Array(Type.String())),
   initiativeIds: Type.Optional(Type.Array(Type.String())),
   researchIds: Type.Optional(Type.Array(Type.String())),
-  specChangeIds: Type.Optional(Type.Array(Type.String())),
-  ticketIds: Type.Optional(Type.Array(Type.String())),
   critiqueIds: Type.Optional(Type.Array(Type.String())),
   docIds: Type.Optional(Type.Array(Type.String())),
-  planIds: Type.Optional(Type.Array(Type.String())),
 });
 
 const PolicySnapshotSchema = Type.Object({
@@ -173,11 +174,9 @@ const RalphReadParams = Type.Object({
 
 const RalphRunParams = Type.Object({
   ref: Type.Optional(Type.String()),
-  prompt: Type.Optional(Type.String()),
-  title: Type.Optional(Type.String()),
-  iterations: Type.Optional(Type.Number()),
+  scope: Type.Optional(RalphRunScopeSchema),
+  steeringPrompt: Type.Optional(Type.String()),
   background: Type.Optional(Type.Boolean()),
-  linkedRefs: Type.Optional(LinkedRefsSchema),
   policySnapshot: Type.Optional(PolicySnapshotSchema),
 });
 
@@ -508,14 +507,15 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     name: "ralph_run",
     label: "ralph_run",
     description:
-      "Create or continue a Ralph run, execute up to N bounded fresh-context session-runtime iterations under the hood, and return the resulting durable state for the next caller to inspect. It can also launch the work in background and hand back a cancellable Ralph job id.",
+      "Create or continue a Loom-native Ralph run anchored to a spec and either planning scope or one execution ticket, execute exactly one bounded fresh-context session-runtime iteration, and return the resulting durable state for the next caller to inspect. It can also launch the same one-iteration work in background and hand back a cancellable Ralph job id.",
     promptSnippet:
-      "Use this as the primary Ralph loop tool: it handles the create or resume, one-bounded-iteration session-runtime execution, durable-state inspection, and repeat logic for you.",
+      "Use this as the primary Loom-native Ralph loop tool: create a run from explicit spec/plan/ticket scope or resume an existing run, execute one bounded fresh-context iteration, and then inspect the durable result before choosing the next step.",
     promptGuidelines: [
-      "For a new loop, provide a prompt and optional iteration count; the run will be initialized from the prompt plus current conversation context.",
-      "For an existing loop, provide `ref` and optionally a steering prompt; the current conversation transcript is not implicitly injected into the durable resume.",
+      "For a new run, provide `scope`. Use `mode=plan` for spec-driven planning work or `mode=execute` for one plan-scoped ticket execution run.",
+      "For execute-mode runs, `specRef`, `planRef`, and `ticketRef` are all required so Ralph executes one explicit ticket instead of a loose prompt.",
+      "For an existing run, provide `ref` and optionally `steeringPrompt`; the current conversation transcript is not implicitly injected into the durable resume.",
       "Set `background: true` when the bounded iteration may take a while and you want a Ralph job id you can inspect, wait on, or cancel later.",
-      "This tool intentionally executes bounded session-runtime iterations; it does not keep a hidden long-running transcript alive.",
+      "This tool intentionally executes exactly one bounded session-runtime iteration per call; it does not keep a hidden long-running transcript alive or batch multiple tickets behind one launch.",
     ],
     parameters: RalphRunParams,
     renderCall: (args, theme) => renderRalphRunCall(args as Record<string, unknown>, theme),
@@ -523,10 +523,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const input: ExecuteRalphLoopInput = {
         ref: params.ref,
-        prompt: params.prompt,
-        title: params.title,
-        iterations: params.iterations,
-        linkedRefs: params.linkedRefs as ExecuteRalphLoopInput["linkedRefs"],
+        prompt: params.steeringPrompt,
+        scope: params.scope as ExecuteRalphLoopInput["scope"],
         policySnapshot: params.policySnapshot as ExecuteRalphLoopInput["policySnapshot"],
       };
       const startedAt = Date.now();
@@ -540,21 +538,15 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       }
       const hasPreparedLaunch = hasDurableActiveLaunch(ensured.run);
       let reservedWasFresh = false;
-      const reserved =
-        input.ref && hasPreparedLaunch
-          ? params.prompt
-            ? ensured.run.state.nextLaunch.resume
-              ? await getStore(ctx).resumeRunAsync(ensured.run.state.runId, {
-                  focus: params.prompt,
-                  instructions: [`Primary objective for the next bounded iteration: ${params.prompt}`],
-                })
-              : await getStore(ctx).prepareLaunchAsync(ensured.run.state.runId, {
-                  focus: params.prompt,
-                  instructions: [`Primary objective for the next bounded iteration: ${params.prompt}`],
-                })
-            : ensured.run
-          : await reserveDurableLaunch(ctx, input, ensured.run, ensured.created);
-      reservedWasFresh = !(input.ref && hasPreparedLaunch);
+      let reserved = ensured.run;
+      if (!hasPreparedLaunch) {
+        reserved = await reserveDurableLaunch(ctx, input, ensured.run, ensured.created);
+        reservedWasFresh = true;
+      } else if (params.steeringPrompt?.trim()) {
+        throw new Error(
+          `Ralph run ${ensured.run.state.runId} already has a prepared launch; resume it without new steering or clear the prepared launch first.`,
+        );
+      }
 
       if (params.background === true) {
         let jobId: string;
@@ -602,7 +594,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
                     },
                     run: reserved.summary,
                     ui: buildRalphRunRenderDetails({
-                      prompt: params.prompt,
+                      prompt: params.steeringPrompt,
                       startedAt,
                       created: ensured.created,
                       updates: progressUpdates.slice(-8),
@@ -639,7 +631,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
             run: reserved.summary,
             job,
             ui: buildRalphRunRenderDetails({
-              prompt: params.prompt,
+              prompt: params.steeringPrompt,
               startedAt,
               created: ensured.created,
               updates: progressUpdates,
@@ -663,7 +655,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
               details: {
                 runRef: reserved.state.runId,
                 ui: buildRalphRunRenderDetails({
-                  prompt: params.prompt,
+                  prompt: params.steeringPrompt,
                   startedAt,
                   created: ensured.created,
                   updates: progressUpdates.slice(-8),
@@ -691,7 +683,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         {
           result: normalizedResult,
           ui: buildRalphRunRenderDetails({
-            prompt: params.prompt,
+            prompt: params.steeringPrompt,
             startedAt,
             created: normalizedResult.created,
             updates: progressUpdates.slice(-8),
