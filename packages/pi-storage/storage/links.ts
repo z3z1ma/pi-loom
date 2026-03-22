@@ -125,50 +125,46 @@ export async function syncProjectedEntityLinks({
   timestamp,
   actor,
 }: SyncProjectedEntityLinksInput): Promise<SyncProjectedEntityLinksResult> {
-  const existingManaged = (await storage.listLinks(fromEntityId)).filter((link) =>
-    isManagedProjectedLink(link, fromEntityId, projectionOwner),
-  );
-  const existingManagedById = new Map(existingManaged.map((link) => [link.id, link]));
-  const desiredById = new Map<string, LoomEntityLinkRecord>();
-  const { resolvedTargets, skippedTargets, missingRequiredTargets } = await resolveProjectedLinkTargets(
-    storage,
-    spaceId,
-    desired,
-  );
+  return storage.transact(async (tx) => {
+    const existingManaged = (await tx.listLinks(fromEntityId)).filter((link) =>
+      isManagedProjectedLink(link, fromEntityId, projectionOwner),
+    );
+    const existingManagedById = new Map(existingManaged.map((link) => [link.id, link]));
+    const desiredById = new Map<string, LoomEntityLinkRecord>();
+    const { resolvedTargets, skippedTargets, missingRequiredTargets } = await resolveProjectedLinkTargets(
+      tx,
+      spaceId,
+      desired,
+    );
 
-  if (missingRequiredTargets.length > 0) {
-    throw missingTargetError(projectionOwner, missingRequiredTargets);
-  }
+    if (missingRequiredTargets.length > 0) {
+      throw missingTargetError(projectionOwner, missingRequiredTargets);
+    }
 
-  for (const target of resolvedTargets) {
-    const linkId = createLinkId(target.input.kind, fromEntityId, target.targetId);
-    const existing = existingManagedById.get(linkId);
-    desiredById.set(linkId, {
-      id: linkId,
-      kind: target.input.kind,
-      fromEntityId,
-      toEntityId: target.targetId,
-      metadata: projectedLinkMetadata(projectionOwner, target.input.metadata),
-      createdAt: existing?.createdAt ?? timestamp,
-      updatedAt: timestamp,
-    });
-  }
+    for (const target of resolvedTargets) {
+      const linkId = createLinkId(target.input.kind, fromEntityId, target.targetId);
+      const existing = existingManagedById.get(linkId);
+      desiredById.set(linkId, {
+        id: linkId,
+        kind: target.input.kind,
+        fromEntityId,
+        toEntityId: target.targetId,
+        metadata: projectedLinkMetadata(projectionOwner, target.input.metadata),
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      });
+    }
 
-  const desiredRecords = [...desiredById.values()];
-  const removedIds: LoomId[] = [];
-  const removedRecords: LoomEntityLinkRecord[] = [];
-  const upsertedIds: LoomId[] = [];
-  const emittedEventIds: LoomId[] = [];
-  const eventActor = actor ?? projectionOwner;
+    const desiredRecords = [...desiredById.values()];
+    const removedIds: LoomId[] = [];
+    const eventActor = actor ?? projectionOwner;
 
-  try {
     for (const record of desiredRecords) {
       const existing = existingManagedById.get(record.id);
-      await storage.upsertLink(record);
-      upsertedIds.push(record.id);
+      await tx.upsertLink(record);
       if (!existing) {
-        const event = await appendEntityEvent(
-          storage,
+        await appendEntityEvent(
+          tx,
           fromEntityId,
           "linked",
           eventActor,
@@ -181,17 +177,15 @@ export async function syncProjectedEntityLinks({
           },
           timestamp,
         );
-        emittedEventIds.push(event.id);
       }
     }
 
     for (const existing of existingManaged) {
       if (!desiredById.has(existing.id)) {
-        await storage.removeLink(existing.id);
+        await tx.removeLink(existing.id);
         removedIds.push(existing.id);
-        removedRecords.push(existing);
-        const event = await appendEntityEvent(
-          storage,
+        await appendEntityEvent(
+          tx,
           fromEntityId,
           "unlinked",
           eventActor,
@@ -204,30 +198,13 @@ export async function syncProjectedEntityLinks({
           },
           timestamp,
         );
-        emittedEventIds.push(event.id);
       }
     }
-  } catch (error) {
-    for (const eventId of [...emittedEventIds].reverse()) {
-      await storage.removeEvent(eventId);
-    }
-    for (const removedRecord of removedRecords) {
-      await storage.upsertLink(removedRecord);
-    }
-    for (const upsertedId of [...upsertedIds].reverse()) {
-      const original = existingManagedById.get(upsertedId);
-      if (original) {
-        await storage.upsertLink(original);
-      } else {
-        await storage.removeLink(upsertedId);
-      }
-    }
-    throw error;
-  }
 
-  return {
-    upserted: desiredRecords,
-    removedIds,
-    skippedTargets,
-  };
+    return {
+      upserted: desiredRecords,
+      removedIds,
+      skippedTargets,
+    };
+  });
 }

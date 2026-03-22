@@ -112,6 +112,9 @@ describe("TicketStore canonical storage", () => {
       throw new Error("Expected ticket entity to exist");
     }
 
+    expect(entity.displayId).toBe(created.summary.id);
+    expect(entity.id).not.toBe(created.summary.id);
+
     expect(entity.version).toBe(4);
     expect(entity.attributes).toMatchObject({
       record: {
@@ -269,5 +272,91 @@ describe("TicketStore canonical storage", () => {
 
     const remaining = await store.listTicketsAsync({ includeClosed: true, includeArchived: true });
     expect(remaining.map((ticket) => ticket.id)).toEqual([child.summary.id, dependent.summary.id, parent.summary.id]);
+  }, 30000);
+
+  it("resolves truthful human-facing refs and freezes structural edits while closed", async () => {
+    const store = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2024-01-06T00:00:00.000Z"));
+    const blocker = await store.createTicketAsync({ title: "Existing dependency" });
+    vi.setSystemTime(new Date("2024-01-06T00:00:01.000Z"));
+    const created = await store.createTicketAsync({
+      title: "Freeze structural edits",
+      initiativeIds: ["initiative-a"],
+      researchIds: ["research-a"],
+      externalRefs: ["plan:plan-a"],
+    });
+
+    await expect(store.readTicketAsync(created.summary.id)).resolves.toMatchObject({
+      summary: { id: created.summary.id },
+    });
+    await expect(store.readTicketAsync(`#${created.summary.id}`)).resolves.toMatchObject({
+      summary: { id: created.summary.id },
+    });
+    await expect(store.readTicketAsync(`@${created.summary.id}`)).resolves.toMatchObject({
+      summary: { id: created.summary.id },
+    });
+    await expect(store.readTicketAsync(`ticket:${created.summary.id}`)).resolves.toMatchObject({
+      summary: { id: created.summary.id },
+    });
+    await expect(store.readTicketAsync(`${created.summary.id}.md`)).resolves.toMatchObject({
+      summary: { id: created.summary.id },
+    });
+    await expect(store.readTicketAsync(`tickets/${created.summary.id}.md`)).resolves.toMatchObject({
+      summary: { id: created.summary.id },
+    });
+
+    vi.setSystemTime(new Date("2024-01-06T00:00:02.000Z"));
+    await store.closeTicketAsync(created.summary.id, "verified closed");
+
+    await expect(store.startTicketAsync(created.summary.id)).rejects.toThrow(
+      `Closed ticket ${created.summary.id} cannot be started; use reopen before editing it.`,
+    );
+    await expect(store.addDependencyAsync(created.summary.id, blocker.summary.id)).rejects.toThrow(
+      `Closed ticket ${created.summary.id} cannot add dependencies; use reopen before editing it.`,
+    );
+    await expect(store.setInitiativeIdsAsync(created.summary.id, ["initiative-b"])).rejects.toThrow(
+      `Closed ticket ${created.summary.id} cannot change initiative links; use reopen before editing it.`,
+    );
+    await expect(store.setResearchIdsAsync(created.summary.id, ["research-b"])).rejects.toThrow(
+      `Closed ticket ${created.summary.id} cannot change research links; use reopen before editing it.`,
+    );
+    await expect(store.addExternalRefAsync(created.summary.id, "plan:plan-b")).rejects.toThrow(
+      `Closed ticket ${created.summary.id} cannot add external refs; use reopen before editing it.`,
+    );
+
+    vi.setSystemTime(new Date("2024-01-06T00:00:03.000Z"));
+    const checkpointed = await store.recordCheckpointAsync(created.summary.id, {
+      title: "closed handoff",
+      body: "append-only checkpoint remains allowed",
+    });
+    expect(checkpointed.checkpoints).toEqual([
+      expect.objectContaining({ title: "closed handoff", body: "append-only checkpoint remains allowed" }),
+    ]);
+
+    vi.setSystemTime(new Date("2024-01-06T00:00:04.000Z"));
+    const attached = await store.attachArtifactAsync(created.summary.id, {
+      label: "closure-evidence",
+      content: "opaque ids stay internal",
+    });
+    expect(attached.attachments).toEqual([
+      expect.objectContaining({
+        label: "closure-evidence",
+        sourceRef: expect.stringContaining(`${created.summary.id}:`),
+      }),
+    ]);
+
+    vi.setSystemTime(new Date("2024-01-06T00:00:05.000Z"));
+    await store.reopenTicketAsync(created.summary.id);
+    vi.setSystemTime(new Date("2024-01-06T00:00:06.000Z"));
+    const reopened = await store.addDependencyAsync(created.summary.id, blocker.summary.id);
+    expect(reopened.summary).toMatchObject({ id: created.summary.id, closed: false, status: "blocked" });
+    expect(reopened.ticket.frontmatter).toMatchObject({
+      status: "open",
+      deps: [blocker.summary.id],
+      "initiative-ids": ["initiative-a"],
+      "research-ids": ["research-a"],
+      "external-refs": ["plan:plan-a"],
+    });
   }, 30000);
 });

@@ -4,12 +4,15 @@
 
 When active, the extension teaches the model to use specifications as declarative, implementation-decoupled statements of intended program behavior. Specs define the desired capability, constraints, scenarios, and acceptance independent of today's code shape; plans turn that accepted behavior into implementation strategy and linked execution work, and tickets carry the execution truth. Specification state is persisted in SQLite via pi-storage, with durable spec records, canonical capability summaries, append-only clarification decisions, spec-quality analysis, checklist artifacts, and explicit initiative membership.
 
+Specification lifecycle is strict: proposed/clarifying/specified specs are mutable, finalized specs are read-only, and archived specs are terminal. Supersession is lineage metadata captured while specifying a new spec; archived records are not editable successors.
+
 ## Features
 
 - durable specification records persisted in SQLite
 - canonical capability specs stored in SQLite, with review renderings generated when needed
-- append-only clarification and decision history per spec
+- append-only clarification and decision history per mutable spec
 - explicit initiative membership for cross-layer strategic traceability
+- immutable finalized specs and terminal archived specs
 - AI-facing `spec_*` tools with built-in prompt guidance
 - system-prompt augmentation via `before_agent_start`
 
@@ -20,6 +23,8 @@ Spec titles should name the behavior or capability being specified, not an imple
 ## Storage model
 
 Spec state and metadata are persisted in SQLite via pi-storage. Plans connect finalized specs to linked tickets.
+
+Finalization freezes the spec record, including clarifications, design notes, analysis, checklist output, initiative links, research links, and capability mappings. Archive is only allowed after finalize; it preserves the frozen record for reading, lineage, and canonical capability provenance.
 
 ## Development
 

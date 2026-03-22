@@ -52,6 +52,17 @@ describe("ConstitutionalStore durable memory", () => {
     expect(principles.state.principles).toHaveLength(1);
     expect(principles.state.principles[0]?.id).toBe("principle-001");
 
+    const replacedPrinciples = await store.setPrinciples([
+      {
+        title: "Explicit contracts",
+        summary: "Durable layers should expose the truth about supported semantics.",
+        rationale: "Future agents need the current full set, not additive drift.",
+      },
+    ]);
+    expect(replacedPrinciples.state.principles).toEqual([
+      expect.objectContaining({ id: "principle-001", title: "Explicit contracts" }),
+    ]);
+
     const constraints = await store.setConstraints([
       {
         title: "Local durability first",
@@ -61,6 +72,17 @@ describe("ConstitutionalStore durable memory", () => {
     ]);
     expect(constraints.state.constraints).toHaveLength(1);
     expect(constraints.state.constraints[0]?.id).toBe("constraint-001");
+
+    const replacedConstraints = await store.setConstraints([
+      {
+        title: "Repo-visible truth",
+        summary: "Constitution updates should be fully represented in repo-visible state.",
+        rationale: "Partial edits would hide what the durable contract currently is.",
+      },
+    ]);
+    expect(replacedConstraints.state.constraints).toEqual([
+      expect.objectContaining({ id: "constraint-001", title: "Repo-visible truth" }),
+    ]);
 
     vi.setSystemTime(new Date("2026-03-15T12:05:00.000Z"));
     const roadmap = await store.updateRoadmap({
@@ -109,7 +131,7 @@ describe("ConstitutionalStore durable memory", () => {
     ]);
     expect(withDecision.brief).toContain("# Pi Loom Constitutional Brief");
     expect(withDecision.brief).toContain("Build an AI-native coordination system for long-horizon engineering work.");
-    expect(withDecision.brief).toContain("Truthful interfaces");
+    expect(withDecision.brief).toContain("Explicit contracts");
     expect(withDecision.brief).toContain("Ship constitutional memory");
     expect(withDecision.roadmap).toContain("item-001 [now/active] Ship constitutional memory");
     expect(withDecision.roadmap).toContain("Ship constitutional memory");
@@ -125,6 +147,19 @@ describe("ConstitutionalStore durable memory", () => {
       id: "item-001",
       title: "Ship constitutional memory",
     });
+    expect(await store.listRoadmapItems({ status: "active" })).toEqual([
+      expect.objectContaining({ id: "item-001", title: "Ship constitutional memory" }),
+    ]);
     expect(await store.validateRoadmapRefs([path.join("nested", "item-001.md"), "item-001"])).toEqual(["item-001"]);
+
+    vi.setSystemTime(new Date("2026-03-15T12:20:00.000Z"));
+    const withSecondDecision = await store.recordDecision(
+      "Should roadmap ids be treated as global entity ids?",
+      "No. They are stable only within the singleton constitution aggregate and should be discovered from the roadmap view.",
+      "clarification",
+      ["roadmap.md"],
+    );
+    expect(withSecondDecision.decisions).toHaveLength(2);
+    expect(withSecondDecision.decisions.map((decision) => decision.id)).toEqual(["decision-001", "decision-002"]);
   }, 15000);
 });

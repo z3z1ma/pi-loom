@@ -123,14 +123,16 @@ describe("pi-storage sqlite catalog backup flow", () => {
     delete process.env.PI_LOOM_ROOT;
   });
 
-  it("creates stable repository and entity identifiers", () => {
+  it("creates stable repository ids and opaque entity ids", () => {
     const repoIdA = createRepositoryId(["git@github.com:example/pi-loom.git"], "fallback");
     const repoIdB = createRepositoryId(["git@github.com:example/pi-loom.git"], "different-fallback");
     const entityIdA = createEntityId("ticket", "space_core", "t-0045", "ticket:t-0045");
     const entityIdB = createEntityId("ticket", "space_core", "t-0045", "ticket:t-0045");
 
     expect(repoIdA).toBe(repoIdB);
-    expect(entityIdA).toBe(entityIdB);
+    expect(entityIdA).toMatch(/^ticket_[0-9a-f]{16}$/);
+    expect(entityIdB).toMatch(/^ticket_[0-9a-f]{16}$/);
+    expect(entityIdA).not.toBe(entityIdB);
   });
 
   it("resolves repository identity independent of checkout location when a remote exists", () => {

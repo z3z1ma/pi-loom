@@ -203,4 +203,23 @@ describe("initiative tools", () => {
       cleanup();
     }
   }, 30000);
+
+  it("fails initiative reads for missing records instead of auto-creating them", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+
+      const mockPi = createMockPi();
+      const { registerInitiativeTools } = await import("../extensions/tools/initiative.js");
+      registerInitiativeTools(mockPi as unknown as ExtensionAPI);
+
+      const initiativeRead = getTool(mockPi, "initiative_read");
+
+      await expect(
+        initiativeRead.execute("call-missing", { ref: "missing-initiative" }, undefined, undefined, createContext(cwd)),
+      ).rejects.toThrow("Unknown initiative: missing-initiative");
+    } finally {
+      cleanup();
+    }
+  });
 });

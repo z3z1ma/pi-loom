@@ -160,6 +160,16 @@ export async function hydrateSyncBundle(
     await storage.upsertLink(link);
   }
   for (const event of events) {
+    const existing = await storage.listEvents(event.entityId);
+    const sameSequence = existing.find((candidate) => candidate.sequence === event.sequence);
+    if (sameSequence) {
+      if (JSON.stringify(sameSequence) !== JSON.stringify(event)) {
+        throw new Error(
+          `Sync conflict detected for event ${event.entityId}#${event.sequence}; incoming event differs from existing history.`,
+        );
+      }
+      continue;
+    }
     await storage.appendEvent(event);
   }
   for (const runtimeAttachment of runtimeAttachments) {

@@ -6,7 +6,7 @@ import { renderDashboard, renderDocumentationDetail, renderUpdatePrompt } from "
 import { runDocsUpdate } from "../domain/runtime.js";
 import { createDocumentationStore } from "../domain/store.js";
 
-const DocStatusEnum = StringEnum(["active", "archived", "superseded"] as const);
+const DocStatusEnum = StringEnum(["active", "archived"] as const);
 const DocTypeEnum = StringEnum(["overview", "guide", "concept", "operations", "workflow", "faq"] as const);
 const DocSectionGroupEnum = StringEnum(["overviews", "guides", "concepts", "operations"] as const);
 const DocAudienceEnum = StringEnum(["ai", "human"] as const);
@@ -20,12 +20,37 @@ function withDescription<T extends Record<string, unknown>>(schema: T, descripti
 }
 
 const ContextRefsSchema = Type.Object({
-  roadmapItemIds: Type.Optional(Type.Array(Type.String())),
-  initiativeIds: Type.Optional(Type.Array(Type.String())),
-  researchIds: Type.Optional(Type.Array(Type.String())),
-  specChangeIds: Type.Optional(Type.Array(Type.String())),
-  ticketIds: Type.Optional(Type.Array(Type.String())),
-  critiqueIds: Type.Optional(Type.Array(Type.String())),
+  roadmapItemIds: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        "Replacement roadmap item refs. Omit `contextRefs` to keep current refs; provide an empty array to clear this bucket.",
+    }),
+  ),
+  initiativeIds: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Replacement initiative refs. Provide the full desired set for this bucket.",
+    }),
+  ),
+  researchIds: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Replacement research refs. Provide the full desired set for this bucket.",
+    }),
+  ),
+  specChangeIds: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Replacement spec change refs. Provide the full desired set for this bucket.",
+    }),
+  ),
+  ticketIds: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Replacement ticket refs. Provide the full desired set for this bucket.",
+    }),
+  ),
+  critiqueIds: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Replacement critique refs. Provide the full desired set for this bucket.",
+    }),
+  ),
 });
 
 const SourceTargetSchema = Type.Object({
@@ -34,9 +59,7 @@ const SourceTargetSchema = Type.Object({
 });
 
 const DocsListParams = Type.Object({
-  status: Type.Optional(
-    withDescription(DocStatusEnum, "Optional exact status filter: active, archived, or superseded."),
-  ),
+  status: Type.Optional(withDescription(DocStatusEnum, "Optional exact status filter: active or archived.")),
   docType: Type.Optional(
     withDescription(
       DocTypeEnum,
@@ -76,7 +99,9 @@ const DocsListParams = Type.Object({
 });
 
 const DocsReadParams = Type.Object({
-  ref: Type.String({ description: "Documentation id or documentation artifact path." }),
+  ref: Type.String({
+    description: "Documentation id or a state artifact path whose parent directory is the documentation id.",
+  }),
   mode: Type.Optional(DocsReadModeEnum),
 });
 
@@ -240,6 +265,8 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Create the documentation record before repeated updates so revisions accumulate on a stable durable id instead of scattering explanation across ad hoc notes.",
       "Use update with document content after completed work changes system understanding; write self-contained, high-context explanation rather than API reference snippets or shallow summaries.",
+      "Updating `contextRefs` replaces the stored ref buckets you send; pass the full desired bucket contents, and use empty arrays to clear incorrect refs.",
+      "Archive records when they stop describing active system reality; archiving records a final lifecycle revision and archived docs should no longer be updated.",
     ],
     parameters: DocsWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

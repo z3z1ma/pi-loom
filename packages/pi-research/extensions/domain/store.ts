@@ -10,7 +10,6 @@ import {
   appendEntityEvent,
   findEntityByDisplayId,
   upsertEntityByDisplayId,
-  upsertEntityByDisplayIdWithLifecycleEvents,
 } from "@pi-loom/pi-storage/storage/entities.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
@@ -151,6 +150,20 @@ function buildResearchArtifactRef(
   artifactId: string,
 ): string {
   return `research:${researchId}:artifact:${kind}:${artifactId}`;
+}
+
+function normalizeResearchRef(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Research reference is required");
+  }
+  const basename = trimmed.split(/[\\/]/).pop() ?? trimmed;
+  const withoutExtension = basename.toLowerCase().endsWith(".md") ? basename.slice(0, -3) : basename;
+  const withoutPrefix = withoutExtension.startsWith("research:")
+    ? withoutExtension.slice("research:".length)
+    : withoutExtension;
+  const researchToken = withoutPrefix.split(":", 1)[0] ?? withoutPrefix;
+  return normalizeResearchId(researchToken);
 }
 
 function summarizeArtifactPayload(payload: ResearchArtifactPayload): ResearchArtifactRecord {
@@ -346,25 +359,10 @@ export class ResearchStore {
   private async loadRecord(ref: string): Promise<ResearchRecord> {
     this.initLedger();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const researchId = normalizeResearchId(ref);
-    let entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, researchId);
+    const researchId = normalizeResearchRef(ref);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, researchId);
     if (!entity) {
-      const timestamp = currentTimestamp();
-      const state = this.defaultState({ title: researchId, researchId }, timestamp);
-      entity = await upsertEntityByDisplayId(storage, {
-        kind: ENTITY_KIND,
-        spaceId: identity.space.id,
-        owningRepositoryId: identity.repository.id,
-        displayId: state.researchId,
-        title: state.title,
-        summary: state.statusSummary || state.question,
-        status: state.status,
-        version: 1,
-        tags: state.tags,
-        attributes: { state, hypotheses: [] },
-        createdAt: state.createdAt,
-        updatedAt: state.updatedAt,
-      });
+      throw new Error(`Unknown research: ${researchId}`);
     }
     if (!entity || !hasStructuredResearchAttributes(entity.attributes)) {
       throw new Error(`Research entity ${researchId} is missing structured attributes`);
@@ -391,31 +389,66 @@ export class ResearchStore {
       artifacts.map(summarizeArtifactPayload),
     );
     await storage.transact(async (tx) => {
-      const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
-        tx,
-        {
-          kind: ENTITY_KIND,
-          spaceId: identity.space.id,
-          owningRepositoryId: identity.repository.id,
-          displayId: record.state.researchId,
-          title: record.state.title,
-          summary: record.state.statusSummary || record.state.question,
-          status: record.state.status,
-          version,
-          tags: record.state.tags,
-          attributes: {
-            state: record.state,
-            hypotheses: record.hypothesisHistory,
+      const entity = await upsertEntityByDisplayId(tx, {
+        kind: ENTITY_KIND,
+        spaceId: identity.space.id,
+        owningRepositoryId: identity.repository.id,
+        displayId: record.state.researchId,
+        title: record.state.title,
+        summary: record.state.statusSummary || record.state.question,
+        status: record.state.status,
+        version,
+        tags: record.state.tags,
+        attributes: {
+          state: record.state,
+          hypotheses: record.hypothesisHistory,
+        },
+        createdAt: existing?.createdAt ?? record.state.createdAt,
+        updatedAt: record.state.updatedAt,
+      });
+      const basePayload = {
+        entityKind: ENTITY_KIND,
+        displayId: record.state.researchId,
+        version: entity.version,
+      } satisfies Record<string, unknown>;
+      if (!existing) {
+        await appendEntityEvent(
+          tx,
+          entity.id,
+          "created",
+          "research-store",
+          { ...basePayload, status: entity.status, change: "research_persisted" },
+          record.state.createdAt,
+        );
+      } else {
+        if (existing.status !== entity.status) {
+          await appendEntityEvent(
+            tx,
+            entity.id,
+            "status_changed",
+            "research-store",
+            {
+              ...basePayload,
+              previousStatus: existing.status,
+              nextStatus: entity.status,
+            },
+            record.state.updatedAt,
+          );
+        }
+        await appendEntityEvent(
+          tx,
+          entity.id,
+          "updated",
+          "research-store",
+          {
+            ...basePayload,
+            status: entity.status,
+            previousVersion: existing.version,
+            change: "research_persisted",
           },
-          createdAt: existing?.createdAt ?? record.state.createdAt,
-          updatedAt: record.state.updatedAt,
-        },
-        {
-          actor: "research-store",
-          createdPayload: { change: "research_persisted" },
-          updatedPayload: { change: "research_persisted" },
-        },
-      );
+          record.state.updatedAt,
+        );
+      }
       await syncProjectedEntityLinks({
         storage: tx,
         spaceId: identity.space.id,
@@ -447,8 +480,8 @@ export class ResearchStore {
     if (filter.status && summary.status !== filter.status) return false;
     if (filter.tag && !summary.tags.includes(filter.tag)) return false;
     if (filter.keyword) {
-      const lowered = filter.keyword.toLowerCase();
-      if (!summary.synthesis.toLowerCase().includes(lowered)) return false;
+      const normalizedKeyword = filter.keyword.trim().toLowerCase();
+      if (!summary.state.keywords.some((keyword) => keyword.toLowerCase() === normalizedKeyword)) return false;
     }
     return true;
   }
@@ -582,7 +615,7 @@ export class ResearchStore {
         ? normalizeStringList([...(ticket.summary.researchIds ?? []), researchId])
         : (ticket.summary.researchIds ?? []).filter((id) => id !== researchId);
       if (!sameList(nextResearchIds, ticket.summary.researchIds ?? [])) {
-        await store.setResearchIdsAsync(ticketId, nextResearchIds);
+        await store.setResearchIdsAsync(ticketId, nextResearchIds, { allowClosed: true });
       }
     }
   }

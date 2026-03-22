@@ -2,6 +2,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { LOOM_LIST_SORTS } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
+import type { CreatePlanInput, PlanContextRefsUpdate, UpdatePlanInput } from "../domain/models.js";
 import { renderDashboard, renderPlanDetail } from "../domain/render.js";
 import { createPlanStore } from "../domain/store.js";
 
@@ -15,16 +16,6 @@ const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
   return { ...schema, description } as T;
 }
-
-const ContextRefsSchema = Type.Object({
-  roadmapItemIds: Type.Optional(Type.Array(Type.String())),
-  initiativeIds: Type.Optional(Type.Array(Type.String())),
-  researchIds: Type.Optional(Type.Array(Type.String())),
-  specChangeIds: Type.Optional(Type.Array(Type.String())),
-  ticketIds: Type.Optional(Type.Array(Type.String())),
-  critiqueIds: Type.Optional(Type.Array(Type.String())),
-  docIds: Type.Optional(Type.Array(Type.String())),
-});
 
 const SourceTargetSchema = Type.Object({
   kind: PlanSourceTargetKindEnum,
@@ -108,7 +99,12 @@ const PlanWriteParams = Type.Object({
   risksAndQuestions: Type.Optional(Type.String()),
   outcomesAndRetrospective: Type.Optional(Type.String()),
   scopePaths: Type.Optional(Type.Array(Type.String())),
-  contextRefs: Type.Optional(ContextRefsSchema),
+  contextRefs: Type.Optional(
+    withDescription(
+      Type.Object({}, { additionalProperties: true }),
+      "Either bare context-ref buckets or an update object. For updates, use `replace` to set listed buckets exactly, `remove` to drop specific stale refs, or combine both. Omitted buckets stay unchanged.",
+    ),
+  ),
   progress: Type.Optional(Type.Array(PlanProgressSchema)),
   sourceTarget: Type.Optional(SourceTargetSchema),
   discoveries: Type.Optional(Type.Array(PlanDiscoverySchema)),
@@ -145,6 +141,10 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
+function isContextRefsUpdate(value: unknown): value is PlanContextRefsUpdate {
+  return Boolean(value && typeof value === "object" && ("replace" in value || "remove" in value));
+}
+
 function requireRef(ref: string | undefined): string {
   if (!ref) {
     throw new Error("Plan reference is required for this action");
@@ -152,13 +152,21 @@ function requireRef(ref: string | undefined): string {
   return ref;
 }
 
-function toCreateInput(params: PlanWriteParamsValue) {
+function toCreateInput(params: PlanWriteParamsValue): CreatePlanInput {
   if (!params.title?.trim()) {
     throw new Error("title is required for create");
   }
   if (!params.sourceTarget) {
     throw new Error("sourceTarget is required for create");
   }
+  if (isContextRefsUpdate(params.contextRefs)) {
+    if (params.contextRefs.remove) {
+      throw new Error("contextRefs.remove is only supported for update");
+    }
+  }
+  const contextRefs: CreatePlanInput["contextRefs"] = isContextRefsUpdate(params.contextRefs)
+    ? (params.contextRefs.replace as CreatePlanInput["contextRefs"])
+    : (params.contextRefs as CreatePlanInput["contextRefs"]);
   return {
     title: params.title,
     summary: params.summary,
@@ -171,10 +179,9 @@ function toCreateInput(params: PlanWriteParamsValue) {
     idempotenceAndRecovery: params.idempotenceAndRecovery,
     artifactsAndNotes: params.artifactsAndNotes,
     interfacesAndDependencies: params.interfacesAndDependencies,
-    risksAndQuestions: params.risksAndQuestions,
     outcomesAndRetrospective: params.outcomesAndRetrospective,
     scopePaths: params.scopePaths,
-    contextRefs: params.contextRefs,
+    contextRefs,
     sourceTarget: params.sourceTarget,
     progress: params.progress,
     discoveries: params.discoveries,
@@ -183,7 +190,12 @@ function toCreateInput(params: PlanWriteParamsValue) {
   };
 }
 
-function toUpdateInput(params: PlanWriteParamsValue) {
+function toUpdateInput(params: PlanWriteParamsValue): UpdatePlanInput {
+  const contextRefs: PlanContextRefsUpdate | undefined = isContextRefsUpdate(params.contextRefs)
+    ? (params.contextRefs as PlanContextRefsUpdate)
+    : params.contextRefs
+      ? { replace: params.contextRefs as NonNullable<CreatePlanInput["contextRefs"]> }
+      : undefined;
   return {
     title: params.title,
     status: params.status,
@@ -197,10 +209,9 @@ function toUpdateInput(params: PlanWriteParamsValue) {
     idempotenceAndRecovery: params.idempotenceAndRecovery,
     artifactsAndNotes: params.artifactsAndNotes,
     interfacesAndDependencies: params.interfacesAndDependencies,
-    risksAndQuestions: params.risksAndQuestions,
     outcomesAndRetrospective: params.outcomesAndRetrospective,
     scopePaths: params.scopePaths,
-    contextRefs: params.contextRefs,
+    contextRefs,
     sourceTarget: params.sourceTarget,
     progress: params.progress,
     discoveries: params.discoveries,
@@ -275,6 +286,8 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Create the plan before repeatedly revising the execution strategy so ticket links and source refs accumulate on a stable durable id.",
       "Update plan content as a self-contained novice-facing workplan with explicit milestones, timestamped progress, concrete commands, validation, recovery guidance, interfaces, and revision notes without duplicating live per-ticket status, checkpoints, or journal detail; linked tickets must still stand alone as complete units of work, whether they pre-existed or were created through the ticket layer during planning.",
+      "`progress`, `discoveries`, and `decisions` are whole-list replacements, not patch-by-index updates. `revisionNotes` is append-only: supplied notes are added ahead of the automatic audit note for the write.",
+      "For `contextRefs`, use `replace` to correct an entire ref bucket and `remove` to drop specific stale refs. Bare arrays are treated as `replace` for each provided bucket.",
     ],
     parameters: PlanWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

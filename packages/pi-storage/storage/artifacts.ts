@@ -121,28 +121,26 @@ export async function syncProjectedArtifacts<TPayload extends Record<string, unk
   timestamp,
   actor,
 }: SyncProjectedArtifactsInput<TPayload>): Promise<SyncProjectedArtifactsResult> {
-  const existingManaged = (await storage.listEntities(spaceId, "artifact")).filter((entity) =>
-    isManagedProjectedArtifact(entity, owner, projectionOwner),
-  );
-  const existingByDisplayId = new Map(existingManaged.map((entity) => [entity.displayId ?? entity.id, entity]));
-  const desiredDisplayIds = new Set<string>();
-  const upsertedDisplayIds: string[] = [];
-  const removedDisplayIds: string[] = [];
-  const eventActor = actor ?? projectionOwner;
+  return storage.transact(async (tx) => {
+    const existingManaged = (await tx.listEntities(spaceId, "artifact")).filter((entity) =>
+      isManagedProjectedArtifact(entity, owner, projectionOwner),
+    );
+    const existingByDisplayId = new Map(existingManaged.map((entity) => [entity.displayId ?? entity.id, entity]));
+    const desiredDisplayIds = new Set<string>();
+    const upsertedDisplayIds: string[] = [];
+    const removedDisplayIds: string[] = [];
+    const eventActor = actor ?? projectionOwner;
 
-  for (const artifact of desired) {
-    const displayId = artifact.displayId.trim();
-    if (!displayId) {
-      throw new Error(`Projected artifact display id cannot be blank for ${projectionOwner}`);
-    }
-    desiredDisplayIds.add(displayId);
-    const existing =
-      existingByDisplayId.get(displayId) ?? (await findEntityByDisplayId(storage, spaceId, "artifact", displayId));
-    let entityId: string | null = null;
-    let emittedLifecycleEvents: LoomId[] = [];
-    try {
-      const { entity, events } = await upsertEntityByDisplayIdWithLifecycleEvents(
-        storage,
+    for (const artifact of desired) {
+      const displayId = artifact.displayId.trim();
+      if (!displayId) {
+        throw new Error(`Projected artifact display id cannot be blank for ${projectionOwner}`);
+      }
+      desiredDisplayIds.add(displayId);
+      const existing =
+        existingByDisplayId.get(displayId) ?? (await findEntityByDisplayId(tx, spaceId, "artifact", displayId));
+      const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
+        tx,
         {
           kind: "artifact",
           spaceId,
@@ -171,10 +169,8 @@ export async function syncProjectedArtifacts<TPayload extends Record<string, unk
           },
         },
       );
-      entityId = entity.id;
-      emittedLifecycleEvents = events.map((event) => event.id);
       await syncProjectedEntityLinks({
-        storage,
+        storage: tx,
         spaceId,
         fromEntityId: entity.id,
         projectionOwner: `${projectionOwner}:links`,
@@ -182,28 +178,18 @@ export async function syncProjectedArtifacts<TPayload extends Record<string, unk
         timestamp,
         actor: eventActor,
       });
-    } catch (error) {
-      for (const eventId of [...emittedLifecycleEvents].reverse()) {
-        await storage.removeEvent(eventId);
-      }
-      if (existing) {
-        await storage.upsertEntity(existing);
-      } else if (entityId) {
-        await storage.removeEntity(entityId);
-      }
-      throw error;
+      upsertedDisplayIds.push(displayId);
     }
-    upsertedDisplayIds.push(displayId);
-  }
 
-  for (const entity of existingManaged) {
-    const displayId = entity.displayId ?? entity.id;
-    if (desiredDisplayIds.has(displayId)) {
-      continue;
+    for (const entity of existingManaged) {
+      const displayId = entity.displayId ?? entity.id;
+      if (desiredDisplayIds.has(displayId)) {
+        continue;
+      }
+      await tx.removeEntity(entity.id);
+      removedDisplayIds.push(displayId);
     }
-    await storage.removeEntity(entity.id);
-    removedDisplayIds.push(displayId);
-  }
 
-  return { upsertedDisplayIds, removedDisplayIds };
+    return { upsertedDisplayIds, removedDisplayIds };
+  });
 }

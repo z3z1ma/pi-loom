@@ -269,7 +269,6 @@ function toUpdateFindingInput(params: CritiqueFindingParamsValue) {
     status: params.status,
     linkedTicketId: params.linkedTicketId,
     resolutionNotes: params.resolutionNotes,
-    recommendedAction: params.recommendedAction,
   };
 }
 
@@ -337,12 +336,13 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "critique_write",
     label: "critique_write",
-    description: "Create, update, or resolve durable critique records in local Loom memory.",
+    description:
+      "Create, update, or resolve durable critique records in local Loom memory once no active findings remain.",
     promptSnippet:
       "Persist review targets, scope, review questions, and enough contextual detail for a later critic to evaluate the work without relying on chat reconstruction.",
     promptGuidelines: [
       "Create the critique before review begins so fresh-context launch and findings have a stable target with explicit scope, non-goals, dependencies, and review intent.",
-      "Resolve the critique only after findings are rejected, fixed, or converted into tracked follow-up work, and the durable record says what evidence justified that closure.",
+      "Resolve the critique only after no active findings remain; linked follow-up tickets and accepted findings still count as active until they are fixed, rejected, or superseded.",
     ],
     parameters: CritiqueWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -453,13 +453,15 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "critique_finding",
     label: "critique_finding",
-    description: "Append findings, update finding state, or convert accepted critique findings into follow-up tickets.",
+    description:
+      "Append findings, update finding lifecycle state, or convert findings into follow-up tickets while marking them accepted.",
     promptSnippet:
       "Persist concrete findings with severity, confidence, evidence, failure mode, and recommended action instead of vague review prose.",
     promptGuidelines: [
       "Every finding should point at concrete evidence, explain the failure mode or risk, and state a recommended action that a maintainer can execute.",
       "Capture affected scope, assumptions, and verification gaps when they matter so the finding stays durable outside the current session.",
-      "Create follow-up tickets only for findings the system accepts as real execution work.",
+      "Finding updates are lifecycle-only: status, linked ticket, and resolution notes may change, but the original finding body and evidence stay as-created.",
+      "Creating a follow-up ticket marks the finding accepted, but accepted findings remain active until they are fixed, rejected, or superseded.",
     ],
     parameters: CritiqueFindingParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

@@ -1,8 +1,4 @@
-import type {
-  BeforeAgentStartEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createPlanStore } from "./domain/store.js";
 import { buildPlanSystemPrompt, getBasePlanGuidance } from "./prompts/guidance.js";
 import { registerPlanTools } from "./tools/plan.js";

@@ -232,8 +232,12 @@ function migrate(db: SqliteDatabaseLike): void {
     CREATE INDEX IF NOT EXISTS idx_worktrees_repository ON worktrees(repository_id);
     CREATE INDEX IF NOT EXISTS idx_entities_space_kind ON entities(space_id, kind);
     CREATE INDEX IF NOT EXISTS idx_entities_display_id ON entities(display_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_space_kind_display_id
+      ON entities(space_id, kind, display_id)
+      WHERE display_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_links_from_entity ON links(from_entity_id);
     CREATE INDEX IF NOT EXISTS idx_links_to_entity ON links(to_entity_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_links_kind_endpoints ON links(kind, from_entity_id, to_entity_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_events_entity_sequence ON events(entity_id, sequence);
     CREATE INDEX IF NOT EXISTS idx_runtime_attachments_worktree ON runtime_attachments(worktree_id);
   `);
@@ -641,11 +645,6 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         this.db.prepare(`
         INSERT INTO events (id, entity_id, kind, sequence, created_at, actor, payload_json)
         VALUES (@id, @entity_id, @kind, @sequence, @created_at, @actor, @payload_json)
-        ON CONFLICT(id) DO UPDATE SET
-          kind = excluded.kind,
-          sequence = excluded.sequence,
-          actor = excluded.actor,
-          payload_json = excluded.payload_json
       `),
         {
           id: record.id,

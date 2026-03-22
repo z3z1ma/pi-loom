@@ -1,6 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { createInitiativeStore } from "@pi-loom/pi-initiatives/extensions/domain/store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSpecStore } from "../extensions/domain/store.js";
 
@@ -9,21 +8,20 @@ describe("SpecStore durable memory", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(`${tmpdir()}/pi-specs-store-`);
+    process.env.PI_LOOM_ROOT = `${workspace}/.pi-loom-test`;
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.PI_LOOM_ROOT;
     rmSync(workspace, { recursive: true, force: true });
   });
 
   it("writes durable spec artifacts, decisions, and canonical capability merges", async () => {
     const store = createSpecStore(workspace);
-    const initiativeStore = createInitiativeStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T10:00:00.000Z"));
-    await initiativeStore.createInitiative({ title: "Platform modernization" });
-    await initiativeStore.createInitiative({ title: "UI foundation" });
     const created = await store.createChange({ title: "Dark theme support", summary: "Support a dark theme." });
     expect(created.state.changeId).toBe("dark-theme-support");
     const changeRef = created.summary.ref;
@@ -48,10 +46,6 @@ describe("SpecStore durable memory", () => {
     });
     expect(specified.state.capabilities[0]?.id).toBe("theme-toggling");
 
-    vi.setSystemTime(new Date("2026-03-15T10:15:00.000Z"));
-    const linked = await store.setInitiativeIds(changeRef, ["platform-modernization", "ui-foundation"]);
-    expect(linked.state.initiativeIds).toEqual(["platform-modernization", "ui-foundation"]);
-
     vi.setSystemTime(new Date("2026-03-15T10:20:00.000Z"));
     const specifiedSnapshot = await store.readChange(changeRef);
     expect(specifiedSnapshot.summary.ref).toBe("spec:dark-theme-support");
@@ -73,7 +67,7 @@ describe("SpecStore durable memory", () => {
     const archived = await store.archiveChange(changeRef);
     expect(archived.state.status).toBe("archived");
     expect(archived.state.archivedRef).toBe("archive:spec:2026-03-15:dark-theme-support");
-    expect(archived.summary.initiativeIds).toEqual(["platform-modernization", "ui-foundation"]);
+    expect(archived.summary.initiativeIds).toEqual([]);
     expect(archived.summary.ref).toBe("archive:spec:2026-03-15:dark-theme-support");
     expect(archived.artifacts.map((artifact) => artifact.ref)).toEqual([
       "archive:spec:2026-03-15:dark-theme-support:artifact:proposal",
@@ -101,4 +95,67 @@ describe("SpecStore durable memory", () => {
       }),
     ]);
   }, 15000);
+
+  it("rejects mutations after finalize and after archive", async () => {
+    const store = createSpecStore(workspace);
+
+    const created = await store.createChange({ title: "Immutable lifecycle" });
+    const changeRef = created.summary.ref;
+
+    await store.updatePlan(changeRef, {
+      designNotes: "Define the lifecycle guardrails.",
+      capabilities: [
+        {
+          title: "Guard finalized specs",
+          requirements: ["Finalized specs reject edits."],
+          acceptance: ["Mutation attempts fail with a lifecycle error."],
+        },
+      ],
+    });
+    await store.finalizeChange(changeRef);
+
+    await expect(store.recordClarification(changeRef, "Can this change later?", "No.")).rejects.toThrow(
+      "Spec immutable-lifecycle is finalized and cannot record clarifications.",
+    );
+    await expect(
+      store.updatePlan(changeRef, {
+        designNotes: "Try to regress the spec.",
+        capabilities: [
+          {
+            title: "Guard finalized specs",
+            requirements: ["This must not be added."],
+          },
+        ],
+      }),
+    ).rejects.toThrow("Spec immutable-lifecycle is finalized and cannot change specification details.");
+    await expect(store.setInitiativeIds(changeRef, ["post-finalize-initiative"])).rejects.toThrow(
+      "Spec immutable-lifecycle is finalized and cannot change initiative links.",
+    );
+    await expect(store.setResearchIds(changeRef, ["post-finalize-research"])).rejects.toThrow(
+      "Spec immutable-lifecycle is finalized and cannot change research links.",
+    );
+    await expect(store.analyzeChange(changeRef)).rejects.toThrow(
+      "Spec immutable-lifecycle is finalized and cannot refresh analysis.",
+    );
+    await expect(store.generateChecklist(changeRef)).rejects.toThrow(
+      "Spec immutable-lifecycle is finalized and cannot refresh checklist.",
+    );
+
+    await store.archiveChange(changeRef);
+
+    await expect(store.recordClarification(changeRef, "Archived edits?", "Still no.")).rejects.toThrow(
+      "Spec immutable-lifecycle is archived and cannot record clarifications.",
+    );
+    await expect(
+      store.updatePlan(changeRef, {
+        designNotes: "Still blocked.",
+        capabilities: [
+          {
+            title: "Guard finalized specs",
+            requirements: ["Still must not be added."],
+          },
+        ],
+      }),
+    ).rejects.toThrow("Spec immutable-lifecycle is archived and cannot change specification details.");
+  });
 });

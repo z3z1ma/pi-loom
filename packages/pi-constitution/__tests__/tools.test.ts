@@ -81,6 +81,9 @@ describe("constitution tools", () => {
     }
 
     expect(getTool(mockPi, "constitution_write").promptSnippet).toContain("Persist project-defining vision");
+    expect(getTool(mockPi, "constitution_roadmap").promptGuidelines).toEqual(
+      expect.arrayContaining([expect.stringContaining("stable within the constitution aggregate")]),
+    );
   });
 
   it("returns machine-usable shapes for read, write, roadmap, and dashboard flows", async () => {
@@ -143,6 +146,29 @@ describe("constitution tools", () => {
         constitution: { state: { principles: [expect.objectContaining({ id: "principle-001" })] } },
       });
 
+      const replacedPrinciples = await constitutionWrite.execute(
+        "call-3b",
+        {
+          action: "update_principles",
+          principles: [
+            {
+              title: "Truthful boundaries",
+              summary: "Public semantics should match what the store actually persists.",
+              rationale: "Replacing the list keeps the section authoritative.",
+            },
+          ],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(replacedPrinciples.details).toMatchObject({
+        action: "update_principles",
+        constitution: {
+          state: { principles: [expect.objectContaining({ id: "principle-001", title: "Truthful boundaries" })] },
+        },
+      });
+
       const constraints = await constitutionWrite.execute(
         "call-4",
         {
@@ -161,6 +187,30 @@ describe("constitution tools", () => {
       expect(constraints.details).toMatchObject({
         action: "update_constraints",
         constitution: { state: { constraints: [expect.objectContaining({ id: "constraint-001" })] } },
+      });
+
+      const replacedConstraints = await constitutionWrite.execute(
+        "call-4b",
+        {
+          action: "update_constraints",
+          constraints: [
+            {
+              title: "Repo-visible source of truth",
+              summary: "Durable constitution sections should be rewritten as complete lists.",
+            },
+          ],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(replacedConstraints.details).toMatchObject({
+        action: "update_constraints",
+        constitution: {
+          state: {
+            constraints: [expect.objectContaining({ id: "constraint-001", title: "Repo-visible source of truth" })],
+          },
+        },
       });
 
       const roadmap = await constitutionWrite.execute(
@@ -198,6 +248,22 @@ describe("constitution tools", () => {
         constitution: { state: { roadmapItems: [expect.objectContaining({ id: "item-001" })] } },
       });
 
+      const listedRoadmapItems = await constitutionRoadmap.execute(
+        "call-6b",
+        { action: "list_items", status: "active" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(listedRoadmapItems.details).toMatchObject({
+        action: "list_items",
+        filters: { status: "active", horizon: null },
+        items: [expect.objectContaining({ id: "item-001", title: "Launch constitutional memory" })],
+      });
+      expect(listedRoadmapItems.content[0]).toMatchObject({
+        text: expect.stringContaining("item-001 [now/active] Launch constitutional memory"),
+      });
+
       const linked = await constitutionRoadmap.execute(
         "call-7",
         { action: "link_initiative", itemId: "item-001", initiativeId: "strategy-sync" },
@@ -222,7 +288,7 @@ describe("constitution tools", () => {
 
       const readRoadmapItem = await constitutionRead.execute(
         "call-10",
-        { itemId: "item-001" },
+        { itemId: path.join("roadmap", "item-001.md") },
         undefined,
         undefined,
         ctx,

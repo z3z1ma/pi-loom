@@ -6,7 +6,6 @@ import {
 } from "@pi-loom/pi-storage/storage/artifacts.js";
 import { createEntityId, createEventId, createLinkId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
-import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
@@ -920,6 +919,170 @@ function buildProjectedRalphLinks(state: RalphRunState): ProjectedEntityLinkInpu
   ];
 }
 
+function assertProjectedRalphLinksResolvable(
+  cwd: string,
+  spaceId: string,
+  desired: readonly ProjectedEntityLinkInput[],
+): void {
+  const { storage } = openRalphCatalogSync(cwd);
+  const findTarget = storage.db.prepare(
+    "SELECT id FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1",
+  );
+  const missingTargets: Array<{ kind: string; displayId: string }> = [];
+
+  for (const link of desired) {
+    const targetDisplayId = link.targetDisplayId.trim();
+    if (!targetDisplayId) {
+      if (link.required !== false) {
+        missingTargets.push({ kind: link.targetKind, displayId: "(empty)" });
+      }
+      continue;
+    }
+
+    const target = findTarget.get(spaceId, link.targetKind, targetDisplayId) as { id: string } | undefined;
+    if (!target && link.required !== false) {
+      missingTargets.push({ kind: link.targetKind, displayId: targetDisplayId });
+    }
+  }
+
+  if (missingTargets.length > 0) {
+    throw new Error(
+      `Ralph projected link sync cannot resolve: ${missingTargets
+        .map((target) => `${target.kind}:${target.displayId}`)
+        .join(", ")}`,
+    );
+  }
+}
+
+function syncProjectedRalphLinksSync(
+  cwd: string,
+  input: {
+    spaceId: string;
+    fromEntityId: string;
+    projectionOwner: string;
+    desired: readonly ProjectedEntityLinkInput[];
+    timestamp: string;
+  },
+): void {
+  const { storage } = openRalphCatalogSync(cwd);
+  const findTarget = storage.db.prepare(
+    "SELECT id FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1",
+  );
+  const existingManaged = (
+    storage.db
+      .prepare(
+        "SELECT id, kind, to_entity_id, metadata_json, created_at FROM links WHERE from_entity_id = ? ORDER BY id",
+      )
+      .all(input.fromEntityId) as Array<{
+      id: string;
+      kind: string;
+      to_entity_id: string;
+      metadata_json: string;
+      created_at: string;
+    }>
+  ).filter((row) => {
+    const metadata = parseStoredJson<Record<string, unknown>>(row.metadata_json, {});
+    return metadata.projectionOwner === input.projectionOwner;
+  });
+  const existingById = new Map(existingManaged.map((row) => [row.id, row]));
+  const desiredById = new Map<
+    string,
+    { id: string; kind: string; toEntityId: string; createdAt: string; metadata: Record<string, unknown> }
+  >();
+
+  for (const link of input.desired) {
+    const targetDisplayId = link.targetDisplayId.trim();
+    if (!targetDisplayId) {
+      continue;
+    }
+
+    const target = findTarget.get(input.spaceId, link.targetKind, targetDisplayId) as { id: string } | undefined;
+    if (!target) {
+      continue;
+    }
+
+    const linkId = createLinkId(link.kind, input.fromEntityId, target.id);
+    const existing = existingById.get(linkId);
+    desiredById.set(linkId, {
+      id: linkId,
+      kind: link.kind,
+      toEntityId: target.id,
+      createdAt: existing?.created_at ?? input.timestamp,
+      metadata: { ...(link.metadata ?? {}), projectionOwner: input.projectionOwner },
+    });
+  }
+
+  const sequenceRow = storage.db
+    .prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events WHERE entity_id = ?")
+    .get(input.fromEntityId) as { sequence?: number } | undefined;
+  let sequence = Number(sequenceRow?.sequence ?? 0);
+  const appendProjectionEvent = (kind: "linked" | "unlinked", payload: Record<string, unknown>) => {
+    sequence += 1;
+    storage.db
+      .prepare(
+        "INSERT INTO events (id, entity_id, kind, sequence, created_at, actor, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        createEventId(input.fromEntityId, sequence),
+        input.fromEntityId,
+        kind,
+        sequence,
+        input.timestamp,
+        input.projectionOwner,
+        JSON.stringify(payload),
+      );
+  };
+
+  for (const record of desiredById.values()) {
+    const existing = existingById.get(record.id);
+    storage.db
+      .prepare(
+        `
+          INSERT INTO links (id, kind, from_entity_id, to_entity_id, metadata_json, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            kind = excluded.kind,
+            from_entity_id = excluded.from_entity_id,
+            to_entity_id = excluded.to_entity_id,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        record.id,
+        record.kind,
+        input.fromEntityId,
+        record.toEntityId,
+        JSON.stringify(record.metadata),
+        record.createdAt,
+        input.timestamp,
+      );
+    if (!existing) {
+      appendProjectionEvent("linked", {
+        change: "projected_link_added",
+        projectionOwner: input.projectionOwner,
+        linkId: record.id,
+        linkKind: record.kind,
+        toEntityId: record.toEntityId,
+      });
+    }
+  }
+
+  for (const existing of existingManaged) {
+    if (desiredById.has(existing.id)) {
+      continue;
+    }
+    storage.db.prepare("DELETE FROM links WHERE id = ?").run(existing.id);
+    appendProjectionEvent("unlinked", {
+      change: "projected_link_removed",
+      projectionOwner: input.projectionOwner,
+      linkId: existing.id,
+      linkKind: existing.kind,
+      toEntityId: existing.to_entity_id,
+    });
+  }
+}
+
 function normalizePolicySnapshot(input: Partial<RalphPolicySnapshot> | undefined): RalphPolicySnapshot {
   return {
     mode: normalizePolicyMode(input?.mode),
@@ -1705,6 +1868,8 @@ export class RalphStore {
       artifacts,
     };
     const { storage, identity } = openRalphCatalogSync(this.cwd);
+    const desiredProjectedLinks = buildProjectedRalphLinks(record.state);
+    assertProjectedRalphLinksResolvable(this.cwd, identity.space.id, desiredProjectedLinks);
     const owningRepositoryId = resolveOwningRepositoryId(storage, identity.repository.id);
     const existing = findStoredRalphRow(this.cwd, record.summary.id);
     const entityId =
@@ -1749,15 +1914,14 @@ export class RalphStore {
       runtimeArtifacts,
       record.state.updatedAt,
     );
-    void syncProjectedEntityLinks({
-      storage,
+    // Roadmap refs point at embedded constitution items, so phase 1 projects only canonical entity relationships.
+    syncProjectedRalphLinksSync(this.cwd, {
       spaceId: identity.space.id,
       fromEntityId: entityId,
       projectionOwner: RALPH_LINK_PROJECTION_OWNER,
-      // Roadmap refs point at embedded constitution items, so phase 1 projects only canonical entity relationships.
-      desired: buildProjectedRalphLinks(record.state),
+      desired: desiredProjectedLinks,
       timestamp: record.state.updatedAt,
-    }).catch(() => undefined);
+    });
     return record;
   }
 
@@ -2658,14 +2822,23 @@ export class RalphStore {
 
   archiveRun(ref: string): RalphReadResult {
     const current = this.readRun(ref);
+    const archivedAt = currentTimestamp();
     return this.writeArtifacts({
       ...current.state,
       status: "archived",
       phase: "halted",
       waitingFor: "none",
+      steeringQueue: [],
+      stopRequest: null,
+      scheduler: {
+        status: "completed",
+        updatedAt: archivedAt,
+        jobId: null,
+        note: "Ralph run archived.",
+      },
       nextIterationId: null,
       nextLaunch: clearPreparedLaunchState(current.state.nextLaunch, []),
-      updatedAt: currentTimestamp(),
+      updatedAt: archivedAt,
     });
   }
 

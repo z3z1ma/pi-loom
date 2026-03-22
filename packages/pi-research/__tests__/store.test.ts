@@ -2,11 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createInitiativeStore } from "../../pi-initiatives/extensions/domain/store.js";
-import { createSpecStore } from "../../pi-specs/extensions/domain/store.js";
 import { findEntityByDisplayId } from "../../pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "../../pi-storage/storage/workspace.js";
-import { createTicketStore } from "../../pi-ticketing/extensions/domain/store.js";
 import { createResearchStore } from "../extensions/domain/store.js";
 
 describe("research store", () => {
@@ -26,13 +23,6 @@ describe("research store", () => {
 
   it("persists durable research state, append-only hypotheses, artifacts, dashboards, and maps", async () => {
     const store = createResearchStore(workspace);
-    const initiativeStore = createInitiativeStore(workspace);
-    const specStore = createSpecStore(workspace);
-    const ticketStore = createTicketStore(workspace);
-
-    await initiativeStore.createInitiative({ title: "Theme modernization" });
-    await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" });
 
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
     const created = await store.createResearch({
@@ -187,29 +177,6 @@ describe("research store", () => {
       ]),
     );
 
-    const linked = await store.updateResearch("evaluate-theme-architecture", {
-      initiativeIds: ["theme-modernization"],
-      specChangeIds: ["add-dark-mode"],
-      ticketIds: [ticket.summary.id],
-    });
-    expect(linked.dashboard).toMatchObject({
-      linkedInitiatives: { total: 1, items: [expect.objectContaining({ id: "theme-modernization" })] },
-      linkedSpecs: { total: 1, items: [expect.objectContaining({ id: "add-dark-mode" })] },
-      linkedTickets: { total: 1, items: [expect.objectContaining({ id: ticket.summary.id })] },
-    });
-    expect((await initiativeStore.readInitiative("theme-modernization")).state.researchIds).toEqual([
-      "evaluate-theme-architecture",
-    ]);
-    expect((await specStore.readChange("add-dark-mode")).state.researchIds).toEqual(["evaluate-theme-architecture"]);
-    expect((await ticketStore.readTicketAsync(ticket.summary.id)).summary.researchIds).toEqual([
-      "evaluate-theme-architecture",
-    ]);
-
-    expect(linked.hypothesisHistory).toHaveLength(3);
-    expect(linked.hypothesisHistory).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "hyp-002", status: "rejected" })]),
-    );
-
     expect(withArtifact.dashboard.hypotheses.counts.supported).toBe(1);
     expect(withArtifact.dashboard.artifacts.counts.experiment).toBe(1);
     expect(withArtifact.dashboard).not.toHaveProperty("generatedAt");
@@ -239,6 +206,52 @@ describe("research store", () => {
         id: "alpha-research",
         ref: "research:alpha-research",
       }),
+    ]);
+  });
+
+  it("normalizes accepted research refs and fails truthfully for unknown research", async () => {
+    const store = createResearchStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T09:00:00.000Z"));
+    await store.createResearch({
+      title: "Evaluate theme architecture",
+      question: "Should theme state move into a shared service?",
+      keywords: ["theme", "architecture"],
+    });
+
+    await expect(store.readResearch("evaluate-theme-architecture")).resolves.toMatchObject({
+      summary: { id: "evaluate-theme-architecture" },
+    });
+    await expect(store.readResearch("research:evaluate-theme-architecture")).resolves.toMatchObject({
+      summary: { id: "evaluate-theme-architecture" },
+    });
+    await expect(store.readResearch("research:evaluate-theme-architecture:document")).resolves.toMatchObject({
+      summary: { id: "evaluate-theme-architecture" },
+    });
+
+    await expect(store.listResearch({ keyword: "theme" })).resolves.toEqual([
+      expect.objectContaining({ id: "evaluate-theme-architecture" }),
+    ]);
+    await expect(store.listResearch({ keyword: "arch" })).resolves.toEqual([]);
+
+    await expect(store.readResearch("research:missing-research")).rejects.toThrow("Unknown research: missing-research");
+    await expect(
+      store.recordHypothesis("research:missing-research", {
+        statement: "Unknown records should not materialize during hypothesis writes.",
+      }),
+    ).rejects.toThrow("Unknown research: missing-research");
+    await expect(
+      store.recordArtifact("research:missing-research", {
+        kind: "note",
+        title: "Unknown artifact target",
+      }),
+    ).rejects.toThrow("Unknown research: missing-research");
+    await expect(store.linkInitiative("research:missing-research", "theme-modernization")).rejects.toThrow(
+      "Unknown research: missing-research",
+    );
+
+    await expect(store.listResearch({ includeArchived: true })).resolves.toEqual([
+      expect.objectContaining({ id: "evaluate-theme-architecture" }),
     ]);
   });
 

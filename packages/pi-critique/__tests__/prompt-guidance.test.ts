@@ -7,7 +7,7 @@ describe("critique prompt guidance", () => {
 
     expect(guidance).toContain("Critique is a first-class Loom memory layer.");
     expect(guidance).toContain("fresh reviewer context");
-    expect(guidance).toContain("Critique is distinct from execution and distinct from Ralph looping");
+    expect(guidance).toContain("Critique is distinct from execution and from Ralph looping:");
     expect(guidance).toContain("persist concrete findings and follow-up tickets");
     expect(guidance).toContain(
       "Durable critique artifacts must be self-contained and detail-first at the critique layer",

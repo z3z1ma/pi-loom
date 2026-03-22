@@ -253,6 +253,7 @@ describe("CritiqueStore durable memory", () => {
     expect(ticketified.state.followupTicketIds).toEqual(["t-0002"]);
     expect(ticketified.findings.find((finding) => finding.id === "finding-001")?.linkedTicketId).toBe("t-0002");
     expect(ticketified.findings.find((finding) => finding.id === "finding-001")?.status).toBe("accepted");
+    expect(ticketified.state.openFindingIds).toEqual(["finding-001", "finding-002"]);
     const ticketifiedArtifact = await findEntityByDisplayId(
       storage,
       identity.space.id,
@@ -270,11 +271,16 @@ describe("CritiqueStore durable memory", () => {
     expect(followupTicket.ticket.body.context).toContain(`Critique: ${critique.state.critiqueId}`);
     expect(followupTicket.ticket.body.context).toContain("Finding: finding-001");
 
+    await expect(critiqueStore.resolveCritiqueAsync(critique.state.critiqueId)).rejects.toThrow(
+      "Cannot resolve critique with active findings",
+    );
+
     vi.setSystemTime(new Date("2026-03-15T10:55:00.000Z"));
     const fixed = await critiqueStore.updateFindingAsync(critique.state.critiqueId, {
       id: "finding-001",
       status: "fixed",
       resolutionNotes: "Launch tests now cover descriptor-only behavior.",
+      recommendedAction: "Do not rewrite finding history.",
     });
     const rejected = await critiqueStore.updateFindingAsync(critique.state.critiqueId, {
       id: "finding-002",
@@ -282,6 +288,12 @@ describe("CritiqueStore durable memory", () => {
       resolutionNotes: "Doctrine update already landed in the same change.",
     });
     expect(fixed.findings.find((finding) => finding.id === "finding-001")?.status).toBe("fixed");
+    expect(fixed.findings.find((finding) => finding.id === "finding-001")?.recommendedAction).toBe(
+      "Add targeted launch tests that assert descriptor-only behavior.",
+    );
+    expect(fixed.findings.find((finding) => finding.id === "finding-001")?.evidence).toEqual([
+      "No test covered launch.json generation or descriptor semantics.",
+    ]);
     expect(rejected.state.openFindingIds).toEqual([]);
 
     vi.setSystemTime(new Date("2026-03-15T11:00:00.000Z"));

@@ -81,11 +81,17 @@ describe("spec tools", () => {
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
       "When proposing a specification, title it around the behavior or capability being specified rather than an implementation-task verb or migration delta.",
     );
+    expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
+      "`clarify`, `specify`, and other spec mutations are for mutable specs only. After `finalize`, the spec becomes read-only; after `archive`, it is terminal and remains available only for reading, lineage, and capability provenance.",
+    );
     expect(getTool(mockPi, "spec_write").description).toContain(
       "keeping specifications declarative and implementation-decoupled while plans and tickets stay execution-aware",
     );
     expect(getTool(mockPi, "spec_read").promptGuidelines).toContain(
       "Treat plans as the implementation bridge and tickets as the execution ledger; the specification defines the behavior they must honor.",
+    );
+    expect(getTool(mockPi, "spec_analyze").promptGuidelines).toContain(
+      "Analysis and checklist generation mutate stored artifacts, so they are only valid while the spec is still mutable; rerun them before finalize, not after finalize or archive.",
     );
   });
 
@@ -183,6 +189,56 @@ describe("spec tools", () => {
           state: { capabilities: [expect.objectContaining({ id: "theme-toggling" })] },
         },
       });
+
+      await expect(
+        specWrite.execute(
+          "call-7",
+          {
+            action: "clarify",
+            ref: "dark-theme-support",
+            question: "Can we keep editing this?",
+            answer: "No.",
+          },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("Spec dark-theme-support is finalized and cannot record clarifications.");
+
+      await expect(
+        specAnalyze.execute("call-8", { ref: "dark-theme-support", mode: "analysis" }, undefined, undefined, ctx),
+      ).rejects.toThrow("Spec dark-theme-support is finalized and cannot refresh analysis.");
+
+      const archived = await specWrite.execute(
+        "call-9",
+        { action: "archive", ref: "dark-theme-support" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(archived.details).toMatchObject({
+        action: "archive",
+        change: { summary: { status: "archived" } },
+      });
+
+      await expect(
+        specWrite.execute(
+          "call-10",
+          {
+            action: "specify",
+            ref: "dark-theme-support",
+            capabilities: [
+              {
+                title: "Late edit",
+                requirements: ["This should not land."],
+              },
+            ],
+          },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("Spec dark-theme-support is archived and cannot change specification details.");
     } finally {
       cleanup();
     }

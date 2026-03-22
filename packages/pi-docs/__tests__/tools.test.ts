@@ -200,8 +200,16 @@ describe("docs tools", () => {
 
     expect(getTool(mockPi, "docs_update").promptSnippet).toContain("fresh process");
     expect(getTool(mockPi, "docs_list").promptSnippet).toContain("substantial durable explanations");
+    expect(getTool(mockPi, "docs_list").parameters).toMatchObject({
+      properties: {
+        status: expect.objectContaining({ enum: ["active", "archived"] }),
+      },
+    });
     expect(getTool(mockPi, "docs_write").promptGuidelines).toContain(
       "Use update with document content after completed work changes system understanding; write self-contained, high-context explanation rather than API reference snippets or shallow summaries.",
+    );
+    expect(getTool(mockPi, "docs_write").promptGuidelines).toContain(
+      "Updating `contextRefs` replaces the stored ref buckets you send; pass the full desired bucket contents, and use empty arrays to clear incorrect refs.",
     );
     expect(getTool(mockPi, "docs_read").promptSnippet).toContain("existing context, rationale, and boundaries");
   });
@@ -328,7 +336,7 @@ describe("docs tools", () => {
 
       const read = await docsRead.execute(
         "call-read-document",
-        { ref: docId, mode: "document" },
+        { ref: `${docId}/state.md`, mode: "document" },
         undefined,
         undefined,
         ctx,
@@ -352,6 +360,140 @@ describe("docs tools", () => {
       );
       expect(listed.details).toMatchObject({
         docs: [expect.objectContaining({ id: docId, ref: `documentation:${docId}`, revisionCount: 1 })],
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("replaces context refs on update and records archive history through docs_write", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const mockPi = createMockPi();
+      const { registerDocsTools } = await import("../extensions/tools/docs.js");
+      registerDocsTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const docsWrite = getTool(mockPi, "docs_write");
+      const docsRead = getTool(mockPi, "docs_read");
+
+      const created = await docsWrite.execute(
+        "call-create-archiveable-doc",
+        {
+          action: "create",
+          title: "Archiveable documentation",
+          docType: "overview",
+          summary: "A doc used to verify archive lifecycle behavior.",
+          audience: ["ai", "human"],
+          sourceTarget: { kind: "workspace", ref: "repo" },
+          contextRefs: {
+            roadmapItemIds: ["roadmap-1"],
+          },
+          updateReason: "Seed an archive lifecycle test document.",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const docId = (created.details as { documentation: { summary: { id: string } } }).documentation.summary.id;
+
+      const corrected = await docsWrite.execute(
+        "call-correct-context-refs",
+        {
+          action: "update",
+          ref: docId,
+          summary: "A doc used to verify context ref replacement and archive lifecycle behavior.",
+          contextRefs: {},
+          updateReason: "Correct the linked context refs.",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      expect(corrected.details).toMatchObject({
+        documentation: {
+          state: {
+            contextRefs: {
+              roadmapItemIds: [],
+              initiativeIds: [],
+              researchIds: [],
+              specChangeIds: [],
+              ticketIds: [],
+              critiqueIds: [],
+            },
+          },
+          revisions: [expect.anything()],
+        },
+      });
+
+      const archived = await docsWrite.execute(
+        "call-archive-doc",
+        {
+          action: "archive",
+          ref: docId,
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      expect(archived.details).toMatchObject({
+        action: "archive",
+        documentation: {
+          state: { status: "archived", lastRevisionId: "rev-002" },
+          revisions: [
+            expect.objectContaining({ id: "rev-001" }),
+            expect.objectContaining({
+              id: "rev-002",
+              reason: "Archive Archiveable documentation after it stops describing the active system state.",
+              linkedContextRefs: {
+                roadmapItemIds: [],
+                initiativeIds: [],
+                researchIds: [],
+                specChangeIds: [],
+                ticketIds: [],
+                critiqueIds: [],
+              },
+            }),
+          ],
+        },
+      });
+
+      await expect(
+        docsWrite.execute(
+          "call-update-archived-doc",
+          {
+            action: "update",
+            ref: docId,
+            summary: "This update must fail because the doc is archived.",
+          },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("Cannot update archived documentation");
+
+      const archivedRead = await docsRead.execute(
+        "call-read-archived-doc",
+        { ref: `${docId}/state.md`, mode: "state" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(archivedRead.details).toMatchObject({
+        state: {
+          status: "archived",
+          contextRefs: {
+            roadmapItemIds: [],
+            initiativeIds: [],
+            researchIds: [],
+            specChangeIds: [],
+            ticketIds: [],
+            critiqueIds: [],
+          },
+        },
       });
     } finally {
       cleanup();

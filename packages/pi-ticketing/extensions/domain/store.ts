@@ -30,7 +30,7 @@ import type {
   TicketSummary,
   UpdateTicketInput,
 } from "./models.js";
-import { currentTimestamp, normalizeOptionalString, normalizeStringList, normalizeTicketId } from "./normalize.js";
+import { currentTimestamp, normalizeOptionalString, normalizeStringList, normalizeTicketRef } from "./normalize.js";
 import { getAttachmentSourceRef, getCheckpointRef, getTicketRef } from "./paths.js";
 import { filterTickets, summarizeTickets } from "./query.js";
 
@@ -69,8 +69,7 @@ function parseTicketRef(value: string): string {
     throw new Error("Ticket reference is required");
   }
   const withoutPrefix = trimmed.startsWith("ticket:") ? trimmed.slice("ticket:".length) : trimmed;
-  const normalized = withoutPrefix.startsWith("#") ? withoutPrefix.slice(1) : withoutPrefix;
-  return normalizeTicketId(normalized);
+  return normalizeTicketRef(withoutPrefix);
 }
 
 function parsePlanExternalRef(value: string): string | null {
@@ -211,6 +210,7 @@ export class TicketStore {
     ref: string,
     externalRef: string,
     present: boolean,
+    options: { allowClosed?: boolean } = {},
   ): Promise<TicketReadResult> {
     const ticketId = this.resolveTicketRef(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, ticketId);
@@ -230,6 +230,9 @@ export class TicketStore {
     const hasRef = current.ticket.frontmatter["external-refs"].includes(normalizedRef);
     if (present === hasRef) {
       return current;
+    }
+    if (!options.allowClosed) {
+      this.assertReopenedBeforeStructuralEdit(current, `${present ? "add" : "remove"} external refs`);
     }
 
     const timestamp = currentTimestamp();
@@ -396,6 +399,12 @@ export class TicketStore {
     }
   }
 
+  private assertReopenedBeforeStructuralEdit(record: TicketReadResult, action: string): void {
+    if (record.ticket.closed) {
+      throw new Error(`Closed ticket ${record.summary.id} cannot ${action}; use reopen before editing it.`);
+    }
+  }
+
   async initLedgerAsync(): Promise<{ initialized: true; root: string }> {
     return this.initLedger();
   }
@@ -507,7 +516,7 @@ export class TicketStore {
     const current = await this.readTicketAsync(ref);
     const hasUpdates = Object.values(updates).some((value) => value !== undefined);
     if (current.ticket.closed && hasUpdates) {
-      throw new Error(`Closed ticket ${current.summary.id} cannot be updated; use reopen before editing it.`);
+      this.assertReopenedBeforeStructuralEdit(current, "be updated");
     }
     const timestamp = currentTimestamp();
     const record: TicketRecord = {
@@ -720,6 +729,7 @@ export class TicketStore {
 
   async startTicketAsync(ref: string): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
+    this.assertReopenedBeforeStructuralEdit(current, "be started");
     this.assertTransitionAllowed(
       current.summary.id,
       current.ticket.frontmatter.deps,
@@ -843,6 +853,7 @@ export class TicketStore {
     if (current.ticket.frontmatter.deps.includes(depId)) {
       return current;
     }
+    this.assertReopenedBeforeStructuralEdit(current, "add dependencies");
     this.validateRelationships(
       current.summary.id,
       [...current.ticket.frontmatter.deps, depId],
@@ -870,6 +881,10 @@ export class TicketStore {
   async removeDependencyAsync(ref: string, depRef: string): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
     const depId = this.resolveTicketRef(depRef);
+    if (!current.ticket.frontmatter.deps.includes(depId)) {
+      return current;
+    }
+    this.assertReopenedBeforeStructuralEdit(current, "remove dependencies");
     const timestamp = currentTimestamp();
     current.ticket.frontmatter.deps = current.ticket.frontmatter.deps.filter((dependency) => dependency !== depId);
     current.ticket.frontmatter["updated-at"] = timestamp;
@@ -976,10 +991,24 @@ export class TicketStore {
     return this.readTicketAsync(current.summary.id);
   }
 
-  async setInitiativeIdsAsync(ref: string, initiativeIds: string[]): Promise<TicketReadResult> {
+  async setInitiativeIdsAsync(
+    ref: string,
+    initiativeIds: string[],
+    options: { allowClosed?: boolean } = {},
+  ): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
+    const normalizedInitiativeIds = normalizeStringList(initiativeIds);
+    if (
+      normalizedInitiativeIds.length === current.ticket.frontmatter["initiative-ids"].length &&
+      normalizedInitiativeIds.every((value, index) => value === current.ticket.frontmatter["initiative-ids"][index])
+    ) {
+      return current;
+    }
+    if (!options.allowClosed) {
+      this.assertReopenedBeforeStructuralEdit(current, "change initiative links");
+    }
     const timestamp = currentTimestamp();
-    current.ticket.frontmatter["initiative-ids"] = normalizeStringList(initiativeIds);
+    current.ticket.frontmatter["initiative-ids"] = normalizedInitiativeIds;
     current.ticket.frontmatter["updated-at"] = timestamp;
     current.journal = [
       ...current.journal,
@@ -996,10 +1025,24 @@ export class TicketStore {
     return this.readTicketAsync(current.summary.id);
   }
 
-  async setResearchIdsAsync(ref: string, researchIds: string[]): Promise<TicketReadResult> {
+  async setResearchIdsAsync(
+    ref: string,
+    researchIds: string[],
+    options: { allowClosed?: boolean } = {},
+  ): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
+    const normalizedResearchIds = normalizeStringList(researchIds);
+    if (
+      normalizedResearchIds.length === current.ticket.frontmatter["research-ids"].length &&
+      normalizedResearchIds.every((value, index) => value === current.ticket.frontmatter["research-ids"][index])
+    ) {
+      return current;
+    }
+    if (!options.allowClosed) {
+      this.assertReopenedBeforeStructuralEdit(current, "change research links");
+    }
     const timestamp = currentTimestamp();
-    current.ticket.frontmatter["research-ids"] = normalizeStringList(researchIds);
+    current.ticket.frontmatter["research-ids"] = normalizedResearchIds;
     current.ticket.frontmatter["updated-at"] = timestamp;
     current.journal = [
       ...current.journal,
@@ -1016,18 +1059,26 @@ export class TicketStore {
     return this.readTicketAsync(current.summary.id);
   }
 
-  async addExternalRefAsync(ref: string, externalRef: string): Promise<TicketReadResult> {
+  async addExternalRefAsync(
+    ref: string,
+    externalRef: string,
+    options: { allowClosed?: boolean } = {},
+  ): Promise<TicketReadResult> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const updated = await storage.transact((tx) =>
-      this.syncExternalRefWithStorage(tx, identity, ref, externalRef, true),
+      this.syncExternalRefWithStorage(tx, identity, ref, externalRef, true, options),
     );
     return this.readTicketAsync(updated.summary.id);
   }
 
-  async removeExternalRefAsync(ref: string, externalRef: string): Promise<TicketReadResult> {
+  async removeExternalRefAsync(
+    ref: string,
+    externalRef: string,
+    options: { allowClosed?: boolean } = {},
+  ): Promise<TicketReadResult> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
     const updated = await storage.transact((tx) =>
-      this.syncExternalRefWithStorage(tx, identity, ref, externalRef, false),
+      this.syncExternalRefWithStorage(tx, identity, ref, externalRef, false, options),
     );
     return this.readTicketAsync(updated.summary.id);
   }

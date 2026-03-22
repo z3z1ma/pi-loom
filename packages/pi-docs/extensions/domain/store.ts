@@ -76,6 +76,10 @@ function mergeContextRefs(...refs: Array<Partial<DocsContextRefs> | undefined>):
   });
 }
 
+function archiveReason(title: string): string {
+  return `Archive ${title} after it stops describing the active system state.`;
+}
+
 function excerpt(value: string, limit = 280): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (!normalized) {
@@ -963,8 +967,39 @@ export class DocumentationStore {
     );
   }
 
+  private async buildAppendedRevision(
+    current: DocumentationReadResult,
+    nextState: DocumentationState,
+    documentBody: string,
+    options?: { changedSections?: readonly string[]; documentUpdated?: boolean },
+  ): Promise<DocumentationRevisionRecord> {
+    const revisionId = nextSequenceId(
+      current.revisions.map((entry) => entry.id),
+      "rev",
+    );
+    const packetForRevision = await this.buildPacketCanonical(nextState, current.revisions, documentBody);
+    return {
+      id: revisionId,
+      docId: current.state.docId,
+      createdAt: nextState.updatedAt,
+      reason: nextState.updateReason,
+      summary: nextState.summary || summarizeDocument(documentBody),
+      sourceTarget: nextState.sourceTarget,
+      packetHash: packetHash(packetForRevision),
+      changedSections: options?.changedSections
+        ? normalizeStringList(options.changedSections)
+        : options?.documentUpdated
+          ? extractMarkdownSections(documentBody)
+          : [],
+      linkedContextRefs: nextState.contextRefs,
+    };
+  }
+
   async updateDoc(ref: string, input: UpdateDocumentationInput): Promise<DocumentationReadResult> {
     const current = await this.readDoc(ref);
+    if (current.state.status !== "active") {
+      throw new Error(`Cannot update ${current.state.status} documentation: ${current.state.docId}`);
+    }
     const documentBody =
       input.document?.trim() ||
       this.extractDocumentBody(current.document, current.dashboard.documentRef) ||
@@ -977,9 +1012,7 @@ export class DocumentationStore {
       summary: input.summary?.trim() ?? (documentUpdated ? summarizeDocument(documentBody) : current.state.summary),
       audience: input.audience ? normalizeAudience(input.audience) : current.state.audience,
       scopePaths: input.scopePaths ? normalizeStringList(input.scopePaths) : current.state.scopePaths,
-      contextRefs: input.contextRefs
-        ? mergeContextRefs(current.state.contextRefs, input.contextRefs)
-        : current.state.contextRefs,
+      contextRefs: input.contextRefs ? normalizeContextRefs(input.contextRefs) : current.state.contextRefs,
       sourceTarget: input.sourceTarget
         ? { kind: normalizeSourceTargetKind(input.sourceTarget.kind), ref: input.sourceTarget.ref.trim() }
         : current.state.sourceTarget,
@@ -989,32 +1022,13 @@ export class DocumentationStore {
         ? normalizeStringList(input.linkedOutputPaths)
         : current.state.linkedOutputPaths,
     };
-    const revisionId = nextSequenceId(
-      current.revisions.map((entry) => entry.id),
-      "rev",
-    );
-    const packetForRevision = await this.buildPacketCanonical(nextState, current.revisions, documentBody);
-    const revisions = [
-      ...current.revisions,
-      {
-        id: revisionId,
-        docId: current.state.docId,
-        createdAt: nextState.updatedAt,
-        reason: nextState.updateReason,
-        summary: nextState.summary || summarizeDocument(documentBody),
-        sourceTarget: nextState.sourceTarget,
-        packetHash: packetHash(packetForRevision),
-        changedSections: input.changedSections
-          ? normalizeStringList(input.changedSections)
-          : documentUpdated
-            ? extractMarkdownSections(documentBody)
-            : [],
-        linkedContextRefs: nextState.contextRefs,
-      },
-    ];
+    const revision = await this.buildAppendedRevision(current, nextState, documentBody, {
+      changedSections: input.changedSections,
+      documentUpdated,
+    });
     const nextRecord = await this.buildCanonicalRecord({
-      state: { ...nextState, lastRevisionId: revisionId },
-      revisions,
+      state: { ...nextState, lastRevisionId: revision.id },
+      revisions: [...current.revisions, revision],
       documentBody,
     });
     return this.upsertCanonicalRecord(nextRecord);
@@ -1022,13 +1036,24 @@ export class DocumentationStore {
 
   async archiveDoc(ref: string): Promise<DocumentationReadResult> {
     const current = await this.readDoc(ref);
+    if (current.state.status === "archived") {
+      return current;
+    }
+    const documentBody =
+      this.extractDocumentBody(current.document, current.dashboard.documentRef) ||
+      this.defaultDocumentBody(current.state);
+    const nextState: DocumentationState = {
+      ...current.state,
+      status: "archived",
+      updatedAt: currentTimestamp(),
+      updateReason: archiveReason(current.state.title),
+    };
+    const revision = await this.buildAppendedRevision(current, nextState, documentBody);
     return this.upsertCanonicalRecord(
       await this.buildCanonicalRecord({
-        state: { ...current.state, status: "archived", updatedAt: currentTimestamp() },
-        revisions: current.revisions,
-        documentBody:
-          this.extractDocumentBody(current.document, current.dashboard.documentRef) ||
-          this.defaultDocumentBody(current.state),
+        state: { ...nextState, lastRevisionId: revision.id },
+        revisions: [...current.revisions, revision],
+        documentBody,
       }),
     );
   }

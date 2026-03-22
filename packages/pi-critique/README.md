@@ -9,7 +9,13 @@ This package adds a first-class critique layer where critique runs, findings, an
 - `critique_*` tools for list/read/write/launch/run/finding/dashboard workflows
 - canonical critique records stored in SQLite with runs and findings history; packets and dashboards are rendered on demand from the SQLite store
 - packet compilation that pulls linked constitution, initiative, research, spec, and ticket context into a fresh-review handoff
-- follow-up ticket creation for accepted findings
+- follow-up ticket creation that marks findings as `accepted` while keeping them active until they are fixed, rejected, or superseded
+
+## Finding lifecycle semantics
+
+- finding bodies are append-only after creation: title, summary, evidence, scope, and recommended action stay stable; later updates only change lifecycle fields like status, linked ticket id, and resolution notes
+- critique resolution is blocked while any active findings remain; both `open` and `accepted` findings count as active follow-up work
+- findings record the originating `runId`, and the store validates that the referenced run exists on the same critique; the package does not claim stronger run-to-finding causality than that stored reference
 
 ## Artifact policy
 

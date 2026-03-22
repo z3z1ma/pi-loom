@@ -105,6 +105,29 @@ function union(left: readonly string[], right: readonly string[]): string[] {
   return normalizeStringList([...left, ...right]);
 }
 
+function isImmutableStatus(status: SpecChangeState["status"]): boolean {
+  return status === "finalized" || status === "archived";
+}
+
+function assertMutableSpec(record: SpecChangeRecord, action: string): void {
+  if (!isImmutableStatus(record.state.status)) {
+    return;
+  }
+  throw new Error(`Spec ${record.state.changeId} is ${record.state.status} and cannot ${action}.`);
+}
+
+function assertFinalizable(record: SpecChangeRecord): void {
+  if (record.state.status === "finalized") {
+    throw new Error(`Spec ${record.state.changeId} is already finalized.`);
+  }
+  if (record.state.status === "archived") {
+    throw new Error(`Spec ${record.state.changeId} is archived and cannot finalize again.`);
+  }
+  if (record.state.status !== "specified") {
+    throw new Error(`Spec ${record.state.changeId} must be specified before finalize.`);
+  }
+}
+
 function summarizeChange(state: SpecChangeState, archived: boolean): SpecChangeSummary {
   return {
     id: state.changeId,
@@ -518,6 +541,7 @@ export class SpecStore {
     kind: SpecDecisionKind = "clarification",
   ): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
+    assertMutableSpec(record, "record clarifications");
     const decision: SpecDecisionRecord = {
       id: nextSequenceId(
         record.decisions.map((entry) => entry.id),
@@ -558,6 +582,7 @@ export class SpecStore {
 
   async updatePlan(ref: string, input: SpecPlanInput): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
+    assertMutableSpec(record, "change specification details");
     const state = this.normalizeState({ ...record.state });
     if (input.designNotes !== undefined) {
       state.designNotes = input.designNotes.trim();
@@ -616,6 +641,7 @@ export class SpecStore {
 
   async setInitiativeIds(ref: string, initiativeIds: string[]): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
+    assertMutableSpec(record, "change initiative links");
     const state = this.normalizeState({
       ...record.state,
       initiativeIds: normalizeStringList(initiativeIds),
@@ -626,6 +652,7 @@ export class SpecStore {
 
   async setResearchIds(ref: string, researchIds: string[]): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
+    assertMutableSpec(record, "change research links");
     const state = this.normalizeState({
       ...record.state,
       researchIds: normalizeStringList(researchIds),
@@ -636,6 +663,7 @@ export class SpecStore {
 
   async analyzeChange(ref: string): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
+    assertMutableSpec(record, "refresh analysis");
     const state = this.normalizeState({ ...record.state, updatedAt: currentTimestamp() });
     const analysis = renderAnalysisMarkdown(analyzeSpecChange(state));
     return this.persistCanonicalChange(state, record.decisions, analysis, record.checklist);
@@ -643,6 +671,7 @@ export class SpecStore {
 
   async generateChecklist(ref: string): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
+    assertMutableSpec(record, "refresh checklist");
     const state = this.normalizeState({ ...record.state, updatedAt: currentTimestamp() });
     const checklist = renderChecklistMarkdown(buildSpecChecklist(state));
     return this.persistCanonicalChange(state, record.decisions, record.analysis, checklist);
@@ -650,6 +679,7 @@ export class SpecStore {
 
   async finalizeChange(ref: string): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
+    assertFinalizable(record);
     const state = this.normalizeState({ ...record.state });
     const analysis = renderAnalysisMarkdown(analyzeSpecChange(state));
     const checklist = renderChecklistMarkdown(buildSpecChecklist(state));

@@ -139,31 +139,66 @@ describe("DocumentationStore durable memory", () => {
     expect(revised.document).toContain("Documentation remains distinct from critique");
 
     vi.setSystemTime(new Date("2026-03-15T11:25:00.000Z"));
-    const metadataOnlyRevision = await docsStore.updateDoc(doc.state.docId, {
+    const correctedContextRefsRevision = await docsStore.updateDoc(doc.state.docId, {
       summary: "Explains the docs packet, fresh updater, revision events, and durable revision history.",
-      updateReason: "Refresh the summary without changing the rendered markdown.",
+      updateReason: "Refresh the summary and correct the linked context refs.",
+      contextRefs: {
+        initiativeIds: [initiative.state.initiativeId],
+      },
       guideTopics: ["documentation-memory", "fresh-updater", "revision-events"],
     });
 
-    expect(metadataOnlyRevision.revisions).toHaveLength(2);
-    expect(metadataOnlyRevision.revisions[1]).toMatchObject({
+    expect(correctedContextRefsRevision.revisions).toHaveLength(2);
+    expect(correctedContextRefsRevision.revisions[1]).toMatchObject({
       id: "rev-002",
-      reason: "Refresh the summary without changing the rendered markdown.",
+      reason: "Refresh the summary and correct the linked context refs.",
       changedSections: [],
       summary: "Explains the docs packet, fresh updater, revision events, and durable revision history.",
     });
-    expect(parseMarkdownArtifact(metadataOnlyRevision.document, metadataOnlyRevision.dashboard.documentRef).body).toBe(
-      parseMarkdownArtifact(revised.document, revised.dashboard.documentRef).body,
+    expect(correctedContextRefsRevision.state.contextRefs).toEqual({
+      roadmapItemIds: [],
+      initiativeIds: [initiative.state.initiativeId],
+      researchIds: [],
+      specChangeIds: [],
+      ticketIds: [],
+      critiqueIds: [],
+    });
+    expect(correctedContextRefsRevision.revisions[1]?.linkedContextRefs).toEqual(
+      correctedContextRefsRevision.state.contextRefs,
     );
-    expect(metadataOnlyRevision.dashboard.revisionCount).toBe(2);
-    expect(metadataOnlyRevision.dashboard.lastRevision?.id).toBe("rev-002");
+    expect(
+      parseMarkdownArtifact(correctedContextRefsRevision.document, correctedContextRefsRevision.dashboard.documentRef)
+        .body,
+    ).toBe(parseMarkdownArtifact(revised.document, revised.dashboard.documentRef).body);
+    expect(correctedContextRefsRevision.dashboard.revisionCount).toBe(2);
+    expect(correctedContextRefsRevision.dashboard.lastRevision?.id).toBe("rev-002");
+
+    vi.setSystemTime(new Date("2026-03-15T11:30:00.000Z"));
+    const archived = await docsStore.archiveDoc(doc.state.docId);
+
+    expect(archived.state.status).toBe("archived");
+    expect(archived.state.lastRevisionId).toBe("rev-003");
+    expect(archived.revisions).toHaveLength(3);
+    expect(archived.revisions[2]).toMatchObject({
+      id: "rev-003",
+      reason: "Archive Documentation memory system after it stops describing the active system state.",
+      changedSections: [],
+      linkedContextRefs: correctedContextRefsRevision.state.contextRefs,
+    });
+    expect(archived.dashboard.revisionCount).toBe(3);
+    expect(archived.dashboard.lastRevision?.id).toBe("rev-003");
+    await expect(
+      docsStore.updateDoc(doc.state.docId, {
+        summary: "Archived docs must not accept further updates.",
+      }),
+    ).rejects.toThrow("Cannot update archived documentation");
 
     const { storage, identity } = await openWorkspaceStorage(workspace);
     const entity = await findEntityByDisplayId(storage, identity.space.id, "documentation", doc.state.docId);
     expect(entity?.attributes).toEqual({
       snapshot: {
-        state: metadataOnlyRevision.state,
-        revisions: metadataOnlyRevision.revisions,
+        state: archived.state,
+        revisions: archived.revisions,
         documentBody: [
           "## Summary",
           "The documentation layer stores focused high-level docs in durable SQLite-backed memory and updates them after completed changes.",
@@ -207,18 +242,29 @@ describe("DocumentationStore durable memory", () => {
           kind: "updated",
           actor: "documentation-store",
           payload: expect.objectContaining({
+            change: "documentation_revision_recorded",
+            revisionId: "rev-003",
+            documentUpdated: false,
+            changedSections: [],
+          }),
+        }),
+        expect.objectContaining({
+          kind: "updated",
+          actor: "documentation-store",
+          payload: expect.objectContaining({
             change: "documentation_persisted",
-            revisionCount: 2,
-            lastRevisionId: "rev-002",
+            revisionCount: 3,
+            lastRevisionId: "rev-003",
+            status: "archived",
           }),
         }),
       ]),
     );
 
     const reread = await docsStore.readDoc(doc.state.docId);
-    expect(reread.revisions).toEqual(metadataOnlyRevision.revisions);
-    expect(reread.document).toBe(metadataOnlyRevision.document);
-    expect(reread.packet).toBe(metadataOnlyRevision.packet);
-    expect(reread.dashboard).toEqual(metadataOnlyRevision.dashboard);
+    expect(reread.revisions).toEqual(archived.revisions);
+    expect(reread.document).toBe(archived.document);
+    expect(reread.packet).toBe(archived.packet);
+    expect(reread.dashboard).toEqual(archived.dashboard);
   }, 120000);
 });

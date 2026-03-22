@@ -1593,7 +1593,6 @@ export class CritiqueStore {
         input.linkedTicketId !== undefined ? normalizeOptionalString(input.linkedTicketId) : current.linkedTicketId,
       resolutionNotes:
         input.resolutionNotes !== undefined ? normalizeOptionalString(input.resolutionNotes) : current.resolutionNotes,
-      recommendedAction: input.recommendedAction?.trim() ?? current.recommendedAction,
     };
     return this.writeArtifacts(
       {
@@ -1609,11 +1608,12 @@ export class CritiqueStore {
 
   private resolveCritique(ref: string, verdict?: CritiqueState["currentVerdict"], persist = true): CritiqueReadResult {
     const critique = this.readCritique(ref);
-    const nextVerdict = verdict
-      ? normalizeVerdict(verdict)
-      : critique.state.openFindingIds.length === 0
-        ? "pass"
-        : critique.state.currentVerdict;
+    if (critique.state.openFindingIds.length > 0) {
+      throw new Error(
+        `Cannot resolve critique with active findings: ${critique.state.openFindingIds.join(", ")}. Accepted findings remain active until they are fixed, rejected, or superseded.`,
+      );
+    }
+    const nextVerdict = verdict ? normalizeVerdict(verdict) : "pass";
     return this.writeArtifacts(
       {
         ...critique.state,

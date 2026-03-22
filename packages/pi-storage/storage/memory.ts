@@ -96,6 +96,17 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
   }
 
   async upsertEntity(record: LoomEntityRecord): Promise<void> {
+    for (const existing of this.entities.values()) {
+      if (
+        existing.id !== record.id &&
+        existing.spaceId === record.spaceId &&
+        existing.kind === record.kind &&
+        existing.displayId !== null &&
+        existing.displayId === record.displayId
+      ) {
+        throw new Error(`Duplicate display id for ${record.kind} in ${record.spaceId}: ${record.displayId}`);
+      }
+    }
     this.entities.set(record.id, clone(record));
   }
 
@@ -114,6 +125,16 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
   }
 
   async upsertLink(record: LoomEntityLinkRecord): Promise<void> {
+    for (const existing of this.links.values()) {
+      if (
+        existing.id !== record.id &&
+        existing.kind === record.kind &&
+        existing.fromEntityId === record.fromEntityId &&
+        existing.toEntityId === record.toEntityId
+      ) {
+        throw new Error(`Duplicate link edge for ${record.kind}:${record.fromEntityId}->${record.toEntityId}`);
+      }
+    }
     this.links.set(record.id, clone(record));
   }
 
@@ -122,6 +143,14 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
   }
 
   async appendEvent(record: LoomEntityEventRecord): Promise<void> {
+    if (this.events.has(record.id)) {
+      throw new Error(`Event already exists: ${record.id}`);
+    }
+    for (const existing of this.events.values()) {
+      if (existing.entityId === record.entityId && existing.sequence === record.sequence) {
+        throw new Error(`Event sequence already exists for ${record.entityId}: ${record.sequence}`);
+      }
+    }
     this.events.set(record.id, clone(record));
   }
 

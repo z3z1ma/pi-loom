@@ -1,8 +1,4 @@
-import type {
-  BeforeAgentStartEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createResearchStore } from "./domain/store.js";
 import { buildResearchSystemPrompt, getBaseResearchGuidance } from "./prompts/guidance.js";
 import { registerResearchTools } from "./tools/research.js";

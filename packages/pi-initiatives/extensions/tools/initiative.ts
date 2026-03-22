@@ -65,7 +65,9 @@ const InitiativeListParams = Type.Object({
 });
 
 const InitiativeReadParams = Type.Object({
-  ref: Type.String({ description: "Initiative id or initiative directory path." }),
+  ref: Type.String({
+    description: "Existing initiative id or initiative directory path. Reads do not create missing initiatives.",
+  }),
 });
 
 const InitiativeMilestoneParams = Type.Object({
@@ -213,11 +215,12 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "initiative_read",
     label: "initiative_read",
-    description: "Read durable initiative state from the local strategic memory layer.",
+    description: "Read existing durable initiative state from the local strategic memory layer.",
     promptSnippet:
-      "Load the full strategic record before planning multi-spec or multi-ticket work against an initiative.",
+      "Load the full strategic record for an existing initiative before planning multi-spec or multi-ticket work against it.",
     promptGuidelines: [
       "Read the initiative before changing linked specs or tickets when durable strategic intent, rationale, risks, dependencies, or success criteria may matter.",
+      "If the initiative may not exist yet, list first or create it explicitly; reads fail for missing initiatives instead of bootstrapping new records.",
     ],
     parameters: InitiativeReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -235,6 +238,7 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Use this tool when work deserves durable strategic context beyond a single spec or ticket graph, and make that context detailed enough for later turns to understand the initiative without replaying chat.",
       "Keep initiative rationale, scope boundaries, milestones, dependencies, risks, metrics, links, and status truthful so future turns and agents can rely on them.",
+      "Status changes must remain lifecycle-truthful: entering `completed` or `archived` sets that terminal timestamp, and leaving either status clears the stale terminal timestamp.",
     ],
     parameters: InitiativeWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

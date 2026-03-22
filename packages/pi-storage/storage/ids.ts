@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { LoomEntityKind, LoomId } from "./contract.js";
 
 function compactHash(value: string): string {
@@ -6,7 +6,7 @@ function compactHash(value: string): string {
 }
 
 export function createRandomLoomId(prefix: string): LoomId {
-  return `${prefix}_${randomUUID().replace(/-/g, "")}`;
+  return `${prefix}_${randomBytes(8).toString("hex")}`;
 }
 
 export function createStableLoomId(prefix: string, parts: readonly string[]): LoomId {
@@ -35,10 +35,10 @@ export function createEntityId(
   displayId: string | null,
   fallbackKey: string,
 ): LoomId {
-  if (displayId?.trim()) {
-    return createStableLoomId(kind, [spaceId, displayId.trim()]);
-  }
-  return createStableLoomId(kind, [spaceId, fallbackKey]);
+  void spaceId;
+  void displayId;
+  void fallbackKey;
+  return createRandomLoomId(kind);
 }
 
 export function createLinkId(kind: string, fromEntityId: LoomId, toEntityId: LoomId): LoomId {

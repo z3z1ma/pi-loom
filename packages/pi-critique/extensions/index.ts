@@ -1,8 +1,4 @@
-import type {
-  BeforeAgentStartEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createCritiqueStore } from "./domain/store.js";
 import { buildCritiqueSystemPrompt, getBaseCritiqueGuidance } from "./prompts/guidance.js";
 import { registerCritiqueTools } from "./tools/critique.js";

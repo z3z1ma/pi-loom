@@ -346,8 +346,11 @@ describe("ralph tools", () => {
     registerRalphTools(mockPi as unknown as ExtensionAPI);
 
     const runTool = getTool(mockPi, "ralph_run");
+    const readTool = getTool(mockPi, "ralph_read");
     const checkpointTool = getTool(mockPi, "ralph_checkpoint");
     const runProperties = getRalphRunProperties(runTool.parameters);
+    const readProperties = getRalphRunProperties(readTool.parameters);
+    const checkpointProperties = getRalphRunProperties(checkpointTool.parameters);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "ralph_checkpoint",
@@ -369,6 +372,15 @@ describe("ralph tools", () => {
     expect(runTool.promptGuidelines).toContain(
       "Provide `ref` to continue an existing loop and `steeringPrompt` when the next iteration should absorb new operator direction.",
     );
+    expect(readProperties.ref).toMatchObject({
+      description: expect.stringContaining("Canonical Ralph entity ids stay opaque in storage"),
+    });
+    expect(runProperties.ref).toMatchObject({
+      description: expect.stringContaining("display id or `ralph-run:<display-id>` ref"),
+    });
+    expect(checkpointProperties.ref).toMatchObject({
+      description: expect.stringContaining("Canonical Ralph entity ids remain internal storage details"),
+    });
     expect(runProperties.planRef).toBeDefined();
     expect(runProperties.ref).toBeDefined();
     expect(runProperties.scope).toBeUndefined();

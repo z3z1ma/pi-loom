@@ -234,7 +234,10 @@ const RalphListParams = Type.Object({
 });
 
 const RalphReadParams = Type.Object({
-  ref: Type.String({ description: "Run id, run path, or Ralph artifact path." }),
+  ref: Type.String({
+    description:
+      "Run display id, run path, or Ralph artifact path. Canonical Ralph entity ids stay opaque in storage and are not part of the public read surface.",
+  }),
   mode: Type.Optional(
     withDescription(
       RalphReadModeEnum,
@@ -246,7 +249,8 @@ const RalphReadParams = Type.Object({
 const RalphRunParams = Type.Object({
   ref: Type.Optional(
     Type.String({
-      description: "Existing Ralph run ref to continue, inspect, or add steering to within the managed loop.",
+      description:
+        "Existing Ralph run display id or `ralph-run:<display-id>` ref to continue, inspect, or add steering to within the managed loop.",
     }),
   ),
   planRef: Type.Optional(
@@ -273,7 +277,8 @@ const RalphRunParams = Type.Object({
 const RalphSteerParams = Type.Object({
   ref: Type.Optional(
     Type.String({
-      description: "Target Ralph run ref. Leave unset to target the current active loop in the workspace.",
+      description:
+        "Target Ralph run display id or `ralph-run:<display-id>` ref. Leave unset to target the current active loop in the workspace.",
     }),
   ),
   text: Type.String({ description: "Steering text to queue durably for the next iteration boundary." }),
@@ -282,7 +287,8 @@ const RalphSteerParams = Type.Object({
 const RalphStopParams = Type.Object({
   ref: Type.Optional(
     Type.String({
-      description: "Target Ralph run ref. Leave unset to target the current active loop in the workspace.",
+      description:
+        "Target Ralph run display id or `ralph-run:<display-id>` ref. Leave unset to target the current active loop in the workspace.",
     }),
   ),
   summary: Type.Optional(Type.String({ description: "Operator summary recorded with the durable stop request." })),
@@ -317,7 +323,10 @@ const RalphJobWaitParams = Type.Object({
 });
 
 const RalphCheckpointParams = Type.Object({
-  ref: Type.String({ description: "Ralph run ref receiving the checkpoint." }),
+  ref: Type.String({
+    description:
+      "Ralph run display id or `ralph-run:<display-id>` ref receiving the checkpoint. Canonical Ralph entity ids remain internal storage details.",
+  }),
   iterationId: Type.String({
     description:
       "Explicit launched iteration id from the Ralph launch packet. Reuse this exact id if you update the same bounded iteration checkpoint again.",
@@ -650,7 +659,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Use this tool to rediscover the loop that should carry the next stretch of planned implementation work.",
       "Start with `text` and let the default relevance ranking surface the likely loop family before narrowing by exact lifecycle filters.",
-      "Use exact filters when you want one operational slice such as active delivery, paused review, or completed plan history.",
+      "Use exact filters when you want one operational slice such as active delivery, paused review, or completed run checkpoints.",
     ],
     parameters: RalphListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

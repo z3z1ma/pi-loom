@@ -1,7 +1,8 @@
 import { resolve } from "node:path";
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
+import type { ResearchState } from "@pi-loom/pi-research/extensions/domain/models.js";
 import { createResearchStore } from "@pi-loom/pi-research/extensions/domain/store.js";
-import type { SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
+import { SPEC_STATUSES, type SpecChangeRecord } from "@pi-loom/pi-specs/extensions/domain/models.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import {
   appendEntityEvent,
@@ -13,15 +14,22 @@ import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
-import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
+import {
+  TICKET_STATUSES,
+  type TicketReadResult,
+  type TicketSummary,
+} from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildInitiativeDashboard } from "./dashboard.js";
 import type {
   CreateInitiativeInput,
+  InitiativeDashboard,
+  InitiativeDashboardMilestone,
   InitiativeDecisionKind,
   InitiativeDecisionRecord,
   InitiativeListFilter,
   InitiativeMilestone,
+  InitiativeMilestoneHealth,
   InitiativeMilestoneInput,
   InitiativeRecord,
   InitiativeState,
@@ -51,16 +59,62 @@ interface InitiativeEntityAttributes {
   decisions: InitiativeDecisionRecord[];
 }
 
-interface SqliteMutationTarget {
-  db: {
-    prepare(sql: string): {
-      run(...params: unknown[]): unknown;
-    };
-  };
+function resolveInitiativeId(ref: string): string {
+  return normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
+}
+
+function applyStatusLifecycle(state: InitiativeState, nextStatus: InitiativeState["status"], timestamp: string): void {
+  const previousStatus = state.status;
+  state.status = nextStatus;
+
+  if (nextStatus !== "completed") {
+    state.completedAt = null;
+  } else if (previousStatus !== "completed") {
+    state.completedAt = timestamp;
+  }
+
+  if (nextStatus !== "archived") {
+    state.archivedAt = null;
+  } else if (previousStatus !== "archived") {
+    state.archivedAt = timestamp;
+  }
 }
 
 function hasStructuredInitiativeAttributes(attributes: unknown): attributes is InitiativeEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
+}
+
+function zeroCounts<T extends string>(values: readonly T[]): Record<T, number> {
+  return Object.fromEntries(values.map((value) => [value, 0])) as Record<T, number>;
+}
+
+function milestoneHealth(milestone: InitiativeMilestone, linkedTickets: TicketSummary[]): InitiativeMilestoneHealth {
+  if (milestone.status === "completed") return "complete";
+  if (milestone.status === "blocked") return "at_risk";
+  if (linkedTickets.some((ticket) => ticket.status === "blocked")) return "at_risk";
+  if (milestone.status === "in_progress") return "active";
+  if (linkedTickets.length > 0 && linkedTickets.every((ticket) => ticket.status === "closed")) return "complete";
+  return "pending";
+}
+
+function buildMilestoneDashboard(
+  milestone: InitiativeMilestone,
+  ticketsById: Map<string, TicketSummary>,
+): InitiativeDashboardMilestone {
+  const linkedTickets = milestone.ticketIds
+    .map((ticketId) => ticketsById.get(ticketId))
+    .filter((ticket): ticket is TicketSummary => ticket !== undefined);
+  return {
+    id: milestone.id,
+    title: milestone.title,
+    status: milestone.status,
+    health: milestoneHealth(milestone, linkedTickets),
+    description: milestone.description,
+    specChangeIds: [...milestone.specChangeIds],
+    ticketIds: [...milestone.ticketIds],
+    linkedOpenTicketCount: linkedTickets.filter((ticket) => ticket.status !== "closed").length,
+    linkedCompletedTicketCount: linkedTickets.filter((ticket) => ticket.status === "closed").length,
+  };
 }
 
 function summarizeInitiative(_cwd: string, state: InitiativeState, ref: string): InitiativeSummary {
@@ -162,9 +216,126 @@ export class InitiativeStore {
     };
   }
 
+  private async buildDashboardWithoutRoadmaps(state: InitiativeState): Promise<InitiativeDashboard> {
+    const specStore = createSpecStore(this.cwd);
+    const ticketStore = createTicketStore(this.cwd);
+    const researchStore = createResearchStore(this.cwd);
+    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+
+    const linkedResearch = (
+      await Promise.all(
+        state.researchIds.map(async (researchId) => {
+          const entity = await findEntityByDisplayId(storage, identity.space.id, "research", researchId);
+          if (entity?.attributes && typeof entity.attributes === "object" && "state" in entity.attributes) {
+            const researchState = (entity.attributes as { state: ResearchState }).state;
+            return {
+              id: researchState.researchId,
+              title: researchState.title,
+              status: researchState.status,
+              updatedAt: researchState.updatedAt,
+              ref: `research:${researchState.researchId}`,
+            };
+          }
+          try {
+            const record = await researchStore.readResearch(researchId);
+            return {
+              id: record.state.researchId,
+              title: record.state.title,
+              status: record.state.status,
+              updatedAt: record.state.updatedAt,
+              ref: record.summary.ref,
+            };
+          } catch (error) {
+            if (error instanceof Error && error.message.startsWith("Unknown research:")) {
+              return null;
+            }
+            throw error;
+          }
+        }),
+      )
+    )
+      .filter((summary): summary is NonNullable<typeof summary> => summary !== null)
+      .sort((left, right) => left.id.localeCompare(right.id));
+
+    const [allSpecs, allTickets] = await Promise.all([
+      specStore.listChanges({ includeArchived: true }),
+      ticketStore.listTicketsAsync({ includeClosed: true }),
+    ]);
+    const linkedSpecs = allSpecs.filter((summary) => state.specChangeIds.includes(summary.id));
+    const linkedTickets = allTickets.filter((summary) => state.ticketIds.includes(summary.id));
+    const missingSpecIds = state.specChangeIds.filter((id) => !linkedSpecs.some((summary) => summary.id === id));
+    const missingTicketIds = state.ticketIds.filter((id) => !linkedTickets.some((summary) => summary.id === id));
+    const specCounts = zeroCounts(SPEC_STATUSES);
+    const ticketCounts = zeroCounts(TICKET_STATUSES);
+    for (const spec of linkedSpecs) specCounts[spec.status] += 1;
+    for (const ticket of linkedTickets) ticketCounts[ticket.status] += 1;
+    const ticketsById = new Map(linkedTickets.map((ticket) => [ticket.id, ticket]));
+
+    return {
+      initiative: {
+        id: state.initiativeId,
+        title: state.title,
+        status: state.status,
+        objective: state.objective,
+        statusSummary: state.statusSummary,
+        targetWindow: state.targetWindow,
+        owners: [...state.owners],
+        tags: [...state.tags],
+        capabilityIds: [...state.capabilityIds],
+        roadmapRefs: [...state.roadmapRefs],
+        updatedAt: state.updatedAt,
+      },
+      linkedRoadmap: {
+        total: 0,
+        items: [],
+      },
+      linkedResearch: {
+        total: linkedResearch.length,
+        items: linkedResearch,
+      },
+      linkedSpecs: {
+        total: linkedSpecs.length,
+        counts: specCounts,
+        items: linkedSpecs,
+      },
+      linkedTickets: {
+        total: linkedTickets.length,
+        counts: ticketCounts,
+        ready: ticketCounts.ready,
+        blocked: ticketCounts.blocked,
+        inProgress: ticketCounts.in_progress,
+        review: ticketCounts.review,
+        closed: ticketCounts.closed,
+        items: linkedTickets,
+      },
+      milestones: state.milestones.map((milestone) => buildMilestoneDashboard(milestone, ticketsById)),
+      openRisks: [...state.risks],
+      unlinkedReferences: {
+        roadmapRefs: [],
+        specChangeIds: normalizeStringList([
+          ...allSpecs
+            .filter((summary) => summary.initiativeIds.includes(state.initiativeId))
+            .map((summary) => summary.id)
+            .filter((id) => !state.specChangeIds.includes(id)),
+          ...missingSpecIds,
+        ]),
+        ticketIds: normalizeStringList([
+          ...allTickets
+            .filter((summary) => summary.initiativeIds.includes(state.initiativeId))
+            .map((summary) => summary.id)
+            .filter((id) => !state.ticketIds.includes(id)),
+          ...missingTicketIds,
+        ]),
+      },
+    };
+  }
+
   private async buildRecord(state: InitiativeState, decisions: InitiativeDecisionRecord[]): Promise<InitiativeRecord> {
     const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
-    const dashboard = await buildInitiativeDashboard(this.cwd, state);
+    const dashboard =
+      state.roadmapRefs.length === 0
+        ? await this.buildDashboardWithoutRoadmaps(state)
+        : await buildInitiativeDashboard(this.cwd, state);
     return {
       state,
       summary: summarizeInitiative(this.cwd, state, initiativeDir),
@@ -177,42 +348,14 @@ export class InitiativeStore {
   private async loadRecord(ref: string): Promise<InitiativeRecord> {
     this.initLedger();
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const initiativeId = normalizeInitiativeId(ref.split(/[\\/]/).pop() ?? ref);
-    let entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, initiativeId);
-    if (!entity) {
-      const timestamp = currentTimestamp();
-      const state = this.defaultState({ title: initiativeId, initiativeId }, timestamp);
-      ({ entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
-        storage,
-        {
-          kind: ENTITY_KIND,
-          spaceId: identity.space.id,
-          owningRepositoryId: identity.repository.id,
-          displayId: state.initiativeId,
-          title: state.title,
-          summary: state.statusSummary || state.objective,
-          status: state.status,
-          version: 1,
-          tags: state.tags,
-          attributes: { state, decisions: [] },
-          createdAt: state.createdAt,
-          updatedAt: state.updatedAt,
-        },
-        {
-          actor: "initiative-store",
-          createdPayload: { change: "initiative_bootstrapped" },
-          updatedPayload: { change: "initiative_bootstrapped" },
-        },
-      ));
-    }
+    const initiativeId = resolveInitiativeId(ref);
+    const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, initiativeId);
+    if (!entity) throw new Error(`Unknown initiative: ${initiativeId}`);
     if (!hasStructuredInitiativeAttributes(entity.attributes)) {
       throw new Error(`Initiative entity ${initiativeId} is missing structured attributes`);
     }
     const attributes = entity.attributes;
-    return this.buildRecord(
-      attributes.state ?? this.defaultState({ title: initiativeId, initiativeId }, currentTimestamp()),
-      attributes.decisions ?? [],
-    );
+    return this.buildRecord(attributes.state, attributes.decisions ?? []);
   }
 
   private async persistRecord(
@@ -220,15 +363,16 @@ export class InitiativeStore {
     decisions: InitiativeDecisionRecord[],
   ): Promise<InitiativeRecord> {
     const { storage, identity } = await openWorkspaceStorage(this.cwd);
-    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.initiativeId);
-    const version = (existing?.version ?? 0) + 1;
     const record = await this.buildRecord(state, decisions);
+    const previous = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.initiativeId);
+    const version = (previous?.version ?? 0) + 1;
     await assertProjectedEntityLinksResolvable({
       storage,
       spaceId: identity.space.id,
       projectionOwner: INITIATIVE_LINK_PROJECTION_OWNER,
       desired: buildProjectedReferenceLinks(record.state),
     });
+
     await storage.transact(async (tx) => {
       const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
         tx,
@@ -243,15 +387,65 @@ export class InitiativeStore {
           version,
           tags: record.state.tags,
           attributes: { state: record.state, decisions: record.decisions },
-          createdAt: existing?.createdAt ?? record.state.createdAt,
+          createdAt: previous?.createdAt ?? record.state.createdAt,
           updatedAt: record.state.updatedAt,
         },
         {
           actor: "initiative-store",
           createdPayload: { change: "initiative_persisted" },
           updatedPayload: { change: "initiative_persisted" },
+          skipUpdatedEvent: true,
         },
       );
+
+      if (!previous) {
+        await appendEntityEvent(
+          tx,
+          entity.id,
+          "created",
+          "initiative-store",
+          {
+            entityKind: ENTITY_KIND,
+            displayId: record.state.initiativeId,
+            version: entity.version,
+            status: entity.status,
+            change: "initiative_persisted",
+          },
+          record.state.createdAt,
+        );
+      } else {
+        if (previous.status !== entity.status) {
+          await appendEntityEvent(
+            tx,
+            entity.id,
+            "status_changed",
+            "initiative-store",
+            {
+              entityKind: ENTITY_KIND,
+              displayId: record.state.initiativeId,
+              version: entity.version,
+              previousStatus: previous.status,
+              nextStatus: entity.status,
+            },
+            record.state.updatedAt,
+          );
+        }
+        await appendEntityEvent(
+          tx,
+          entity.id,
+          "updated",
+          "initiative-store",
+          {
+            entityKind: ENTITY_KIND,
+            displayId: record.state.initiativeId,
+            version: entity.version,
+            status: entity.status,
+            previousVersion: previous.version,
+            change: "initiative_persisted",
+          },
+          record.state.updatedAt,
+        );
+      }
       await syncProjectedEntityLinks({
         storage: tx,
         spaceId: identity.space.id,
@@ -306,7 +500,7 @@ export class InitiativeStore {
         ? normalizeStringList([...ticket.summary.initiativeIds, initiativeId])
         : ticket.summary.initiativeIds.filter((id) => id !== initiativeId);
       if (JSON.stringify(nextInitiativeIds) !== JSON.stringify(ticket.summary.initiativeIds)) {
-        await store.setInitiativeIdsAsync(ticketId, nextInitiativeIds);
+        await store.setInitiativeIdsAsync(ticketId, nextInitiativeIds, { allowClosed: true });
       }
     }
   }
@@ -491,7 +685,7 @@ export class InitiativeStore {
       const { storage, identity } = await openWorkspaceStorage(this.cwd);
       const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, created.state.initiativeId);
       if (entity) {
-        (storage as unknown as SqliteMutationTarget).db.prepare("DELETE FROM entities WHERE id = ?").run(entity.id);
+        await storage.removeEntity(entity.id);
       }
       throw error;
     }
@@ -503,9 +697,7 @@ export class InitiativeStore {
     const previousState = { ...state };
     if (updates.title !== undefined) state.title = updates.title.trim();
     if (updates.status !== undefined) {
-      state.status = normalizeStatus(updates.status);
-      if (state.status === "completed") state.completedAt = currentTimestamp();
-      if (state.status === "archived") state.archivedAt = currentTimestamp();
+      applyStatusLifecycle(state, normalizeStatus(updates.status), currentTimestamp());
     }
     if (updates.objective !== undefined) state.objective = updates.objective.trim();
     if (updates.outcomes !== undefined) state.outcomes = normalizeStringList(updates.outcomes);

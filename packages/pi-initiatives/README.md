@@ -4,11 +4,15 @@
 
 When active, the extension teaches the model to use initiatives as first-class strategic containers above specs and tickets. Initiative state is stored canonically in SQLite via pi-storage, and initiative summaries or decisions are rendered from those records for inspection or export.
 
+`initiative_read` only loads existing initiatives. It accepts either an initiative id such as `platform-modernization` or an initiative directory path whose final segment normalizes to that id, but it does not create missing records on read.
+
 ## Features
 
 - canonical initiative records stored in SQLite via pi-storage
-- explicit many-to-many links to spec changes and tickets
+- explicit many-to-many links to spec changes and tickets, with initiative-owned backlink synchronization into research/spec/ticket/roadmap records
 - milestone, scope, outcome, risk, and status-summary tracking
+- truthful lifecycle timestamps: entering `completed` or `archived` sets the matching terminal timestamp, and leaving those statuses clears the stale terminal timestamp
+- append-only decision history
 - AI-facing `initiative_*` tools with built-in prompt guidance
 - system-prompt augmentation via `before_agent_start`
 - computed dashboard views rendered from linked initiative state

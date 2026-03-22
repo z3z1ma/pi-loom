@@ -1,8 +1,4 @@
-import type {
-  BeforeAgentStartEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createInitiativeStore } from "./domain/store.js";
 import { buildInitiativeSystemPrompt, getBaseInitiativeGuidance } from "./prompts/guidance.js";
 import { registerInitiativeTools } from "./tools/initiative.js";

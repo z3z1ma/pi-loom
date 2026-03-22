@@ -1,8 +1,4 @@
-import type {
-  BeforeAgentStartEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createDocumentationStore } from "./domain/store.js";
 import { buildDocsSystemPrompt, getBaseDocsGuidance } from "./prompts/guidance.js";
 import { registerDocsTools } from "./tools/docs.js";

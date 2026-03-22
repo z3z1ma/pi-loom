@@ -24,6 +24,7 @@ import type {
   CreatePlanInput,
   LinkPlanTicketInput,
   PlanContextRefs,
+  PlanContextRefsUpdate,
   PlanDashboardTicket,
   PlanListFilter,
   PlanReadResult,
@@ -68,6 +69,40 @@ function mergeContextRefs(...refs: Array<Partial<PlanContextRefs> | undefined>):
     ticketIds: refs.flatMap((value) => value?.ticketIds ?? []),
     critiqueIds: refs.flatMap((value) => value?.critiqueIds ?? []),
     docIds: refs.flatMap((value) => value?.docIds ?? []),
+  });
+}
+
+function applyContextRefsUpdate(current: PlanContextRefs, update: PlanContextRefsUpdate | undefined): PlanContextRefs {
+  if (!update) {
+    return normalizeContextRefs(current);
+  }
+
+  const replaced = normalizeContextRefs({
+    roadmapItemIds: update.replace?.roadmapItemIds ?? current.roadmapItemIds,
+    initiativeIds: update.replace?.initiativeIds ?? current.initiativeIds,
+    researchIds: update.replace?.researchIds ?? current.researchIds,
+    specChangeIds: update.replace?.specChangeIds ?? current.specChangeIds,
+    ticketIds: update.replace?.ticketIds ?? current.ticketIds,
+    critiqueIds: update.replace?.critiqueIds ?? current.critiqueIds,
+    docIds: update.replace?.docIds ?? current.docIds,
+  });
+
+  const roadmapRemovals = new Set(normalizeStringList(update.remove?.roadmapItemIds));
+  const initiativeRemovals = new Set(normalizeStringList(update.remove?.initiativeIds));
+  const researchRemovals = new Set(normalizeStringList(update.remove?.researchIds));
+  const specRemovals = new Set(normalizeStringList(update.remove?.specChangeIds));
+  const ticketRemovals = new Set(normalizeStringList(update.remove?.ticketIds));
+  const critiqueRemovals = new Set(normalizeStringList(update.remove?.critiqueIds));
+  const docRemovals = new Set(normalizeStringList(update.remove?.docIds));
+
+  return normalizeContextRefs({
+    roadmapItemIds: replaced.roadmapItemIds.filter((value) => !roadmapRemovals.has(value)),
+    initiativeIds: replaced.initiativeIds.filter((value) => !initiativeRemovals.has(value)),
+    researchIds: replaced.researchIds.filter((value) => !researchRemovals.has(value)),
+    specChangeIds: replaced.specChangeIds.filter((value) => !specRemovals.has(value)),
+    ticketIds: replaced.ticketIds.filter((value) => !ticketRemovals.has(value)),
+    critiqueIds: replaced.critiqueIds.filter((value) => !critiqueRemovals.has(value)),
+    docIds: replaced.docIds.filter((value) => !docRemovals.has(value)),
   });
 }
 
@@ -940,9 +975,7 @@ export class PlanStore {
             ref: input.sourceTarget.ref.trim(),
           }
         : current.state.sourceTarget,
-      contextRefs: input.contextRefs
-        ? mergeContextRefs(current.state.contextRefs, input.contextRefs)
-        : current.state.contextRefs,
+      contextRefs: applyContextRefsUpdate(current.state.contextRefs, input.contextRefs),
       progress: input.progress ? normalizeProgress(input.progress) : current.state.progress,
       discoveries: input.discoveries ? normalizeDiscoveries(input.discoveries) : current.state.discoveries,
       decisions: input.decisions ? normalizeDecisions(input.decisions) : current.state.decisions,
@@ -999,8 +1032,11 @@ export class PlanStore {
     const current = await this.readPlan(ref);
     const ticketStore = createTicketStore(this.cwd);
     let ticketId: string;
+    let ticketClosed = false;
     try {
-      ticketId = (await ticketStore.readTicketAsync(ticketRef)).summary.id;
+      const ticket = await ticketStore.readTicketAsync(ticketRef);
+      ticketId = ticket.summary.id;
+      ticketClosed = ticket.ticket.closed;
     } catch {
       ticketId = ticketStore.resolveTicketRef(ticketRef);
     }
@@ -1023,15 +1059,13 @@ export class PlanStore {
       projectionOwner: PLAN_PROJECTION_OWNER,
       desired: projectedLinksForPlan(nextState),
     });
+    const externalRef = `plan:${current.state.planId}`;
     return storage.transact(async (tx) => {
       const persisted = await this.persistCanonicalWithStorage(tx, identity, nextState);
-      try {
-        await ticketStore.syncExternalRefWithStorage(tx, identity, ticketId, `plan:${current.state.planId}`, false);
-      } catch (error) {
-        if (!(error instanceof Error) || !error.message.startsWith("Unknown ticket:")) {
-          throw error;
-        }
-        // Missing tickets have no backlink left to remove; the plan cleanup can still proceed.
+      if (!ticketClosed) {
+        await ticketStore.syncExternalRefWithStorage(tx, identity, ticketId, externalRef, false, {
+          allowClosed: true,
+        });
       }
       return persisted;
     });

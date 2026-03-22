@@ -22,14 +22,6 @@ function resolveWorkspaceRoot(cwd: string): string {
   return runGit(cwd, ["rev-parse", "--show-toplevel"]) ?? path.resolve(cwd);
 }
 
-function resolveCommonDir(cwd: string): string {
-  const gitCommonDir = runGit(cwd, ["rev-parse", "--git-common-dir"]);
-  if (gitCommonDir) {
-    return path.resolve(cwd, gitCommonDir);
-  }
-  return resolveWorkspaceRoot(cwd);
-}
-
 function resolveRemoteUrls(cwd: string): string[] {
   const remotes = runGit(cwd, ["remote"]);
   if (!remotes) {
@@ -86,7 +78,6 @@ function slugify(value: string): string {
 export function resolveWorkspaceIdentity(cwd: string): LoomResolvedWorkspaceIdentity {
   const timestamp = new Date().toISOString();
   const workspaceRoot = resolveWorkspaceRoot(cwd);
-  const commonDir = resolveCommonDir(cwd);
   const remoteUrls = resolveRemoteUrls(cwd);
   const packageName = resolvePackageName(cwd);
   const repositorySlug = slugify(remoteUrls[0] ?? packageName);
@@ -100,7 +91,7 @@ export function resolveWorkspaceIdentity(cwd: string): LoomResolvedWorkspaceIden
     updatedAt: timestamp,
   };
   const repository = {
-    id: createRepositoryId(remoteUrls, commonDir),
+    id: createRepositoryId(remoteUrls, `${packageName}:${repositorySlug}`),
     spaceId: space.id,
     slug: repositorySlug,
     displayName: packageName,

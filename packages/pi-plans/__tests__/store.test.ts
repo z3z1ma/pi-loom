@@ -120,7 +120,6 @@ describe("PlanStore durable memory", () => {
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
     });
-    await ticketStore.closeTicketAsync(reviewTicket.summary.id, "Critique and dashboard tests pass.");
     await initiativeStore.linkTicket(initiative.state.initiativeId, implementationTicket.summary.id);
     await initiativeStore.linkTicket(initiative.state.initiativeId, reviewTicket.summary.id);
     await researchStore.linkTicket(research.state.researchId, implementationTicket.summary.id);
@@ -206,7 +205,8 @@ describe("PlanStore durable memory", () => {
       decisions: [
         {
           decision: "Use the explicit workplan naming consistently.",
-          rationale: "The plan layer should use its own unambiguous name instead of collapsing into a generic plan label.",
+          rationale:
+            "The plan layer should use its own unambiguous name instead of collapsing into a generic plan label.",
           date: "2026-03-15",
           author: "ChatGPT",
         },
@@ -237,11 +237,13 @@ describe("PlanStore durable memory", () => {
       role: "implementation",
       order: 1,
     });
-    const linkedClosed = await planStore.linkPlanTicket(linkedPlan.state.planId, {
+    await planStore.linkPlanTicket(linkedPlan.state.planId, {
       ticketId: reviewTicket.summary.id,
       role: "review",
       order: 2,
     });
+    await ticketStore.closeTicketAsync(reviewTicket.summary.id, "Critique and dashboard tests pass.");
+    const linkedClosed = await planStore.readPlan(linkedPlan.state.planId);
 
     expect(linkedClosed.state.planId).toBe("planning-layer-rollout");
     const { storage, identity } = await openWorkspaceStorage(workspace);
@@ -309,9 +311,9 @@ describe("PlanStore durable memory", () => {
     const unlinked = await planStore.unlinkPlanTicket(linkedClosed.state.planId, reviewTicket.summary.id);
     expect(unlinked.state.linkedTickets).toHaveLength(1);
     expect(unlinked.state.linkedTickets[0]?.ticketId).toBe(implementationTicket.summary.id);
-    expect(
-      (await ticketStore.readTicketAsync(reviewTicket.summary.id)).ticket.frontmatter["external-refs"],
-    ).not.toContain(`plan:${linkedClosed.state.planId}`);
+    expect((await ticketStore.readTicketAsync(reviewTicket.summary.id)).ticket.frontmatter["external-refs"]).toContain(
+      `plan:${linkedClosed.state.planId}`,
+    );
 
     expect(reread.plan).toContain("## Purpose / Big Picture");
     expect(reread.plan).toContain("## Artifacts and Notes");
@@ -355,6 +357,113 @@ describe("PlanStore durable memory", () => {
     expect(linked.dashboard.counts.byStatus).toMatchObject({ ready: 1 });
   }, 30000);
 
+  it("replaces and removes context refs explicitly instead of only accumulating them", async () => {
+    const ticketStore = createTicketStore(workspace);
+    const planStore = createPlanStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T14:10:00.000Z"));
+    const firstTicket = await ticketStore.createTicketAsync({ title: "First context ticket" });
+    const secondTicket = await ticketStore.createTicketAsync({ title: "Second context ticket" });
+    const thirdTicket = await ticketStore.createTicketAsync({ title: "Third context ticket" });
+    const created = await planStore.createPlan({
+      title: "Context ref corrections",
+      sourceTarget: { kind: "workspace", ref: "." },
+      contextRefs: { ticketIds: [firstTicket.summary.id, secondTicket.summary.id] },
+    });
+
+    const updated = await planStore.updatePlan(created.state.planId, {
+      contextRefs: {
+        replace: { ticketIds: [secondTicket.summary.id, thirdTicket.summary.id] },
+        remove: { ticketIds: [secondTicket.summary.id] },
+      },
+    });
+
+    expect(updated.state.contextRefs.ticketIds).toEqual([thirdTicket.summary.id]);
+    expect(updated.dashboard.contextRefs.ticketIds).toEqual([thirdTicket.summary.id]);
+    expect(updated.packet).toContain(thirdTicket.summary.id);
+    expect(updated.packet).not.toContain(firstTicket.summary.id);
+    expect(updated.packet).not.toContain(secondTicket.summary.id);
+  }, 30000);
+
+  it("treats plan child records as whole-list replacement or append-only logs", async () => {
+    const planStore = createPlanStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T14:20:00.000Z"));
+    const created = await planStore.createPlan({
+      title: "Plan child record semantics",
+      sourceTarget: { kind: "workspace", ref: "." },
+      progress: [
+        {
+          timestamp: "2026-03-15T14:20:00.000Z",
+          status: "pending",
+          text: "Initial progress entry.",
+        },
+      ],
+      discoveries: [{ note: "Old discovery", evidence: "Old evidence" }],
+      decisions: [
+        {
+          decision: "Old decision",
+          rationale: "Old rationale",
+          date: "2026-03-15",
+          author: "ChatGPT",
+        },
+      ],
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T14:25:00.000Z"));
+    const updated = await planStore.updatePlan(created.state.planId, {
+      progress: [
+        {
+          timestamp: "2026-03-15T14:25:00.000Z",
+          status: "done",
+          text: "Replacement progress entry.",
+        },
+      ],
+      discoveries: [{ note: "New discovery", evidence: "New evidence" }],
+      decisions: [
+        {
+          decision: "New decision",
+          rationale: "New rationale",
+          date: "2026-03-15",
+          author: "ChatGPT",
+        },
+      ],
+      revisionNotes: [
+        {
+          timestamp: "2026-03-15T14:25:00.000Z",
+          change: "Recorded a manual note.",
+          reason: "Explain the replacement semantics explicitly.",
+        },
+      ],
+    });
+
+    expect(updated.state.progress).toEqual([
+      {
+        timestamp: "2026-03-15T14:25:00.000Z",
+        status: "done",
+        text: "Replacement progress entry.",
+      },
+    ]);
+    expect(updated.state.discoveries).toEqual([{ note: "New discovery", evidence: "New evidence" }]);
+    expect(updated.state.decisions).toEqual([
+      {
+        decision: "New decision",
+        rationale: "New rationale",
+        date: "2026-03-15",
+        author: "ChatGPT",
+      },
+    ]);
+    expect(updated.state.revisionNotes).toEqual([
+      expect.objectContaining({ change: expect.stringContaining("Created durable workplan scaffold") }),
+      {
+        timestamp: "2026-03-15T14:25:00.000Z",
+        change: "Recorded a manual note.",
+        reason: "Explain the replacement semantics explicitly.",
+      },
+      expect.objectContaining({ change: "Updated progress, surprises and discoveries, decision log, revision notes." }),
+    ]);
+  }, 30000);
+
   it("removes deleted tickets from linked plan membership and canonical plan links", async () => {
     const ticketStore = createTicketStore(workspace);
     const planStore = createPlanStore(workspace);
@@ -373,7 +482,7 @@ describe("PlanStore durable memory", () => {
       order: 1,
     });
     await planStore.updatePlan(created.state.planId, {
-      contextRefs: { ticketIds: [ticket.summary.id] },
+      contextRefs: { replace: { ticketIds: [ticket.summary.id] } },
     });
 
     await ticketStore.deleteTicketAsync(ticket.summary.id);

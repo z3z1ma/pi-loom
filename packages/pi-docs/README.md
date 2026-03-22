@@ -17,7 +17,10 @@ This package adds a first-class documentation layer with canonical records store
 
 - documentation records are high-level explanatory memory for architecture, workflows, concepts, and operations, not API reference material
 - `docs_update` compiles the packet, launches a fresh `pi` process, and expects that fresh maintainer session to persist a revision through `docs_write`
-- revisions append to the canonical SQLite store; maintained document views are rendered from those records and remain accessible through queries and explicit export
+- active documents remain editable; every `docs_write` update or archive appends a new revision to the canonical SQLite history
+- archived documents preserve their document body and revision timeline as historical truth, but they are no longer mutable through `docs_write` update flows
+- updating `contextRefs` replaces the stored ref buckets you send, so incorrect refs can be removed by passing empty arrays for the buckets that should be cleared
+- maintained document views are rendered from the canonical record and remain accessible through queries and explicit export
 
 ## Local use
 

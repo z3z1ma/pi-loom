@@ -38,6 +38,7 @@ const ConstitutionDecisionKindEnum = StringEnum([
 const RoadmapStatusEnum = StringEnum(["candidate", "active", "paused", "completed", "superseded"] as const);
 const RoadmapHorizonEnum = StringEnum(["now", "next", "later"] as const);
 const ConstitutionRoadmapActionEnum = StringEnum([
+  "list_items",
   "create_item",
   "update_item",
   "link_initiative",
@@ -104,6 +105,22 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
+function renderRoadmapListText(
+  items: Array<{ id: string; horizon: string; status: string; title: string; summary: string }>,
+): string {
+  if (items.length === 0) {
+    return "No roadmap items match the requested filters.";
+  }
+  return items
+    .map((item) => {
+      const summary = item.summary.trim();
+      return summary.length > 0
+        ? `${item.id} [${item.horizon}/${item.status}] ${item.title}\n${summary}`
+        : `${item.id} [${item.horizon}/${item.status}] ${item.title}`;
+    })
+    .join("\n\n");
+}
+
 function requireItemId(itemId: string | undefined): string {
   if (!itemId) {
     throw new Error("itemId is required for this action");
@@ -163,7 +180,7 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
     name: "constitution_read",
     label: "constitution_read",
     description:
-      "Read constitutional memory, compiled brief content, or a specific roadmap item with its durable strategic context.",
+      "Read constitutional memory, compiled brief content, roadmap summaries, or a specific embedded roadmap item with its durable strategic context.",
     promptSnippet:
       "Inspect constitutional memory before making strategic, roadmap, or constraint-sensitive decisions, and recover the detailed rationale, implications, and affected artifacts before editing it.",
     promptGuidelines: [
@@ -207,6 +224,7 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
       "Persist project-defining vision, principles, constraints, and constitutional decisions as detailed durable artifacts with rationale, implications, provenance, and affected artifacts instead of leaving them in chat.",
     promptGuidelines: [
       "Use this tool when the user clarifies project identity, durable constraints, or strategic direction.",
+      "`update_principles` and `update_constraints` replace the full stored list for that section; send the complete desired set each time.",
       "Write constitutional artifacts so they are self-contained for future readers: include problem framing, rationale, assumptions, scope and non-goals, dependencies, risks, edge cases, verification expectations, provenance, and open questions when relevant.",
       "Keep vision, principles, and constraints higher-friction than roadmap updates; do not silently rewrite project identity, and require equally durable rationale when they do change.",
     ],
@@ -269,11 +287,13 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "constitution_roadmap",
     label: "constitution_roadmap",
-    description: "Create, update, and link canonical constitutional roadmap items with durable sequencing context.",
+    description:
+      "List, create, update, and link embedded constitutional roadmap items with durable sequencing context.",
     promptSnippet:
-      "Use canonical roadmap items to evolve strategic sequencing without rewriting stable project principles, while preserving detailed rationale, dependencies, risks, verification expectations, and linked work.",
+      "Use embedded roadmap items to evolve strategic sequencing without rewriting stable project principles, while preserving detailed rationale, dependencies, risks, verification expectations, and linked work.",
     promptGuidelines: [
       "Use roadmap items for mutable sequencing and initiative linkage while keeping vision, principles, and constraints stable.",
+      'Roadmap item ids are stable within the constitution aggregate, not global canonical entity ids; discover them with `list_items` or `constitution_read(section="roadmap")` before mutating them.',
       "Roadmap items may change more easily than principles or constraints, but each item should still capture the full context needed to explain why it exists, what it depends on, what it risks, and how completion will be verified.",
       "Link initiatives truthfully so roadmap ownership remains observable across layers, and record affected artifacts when roadmap changes shift constitutional intent.",
     ],
@@ -281,6 +301,23 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const store = getStore(ctx);
       switch ((params as ConstitutionRoadmapParamsValue).action) {
+        case "list_items": {
+          const items = await store.listRoadmapItems({
+            status: (params as ConstitutionRoadmapParamsValue).status,
+            horizon: (params as ConstitutionRoadmapParamsValue).horizon,
+          });
+          return machineResult(
+            {
+              action: params.action,
+              filters: {
+                status: (params as ConstitutionRoadmapParamsValue).status ?? null,
+                horizon: (params as ConstitutionRoadmapParamsValue).horizon ?? null,
+              },
+              items,
+            },
+            renderRoadmapListText(items),
+          );
+        }
         case "create_item": {
           const constitution = await store.upsertRoadmapItem(toRoadmapCreate(params as ConstitutionRoadmapParamsValue));
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));

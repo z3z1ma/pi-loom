@@ -76,12 +76,20 @@ const TicketListParams = Type.Object({
 });
 
 const TicketReadParams = Type.Object({
-  ref: Type.String({ description: "Ticket id, #ticket id, filename, or markdown path." }),
+  ref: Type.String({
+    description:
+      "Human-facing ticket ref: `t-0001`, `#t-0001`, `@t-0001`, `ticket:t-0001`, a markdown filename, or a markdown path. Canonical storage entity ids stay opaque and are not accepted here.",
+  }),
 });
 
 const TicketWriteParams = Type.Object({
   action: TicketWriteActionEnum,
-  ref: Type.Optional(Type.String({ description: "Existing ticket reference for non-create actions." })),
+  ref: Type.Optional(
+    Type.String({
+      description:
+        "Existing human-facing ticket ref for non-create actions: `t-0001`, `#t-0001`, `@t-0001`, `ticket:t-0001`, a markdown filename, or a markdown path.",
+    }),
+  ),
   title: Type.Optional(Type.String()),
   summary: Type.Optional(Type.String()),
   context: Type.Optional(Type.String()),
@@ -119,12 +127,20 @@ const TicketWriteParams = Type.Object({
 });
 
 const TicketGraphParams = Type.Object({
-  ref: Type.Optional(Type.String()),
+  ref: Type.Optional(
+    Type.String({
+      description:
+        "Optional human-facing ticket ref: `t-0001`, `#t-0001`, `@t-0001`, `ticket:t-0001`, a markdown filename, or a markdown path.",
+    }),
+  ),
 });
 
 const TicketCheckpointParams = Type.Object({
   action: TicketCheckpointActionEnum,
-  ref: Type.String(),
+  ref: Type.String({
+    description:
+      "Human-facing ticket ref: `t-0001`, `#t-0001`, `@t-0001`, `ticket:t-0001`, a markdown filename, or a markdown path.",
+  }),
   title: Type.Optional(Type.String()),
   body: Type.Optional(Type.String()),
   supersedes: Type.Optional(Type.String()),
@@ -219,13 +235,14 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     name: "ticket_list",
     label: "ticket_list",
     description:
-      "List tickets from the durable local ledger. Prefer broad discovery with text first, then add exact filters only when you intentionally want to narrow the result set; results default to `relevance` with `text`, otherwise `updated_desc`.",
+      "List tickets from the durable local ledger using effective execution status. Prefer broad discovery with text first, then add exact filters only when you intentionally want to narrow the result set; results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
       "Inspect backlog, ready work, blocked work, or existing intent before creating a new ticket. Start broad with text when uncertain, then narrow with exact filters; rely on the default relevance ranking unless you explicitly need a different ordering.",
     promptGuidelines: [
       "Use this tool before creating tickets so you do not duplicate existing work.",
       "Start with text for broad-first discovery when you only know part of the title or intent; exact status and type filters can hide valid matches if you guess wrong.",
       "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need another ordering such as chronology or id order.",
+      "List and graph status are effective execution states derived from stored status plus open dependencies; use `ticket_read` when you also need the stored status field shown explicitly.",
       "Closed tickets are excluded by default, and archived tickets are also excluded by default even when includeClosed is true; opt into those histories only when you intentionally need them.",
       "Use status filters to inspect ready or blocked work before proposing sequencing or parallelism once you have already narrowed the search intentionally.",
       "Use the existing ledger to inherit durable context, dependencies, and verification expectations before writing a new ticket body.",
@@ -251,10 +268,11 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     name: "ticket_read",
     label: "ticket_read",
     description:
-      "Read a fully detailed ticket with acceptance criteria, journal history, attachments, checkpoints, and graph context.",
+      "Read a fully detailed ticket with acceptance criteria, journal history, attachments, checkpoints, graph context, effective status summary, and explicit stored status.",
     promptSnippet: "Load the current truth for a ticket before acting on it or changing it.",
     promptGuidelines: [
       "Read the ticket before editing code when durable intent or previous discoveries may matter.",
+      "Use human-facing ticket refs only; canonical storage entity ids stay opaque under the durable display id and are not a public ticket reference format.",
       "Use the full ticket body, acceptance criteria, provenance, and journal as the execution record; do not overwrite a complete unit of work with a thinner restatement that would leave a newcomer unsure why the work exists or how to recognize completion.",
     ],
     parameters: TicketReadParams,
@@ -267,12 +285,14 @@ export function registerTicketTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "ticket_write",
     label: "ticket_write",
-    description: "Create or update fully specified durable ticket state in the local ledger.",
+    description:
+      "Create or update fully specified durable ticket state in the local ledger. Closed tickets must be reopened before structural edits such as dependency or external-link changes.",
     promptSnippet:
       "Persist substantial work intent, acceptance criteria, implementation plan, progress, blockers, verification, dependencies, and artifacts instead of keeping them only in chat.",
     promptGuidelines: [
       "Use this tool for durable work state rather than transient scratch planning.",
       "Create ticket bodies as complete, self-contained units of work with concrete context, acceptance criteria, plan, dependencies, risks, provenance, and verification expectations rather than minimal blurbs; a capable newcomer should be able to understand why the task exists, what generally needs to happen, and what done looks like.",
+      "Closed tickets are structurally frozen until reopened; append-only journal, checkpoint, and attachment writes remain available, but dependency and other relationship edits must go through reopen first.",
       "Update the ticket as the work evolves so future turns and agents can rely on truthful ongoing state instead of stale summaries.",
     ],
     parameters: TicketWriteParams,

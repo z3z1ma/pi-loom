@@ -18,6 +18,11 @@ export interface PlanContextRefs {
   docIds: string[];
 }
 
+export interface PlanContextRefsUpdate {
+  replace?: Partial<PlanContextRefs>;
+  remove?: Partial<PlanContextRefs>;
+}
+
 export interface PlanSourceTarget {
   kind: PlanSourceTargetKind;
   ref: string;
@@ -173,7 +178,7 @@ export interface UpdatePlanInput {
   outcomesAndRetrospective?: string;
   scopePaths?: string[];
   sourceTarget?: PlanSourceTarget;
-  contextRefs?: Partial<PlanContextRefs>;
+  contextRefs?: PlanContextRefsUpdate;
   progress?: PlanProgressRecord[];
   discoveries?: PlanDiscoveryRecord[];
   decisions?: PlanDecisionRecord[];

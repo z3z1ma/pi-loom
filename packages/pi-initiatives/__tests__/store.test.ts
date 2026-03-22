@@ -206,7 +206,7 @@ describe("InitiativeStore durable memory", () => {
         ticketIds: [ticket.summary.id],
         specChangeIds: ["missing-spec"],
       }),
-    ).rejects.toThrow("Unknown spec change: missing-spec");
+    ).rejects.toThrow("Unknown spec: missing-spec");
 
     const { storage, identity } = await openWorkspaceStorage(workspace);
     expect(await findEntityByDisplayId(storage, identity.space.id, "initiative", "broken-initiative")).toBeNull();
@@ -227,5 +227,48 @@ describe("InitiativeStore durable memory", () => {
     });
 
     expect(updated.state.researchIds).toEqual([researchA.state.researchId, researchB.state.researchId]);
+  });
+
+  it("does not create initiatives on read and still resolves path-like refs for existing records", async () => {
+    const initiativeStore = createInitiativeStore(workspace);
+
+    await expect(initiativeStore.readInitiative("missing-initiative")).rejects.toThrow(
+      "Unknown initiative: missing-initiative",
+    );
+
+    const created = await initiativeStore.createInitiative({ title: "Existing initiative" });
+
+    const fromPath = await initiativeStore.readInitiative(
+      `${workspace}/.pi-loom-test/catalog/initiatives/${created.state.initiativeId}`,
+    );
+
+    expect(fromPath.state.initiativeId).toBe(created.state.initiativeId);
+  });
+
+  it("keeps terminal timestamps consistent when status changes leave completed or archived", async () => {
+    const initiativeStore = createInitiativeStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T16:00:00.000Z"));
+    const created = await initiativeStore.createInitiative({ title: "Status truthfulness" });
+
+    vi.setSystemTime(new Date("2026-03-15T16:05:00.000Z"));
+    const completed = await initiativeStore.updateInitiative(created.state.initiativeId, { status: "completed" });
+    expect(completed.state.completedAt).toBe("2026-03-15T16:05:00.000Z");
+    expect(completed.state.archivedAt).toBeNull();
+
+    vi.setSystemTime(new Date("2026-03-15T16:10:00.000Z"));
+    const active = await initiativeStore.updateInitiative(created.state.initiativeId, { status: "active" });
+    expect(active.state.completedAt).toBeNull();
+    expect(active.state.archivedAt).toBeNull();
+
+    vi.setSystemTime(new Date("2026-03-15T16:15:00.000Z"));
+    const archived = await initiativeStore.archiveInitiative(created.state.initiativeId);
+    expect(archived.state.archivedAt).toBe("2026-03-15T16:15:00.000Z");
+    expect(archived.state.completedAt).toBeNull();
+
+    vi.setSystemTime(new Date("2026-03-15T16:20:00.000Z"));
+    const resumed = await initiativeStore.updateInitiative(created.state.initiativeId, { status: "paused" });
+    expect(resumed.state.archivedAt).toBeNull();
+    expect(resumed.state.completedAt).toBeNull();
   });
 });

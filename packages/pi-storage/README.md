@@ -17,6 +17,14 @@ The contract covers the core shared-storage concepts for Pi Loom state:
 - clone-local runtime attachments
 - storage interfaces centered on the SQLite-backed catalog
 
+## Identity and integrity rules
+
+- Canonical storage ids are opaque ids, not human-facing slugs.
+- Human-facing lookup stays on per-kind `displayId` values such as ticket ids, plan ids, or research ids.
+- `displayId` values are unique within `(space, kind)` whenever they are present.
+- Entity events are append-only records. Normal package flows add events; they do not rewrite or delete prior events.
+- Runtime attachments remain separately mutable because they are clone-local control-plane state rather than shared canonical history.
+
 ## Intended use
 
 All Pi Loom packages depend on these abstractions. Packages read canonical state from pi-storage and SQLite directly. Generated markdown packets, plans, and docs are derived from canonical records instead of serving as durable storage.

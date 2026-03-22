@@ -76,13 +76,15 @@ const ResearchListParams = Type.Object({
   keyword: Type.Optional(
     Type.String({
       description:
-        "Exact research keyword filter. Use after a broad text search when you know the stored keyword you want.",
+        "Exact keyword filter against the research record's stored `keywords` list. Use after a broad text search when you know the keyword already recorded on the target research.",
     }),
   ),
 });
 
 const ResearchReadParams = Type.Object({
-  ref: Type.String({ description: "Research id or research directory path." }),
+  ref: Type.String({
+    description: "Existing research id or `research:<id>` ref. Reads fail when the research record does not exist.",
+  }),
 });
 
 const ResearchWriteParams = Type.Object({
@@ -224,7 +226,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
       "Use this tool before opening new exploratory work so you do not fork existing knowledge.",
       "Start with `text` and no exact filters when rediscovering prior work by topic, question, or phrase; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
       "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
-      "`tag` and `keyword` are exact filters and can hide valid matches if you guess the stored value wrong.",
+      "`tag` and `keyword` are exact filters over stored metadata and can hide valid matches if you guess the recorded value wrong.",
       "Archived research is hidden by default; set `includeArchived` when checking whether older investigations already resolved the uncertainty or should still inform the current search.",
     ],
     parameters: ResearchListParams,
@@ -252,6 +254,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
       "Load the full research record before planning specs, initiatives, or execution so downstream work inherits the detailed evidence, rationale, assumptions, and unresolved questions already captured.",
     promptGuidelines: [
       "Read the research record before starting related implementation when durable findings, methodology, or rejected paths may already exist.",
+      'Use `research_write` with `action: "create"` to start new research; `research_read` only loads existing records and will fail for unknown refs.',
     ],
     parameters: ResearchReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -263,11 +266,13 @@ export function registerResearchTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "research_write",
     label: "research_write",
-    description: "Create or update durable research state in the local research memory layer.",
+    description:
+      "Create or update durable research state in the local research memory layer. Create explicitly before recording child state on a new investigation.",
     promptSnippet:
       "Persist a substantial, reusable research record with question, framing, methodology, evidence, rejected paths, conclusions, provenance, links, and current position instead of leaving discovery in chat.",
     promptGuidelines: [
       "Use this tool when exploratory work should remain reusable after the current turn.",
+      'Use `action: "create"` before `research_read`, `research_hypothesis`, `research_artifact`, or link actions on a new investigation; those flows do not create missing research records.',
       "Keep research framing, methodology, evidence, conclusions, links, and open questions truthful so future turns and agents can rely on them.",
       "Favor detail-first updates at the research layer: capture why confidence changed, what was ruled out, and what still needs proof without duplicating downstream execution ledgers.",
     ],
@@ -348,11 +353,13 @@ export function registerResearchTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "research_artifact",
     label: "research_artifact",
-    description: "Record canonical research notes, experiments, sources, and other artifacts with inventory metadata.",
+    description:
+      "Record current-state research notes, experiments, sources, and other artifacts with inventory metadata.",
     promptSnippet:
-      "Persist authored research artifacts as canonical evidence packages with reusable context, observations, and provenance instead of burying them in chat.",
+      "Persist authored research artifacts as current-state records with reusable context, observations, and provenance instead of burying them in chat.",
     promptGuidelines: [
-      "Use canonical artifact records for notes, experiments, and sources that should remain reusable later.",
+      "Use artifact records for notes, experiments, and sources that should remain reusable later.",
+      "Artifacts describe the current stored state for that artifact id; update the record in place when the summary, tags, or body changes.",
       "Capture enough artifact detail that another agent can understand what was examined, how it was examined, and why the result matters.",
       "Link artifacts to hypotheses when the artifact supports or rejects a claim.",
     ],

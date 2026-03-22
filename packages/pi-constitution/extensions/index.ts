@@ -1,8 +1,4 @@
-import type {
-  BeforeAgentStartEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createConstitutionalStore } from "./domain/store.js";
 import { buildConstitutionalSystemPrompt, getBaseConstitutionalGuidance } from "./prompts/guidance.js";
 import { registerConstitutionTools } from "./tools/constitution.js";

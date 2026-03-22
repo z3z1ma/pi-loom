@@ -87,6 +87,10 @@ describe("research tools", () => {
     }
 
     expect(getTool(mockPi, "research_hypothesis").promptSnippet).toContain("Persist structured reasoning");
+    expect(getTool(mockPi, "research_artifact").promptSnippet).toContain("current-state records");
+    expect(getTool(mockPi, "research_read").promptGuidelines).toContain(
+      'Use `research_write` with `action: "create"` to start new research; `research_read` only loads existing records and will fail for unknown refs.',
+    );
   });
 
   it("returns machine-usable shapes for list, read, write, hypothesis, artifact, dashboard, and map flows", async () => {
@@ -312,6 +316,103 @@ describe("research tools", () => {
             }),
           }),
         }),
+      ]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("fails truthfully on unknown research refs and accepts canonical research refs for reads", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+      const mockPi = createMockPi();
+      const { registerResearchTools } = await import("../extensions/tools/research.js");
+      registerResearchTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const researchWrite = getTool(mockPi, "research_write");
+      const researchRead = getTool(mockPi, "research_read");
+      const researchHypothesis = getTool(mockPi, "research_hypothesis");
+      const researchArtifact = getTool(mockPi, "research_artifact");
+
+      await researchWrite.execute(
+        "call-1",
+        {
+          action: "create",
+          title: "Evaluate theme architecture",
+          keywords: ["theme", "architecture"],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      await expect(
+        researchRead.execute("call-2", { ref: "research:evaluate-theme-architecture" }, undefined, undefined, ctx),
+      ).resolves.toMatchObject({
+        details: {
+          research: {
+            summary: { id: "evaluate-theme-architecture" },
+          },
+        },
+      });
+
+      const listedByKeyword = await getTool(mockPi, "research_list").execute(
+        "call-3",
+        { keyword: "theme" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(listedByKeyword.details).toMatchObject({
+        research: [expect.objectContaining({ id: "evaluate-theme-architecture" })],
+      });
+
+      await expect(
+        researchRead.execute("call-4", { ref: "research:missing-research" }, undefined, undefined, ctx),
+      ).rejects.toThrow("Unknown research: missing-research");
+      await expect(
+        researchHypothesis.execute(
+          "call-5",
+          {
+            ref: "research:missing-research",
+            statement: "Missing refs must fail truthfully.",
+          },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("Unknown research: missing-research");
+      await expect(
+        researchArtifact.execute(
+          "call-6",
+          {
+            ref: "research:missing-research",
+            kind: "note",
+            title: "Missing target",
+          },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("Unknown research: missing-research");
+      await expect(
+        researchWrite.execute(
+          "call-7",
+          {
+            action: "link_initiative",
+            ref: "research:missing-research",
+            initiativeId: "theme-modernization",
+          },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("Unknown research: missing-research");
+
+      expect(await createResearchStore(cwd).listResearch({ includeArchived: true })).toEqual([
+        expect.objectContaining({ id: "evaluate-theme-architecture" }),
       ]);
     } finally {
       cleanup();

@@ -113,6 +113,19 @@ describe("ticket tools", () => {
     expect(getTool(mockPi, "ticket_read").promptGuidelines).toContain(
       "Use the full ticket body, acceptance criteria, provenance, and journal as the execution record; do not overwrite a complete unit of work with a thinner restatement that would leave a newcomer unsure why the work exists or how to recognize completion.",
     );
+    expect(getTool(mockPi, "ticket_read").promptGuidelines).toContain(
+      "Use human-facing ticket refs only; canonical storage entity ids stay opaque under the durable display id and are not a public ticket reference format.",
+    );
+    expect(getTool(mockPi, "ticket_write").promptGuidelines).toContain(
+      "Closed tickets are structurally frozen until reopened; append-only journal, checkpoint, and attachment writes remain available, but dependency and other relationship edits must go through reopen first.",
+    );
+    expect(
+      (
+        getTool(mockPi, "ticket_read").parameters as unknown as {
+          properties: { ref: { description: string } };
+        }
+      ).properties.ref.description,
+    ).toContain("`ticket:t-0001`");
     expect(getTool(mockPi, "ticket_checkpoint").promptGuidelines).toContain(
       "Checkpoint bodies should preserve the critical execution detail needed for truthful resumption, including state, decisions, risks, acceptance progress, and verification status, so a later worker can tell what remains and how completion will be judged.",
     );
@@ -195,13 +208,41 @@ describe("ticket tools", () => {
       const readResult = await ticketRead.execute("call-5", { ref: `#${ticketId}` }, undefined, undefined, ctx);
       expect(readResult.details).toMatchObject({
         ticket: {
-          summary: { id: ticketId },
+          summary: { id: ticketId, status: "blocked", storedStatus: "open" },
           journal: expect.arrayContaining([expect.objectContaining({ kind: "state" })]),
         },
       });
+      expect(firstText(readResult.content)).toContain(`${ticketId} [blocked]`);
+      expect(firstText(readResult.content)).toContain("Stored status: open");
       expect(firstText(readResult.content)).toContain(
         "Acceptance: Tool outputs include the expected machine-readable details.",
       );
+
+      const pathReadResult = await ticketRead.execute(
+        "call-5b",
+        { ref: `tickets/${ticketId}.md` },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(pathReadResult.details).toMatchObject({
+        ticket: {
+          summary: { id: ticketId, status: "blocked", storedStatus: "open" },
+        },
+      });
+
+      const canonicalReadResult = await ticketRead.execute(
+        "call-5c",
+        { ref: `ticket:${ticketId}` },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(canonicalReadResult.details).toMatchObject({
+        ticket: {
+          summary: { id: ticketId, status: "blocked", storedStatus: "open" },
+        },
+      });
 
       const graphResult = await ticketGraph.execute("call-6", { ref: ticketId }, undefined, undefined, ctx);
       expect(graphResult.details).toMatchObject({
@@ -343,6 +384,16 @@ describe("ticket tools", () => {
           ]),
         },
       });
+
+      await expect(
+        ticketWrite.execute(
+          "call-4b",
+          { action: "add_dependency", ref: ticketId, dependency: ticketId },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow(`Closed ticket ${ticketId} cannot add dependencies; use reopen before editing it.`);
 
       const reopenResult = await ticketWrite.execute(
         "call-5",

@@ -86,7 +86,14 @@ const SpecWriteParams = Type.Object({
         "Notes that clarify design intent, constraints, or tradeoffs without turning the spec itself into a rollout plan or execution log.",
     }),
   ),
-  supersedes: Type.Optional(Type.Array(Type.String())),
+  supersedes: Type.Optional(
+    Type.Array(
+      Type.String({
+        description:
+          "Earlier spec ids or refs that this mutable specification supersedes. This records lineage only; archived specs remain read-only history.",
+      }),
+    ),
+  ),
   capabilities: Type.Optional(Type.Array(SpecPlanCapabilityParams)),
 });
 
@@ -203,6 +210,8 @@ export function registerSpecTools(pi: ExtensionAPI): void {
       "Capture enough bounded detail for the specification layer: problem framing, desired behavior, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
       "When proposing a specification, title it around the behavior or capability being specified rather than an implementation-task verb or migration delta.",
       "Keep specifications declarative and implementation-decoupled; use `specify` to record capabilities and design notes, then create or update a plan when the specification is ready to drive implementation.",
+      "`clarify`, `specify`, and other spec mutations are for mutable specs only. After `finalize`, the spec becomes read-only; after `archive`, it is terminal and remains available only for reading, lineage, and capability provenance.",
+      "Use `supersedes` to record lineage to earlier specs during specification. Do not treat archived specs as mutable successors or editable placeholders.",
     ],
     parameters: SpecWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -253,6 +262,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
       "Use this tool to validate the specification itself.",
       "Run analysis before finalizing and before handing the spec off to plans or other execution artifacts.",
       "Treat implementation-coupled wording, missing rationale, edge cases, dependencies, or verification detail as a spec-quality failure to fix before planning execution.",
+      "Analysis and checklist generation mutate stored artifacts, so they are only valid while the spec is still mutable; rerun them before finalize, not after finalize or archive.",
     ],
     parameters: SpecAnalyzeParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

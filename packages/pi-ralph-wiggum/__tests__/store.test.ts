@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
+import {
+  closeWorkspaceStorage,
+  openWorkspaceStorage,
+  openWorkspaceStorageSync,
+} from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CreateRalphRunInput } from "../extensions/domain/models.js";
 import { createRalphStore } from "../extensions/domain/store.js";
@@ -37,16 +42,83 @@ function createExecutionRun(
   });
 }
 
+function seedLinkedEntity(
+  workspace: string,
+  kind: "plan" | "ticket" | "spec_change",
+  displayId: string,
+  title: string,
+) {
+  const { storage, identity } = openWorkspaceStorageSync(workspace);
+  const timestamp = new Date().toISOString();
+  const attributes =
+    kind === "plan"
+      ? { state: { planId: displayId, status: "active", title } }
+      : kind === "ticket"
+        ? {
+            record: {
+              summary: { id: displayId, status: "active", title },
+              blockers: [],
+              ticket: {
+                frontmatter: {
+                  "initiative-ids": [],
+                  "research-ids": [],
+                  "roadmap-item-ids": [],
+                  "spec-change-id": "spec-789",
+                },
+                body: {
+                  summary: `${title} summary`,
+                  context: `${title} context`,
+                  plan: `${title} plan`,
+                  notes: "",
+                  verification: `${title} verification`,
+                  journalSummary: "",
+                },
+              },
+            },
+          }
+        : { record: { summary: { id: displayId, status: "active" } }, state: { title } };
+  storage.db
+    .prepare(
+      `
+        INSERT INTO entities (id, kind, space_id, owning_repository_id, display_id, title, summary, status, version, tags_json, attributes_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    )
+    .run(
+      createEntityId(kind, identity.space.id, displayId, `${kind}:${displayId}`),
+      kind,
+      identity.space.id,
+      null,
+      displayId,
+      title,
+      `${title} summary`,
+      "active",
+      1,
+      JSON.stringify([]),
+      JSON.stringify(attributes),
+      timestamp,
+      timestamp,
+    );
+}
+
+function seedDefaultLinkedEntities(workspace: string) {
+  seedLinkedEntity(workspace, "plan", "plan-123", "Default plan");
+  seedLinkedEntity(workspace, "ticket", "ticket-456", "Default ticket");
+  seedLinkedEntity(workspace, "spec_change", "spec-789", "Default spec");
+}
+
 describe("RalphStore durable memory", () => {
   let workspace: string;
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-ralph-store-"));
     vi.useFakeTimers();
+    seedDefaultLinkedEntities(workspace);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    closeWorkspaceStorage(workspace);
     rmSync(workspace, { recursive: true, force: true });
   });
 
@@ -112,7 +184,7 @@ describe("RalphStore durable memory", () => {
     expect(created.artifacts.run).toBe(`ralph-run:${created.state.runId}:run`);
     expect(created.artifacts.launch).toBe(`ralph-run:${created.state.runId}:launch`);
     expect(created.packet).toContain("# Ralph Packet: Ralph Rollout");
-    expect(created.packet).toContain("plan-123 (unresolved)");
+    expect(created.packet).toContain("plan-123 [active] Default plan");
     expect(created.run).toContain("## Linked Refs");
     expect(created.dashboard.counts.iterations).toBe(0);
     expect(created.summary.runRef).toBe(`ralph-run:${created.state.runId}`);
@@ -153,6 +225,23 @@ describe("RalphStore durable memory", () => {
       ]),
     );
   }, 10000);
+
+  it("fails truthfully when projected links cannot resolve linked refs", () => {
+    vi.setSystemTime(new Date("2026-03-15T14:05:00.000Z"));
+    const store = createRalphStore(workspace);
+
+    expect(() =>
+      createExecutionRun(store, {
+        title: "Missing plan link",
+        objective: "Do not persist a run whose projected plan link cannot resolve.",
+        linkedRefs: {
+          planIds: ["plan-missing"],
+          ticketIds: ["ticket-456"],
+          specChangeIds: ["spec-789"],
+        },
+      }),
+    ).toThrow("Ralph projected link sync cannot resolve: plan:plan-missing");
+  });
 
   it("stores canonical Ralph state and iteration artifacts without duplicating read models", async () => {
     vi.setSystemTime(new Date("2026-03-15T15:00:00.000Z"));
@@ -209,6 +298,9 @@ describe("RalphStore durable memory", () => {
 
     const { storage, identity } = await openWorkspaceStorage(workspace);
     const runEntity = await findEntityByDisplayId(storage, identity.space.id, "ralph_run", created.state.runId);
+    expect(runEntity?.id).toMatch(/^ralph_run_/);
+    expect(runEntity?.id).not.toBe(created.state.runId);
+    expect(runEntity?.displayId).toBe(created.state.runId);
     expect(runEntity?.attributes).toEqual(
       expect.objectContaining({
         state: expect.objectContaining({
@@ -784,6 +876,50 @@ describe("RalphStore durable memory", () => {
       verdict: "not_run",
       blocker: false,
     });
+  });
+
+  it("archives runs without leaving live loop controls in public state", () => {
+    const store = createRalphStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T14:39:00.000Z"));
+    const run = createExecutionRun(store, {
+      title: "Archive cleanup run",
+      objective: "Archive should clear public loop-control residue without destroying read access.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T14:39:10.000Z"));
+    store.queueSteering(run.state.runId, "Pause after the next checkpoint.");
+    vi.setSystemTime(new Date("2026-03-15T14:39:20.000Z"));
+    store.requestStop(run.state.runId, "Operator requested stop before archiving.", true);
+    vi.setSystemTime(new Date("2026-03-15T14:39:30.000Z"));
+    store.setScheduler(run.state.runId, { status: "running", jobId: "job-123", note: "Still running." });
+
+    vi.setSystemTime(new Date("2026-03-15T14:39:40.000Z"));
+    const archived = store.archiveRun(run.state.runId);
+
+    expect(archived.state.status).toBe("archived");
+    expect(archived.state.phase).toBe("halted");
+    expect(archived.state.waitingFor).toBe("none");
+    expect(archived.state.steeringQueue).toEqual([]);
+    expect(archived.state.stopRequest).toBeNull();
+    expect(archived.state.scheduler).toMatchObject({
+      status: "completed",
+      jobId: null,
+      note: "Ralph run archived.",
+    });
+    expect(archived.state.nextIterationId).toBeNull();
+    expect(archived.state.nextLaunch).toMatchObject({
+      runtime: null,
+      resume: false,
+      preparedAt: null,
+      instructions: [],
+    });
+
+    const readback = store.readRun(run.state.runId);
+    expect(readback.summary).toMatchObject({ id: run.state.runId, status: "archived", phase: "halted" });
+    expect(readback.state.stopRequest).toBeNull();
+    expect(readback.state.scheduler.jobId).toBeNull();
+    expect(readback.state.steeringQueue).toEqual([]);
   });
 
   it("preserves manual approval gating and rejects launch while review gates are active", () => {

@@ -1,8 +1,4 @@
-import type {
-  BeforeAgentStartEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createSpecStore } from "./domain/store.js";
 import { buildSpecSystemPrompt, getBaseSpecGuidance } from "./prompts/guidance.js";
 import { registerSpecTools } from "./tools/spec.js";

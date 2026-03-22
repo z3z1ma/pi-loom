@@ -429,12 +429,22 @@ export class ConstitutionalStore {
   }
 
   async listRoadmapItems(filter: RoadmapListFilter = {}): Promise<RoadmapItem[]> {
+    const status = filter.status ? normalizeRoadmapItemStatus(filter.status) : undefined;
+    const horizon = filter.horizon ? normalizeRoadmapItemHorizon(filter.horizon) : undefined;
     const { record } = await this.loadCanonicalRecord();
-    return record.state.roadmapItems.filter((item) => {
-      if (filter.status && item.status !== normalizeRoadmapItemStatus(filter.status)) return false;
-      if (filter.horizon && item.horizon !== normalizeRoadmapItemHorizon(filter.horizon)) return false;
-      return true;
-    });
+    return record.state.roadmapItems
+      .filter((item) => {
+        if (status && item.status !== status) return false;
+        if (horizon && item.horizon !== horizon) return false;
+        return true;
+      })
+      .map((item) => ({
+        ...item,
+        // Embedded roadmap ids are stable only within this constitution aggregate.
+        initiativeIds: [...item.initiativeIds],
+        researchIds: [...item.researchIds],
+        specChangeIds: [...item.specChangeIds],
+      }));
   }
 
   async readRoadmapItem(ref: string): Promise<RoadmapItem> {

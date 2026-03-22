@@ -249,6 +249,41 @@ describe("critique tools", () => {
         },
       });
 
+      await expect(
+        critiqueWrite.execute(
+          "call-6b",
+          { action: "resolve", ref: "critique-workspace-plan" },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("Cannot resolve critique with active findings");
+
+      const lifecycleUpdate = await critiqueFinding.execute(
+        "call-6c",
+        {
+          action: "update",
+          ref: "critique-workspace-plan",
+          id: "finding-001",
+          resolutionNotes: "Ticket queued for implementation.",
+          recommendedAction: "Do not rewrite this finding.",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(lifecycleUpdate.details).toMatchObject({
+        critique: {
+          findings: [
+            expect.objectContaining({
+              id: "finding-001",
+              recommendedAction: "Add coverage for descriptor-only launch semantics.",
+              resolutionNotes: "Ticket queued for implementation.",
+            }),
+          ],
+        },
+      });
+
       const dashboard = await critiqueDashboard.execute(
         "call-7",
         { ref: "critique-workspace-plan" },
