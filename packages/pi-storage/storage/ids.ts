@@ -45,6 +45,6 @@ export function createLinkId(kind: string, fromEntityId: LoomId, toEntityId: Loo
   return createStableLoomId("link", [kind, fromEntityId, toEntityId]);
 }
 
-export function createEventId(entityId: LoomId, sequence: number): LoomId {
-  return createStableLoomId("event", [entityId, String(sequence)]);
+export function createEventId(): LoomId {
+  return createRandomLoomId("event");
 }

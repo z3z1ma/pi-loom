@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCritiqueStore } from "@pi-loom/pi-critique/extensions/domain/store.js";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
-import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
+import { createEntityId, createStableLoomId } from "@pi-loom/pi-storage/storage/ids.js";
 import {
   closeWorkspaceStorage,
   openWorkspaceStorage,
@@ -241,6 +241,37 @@ describe("RalphStore durable memory", () => {
         },
       }),
     ).toThrow("Ralph projected link sync cannot resolve: plan:plan-missing");
+  });
+
+  it("emits opaque event ids while keeping projected link sequences monotonic", async () => {
+    vi.setSystemTime(new Date("2026-03-15T14:06:00.000Z"));
+    const store = createRalphStore(workspace);
+
+    const created = createExecutionRun(store, {
+      title: "Projected link history",
+      objective: "Preserve Ralph link history without deterministic event ids.",
+      linkedRefs: {
+        planIds: ["plan-123"],
+        ticketIds: ["ticket-456"],
+        specChangeIds: ["spec-789"],
+      },
+    });
+
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const runEntity = await findEntityByDisplayId(storage, identity.space.id, "ralph_run", created.state.runId);
+    expect(runEntity).toBeTruthy();
+
+    const events = await storage.listEvents(runEntity?.id ?? "missing");
+    const projectedLinkEvents = events.filter((event) => event.payload.change === "projected_link_added");
+
+    expect(projectedLinkEvents).toHaveLength(3);
+    expect(projectedLinkEvents.map((event) => event.sequence)).toEqual([1, 2, 3]);
+    expect(projectedLinkEvents.map((event) => event.actor)).toEqual(["ralph-store", "ralph-store", "ralph-store"]);
+    expect(
+      projectedLinkEvents.every(
+        (event) => event.id !== createStableLoomId("event", [event.entityId, String(event.sequence)]),
+      ),
+    ).toBe(true);
   });
 
   it("stores canonical Ralph state and iteration artifacts without duplicating read models", async () => {

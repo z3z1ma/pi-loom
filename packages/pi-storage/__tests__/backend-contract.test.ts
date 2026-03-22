@@ -12,6 +12,7 @@ import type {
   LoomSpaceRecord,
   LoomWorktreeRecord,
 } from "../storage/contract.js";
+import { upsertEntityByDisplayIdWithLifecycleEvents } from "../storage/entities.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
 import { InMemoryLoomCatalog } from "../storage/memory.js";
 import { SqliteLoomCatalog, toSqliteNamedParams } from "../storage/sqlite.js";
@@ -130,7 +131,7 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
   expect(await storage.listRuntimeAttachments(worktree.id)).toEqual([]);
 }
 
-async function seedSqliteConcurrencyWorkspace(storage: SqliteLoomCatalog): Promise<void> {
+async function seedConcurrencyWorkspace(storage: LoomCanonicalStorage): Promise<void> {
   const timestamps = {
     createdAt: "2026-03-21T00:00:00.000Z",
     updatedAt: "2026-03-21T00:00:00.000Z",
@@ -166,6 +167,78 @@ async function seedSqliteConcurrencyWorkspace(storage: SqliteLoomCatalog): Promi
   await storage.upsertSpace(space);
   await storage.upsertRepository(repository);
   await storage.upsertWorktree(worktree);
+}
+
+async function exerciseHelperConcurrency(storage: LoomCanonicalStorage): Promise<void> {
+  await seedConcurrencyWorkspace(storage);
+
+  const base = {
+    kind: "ticket" as const,
+    spaceId: "space-concurrency",
+    owningRepositoryId: "repo-concurrency",
+    displayId: "t-9001",
+    tags: ["concurrency"],
+    createdAt: "2026-03-21T00:00:00.000Z",
+  };
+
+  const created = await upsertEntityByDisplayIdWithLifecycleEvents(
+    storage,
+    {
+      ...base,
+      title: "Initial",
+      summary: "Initial summary",
+      status: "open",
+      version: 1,
+      attributes: { revision: 1 },
+      updatedAt: "2026-03-21T00:00:00.000Z",
+    },
+    { actor: "backend-contract" },
+  );
+
+  const firstUpdate = upsertEntityByDisplayIdWithLifecycleEvents(
+    storage,
+    {
+      ...base,
+      title: "First writer",
+      summary: "First concurrent write",
+      status: "open",
+      version: 2,
+      attributes: { revision: 2, writer: "first" },
+      updatedAt: "2026-03-21T00:01:00.000Z",
+    },
+    { actor: "backend-contract" },
+  );
+  const secondUpdate = upsertEntityByDisplayIdWithLifecycleEvents(
+    storage,
+    {
+      ...base,
+      title: "Second writer",
+      summary: "Second concurrent write",
+      status: "open",
+      version: 2,
+      attributes: { revision: 2, writer: "second" },
+      updatedAt: "2026-03-21T00:01:01.000Z",
+    },
+    { actor: "backend-contract" },
+  );
+
+  const settled = await Promise.allSettled([firstUpdate, secondUpdate]);
+  const fulfilled = settled.filter((result) => result.status === "fulfilled");
+  const rejected = settled.filter((result) => result.status === "rejected");
+
+  expect(fulfilled).toHaveLength(1);
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0]?.reason).toBeInstanceOf(Error);
+  expect((rejected[0]?.reason as Error).message).toMatch(/Stale .* write|current version is/i);
+  expect((rejected[0]?.reason as Error).message).not.toMatch(/events\.id|UNIQUE constraint failed: events\.id/i);
+
+  const entity = await storage.getEntity(created.entity.id);
+  expect(entity).toMatchObject({ id: created.entity.id, version: 2 });
+
+  const events = await storage.listEvents(created.entity.id);
+  expect(events).toHaveLength(2);
+  expect(events.map((event) => event.sequence)).toEqual([1, 2]);
+  expect(new Set(events.map((event) => event.id)).size).toBe(events.length);
 }
 
 function concurrencyTicket(id: string, displayId: string): LoomEntityRecord {
@@ -260,6 +333,15 @@ describe("pi-storage backend contract", () => {
         close();
       }
     });
+
+    it(`rejects stale helper writes without event id collisions on ${backendName}`, async () => {
+      const { storage, close } = createStorage();
+      try {
+        await exerciseHelperConcurrency(storage);
+      } finally {
+        close();
+      }
+    });
   }
 
   it("serializes overlapping sqlite transactions and hides uncommitted writes from parallel callers", async () => {
@@ -270,7 +352,7 @@ describe("pi-storage backend contract", () => {
 
     const storage = new SqliteLoomCatalog();
     try {
-      await seedSqliteConcurrencyWorkspace(storage);
+      await seedConcurrencyWorkspace(storage);
 
       let releaseOuter: () => void = () => {};
       const outerHeld = new Promise<void>((resolve) => {
@@ -329,7 +411,7 @@ describe("pi-storage backend contract", () => {
 
     const storage = new SqliteLoomCatalog();
     try {
-      await seedSqliteConcurrencyWorkspace(storage);
+      await seedConcurrencyWorkspace(storage);
 
       await storage.transact(async (tx) => {
         await tx.upsertEntity(concurrencyTicket("ticket-outer", "t-2001"));

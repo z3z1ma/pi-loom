@@ -4,7 +4,7 @@ import {
   type ProjectedArtifactEntityAttributes,
   projectedArtifactAttributes,
 } from "@pi-loom/pi-storage/storage/artifacts.js";
-import { createEntityId, createEventId, createLinkId } from "@pi-loom/pi-storage/storage/ids.js";
+import { createEntityId, createLinkId, createRandomLoomId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
@@ -450,23 +450,14 @@ function appendEntityEventSync(
   createdAt: string,
 ): void {
   const { storage } = openRalphCatalogSync(cwd);
-  const row = storage.db
-    .prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events WHERE entity_id = ?")
-    .get(entityId) as { sequence?: number } | undefined;
-  const sequence = Number(row?.sequence ?? 0) + 1;
   storage.db
     .prepare(
-      "INSERT INTO events (id, entity_id, kind, sequence, created_at, actor, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      `
+        INSERT INTO events (id, entity_id, kind, sequence, created_at, actor, payload_json)
+        VALUES (?, ?, ?, COALESCE((SELECT MAX(sequence) + 1 FROM events WHERE entity_id = ?), 1), ?, ?, ?)
+      `,
     )
-    .run(
-      createEventId(entityId, sequence),
-      entityId,
-      kind,
-      sequence,
-      createdAt,
-      RALPH_EVENT_ACTOR,
-      JSON.stringify(payload),
-    );
+    .run(createRandomLoomId("event"), entityId, kind, entityId, createdAt, RALPH_EVENT_ACTOR, JSON.stringify(payload));
 }
 
 function syncIterationArtifactsSync(
@@ -1012,21 +1003,19 @@ function syncProjectedRalphLinksSync(
     });
   }
 
-  const sequenceRow = storage.db
-    .prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events WHERE entity_id = ?")
-    .get(input.fromEntityId) as { sequence?: number } | undefined;
-  let sequence = Number(sequenceRow?.sequence ?? 0);
   const appendProjectionEvent = (kind: "linked" | "unlinked", payload: Record<string, unknown>) => {
-    sequence += 1;
     storage.db
       .prepare(
-        "INSERT INTO events (id, entity_id, kind, sequence, created_at, actor, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        `
+          INSERT INTO events (id, entity_id, kind, sequence, created_at, actor, payload_json)
+          VALUES (?, ?, ?, COALESCE((SELECT MAX(sequence) + 1 FROM events WHERE entity_id = ?), 1), ?, ?, ?)
+        `,
       )
       .run(
-        createEventId(input.fromEntityId, sequence),
+        createRandomLoomId("event"),
         input.fromEntityId,
         kind,
-        sequence,
+        input.fromEntityId,
         input.timestamp,
         input.projectionOwner,
         JSON.stringify(payload),
