@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -755,4 +756,284 @@ describe("ralph review-state gating", () => {
       "Ralph run verifier-blocked-review is waiting for operator and cannot launch until that gate is cleared.",
     );
   }, 90000);
+});
+
+describe("ralph loop policy enforcement", () => {
+  let workspace: string;
+
+  beforeEach(() => {
+    workspace = mkdtempSync(join(tmpdir(), "pi-ralph-loop-runtime-"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it("keeps live session transcript out of resumed Ralph launch instructions", async () => {
+    const store = createRalphStore(workspace);
+    const run = store.createRun({
+      title: "Existing Ralph Run",
+      objective: "Resume from durable state only.",
+      policySnapshot: { verifierRequired: false },
+    });
+    const firstLaunch = store.prepareLaunch(run.state.runId, { focus: "Seed the first bounded iteration" });
+    store.appendIteration(run.state.runId, {
+      id: firstLaunch.launch.iterationId,
+      status: "accepted",
+      summary: "Persist the first bounded checkpoint before resuming.",
+      decision: {
+        kind: "continue",
+        reason: "unknown",
+        summary: "Resume from durable state on the next iteration.",
+        decidedAt: new Date().toISOString(),
+        decidedBy: "policy",
+        blockingRefs: [],
+      },
+    });
+
+    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    runtimeSpy.mockImplementationOnce(async (_cwd, launch) => {
+      expect(launch.instructions).toEqual([
+        "Primary objective for the next bounded iteration: tighten verifier freshness",
+      ]);
+      expect(launch.instructions.join("\n")).not.toContain("This transcript should stay out of the durable resume");
+      expect(launch.resume).toBe(true);
+      expect(launch.iterationId).toBe("iter-002");
+
+      createRalphStore(workspace).appendIteration(run.state.runId, {
+        id: launch.iterationId,
+        status: "accepted",
+        summary: "Accepted resumed iteration.",
+        decision: {
+          kind: "continue",
+          reason: "unknown",
+          summary: "Stay eligible for another bounded iteration.",
+          decidedAt: new Date().toISOString(),
+          decidedBy: "policy",
+          blockingRefs: [],
+        },
+      });
+
+      return {
+        command: "pi",
+        args: ["session-runtime"],
+        exitCode: 0,
+        output: "ok",
+        stderr: "",
+        usage: { measured: true, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+        status: "completed",
+      };
+    });
+
+    const result = await import("../extensions/domain/loop.js").then(({ executeRalphLoop }) =>
+      executeRalphLoop(
+        {
+          cwd: workspace,
+          sessionManager: {
+            getBranch: () => [
+              {
+                type: "message",
+                message: {
+                  role: "user",
+                  content: [{ type: "text", text: "This transcript should stay out of the durable resume." }],
+                },
+              },
+            ],
+          },
+        } as unknown as ExtensionContext,
+        {
+          ref: run.state.runId,
+          prompt: "tighten verifier freshness",
+          iterations: 1,
+        },
+      ),
+    );
+
+    expect(result.created).toBe(false);
+    expect(result.run.iterations.at(-1)).toMatchObject({
+      id: "iter-002",
+      decision: { kind: "continue" },
+    });
+    runtimeSpy.mockRestore();
+  });
+
+  it("halts the run when a bounded iteration exceeds the configured runtime limit", async () => {
+    vi.useFakeTimers();
+    const store = createRalphStore(workspace);
+    const run = store.createRun({
+      title: "Runtime bounded Ralph Run",
+      objective: "Abort when the runtime limit is exceeded.",
+      policySnapshot: { verifierRequired: false, maxRuntimeMinutes: 1 },
+    });
+
+    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    runtimeSpy.mockImplementationOnce(
+      async (_cwd, _launch, signal, _onUpdate, _extraEnv, onEvent) => {
+        await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
+        return await new Promise((resolve) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              resolve({
+                command: "pi",
+                args: ["session-runtime"],
+                exitCode: 1,
+                output: "",
+                stderr: "Aborted",
+                usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+                status: "cancelled",
+              });
+            },
+            { once: true },
+          );
+        });
+      },
+    );
+
+    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const loopPromise = executeRalphLoop(
+      {
+        cwd: workspace,
+        sessionManager: { getBranch: () => [] },
+      } as unknown as ExtensionContext,
+      { ref: run.state.runId, prompt: "do work", iterations: 1 },
+    );
+    await vi.advanceTimersByTimeAsync(60_001);
+    await vi.advanceTimersByTimeAsync(2_001);
+    const result = await loopPromise;
+
+    expect(result.run.state.latestDecision).toMatchObject({ kind: "halt", reason: "timeout_exceeded" });
+    expect(result.run.state.status).toBe("halted");
+    expect(result.run.runtimeArtifacts.at(-1)).toMatchObject({ status: "failed" });
+    expect(result.run.iterations.at(-1)).toMatchObject({
+      id: "iter-001",
+      decision: { kind: "halt", reason: "timeout_exceeded" },
+    });
+    runtimeSpy.mockRestore();
+  });
+
+  it("honors a late timeout checkpoint during the grace window instead of writing missing-checkpoint failure state", async () => {
+    vi.useFakeTimers();
+    const store = createRalphStore(workspace);
+    const run = store.createRun({
+      title: "Timeout grace Ralph Run",
+      objective: "Keep a late checkpoint truthful when timeout fires first.",
+      policySnapshot: { verifierRequired: false, maxRuntimeMinutes: 1 },
+    });
+
+    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    runtimeSpy.mockImplementationOnce(
+      async (_cwd, launch, signal, _onUpdate, _extraEnv, onEvent) => {
+        await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
+        return await new Promise((resolve) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              createRalphStore(workspace).appendIteration(run.state.runId, {
+                id: launch.iterationId,
+                status: "accepted",
+                summary: "Checkpoint landed during timeout shutdown.",
+                decision: {
+                  kind: "continue",
+                  reason: "unknown",
+                  summary: "Checkpoint existed even though timeout policy wins.",
+                  decidedAt: new Date().toISOString(),
+                  decidedBy: "policy",
+                  blockingRefs: [],
+                },
+              });
+              resolve({
+                command: "pi",
+                args: ["session-runtime"],
+                exitCode: 1,
+                output: "",
+                stderr: "Timed out",
+                usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+                status: "failed",
+              });
+            },
+            { once: true },
+          );
+        });
+      },
+    );
+
+    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const loopPromise = executeRalphLoop(
+      {
+        cwd: workspace,
+        sessionManager: { getBranch: () => [] },
+      } as unknown as ExtensionContext,
+      { ref: run.state.runId, prompt: "do work", iterations: 1 },
+    );
+    await vi.advanceTimersByTimeAsync(60_001);
+    await vi.advanceTimersByTimeAsync(2_001);
+    const result = await loopPromise;
+
+    expect(result.run.runtimeArtifacts.at(-1)).toMatchObject({ missingCheckpoint: false, status: "failed" });
+    expect(result.run.iterations.at(-1)).toMatchObject({
+      id: "iter-001",
+      status: "accepted",
+      decision: { kind: "halt", reason: "timeout_exceeded" },
+    });
+    runtimeSpy.mockRestore();
+  });
+
+  it("halts the run when runtime token usage exceeds the configured budget", async () => {
+    const store = createRalphStore(workspace);
+    const run = store.createRun({
+      title: "Budget bounded Ralph Run",
+      objective: "Stop when token usage exceeds budget.",
+      policySnapshot: { verifierRequired: false, tokenBudget: 100 },
+    });
+
+    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    runtimeSpy.mockImplementationOnce(async (_cwd, launch) => {
+      createRalphStore(workspace).appendIteration(run.state.runId, {
+        id: launch.iterationId,
+        status: "accepted",
+        summary: "Checkpointed bounded iteration before the policy audit.",
+        decision: {
+          kind: "continue",
+          reason: "unknown",
+          summary: "Worker requested another bounded iteration.",
+          decidedAt: new Date().toISOString(),
+          decidedBy: "policy",
+          blockingRefs: [],
+        },
+      });
+
+      return {
+        command: "pi",
+        args: ["session-runtime"],
+        exitCode: 0,
+        output: "ok",
+        stderr: "",
+        usage: { measured: true, input: 40, output: 70, cacheRead: 0, cacheWrite: 0, totalTokens: 110 },
+        status: "completed",
+      };
+    });
+
+    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const result = await executeRalphLoop(
+      {
+        cwd: workspace,
+        sessionManager: { getBranch: () => [] },
+      } as unknown as ExtensionContext,
+      { ref: run.state.runId, prompt: "do work", iterations: 1 },
+    );
+
+    expect(result.run.state.latestDecision).toMatchObject({ kind: "halt", reason: "budget_exceeded" });
+    expect(result.run.state.status).toBe("halted");
+    expect(result.run.runtimeArtifacts.at(-1)).toMatchObject({
+      usage: { totalTokens: 110 },
+    });
+    expect(result.run.iterations.at(-1)).toMatchObject({
+      id: "iter-001",
+      status: "accepted",
+      decision: { kind: "halt", reason: "budget_exceeded" },
+    });
+    runtimeSpy.mockRestore();
+  });
 });

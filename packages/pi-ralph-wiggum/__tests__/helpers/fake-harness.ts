@@ -6,6 +6,13 @@ export interface FakeHarnessOutcome {
   stopReason?: string;
   text?: string;
   errorMessage?: string;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    totalTokens?: number;
+  };
   waitForAbort?: boolean;
   deferAssistantUntilSessionIdle?: boolean;
 }
@@ -106,10 +113,23 @@ class FakeSession {
       return;
     }
     this.messageDelivered = true;
+    const usage = {
+      input: outcome.usage?.input ?? 0,
+      output: outcome.usage?.output ?? 0,
+      cacheRead: outcome.usage?.cacheRead ?? 0,
+      cacheWrite: outcome.usage?.cacheWrite ?? 0,
+      totalTokens:
+        outcome.usage?.totalTokens ??
+        (outcome.usage?.input ?? 0) +
+          (outcome.usage?.output ?? 0) +
+          (outcome.usage?.cacheRead ?? 0) +
+          (outcome.usage?.cacheWrite ?? 0),
+    };
     const message = {
       role: "assistant",
       stopReason: outcome.stopReason ?? "stop",
       errorMessage: outcome.errorMessage,
+      usage,
       content: outcome.text ? [{ type: "text", text: outcome.text }] : [],
     };
     this.state.messages.push(message);

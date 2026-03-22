@@ -67,6 +67,17 @@ export interface EnsureRalphRunResult {
   created: boolean;
 }
 
+const inFlightLoopExecutions = new Set<string>();
+const TIMEOUT_CHECKPOINT_GRACE_MS = 2_000;
+
+function loopExecutionKey(cwd: string, runId: string): string {
+  return `${cwd}::${runId}`;
+}
+
+export function isRalphLoopExecutionInFlight(cwd: string, runId: string): boolean {
+  return inFlightLoopExecutions.has(loopExecutionKey(cwd, runId));
+}
+
 export function hasTrustedPostIteration(run: RalphReadResult, iterationId: string): boolean {
   const launchedIteration = run.iterations.find((iteration) => iteration.id === iterationId) ?? null;
   return launchedIteration !== null && launchedIteration.decision !== null;
@@ -176,6 +187,11 @@ function buildInstructions(prompt: string | undefined, conversationContext: stri
   return instructions.length > 0 ? instructions : undefined;
 }
 
+function buildSteeringInstructions(prompt: string | undefined): string[] | undefined {
+  const trimmed = prompt?.trim();
+  return trimmed ? [`Primary objective for the next bounded iteration: ${trimmed}`] : undefined;
+}
+
 function appendRuntimeOutput(current: string, next: string): string {
   const trimmed = next.trim();
   if (!trimmed) {
@@ -204,8 +220,29 @@ async function persistRuntimeFailure(
   execution: RalphExecutionResult,
   iterationId: string,
   jobId?: string | null,
+  decisionInput?: {
+    timeoutExceeded?: boolean;
+    queueTimeoutExceeded?: boolean;
+    budgetExceeded?: boolean;
+    runtimeUnavailable?: boolean;
+  },
 ): Promise<RalphReadResult> {
   const store = createRalphStore(cwd);
+  const timeoutExceeded = decisionInput?.timeoutExceeded === true;
+  const queueTimeoutExceeded = decisionInput?.queueTimeoutExceeded === true;
+  const budgetExceeded = decisionInput?.budgetExceeded === true;
+  const runtimeUnavailable = decisionInput?.runtimeUnavailable === true;
+  const summary = queueTimeoutExceeded
+    ? "The Ralph run exceeded its allowed wait for the session runtime queue before a fresh worker started."
+    : timeoutExceeded
+      ? "The Ralph run exceeded its configured runtime limit before completing the bounded iteration."
+      : runtimeUnavailable
+        ? "The Ralph run could not verify runtime token usage for the configured token budget."
+        : budgetExceeded
+          ? "The Ralph run exceeded its configured token budget during the bounded iteration."
+          : execution.stderr ||
+            execution.output ||
+            "Ralph session runtime exited unsuccessfully before finishing the iteration.";
   await store.upsertIterationRuntimeAsync(ref, {
     iterationId,
     status: execution.status === "cancelled" ? "cancelled" : "failed",
@@ -215,37 +252,167 @@ async function persistRuntimeFailure(
     exitCode: execution.exitCode,
     output: execution.output,
     stderr: execution.stderr,
+    usage: execution.usage,
     missingCheckpoint: true,
     jobId,
   });
   await store.appendIterationAsync(ref, {
     id: iterationId,
     status: execution.status === "cancelled" ? "cancelled" : "failed",
-    summary:
-      execution.stderr ||
-      execution.output ||
-      "Ralph session runtime exited unsuccessfully before finishing the iteration.",
-    workerSummary:
-      execution.status === "cancelled"
-        ? "The session-backed launch was cancelled before a durable Ralph checkpoint was written."
-        : execution.exitCode === 0
-          ? "The session-backed launch returned without durable Ralph iteration state."
-          : `Session runtime exited with code ${execution.exitCode}.`,
+    summary,
+    workerSummary: queueTimeoutExceeded
+      ? "The bounded iteration never acquired the session-runtime launch slot before the configured queue wait limit elapsed."
+      : timeoutExceeded
+        ? "The session-backed launch was aborted after the configured runtime limit elapsed."
+        : runtimeUnavailable
+          ? "The bounded iteration finished without runtime token-usage metadata, so the configured budget could not be enforced truthfully."
+          : budgetExceeded
+            ? "The bounded iteration exhausted the configured token budget before a durable checkpoint was trusted."
+            : execution.status === "cancelled"
+              ? "The session-backed launch was cancelled before a durable Ralph checkpoint was written."
+              : execution.exitCode === 0
+                ? "The session-backed launch returned without durable Ralph iteration state."
+                : `Session runtime exited with code ${execution.exitCode}.`,
     notes: [
-      execution.status === "cancelled"
-        ? "Session-backed launch was cancelled before leaving a durable post-iteration checkpoint."
-        : "Session-backed launch exited without leaving a durable post-iteration checkpoint.",
+      queueTimeoutExceeded
+        ? "Session-backed launch exceeded the configured queue wait limit before a fresh worker started."
+        : timeoutExceeded
+          ? "Session-backed launch exceeded the configured runtime limit before leaving a durable post-iteration checkpoint."
+          : runtimeUnavailable
+            ? "Session-backed launch ended without runtime token-usage metadata required for truthful budget enforcement."
+            : budgetExceeded
+              ? "Session-backed launch exceeded the configured token budget before leaving a durable post-iteration checkpoint."
+              : execution.status === "cancelled"
+                ? "Session-backed launch was cancelled before leaving a durable post-iteration checkpoint."
+                : "Session-backed launch exited without leaving a durable post-iteration checkpoint.",
     ],
   });
-  return store.decideRunAsync(ref, {
-    operatorRequestedStop: execution.status === "cancelled",
-    runtimeFailure: execution.status !== "cancelled",
-    summary:
-      execution.stderr ||
-      execution.output ||
-      "Ralph session runtime exited unsuccessfully before finishing the iteration.",
-    decidedBy: execution.status === "cancelled" ? "operator" : "runtime",
+  let run = await store.decideRunAsync(ref, {
+    operatorRequestedStop:
+      execution.status === "cancelled" && !timeoutExceeded && !budgetExceeded && !runtimeUnavailable,
+    runtimeFailure: execution.status !== "cancelled" && !timeoutExceeded && !budgetExceeded && !runtimeUnavailable,
+    runtimeUnavailable,
+    timeoutExceeded,
+    budgetExceeded,
+    summary,
+    decidedBy:
+      timeoutExceeded || budgetExceeded
+        ? "policy"
+        : runtimeUnavailable
+          ? "runtime"
+          : execution.status === "cancelled"
+            ? "operator"
+            : "runtime",
   });
+  if (run.state.latestDecision) {
+    run = await store.appendIterationAsync(ref, {
+      id: iterationId,
+      decision: run.state.latestDecision,
+    });
+  }
+  return run;
+}
+
+function totalRuntimeTokens(run: RalphReadResult): number | null {
+  let total = 0;
+  for (const artifact of run.runtimeArtifacts) {
+    if (artifact.usage.measured !== true) {
+      return null;
+    }
+    total += artifact.usage.totalTokens || 0;
+  }
+  return total;
+}
+
+function buildTimeoutExecutionResult(run: RalphReadResult, timeoutMs: number): RalphExecutionResult {
+  return {
+    command: "session-runtime",
+    args: [run.launch.runId, run.launch.iterationId, run.launch.resume ? "resume" : "launch"],
+    exitCode: 1,
+    output: "",
+    stderr: `Timed out after ${timeoutMs}ms`,
+    usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    startedAt: new Date().toISOString(),
+    completedAt: new Date().toISOString(),
+    status: "failed",
+    events: [],
+  };
+}
+
+function buildQueuedTimeoutExecutionResult(run: RalphReadResult, timeoutMs: number): RalphExecutionResult {
+  return {
+    command: "session-runtime",
+    args: [run.launch.runId, run.launch.iterationId, run.launch.resume ? "resume" : "launch"],
+    exitCode: 1,
+    output: "",
+    stderr: `Timed out waiting ${timeoutMs}ms for the Ralph session runtime queue`,
+    usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    startedAt: new Date().toISOString(),
+    completedAt: new Date().toISOString(),
+    status: "failed",
+    events: [],
+  };
+}
+
+async function waitForTimeoutCheckpointGrace(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => resolve(), TIMEOUT_CHECKPOINT_GRACE_MS);
+    timer.unref?.();
+  });
+}
+
+function createExecutionSignal(signal: AbortSignal | undefined): {
+  signal: AbortSignal | undefined;
+  timedOut: () => boolean;
+  armTimeout: (timeoutMs: number | null) => void;
+  timeoutPromise: Promise<void>;
+  abort: (reason: unknown) => void;
+  cleanup: () => void;
+} {
+  const combinedController = new AbortController();
+  let timedOut = false;
+  let timeoutTimer: NodeJS.Timeout | null = null;
+  let resolveTimeout: (() => void) | null = null;
+  const timeoutPromise = new Promise<void>((resolve) => {
+    resolveTimeout = resolve;
+  });
+
+  const abortCombined = (reason: unknown) => {
+    if (!combinedController.signal.aborted) {
+      combinedController.abort(reason);
+    }
+  };
+  const onSignalAbort = () => abortCombined(signal?.reason);
+
+  if (signal?.aborted) {
+    onSignalAbort();
+  } else {
+    signal?.addEventListener("abort", onSignalAbort, { once: true });
+  }
+
+  return {
+    signal: combinedController.signal,
+    timedOut: () => timedOut,
+    armTimeout: (timeoutMs: number | null) => {
+      if (timeoutTimer || !timeoutMs || timeoutMs <= 0) {
+        return;
+      }
+      timeoutTimer = setTimeout(() => {
+        timedOut = true;
+        abortCombined(new Error("Ralph runtime timeout exceeded"));
+        resolveTimeout?.();
+      }, timeoutMs);
+      timeoutTimer.unref?.();
+    },
+    timeoutPromise,
+    abort: abortCombined,
+    cleanup: () => {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
+      signal?.removeEventListener("abort", onSignalAbort);
+    },
+  };
 }
 
 async function executePreparedIteration(
@@ -260,8 +427,25 @@ async function executePreparedIteration(
     cwd: ctx.cwd,
     model: ctx.model,
   });
+  const timeoutMs =
+    run.state.policySnapshot.maxRuntimeMinutes === null ? null : run.state.policySnapshot.maxRuntimeMinutes * 60 * 1000;
+  const executionSignal = createExecutionSignal(signal);
+  let queueTimeoutExceeded = false;
+  let queueTimeoutTimer: NodeJS.Timeout | null = null;
   let streamedOutput = "";
   let latestRuntimeStatus: "queued" | "running" = "queued";
+
+  const queueTimeoutPromise =
+    timeoutMs && timeoutMs > 0
+      ? new Promise<RalphExecutionResult>((resolve) => {
+          queueTimeoutTimer = setTimeout(() => {
+            queueTimeoutExceeded = true;
+            executionSignal.abort(new Error("Ralph launch queue timeout exceeded"));
+            resolve(buildQueuedTimeoutExecutionResult(run, timeoutMs));
+          }, timeoutMs);
+          queueTimeoutTimer.unref?.();
+        })
+      : null;
 
   await store.upsertIterationRuntimeAsync(ref, {
     iterationId: run.launch.iterationId,
@@ -272,11 +456,14 @@ async function executePreparedIteration(
     jobId: options.jobId,
   });
 
-  const execution = await runRalphLaunch(
+  const runtimePromise = runRalphLaunch(
     ctx.cwd,
     run.launch,
-    signal,
+    executionSignal.signal,
     async (text) => {
+      if (executionSignal.timedOut()) {
+        return;
+      }
       streamedOutput = appendRuntimeOutput(streamedOutput, text);
       options.onUpdate?.(text);
       await store.upsertIterationRuntimeAsync(ref, {
@@ -290,8 +477,18 @@ async function executePreparedIteration(
     },
     runtimeEnv,
     async (event) => {
+      if (executionSignal.signal?.aborted) {
+        return;
+      }
       if (event.type === "launch_state") {
         latestRuntimeStatus = event.state;
+        if (event.state === "running") {
+          if (queueTimeoutTimer) {
+            clearTimeout(queueTimeoutTimer);
+            queueTimeoutTimer = null;
+          }
+          executionSignal.armTimeout(timeoutMs);
+        }
       }
       const updateText = renderRuntimeEventUpdate(event, run.launch.iterationId);
       if (updateText) {
@@ -308,29 +505,96 @@ async function executePreparedIteration(
       });
     },
   );
+  const execution = await Promise.race([
+    runtimePromise,
+    ...(queueTimeoutPromise ? [queueTimeoutPromise] : []),
+    executionSignal.timeoutPromise.then(() => buildTimeoutExecutionResult(run, timeoutMs ?? 0)),
+  ]);
+  if (queueTimeoutTimer) {
+    clearTimeout(queueTimeoutTimer);
+  }
+  executionSignal.cleanup();
+  const timeoutExceeded = executionSignal.timedOut();
+  const normalizedExecution =
+    timeoutExceeded && execution.status === "cancelled"
+      ? {
+          ...execution,
+          status: "failed" as const,
+          stderr: execution.stderr === "Aborted" ? "Timed out" : execution.stderr || "Timed out",
+        }
+      : execution;
 
   await store.upsertIterationRuntimeAsync(ref, {
     iterationId: run.launch.iterationId,
     iteration: run.launch.iteration,
-    status: execution.status === "completed" ? "completed" : execution.status === "cancelled" ? "cancelled" : "failed",
-    completedAt: execution.completedAt,
-    command: execution.command,
-    args: execution.args,
-    exitCode: execution.exitCode,
-    output: execution.output || streamedOutput,
-    stderr: execution.stderr,
+    status:
+      normalizedExecution.status === "completed"
+        ? "completed"
+        : normalizedExecution.status === "cancelled"
+          ? "cancelled"
+          : "failed",
+    completedAt: normalizedExecution.completedAt,
+    command: normalizedExecution.command,
+    args: normalizedExecution.args,
+    exitCode: normalizedExecution.exitCode,
+    output: normalizedExecution.output || streamedOutput,
+    stderr: normalizedExecution.stderr,
+    usage: normalizedExecution.usage,
     launch: run.launch,
     jobId: options.jobId,
   });
 
-  let updated = await store.readRunAsync(ref);
-  const hasDurableCheckpoint = hasTrustedPostIteration(updated, run.launch.iterationId);
-
-  if (!hasDurableCheckpoint) {
-    updated = await persistRuntimeFailure(ctx.cwd, ref, execution, run.launch.iterationId, options.jobId);
+  if (timeoutExceeded) {
+    await waitForTimeoutCheckpointGrace();
   }
 
-  return { run: updated, execution };
+  let updated = await store.readRunAsync(ref);
+  const hasDurableCheckpoint = hasTrustedPostIteration(updated, run.launch.iterationId);
+  const totalTokens = totalRuntimeTokens(updated);
+  const budgetLimit = updated.state.policySnapshot.tokenBudget;
+  const requiresBudgetEvidence = budgetLimit !== null;
+  const missingBudgetEvidence = requiresBudgetEvidence && totalTokens === null;
+  const budgetExceeded = requiresBudgetEvidence && totalTokens !== null && totalTokens > budgetLimit;
+
+  if (!hasDurableCheckpoint) {
+    updated = await persistRuntimeFailure(ctx.cwd, ref, normalizedExecution, run.launch.iterationId, options.jobId, {
+      timeoutExceeded: timeoutExceeded || queueTimeoutExceeded,
+      queueTimeoutExceeded,
+      budgetExceeded,
+      runtimeUnavailable: missingBudgetEvidence,
+    });
+  } else if (timeoutExceeded || budgetExceeded || missingBudgetEvidence || queueTimeoutExceeded) {
+    updated = await store.decideRunAsync(ref, {
+      timeoutExceeded: timeoutExceeded || queueTimeoutExceeded,
+      budgetExceeded,
+      runtimeUnavailable: missingBudgetEvidence,
+      summary: queueTimeoutExceeded
+        ? "The Ralph run exceeded its allowed wait for the session runtime queue before a fresh worker started."
+        : timeoutExceeded
+          ? "The Ralph run exceeded its configured runtime limit."
+          : missingBudgetEvidence
+            ? "The Ralph run requires runtime token-usage evidence to enforce its configured token budget."
+            : "The Ralph run exceeded its configured token budget.",
+      decidedBy: missingBudgetEvidence ? "runtime" : "policy",
+    });
+    if (updated.state.latestDecision) {
+      updated = await store.appendIterationAsync(ref, {
+        id: run.launch.iterationId,
+        decision: updated.state.latestDecision,
+        notes: [
+          timeoutExceeded
+            ? "Policy halted the run because the bounded iteration exceeded the configured runtime limit."
+            : queueTimeoutExceeded
+              ? "The session runtime queue wait exceeded the configured limit before a fresh worker began running."
+              : missingBudgetEvidence
+                ? "Runtime token usage metadata was unavailable, so the configured token budget could not be enforced truthfully."
+                : "Policy halted the run because the bounded iteration exceeded the configured token budget.",
+        ],
+      });
+    }
+  }
+
+  return { run: updated, execution: normalizedExecution };
 }
 
 export async function ensureRalphRun(
@@ -364,46 +628,54 @@ export async function executeRalphLoop(
 ): Promise<ExecuteRalphLoopResult> {
   const store = createRalphStore(ctx.cwd);
   const loopCount = normalizeLoopCount(input.iterations);
-  const conversationContext = buildConversationContext(ctx);
-  const steeringInstructions = buildInstructions(input.prompt, conversationContext);
   const ensured = await ensureRalphRun(ctx, input);
   let run = ensured.run;
+  const steeringInstructions = ensured.created ? undefined : buildSteeringInstructions(input.prompt);
   const steps: RalphLoopStepResult[] = [];
-
-  for (let stepIndex = 0; stepIndex < loopCount; stepIndex += 1) {
-    if (isTerminalStatus(run.state.status) || run.state.waitingFor !== "none") {
-      break;
-    }
-
-    const launch =
-      run.state.postIteration === null
-        ? await store.prepareLaunchAsync(run.state.runId, {
-            focus: input.prompt?.trim() || run.state.objective,
-            instructions: stepIndex === 0 ? steeringInstructions : undefined,
-          })
-        : await store.resumeRunAsync(run.state.runId, {
-            focus: stepIndex === 0 ? input.prompt?.trim() || run.state.objective : undefined,
-            instructions: stepIndex === 0 ? steeringInstructions : undefined,
-          });
-
-    const executed = await executePreparedIteration(ctx, run.state.runId, signal, launch, options);
-    run = executed.run;
-    steps.push({
-      iterationId: launch.launch.iterationId,
-      iteration: launch.launch.iteration,
-      exitCode: executed.execution.exitCode,
-      output: executed.execution.output,
-      stderr: executed.execution.stderr,
-      finalStatus: run.state.status,
-      finalDecision: run.state.latestDecision?.kind ?? null,
-    });
-
-    if (!shouldContinue(run)) {
-      break;
-    }
+  const executionKey = loopExecutionKey(ctx.cwd, run.state.runId);
+  if (inFlightLoopExecutions.has(executionKey)) {
+    throw new Error(`Ralph run ${run.state.runId} already has an in-flight loop execution in workspace ${ctx.cwd}.`);
   }
+  inFlightLoopExecutions.add(executionKey);
 
-  return { run, created: ensured.created, steps };
+  try {
+    for (let stepIndex = 0; stepIndex < loopCount; stepIndex += 1) {
+      if (isTerminalStatus(run.state.status) || run.state.waitingFor !== "none") {
+        break;
+      }
+
+      const launch =
+        run.state.postIteration === null
+          ? await store.prepareLaunchAsync(run.state.runId, {
+              focus: input.prompt?.trim() || run.state.objective,
+              instructions: stepIndex === 0 ? steeringInstructions : undefined,
+            })
+          : await store.resumeRunAsync(run.state.runId, {
+              focus: stepIndex === 0 ? input.prompt?.trim() || run.state.objective : undefined,
+              instructions: stepIndex === 0 ? steeringInstructions : undefined,
+            });
+
+      const executed = await executePreparedIteration(ctx, run.state.runId, signal, launch, options);
+      run = executed.run;
+      steps.push({
+        iterationId: launch.launch.iterationId,
+        iteration: launch.launch.iteration,
+        exitCode: executed.execution.exitCode,
+        output: executed.execution.output,
+        stderr: executed.execution.stderr,
+        finalStatus: run.state.status,
+        finalDecision: run.state.latestDecision?.kind ?? null,
+      });
+
+      if (!shouldContinue(run)) {
+        break;
+      }
+    }
+
+    return { run, created: ensured.created, steps };
+  } finally {
+    inFlightLoopExecutions.delete(executionKey);
+  }
 }
 
 export function renderLoopResult(result: ExecuteRalphLoopResult): string {

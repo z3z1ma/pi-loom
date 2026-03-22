@@ -87,6 +87,48 @@ describe("/ralph command", () => {
     );
   });
 
+  it("supports explicitly resuming a durable run without forking a new one", async () => {
+    const { ctx } = createContext("/workspace/ralph-command");
+    vi.mocked(executeRalphLoop).mockResolvedValueOnce({
+      created: false,
+      steps: [],
+      run: {
+        summary: { id: "existing-run", status: "active", phase: "executing", title: "Existing Loop" },
+        state: { latestDecision: null, waitingFor: "none", postIteration: null },
+        runtimeArtifacts: [],
+      },
+    } as never);
+
+    await handleRalphCommand("resume existing-run x2 tighten verification gating", ctx);
+
+    expect(executeRalphLoop).toHaveBeenCalledWith(
+      ctx,
+      {
+        ref: "existing-run",
+        prompt: "tighten verification gating",
+        iterations: 2,
+      },
+      undefined,
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
+    );
+  });
+
+  it("rejects bare resume input instead of starting a new run", async () => {
+    const { ctx } = createContext("/workspace/ralph-command");
+
+    await expect(handleRalphCommand("resume", ctx)).rejects.toThrow("Usage: /ralph [xN] <prompt>");
+
+    expect(executeRalphLoop).not.toHaveBeenCalled();
+  });
+
+  it("rejects bare xN input instead of treating it as a prompt", async () => {
+    const { ctx } = createContext("/workspace/ralph-command");
+
+    await expect(handleRalphCommand("x2", ctx)).rejects.toThrow("Usage: /ralph [xN] <prompt>");
+
+    expect(executeRalphLoop).not.toHaveBeenCalled();
+  });
+
   it("rejects empty command input with a usage error before launching Ralph", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
 

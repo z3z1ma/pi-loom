@@ -5,11 +5,12 @@ import { type Static, Type } from "@sinclair/typebox";
 import type { AsyncJob } from "../domain/async-job-manager.js";
 import { AsyncJobManager } from "../domain/async-job-manager.js";
 import {
-  ensureRalphRun,
-  executeRalphLoop,
-  renderLoopResult,
   type ExecuteRalphLoopInput,
   type ExecuteRalphLoopResult,
+  ensureRalphRun,
+  executeRalphLoop,
+  isRalphLoopExecutionInFlight,
+  renderLoopResult,
 } from "../domain/loop.js";
 import type { DecideRalphRunInput, RalphCritiqueLink } from "../domain/models.js";
 import { renderDashboard, renderRalphDetail } from "../domain/render.js";
@@ -209,11 +210,52 @@ type RalphJobMetadata = { runId: string; cwd: string };
 
 const ralphJobManager = new AsyncJobManager<RalphJobType, RalphJobMetadata, ExecuteRalphLoopResult>();
 
+function getWorkspaceJobs(cwd: string): AsyncJob<RalphJobType, RalphJobMetadata, ExecuteRalphLoopResult>[] {
+  return ralphJobManager.getAllJobs().filter((job) => job.metadata?.cwd === cwd);
+}
+
 function getRunJobs(runId: string, cwd: string): AsyncJob<RalphJobType, RalphJobMetadata, ExecuteRalphLoopResult>[] {
-  return ralphJobManager
-    .getAllJobs()
+  return getWorkspaceJobs(cwd)
     .filter((job) => job.metadata?.runId === runId && job.metadata?.cwd === cwd)
     .sort((left, right) => left.startTime - right.startTime);
+}
+
+function getWorkspaceJob(
+  jobId: string,
+  cwd: string,
+): AsyncJob<RalphJobType, RalphJobMetadata, ExecuteRalphLoopResult> | null {
+  const job = ralphJobManager.getJob(jobId);
+  if (!job || job.metadata?.cwd !== cwd) {
+    return null;
+  }
+  return job;
+}
+
+function assertNoRunningRunJob(runId: string, cwd: string): void {
+  const runningJob = getRunJobs(runId, cwd).find((job) => job.status === "running");
+  if (runningJob) {
+    throw new Error(
+      `Ralph run ${runId} already has running background job ${runningJob.id}; wait for it to finish or cancel it before launching again.`,
+    );
+  }
+}
+
+function normalizeWorkspaceJobIds(jobIds: readonly string[] | undefined, cwd: string): string[] {
+  if (!jobIds || jobIds.length === 0) {
+    const workspaceJobs = getWorkspaceJobs(cwd);
+    const runningJobIds = workspaceJobs.filter((job) => job.status === "running").map((job) => job.id);
+    return runningJobIds.length > 0 ? runningJobIds : workspaceJobs.map((job) => job.id);
+  }
+
+  const foreign = jobIds.filter((jobId) => {
+    const job = ralphJobManager.getJob(jobId);
+    return job && job.metadata?.cwd !== cwd;
+  });
+  if (foreign.length > 0) {
+    throw new Error(`Ralph jobs belong to a different workspace: ${foreign.join(", ")}`);
+  }
+
+  return jobIds.filter((jobId) => getWorkspaceJob(jobId, cwd) !== null);
 }
 
 function machineResult(details: Record<string, unknown>, text: string) {
@@ -285,6 +327,7 @@ async function checkpointRun(
 ) {
   let run = await store.appendIterationAsync(params.ref, {
     id: params.iterationId,
+    requireActiveIteration: true,
     status: params.status,
     focus: params.focus,
     summary: params.summary,
@@ -383,6 +426,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "This is the safe way for a fresh Ralph worker session to commit its bounded iteration outcome for the launched iteration id.",
       "Always pass the explicit `iterationId` from the launch packet; repeated updates for the same bounded iteration must reuse that same id.",
+      "Only checkpoint the currently launched iteration or the latest un-relaunched post-iteration record; older iteration ids are rejected.",
       "Always provide an explicit `decisionInput`; a clean exit without a durable checkpoint and decision is treated as failure.",
       "Prefer this tool over piecemeal low-level writes so verifier, critique, iteration, and decision state stay in sync.",
     ],
@@ -415,7 +459,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Use this as the primary Ralph loop tool: it handles the create or resume, one-bounded-iteration session-runtime execution, durable-state inspection, and repeat logic for you.",
     promptGuidelines: [
       "For a new loop, provide a prompt and optional iteration count; the run will be initialized from the prompt plus current conversation context.",
-      "For an existing loop, provide `ref` and optionally a steering prompt, then inspect the returned durable state before deciding whether to call `ralph_run` again.",
+      "For an existing loop, provide `ref` and optionally a steering prompt; the current conversation transcript is not implicitly injected into the durable resume.",
       "Set `background: true` when the bounded iteration may take a while and you want a Ralph job id you can inspect, wait on, or cancel later.",
       "This tool intentionally executes bounded session-runtime iterations; it does not keep a hidden long-running transcript alive.",
     ],
@@ -429,9 +473,15 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         linkedRefs: params.linkedRefs as ExecuteRalphLoopInput["linkedRefs"],
         policySnapshot: params.policySnapshot as ExecuteRalphLoopInput["policySnapshot"],
       };
+      const ensured = await ensureRalphRun(ctx, input);
+      assertNoRunningRunJob(ensured.run.state.runId, ctx.cwd);
 
       if (params.background === true) {
-        const ensured = await ensureRalphRun(ctx, input);
+        if (isRalphLoopExecutionInFlight(ctx.cwd, ensured.run.state.runId)) {
+          throw new Error(
+            `Ralph run ${ensured.run.state.runId} already has an in-flight loop execution in workspace ${ctx.cwd}.`,
+          );
+        }
         const jobId = ralphJobManager.register(
           "ralph_run",
           `Ralph run ${ensured.run.state.runId}`,
@@ -448,7 +498,6 @@ export function registerRalphTools(pi: ExtensionAPI): void {
             });
           },
           {
-            id: ensured.run.state.runId,
             metadata: { runId: ensured.run.state.runId, cwd: ctx.cwd },
             onProgress: async (text, details) => {
               onUpdate?.({
@@ -477,15 +526,16 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         );
       }
 
-      const result = await executeRalphLoop(ctx, input, signal, {
+      const result = await executeRalphLoop(ctx, { ...input, ref: ensured.run.state.runId }, signal, {
         onUpdate: (text) => {
           onUpdate?.({
             content: [{ type: "text", text }],
-            details: { runRef: params.ref ?? null },
+            details: { runRef: ensured.run.state.runId },
           });
         },
       });
-      return machineResult({ result }, renderLoopResult(result));
+      const normalizedResult = ensured.created ? { ...result, created: true } : result;
+      return machineResult({ result: normalizedResult }, renderLoopResult(normalizedResult));
     },
   });
 
@@ -499,10 +549,10 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Read the linked Ralph run separately if you need the durable orchestration state as well as the job lifecycle snapshot.",
     ],
     parameters: RalphJobReadParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const job = ralphJobManager.getJob(params.jobId);
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const job = getWorkspaceJob(params.jobId, ctx.cwd);
       if (!job) {
-        return machineResult({ job: null }, `Unknown Ralph job ${params.jobId}.`);
+        return machineResult({ job: null }, `Unknown Ralph job ${params.jobId} for workspace ${ctx.cwd}.`);
       }
       return machineResult({ job }, renderJobSummary(job));
     },
@@ -521,11 +571,20 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     ],
     parameters: RalphJobWaitParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const jobs = await ralphJobManager.waitForAnyJob({ jobIds: params.jobIds, timeoutMs: params.timeoutMs });
+      const jobIds = normalizeWorkspaceJobIds(params.jobIds, ctx.cwd);
+      if (jobIds.length === 0) {
+        return machineResult(
+          { jobs: [], runs: [] },
+          "No matching Ralph background jobs are currently tracked in this workspace.",
+        );
+      }
+      const jobs = await ralphJobManager.waitForAnyJob({ jobIds, timeoutMs: params.timeoutMs });
       const runs = await Promise.all(
         Array.from(
           new Set(
-            jobs.map((job) => JSON.stringify({ cwd: job.metadata?.cwd ?? "", runId: job.metadata?.runId ?? "" })),
+            jobs
+              .filter((job) => job.metadata?.cwd === ctx.cwd)
+              .map((job) => JSON.stringify({ cwd: job.metadata?.cwd ?? "", runId: job.metadata?.runId ?? "" })),
           ),
         ).flatMap((key) => {
           const parsed = JSON.parse(key) as { cwd?: string; runId?: string };
@@ -535,9 +594,6 @@ export function registerRalphTools(pi: ExtensionAPI): void {
           return [createRalphStore(parsed.cwd).readRunAsync(parsed.runId)];
         }),
       );
-      if (jobs.length === 0) {
-        return machineResult({ jobs: [], runs: [] }, "No matching Ralph background jobs are currently tracked.");
-      }
       return machineResult({ jobs, runs }, jobs.map((job) => renderJobSummary(job)).join("\n\n"));
     },
   });
@@ -551,11 +607,18 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Cancel only jobs you intentionally want to stop; the underlying Ralph run will record a durable cancelled/failure outcome if the worker never checkpoints.",
     ],
     parameters: RalphJobCancelParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const job = getWorkspaceJob(params.jobId, ctx.cwd);
+      if (!job) {
+        return machineResult(
+          { cancelled: false, job: null },
+          `Unknown Ralph job ${params.jobId} for workspace ${ctx.cwd}.`,
+        );
+      }
       const cancelled = ralphJobManager.cancel(params.jobId);
-      const job = ralphJobManager.getJob(params.jobId) ?? null;
+      const updatedJob = getWorkspaceJob(params.jobId, ctx.cwd) ?? job;
       return machineResult(
-        { cancelled, job },
+        { cancelled, job: updatedJob },
         cancelled
           ? `Cancelled Ralph job ${params.jobId}.`
           : `Ralph job ${params.jobId} is not running or does not exist.`,

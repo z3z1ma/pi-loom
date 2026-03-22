@@ -584,6 +584,17 @@ describe("RalphStore durable memory", () => {
       summary: "The first bounded step finished cleanly.",
     });
 
+    expect(() => store.resumeRun(resumableRun.state.runId, { focus: "Resume from durable state" })).toThrow(
+      "Ralph run resume-launch-run requires a fresh continuation decision for iteration iter-001 before launching again.",
+    );
+
+    vi.setSystemTime(new Date("2026-03-15T14:32:30.000Z"));
+    const continued = store.decideRun(resumableRun.state.runId, {
+      summary: "A fresh continuation decision authorizes the next bounded step.",
+    });
+    expect(continued.state.latestDecision).toMatchObject({ kind: "continue" });
+    expect(continued.state.latestDecisionIterationId).toBe("iter-001");
+
     vi.setSystemTime(new Date("2026-03-15T14:33:00.000Z"));
     const resumed = store.resumeRun(resumableRun.state.runId, { focus: "Resume from durable state" });
 
@@ -611,6 +622,134 @@ describe("RalphStore durable memory", () => {
       createdAt: "2026-03-15T14:33:00.000Z",
     });
   }, 180000);
+
+  it("does not treat a previous verifier pass as fresh evidence for a later iteration", () => {
+    const store = createRalphStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T14:50:00.000Z"));
+    const run = store.createRun({
+      title: "Fresh verifier evidence run",
+      objective: "Require verifier evidence from the latest bounded iteration before completion.",
+      policySnapshot: {
+        verifierRequired: true,
+        stopWhenVerified: true,
+      },
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T14:51:00.000Z"));
+    const firstLaunch = store.prepareLaunch(run.state.runId, { focus: "Land the first bounded step" });
+    vi.setSystemTime(new Date("2026-03-15T14:52:00.000Z"));
+    store.appendIteration(run.state.runId, {
+      id: firstLaunch.launch.iterationId,
+      status: "accepted",
+      summary: "The first iteration gathered a passing verifier result.",
+      verifier: {
+        sourceKind: "test",
+        sourceRef: "packages/pi-ralph-wiggum/__tests__/store.test.ts",
+        verdict: "pass",
+        blocker: false,
+        summary: "Iteration one verification passed.",
+      },
+    });
+    vi.setSystemTime(new Date("2026-03-15T14:53:00.000Z"));
+    store.decideRun(run.state.runId, {
+      summary: "Continue into a second bounded iteration.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T14:54:00.000Z"));
+    const secondLaunch = store.resumeRun(run.state.runId, { focus: "Attempt a second bounded step" });
+    vi.setSystemTime(new Date("2026-03-15T14:55:00.000Z"));
+    store.appendIteration(run.state.runId, {
+      id: secondLaunch.launch.iterationId,
+      status: "accepted",
+      summary: "The second iteration changed code without rerunning the verifier.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T14:56:00.000Z"));
+    const decided = store.decideRun(run.state.runId, {
+      workerRequestedCompletion: true,
+      summary: "Do not complete unless the latest iteration has fresh verifier evidence.",
+    });
+
+    expect(decided.state.latestDecision).toMatchObject({
+      kind: "continue",
+      reason: "worker_requested_completion",
+    });
+    expect(decided.state.verifierSummary).toMatchObject({
+      verdict: "not_run",
+      iterationId: null,
+    });
+    expect(decided.state.postIteration?.iterationId).toBe("iter-002");
+  });
+
+  it("ignores stale run-level verifier updates for earlier iterations", () => {
+    const store = createRalphStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T14:57:00.000Z"));
+    const run = store.createRun({
+      title: "Stale verifier update run",
+      objective: "Do not re-gate a newer iteration with stale verifier evidence.",
+      policySnapshot: {
+        verifierRequired: true,
+        critiqueRequired: false,
+      },
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T14:58:00.000Z"));
+    const firstLaunch = store.prepareLaunch(run.state.runId, { focus: "First iteration" });
+    vi.setSystemTime(new Date("2026-03-15T14:59:00.000Z"));
+    store.appendIteration(run.state.runId, {
+      id: firstLaunch.launch.iterationId,
+      status: "accepted",
+      summary: "Accepted first iteration with passing verifier.",
+      verifier: {
+        iterationId: "iter-001",
+        sourceKind: "test",
+        sourceRef: "packages/pi-ralph-wiggum/__tests__/store.test.ts",
+        verdict: "pass",
+        blocker: false,
+        summary: "First iteration passed verification.",
+      },
+    });
+    vi.setSystemTime(new Date("2026-03-15T15:00:00.000Z"));
+    store.decideRun(run.state.runId, { summary: "Continue to a second iteration." });
+
+    vi.setSystemTime(new Date("2026-03-15T15:01:00.000Z"));
+    const secondLaunch = store.resumeRun(run.state.runId, { focus: "Second iteration" });
+    vi.setSystemTime(new Date("2026-03-15T15:02:00.000Z"));
+    store.appendIteration(run.state.runId, {
+      id: secondLaunch.launch.iterationId,
+      status: "accepted",
+      summary: "Accepted the second iteration.",
+      decision: {
+        kind: "continue",
+        reason: "unknown",
+        summary: "Remain eligible for another step.",
+        decidedAt: "2026-03-15T15:02:00.000Z",
+        decidedBy: "policy",
+        blockingRefs: [],
+      },
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T15:03:00.000Z"));
+    const updated = store.setVerifier(run.state.runId, {
+      iterationId: "iter-001",
+      sourceKind: "test",
+      sourceRef: "packages/pi-ralph-wiggum/__tests__/store.test.ts",
+      verdict: "fail",
+      blocker: true,
+      summary: "A stale verifier update for the first iteration should not re-gate the run.",
+    });
+
+    expect(updated.state.waitingFor).toBe("none");
+    expect(updated.state.status).toBe("active");
+    expect(updated.state.phase).toBe("deciding");
+    expect(updated.state.verifierSummary).toMatchObject({
+      iterationId: null,
+      verdict: "not_run",
+      blocker: false,
+    });
+  });
 
   it("preserves manual approval gating and rejects launch while review gates are active", () => {
     const store = createRalphStore(workspace);

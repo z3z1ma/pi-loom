@@ -83,6 +83,7 @@ export interface RalphPolicySnapshot {
 }
 
 export interface RalphVerifierSummary {
+  iterationId: string | null;
   sourceKind: RalphVerifierSourceKind;
   sourceRef: string;
   verdict: RalphVerifierVerdict;
@@ -91,6 +92,15 @@ export interface RalphVerifierSummary {
   blocker: boolean;
   checkedAt: string | null;
   evidence: string[];
+}
+
+export interface RalphRuntimeUsage {
+  measured: boolean;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
 }
 
 export interface RalphCritiqueLink {
@@ -193,6 +203,7 @@ export interface RalphIterationRuntimeRecord {
   exitCode: number | null;
   output: string;
   stderr: string;
+  usage: RalphRuntimeUsage;
   events: RalphRuntimeEvent[];
   launch: RalphLaunchDescriptor;
   missingCheckpoint: boolean;
@@ -221,6 +232,7 @@ export interface RalphRunState {
   verifierSummary: RalphVerifierSummary;
   critiqueLinks: RalphCritiqueLink[];
   latestDecision: RalphContinuationDecision | null;
+  latestDecisionIterationId: string | null;
   postIteration: RalphPostIterationState | null;
   lastIterationNumber: number;
   nextIterationId: string | null;
@@ -330,6 +342,7 @@ export interface UpdateRalphRunInput {
 
 export interface AppendRalphIterationInput {
   id?: string;
+  requireActiveIteration?: boolean;
   status?: RalphIterationStatus;
   startedAt?: string;
   completedAt?: string | null;
@@ -353,6 +366,7 @@ export interface UpsertRalphIterationRuntimeInput {
   exitCode?: number | null;
   output?: string;
   stderr?: string;
+  usage?: Partial<RalphRuntimeUsage>;
   events?: RalphRuntimeEvent[];
   launch?: RalphLaunchDescriptor;
   missingCheckpoint?: boolean;

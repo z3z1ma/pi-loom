@@ -272,6 +272,34 @@ function clearPreparedLaunchState(nextLaunch: RalphNextLaunchState, instructions
   });
 }
 
+function normalizeRuntimeUsage(input: Partial<RalphIterationRuntimeRecord["usage"]> | undefined) {
+  const measured = input?.measured === true;
+  const inputTokens =
+    typeof input?.input === "number" && Number.isFinite(input.input) && input.input > 0 ? input.input : 0;
+  const outputTokens =
+    typeof input?.output === "number" && Number.isFinite(input.output) && input.output > 0 ? input.output : 0;
+  const cacheReadTokens =
+    typeof input?.cacheRead === "number" && Number.isFinite(input.cacheRead) && input.cacheRead > 0
+      ? input.cacheRead
+      : 0;
+  const cacheWriteTokens =
+    typeof input?.cacheWrite === "number" && Number.isFinite(input.cacheWrite) && input.cacheWrite > 0
+      ? input.cacheWrite
+      : 0;
+  const totalTokens =
+    typeof input?.totalTokens === "number" && Number.isFinite(input.totalTokens) && input.totalTokens > 0
+      ? input.totalTokens
+      : inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
+  return {
+    measured,
+    input: inputTokens,
+    output: outputTokens,
+    cacheRead: cacheReadTokens,
+    cacheWrite: cacheWriteTokens,
+    totalTokens,
+  };
+}
+
 function normalizeRuntimeArtifactStatus(value: string | null | undefined): RalphRuntimeArtifactStatus {
   return expectEnum("Ralph runtime artifact status", value, RALPH_RUNTIME_ARTIFACT_STATUSES, "queued");
 }
@@ -312,6 +340,7 @@ function normalizeRuntimeRecord(record: RalphIterationRuntimeRecord): RalphItera
     exitCode: typeof record.exitCode === "number" && Number.isFinite(record.exitCode) ? record.exitCode : null,
     output: record.output,
     stderr: record.stderr,
+    usage: normalizeRuntimeUsage(record.usage),
     events: normalizeRuntimeEvents(record.events),
     launch: {
       ...record.launch,
@@ -815,6 +844,7 @@ function mergePolicySnapshot(
 function normalizeVerifierSummary(input: Partial<RalphVerifierSummary> | undefined): RalphVerifierSummary {
   const verdict = normalizeVerifierVerdict(input?.verdict);
   return {
+    iterationId: normalizeOptionalString(input?.iterationId),
     sourceKind: normalizeVerifierSourceKind(input?.sourceKind),
     sourceRef: input?.sourceRef?.trim() || "manual",
     verdict,
@@ -959,6 +989,10 @@ function normalizeStoredRunState(state: RalphRunState): RalphRunState {
     verifierSummary: normalizeVerifierSummary(state.verifierSummary),
     critiqueLinks: normalizeCritiqueLinks(state.critiqueLinks),
     latestDecision: normalizeDecision(state.latestDecision),
+    latestDecisionIterationId: normalizeOptionalString(
+      (state as RalphRunState & { latestDecisionIterationId?: string | null }).latestDecisionIterationId ??
+        (state.postIteration?.decision ? state.postIteration.iterationId : null),
+    ),
     postIteration: state.postIteration
       ? {
           ...state.postIteration,
@@ -1011,6 +1045,23 @@ function waitingForFromReviewSignals(verifier: RalphVerifierSummary, links: Ralp
     return "operator";
   }
   return waitingForFromCritiques(links);
+}
+
+function verifierMatchesLatestIteration(state: RalphRunState, verifier: RalphVerifierSummary): boolean {
+  const latestIterationId = state.postIteration?.iterationId ?? null;
+  return latestIterationId === null || verifier.iterationId === latestIterationId;
+}
+
+function isCheckpointIterationAllowed(state: RalphRunState, iterationId: string): boolean {
+  if (["completed", "halted", "failed", "archived"].includes(state.status)) {
+    return false;
+  }
+  const matchesPreparedIteration = state.nextIterationId === iterationId;
+  const matchesLatestCheckpoint =
+    state.postIteration?.iterationId === iterationId &&
+    state.nextIterationId === null &&
+    state.nextLaunch.runtime === null;
+  return matchesPreparedIteration || matchesLatestCheckpoint;
 }
 
 function createPacketSummary(state: RalphRunState): string {
@@ -1548,6 +1599,7 @@ export class RalphStore {
       verifierSummary: normalizeVerifierSummary(input.verifierSummary),
       critiqueLinks: normalizeCritiqueLinks(input.critiqueLinks),
       latestDecision: normalizeDecision(input.latestDecision),
+      latestDecisionIterationId: null,
       postIteration: null,
       lastIterationNumber: 0,
       nextIterationId: null,
@@ -1575,8 +1627,10 @@ export class RalphStore {
     const blockingCritiques = state.critiqueLinks.filter((link) => link.blocking).map((link) => link.critiqueId);
     const hasRequiredCritique = state.critiqueLinks.some((link) => link.required);
     const critiquePending = state.critiqueLinks.some((link) => link.required && link.verdict === null);
-    const verifierSatisfied = !state.policySnapshot.verifierRequired || state.verifierSummary.verdict === "pass";
-    const verifierBlocking = state.policySnapshot.verifierRequired && state.verifierSummary.blocker;
+    const verifierIsFresh = verifierMatchesLatestIteration(state, state.verifierSummary);
+    const verifierSatisfied =
+      !state.policySnapshot.verifierRequired || (state.verifierSummary.verdict === "pass" && verifierIsFresh);
+    const verifierBlocking = state.policySnapshot.verifierRequired && state.verifierSummary.blocker && verifierIsFresh;
     const blockingRefs = normalizeStringList([...(input.blockingRefs ?? []), ...blockingCritiques]);
 
     if (input.operatorRequestedStop) {
@@ -1725,6 +1779,7 @@ export class RalphStore {
     const next: RalphRunState = {
       ...state,
       latestDecision: decision,
+      latestDecisionIterationId: state.postIteration?.iterationId ?? state.latestDecisionIterationId,
       nextIterationId: null,
       nextLaunch: clearPreparedLaunchState(state.nextLaunch),
       updatedAt: currentTimestamp(),
@@ -1872,14 +1927,20 @@ export class RalphStore {
         "iter",
         history.map((entry) => entry.id),
       );
+    if (input.requireActiveIteration === true && !isCheckpointIterationAllowed(current.state, id)) {
+      throw new Error(
+        `Ralph run ${current.state.runId} cannot checkpoint iteration ${id} because it is not the active or latest checkpointable iteration.`,
+      );
+    }
     const iterationNumber = existing?.iteration ?? current.state.lastIterationNumber + 1;
     const status = normalizeIterationStatus(
       input.status ?? existing?.status ?? (existing ? existing.status : "pending"),
     );
     const verifier = normalizeVerifierSummary({
-      ...current.state.verifierSummary,
-      ...existing?.verifier,
+      ...(existing?.verifier ?? {}),
       ...input.verifier,
+      iterationId: input.verifier ? id : (existing?.verifier.iterationId ?? null),
+      checkedAt: input.verifier ? (input.verifier.checkedAt ?? now) : (existing?.verifier.checkedAt ?? null),
     });
     const critiqueLinks = mergeCritiqueLinks(existing?.critiqueLinks ?? [], input.critiqueLinks);
     const decision = input.decision !== undefined ? normalizeDecision(input.decision) : (existing?.decision ?? null);
@@ -1902,25 +1963,52 @@ export class RalphStore {
 
     const reviewWaitingFor = status === "reviewing" ? waitingForFromReviewSignals(verifier, critiqueLinks) : "none";
     const remainsPrepared = ["pending", "running"].includes(status);
+    const latestDecision =
+      input.decision !== undefined
+        ? decision
+        : (existing?.decision ?? (isPostIterationStatus(status) ? null : current.state.latestDecision));
+    const latestDecisionIterationId =
+      input.decision !== undefined
+        ? id
+        : existing?.decision
+          ? id
+          : isPostIterationStatus(status)
+            ? null
+            : current.state.latestDecisionIterationId;
+    const stateTransition: Pick<RalphRunState, "status" | "phase" | "waitingFor" | "stopReason"> =
+      input.decision !== undefined && input.status === undefined
+        ? {
+            status: current.state.status,
+            phase: current.state.phase,
+            waitingFor: current.state.waitingFor,
+            stopReason: current.state.stopReason,
+          }
+        : {
+            status:
+              status === "failed"
+                ? "failed"
+                : status === "reviewing" && reviewWaitingFor !== "none"
+                  ? "waiting_for_review"
+                  : "active",
+            phase: status === "reviewing" ? "reviewing" : status === "accepted" ? "deciding" : "executing",
+            waitingFor: reviewWaitingFor,
+            stopReason: ["failed", "cancelled"].includes(status) ? "runtime_failure" : current.state.stopReason,
+          };
 
     const nextState: RalphRunState = {
       ...current.state,
-      status:
-        status === "failed"
-          ? "failed"
-          : status === "reviewing" && reviewWaitingFor !== "none"
-            ? "waiting_for_review"
-            : "active",
-      phase: status === "reviewing" ? "reviewing" : status === "accepted" ? "deciding" : "executing",
-      waitingFor: reviewWaitingFor,
+      status: stateTransition.status,
+      phase: stateTransition.phase,
+      waitingFor: stateTransition.waitingFor,
       verifierSummary: verifier,
       critiqueLinks: mergeCritiqueLinks(current.state.critiqueLinks, critiqueLinks),
-      latestDecision: decision ?? current.state.latestDecision,
+      latestDecision,
+      latestDecisionIterationId,
       lastIterationNumber: Math.max(current.state.lastIterationNumber, iterationNumber),
       nextIterationId: remainsPrepared ? id : null,
       nextLaunch: remainsPrepared ? current.state.nextLaunch : clearPreparedLaunchState(current.state.nextLaunch),
       updatedAt: now,
-      stopReason: ["failed", "cancelled"].includes(status) ? "runtime_failure" : current.state.stopReason,
+      stopReason: stateTransition.stopReason,
     };
     const result = this.writeArtifacts(nextState, undefined, nextIterations);
     this.appendRunEvent(
@@ -2013,6 +2101,10 @@ export class RalphStore {
       exitCode: input.exitCode ?? existing?.exitCode ?? null,
       output: input.output ?? existing?.output ?? "",
       stderr: input.stderr ?? existing?.stderr ?? "",
+      usage: normalizeRuntimeUsage({
+        ...existing?.usage,
+        ...input.usage,
+      }),
       events: [...(existing?.events ?? []), ...(input.events ?? [])],
       launch,
       missingCheckpoint: input.missingCheckpoint ?? existing?.missingCheckpoint ?? false,
@@ -2041,10 +2133,13 @@ export class RalphStore {
 
   setVerifier(ref: string, input: Partial<RalphVerifierSummary>): RalphReadResult {
     const current = this.readRun(ref);
-    const verifierSummary = mergeVerifierSummary(current.state.verifierSummary, {
+    const nextVerifierSummary = mergeVerifierSummary(current.state.verifierSummary, {
       ...input,
       checkedAt: input.checkedAt ?? currentTimestamp(),
     });
+    const verifierSummary = verifierMatchesLatestIteration(current.state, nextVerifierSummary)
+      ? nextVerifierSummary
+      : current.state.verifierSummary;
     const waitingFor = waitingForFromReviewSignals(verifierSummary, current.state.critiqueLinks);
     const status = verifierSummary.blocker ? "waiting_for_review" : current.state.status;
     const phase = verifierSummary.blocker ? "reviewing" : current.state.phase;
@@ -2140,6 +2235,16 @@ export class RalphStore {
       throw new Error(
         `Ralph run ${current.state.runId} is waiting for ${current.state.waitingFor} and cannot launch until that gate is cleared.`,
       );
+    }
+    if (current.state.postIteration) {
+      const hasFreshContinueDecision =
+        current.state.latestDecision?.kind === "continue" &&
+        current.state.latestDecisionIterationId === current.state.postIteration.iterationId;
+      if (!hasFreshContinueDecision) {
+        throw new Error(
+          `Ralph run ${current.state.runId} requires a fresh continuation decision for iteration ${current.state.postIteration.iterationId} before launching again.`,
+        );
+      }
     }
 
     let latest = this.latestIterationById(current.iterations, current.state.nextIterationId);

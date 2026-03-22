@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { RalphLaunchDescriptor, RalphRuntimeEvent } from "./models.js";
+import type { RalphLaunchDescriptor, RalphRuntimeEvent, RalphRuntimeUsage } from "./models.js";
 import { renderLaunchPrompt } from "./render.js";
 
 const require = createRequire(import.meta.url);
@@ -28,6 +28,7 @@ export interface RalphExecutionResult {
   exitCode: number;
   output: string;
   stderr: string;
+  usage: RalphRuntimeUsage;
   startedAt?: string | null;
   completedAt?: string;
   status?: "completed" | "failed" | "cancelled";
@@ -58,6 +59,13 @@ interface HarnessAssistantMessage {
   stopReason?: string;
   errorMessage?: string;
   content?: Array<{ type?: string; text?: string }>;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    totalTokens?: number;
+  };
 }
 
 interface HarnessSession {
@@ -114,6 +122,11 @@ const harnessRuntimeCache = new Map<string, Promise<HarnessSessionRuntime>>();
 function trimToUndefined(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function isTimeoutAbortSignal(signal: AbortSignal | undefined): boolean {
+  const reason = signal?.reason;
+  return reason instanceof Error && /timeout/i.test(reason.message);
 }
 
 function parseExecArgvOverride(value: string | undefined): string[] | undefined {
@@ -297,6 +310,27 @@ function extractAssistantText(message: HarnessAssistantMessage | undefined): str
     .filter(Boolean)
     .join("\n")
     .trim();
+}
+
+function normalizeUsageValue(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function extractAssistantUsage(message: HarnessAssistantMessage | undefined): RalphRuntimeUsage {
+  const measured = Boolean(message?.usage);
+  const input = normalizeUsageValue(message?.usage?.input);
+  const output = normalizeUsageValue(message?.usage?.output);
+  const cacheRead = normalizeUsageValue(message?.usage?.cacheRead);
+  const cacheWrite = normalizeUsageValue(message?.usage?.cacheWrite);
+  const totalFromMessage = normalizeUsageValue(message?.usage?.totalTokens);
+  return {
+    measured,
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    totalTokens: totalFromMessage || input + output + cacheRead + cacheWrite,
+  };
 }
 
 function findLastAssistantMessage(
@@ -831,15 +865,17 @@ export async function runRalphLaunch(
 
   if (signal?.aborted) {
     const completedAt = new Date().toISOString();
+    const timedOut = isTimeoutAbortSignal(signal);
     return {
       command,
       args,
       exitCode: 1,
       output: "",
-      stderr: "Aborted",
+      stderr: timedOut ? "Timed out" : "Aborted",
+      usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
       startedAt,
       completedAt,
-      status: "cancelled",
+      status: timedOut ? "failed" : "cancelled",
       events,
     };
   }
@@ -914,20 +950,23 @@ export async function runRalphLaunch(
         const lastAssistant = findLastAssistantMessage(created.session.state?.messages);
         const output = extractAssistantText(lastAssistant);
         const errorText = trimToUndefined(lastAssistant?.errorMessage) ?? undefined;
+        const usage = extractAssistantUsage(lastAssistant);
         const exitCode =
           aborted || lastAssistant?.stopReason === "error" || lastAssistant?.stopReason === "aborted" ? 1 : 0;
 
         return {
           exitCode,
           output,
-          stderr: errorText ?? (aborted ? "Aborted" : ""),
+          stderr: errorText ?? (aborted ? (isTimeoutAbortSignal(signal) ? "Timed out" : "Aborted") : ""),
+          usage,
         };
       }),
     );
 
     const completedAt = new Date().toISOString();
-    const status: RalphExecutionResult["status"] =
-      signal?.aborted || execution.stderr === "Aborted"
+    const status: RalphExecutionResult["status"] = isTimeoutAbortSignal(signal)
+      ? "failed"
+      : signal?.aborted || execution.stderr === "Aborted"
         ? "cancelled"
         : execution.exitCode === 0
           ? "completed"
@@ -939,6 +978,7 @@ export async function runRalphLaunch(
       exitCode: execution.exitCode,
       output: execution.output,
       stderr: execution.stderr,
+      usage: execution.usage,
       startedAt,
       completedAt,
       status,
@@ -946,13 +986,24 @@ export async function runRalphLaunch(
     };
   } catch (error) {
     const completedAt = new Date().toISOString();
-    const status: RalphExecutionResult["status"] = signal?.aborted ? "cancelled" : "failed";
+    const status: RalphExecutionResult["status"] = isTimeoutAbortSignal(signal)
+      ? "failed"
+      : signal?.aborted
+        ? "cancelled"
+        : "failed";
     return {
       command,
       args,
       exitCode: 1,
       output: "",
-      stderr: signal?.aborted ? "Aborted" : error instanceof Error ? error.message : String(error),
+      stderr: isTimeoutAbortSignal(signal)
+        ? "Timed out"
+        : signal?.aborted
+          ? "Aborted"
+          : error instanceof Error
+            ? error.message
+            : String(error),
+      usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
       startedAt,
       completedAt,
       status,
