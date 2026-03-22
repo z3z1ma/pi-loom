@@ -1663,6 +1663,17 @@ export class RalphStore {
         blockingRefs,
       };
     }
+    if (input.queueTimeoutExceeded) {
+      return {
+        kind: "halt",
+        reason: "queue_wait_timeout_exceeded",
+        summary:
+          input.summary?.trim() || "The Ralph run exceeded its configured wait for the session-runtime launch queue.",
+        decidedAt: currentTimestamp(),
+        decidedBy: "policy",
+        blockingRefs,
+      };
+    }
     if (input.timeoutExceeded) {
       return {
         kind: "halt",
@@ -2248,6 +2259,9 @@ export class RalphStore {
     }
 
     let latest = this.latestIterationById(current.iterations, current.state.nextIterationId);
+    if (latest && !isPostIterationStatus(latest.status) && input.requireFresh === true) {
+      throw new Error(`Ralph run ${current.state.runId} already has an active session launch for ${latest.id}.`);
+    }
     if (!latest || isPostIterationStatus(latest.status)) {
       const prepared = this.appendIteration(ref, {
         status: "pending",

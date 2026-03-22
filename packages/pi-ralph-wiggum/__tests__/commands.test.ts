@@ -1,22 +1,55 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleRalphCommand } from "../extensions/commands/ralph.js";
-import { executeRalphLoop, renderLoopResult } from "../extensions/domain/loop.js";
+import {
+  ensureRalphRun,
+  executeRalphLoop,
+  isRalphLoopExecutionInFlight,
+  renderLoopResult,
+  reserveDurableLaunch,
+} from "../extensions/domain/loop.js";
 import { createRalphStore } from "../extensions/domain/store.js";
 
 vi.mock("../extensions/domain/loop.js", () => ({
   executeRalphLoop: vi.fn(),
   renderLoopResult: vi.fn(() => "Rendered Ralph summary"),
+  ensureRalphRun: vi.fn(async (_ctx, input) => ({
+    created: !input.ref,
+    run: {
+      state: {
+        runId: input.ref ?? "reserved-run",
+        objective: input.prompt ?? "",
+        postIteration: null,
+      },
+      summary: {
+        id: input.ref ?? "reserved-run",
+        status: "planned",
+        phase: "preparing",
+        title: "Loop",
+      },
+      runtimeArtifacts: [],
+    },
+  })),
+  isRalphLoopExecutionInFlight: vi.fn(() => false),
+  reserveDurableLaunch: vi.fn(async (_ctx, _input, run) => run),
 }));
 
 vi.mock("../extensions/domain/store.js", () => ({
   createRalphStore: vi.fn(() => ({
     initLedgerAsync: vi.fn(async () => ({ initialized: true, root: ".loom" })),
+    readRun: vi.fn((ref: string) => ({
+      summary: { id: ref, status: "active", phase: "executing", title: "Loop" },
+      state: { latestDecision: null, waitingFor: "none", postIteration: null, lastIterationNumber: 0 },
+      runtimeArtifacts: [],
+    })),
   })),
 }));
 
-function createContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notify: ReturnType<typeof vi.fn> } } {
-  const ui = { notify: vi.fn() };
+function createContext(cwd: string): {
+  ctx: ExtensionCommandContext;
+  ui: { notify: ReturnType<typeof vi.fn>; setStatus: ReturnType<typeof vi.fn>; setWidget: ReturnType<typeof vi.fn> };
+} {
+  const ui = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn() };
   return {
     ctx: {
       cwd,
@@ -38,6 +71,28 @@ function createContext(cwd: string): { ctx: ExtensionCommandContext; ui: { notif
 describe("/ralph command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(ensureRalphRun).mockImplementation(
+      async (_ctx, input) =>
+        ({
+          created: !input.ref,
+          run: {
+            state: {
+              runId: input.ref ?? "reserved-run",
+              objective: input.prompt ?? "",
+              postIteration: null,
+            },
+            summary: {
+              id: input.ref ?? "reserved-run",
+              status: "planned",
+              phase: "preparing",
+              title: "Loop",
+            },
+            runtimeArtifacts: [],
+          },
+        }) as never,
+    );
+    vi.mocked(isRalphLoopExecutionInFlight).mockReturnValue(false);
+    vi.mocked(reserveDurableLaunch).mockImplementation(async (_ctx, _input, run) => run as never);
   });
 
   it("runs the foreground Ralph happy path and forwards progress to the human UI", async () => {
@@ -60,9 +115,17 @@ describe("/ralph command", () => {
 
     expect(createRalphStore).toHaveBeenCalledWith("/workspace/ralph-command");
     expect(executeRalphLoop).toHaveBeenCalledTimes(1);
-    expect(ui.notify).toHaveBeenCalledWith("Ralph iteration progress update", "info");
+    expect(ui.setStatus.mock.calls[0]?.[0]).toBe("ralph-live-run");
+    expect(ui.setStatus.mock.calls[0]?.[1]).toEqual(expect.stringContaining("Ralph"));
+    expect(ui.setStatus).toHaveBeenLastCalledWith("ralph-live-run", undefined);
+    expect(ui.setWidget).not.toHaveBeenCalled();
+    expect(ui.notify).not.toHaveBeenCalledWith("Ralph iteration progress update", "info");
     expect(renderLoopResult).toHaveBeenCalledTimes(1);
-    expect(result).toBe("Rendered Ralph summary");
+    expect(result).toMatchObject({
+      text: "Rendered Ralph summary",
+      prompt: "investigate bounded loops",
+      result: expect.objectContaining({ created: true }),
+    });
   });
 
   it("defaults to one foreground iteration when no xN prefix is supplied", async () => {
@@ -81,7 +144,7 @@ describe("/ralph command", () => {
 
     expect(executeRalphLoop).toHaveBeenCalledWith(
       ctx,
-      { prompt: "shape the initial run carefully", iterations: 1 },
+      { ref: "reserved-run", prompt: "shape the initial run carefully", iterations: 1 },
       undefined,
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     );

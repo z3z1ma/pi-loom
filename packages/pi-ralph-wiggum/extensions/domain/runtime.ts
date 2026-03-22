@@ -637,6 +637,17 @@ async function withSessionRuntimeLaunchLock<T>(signal: AbortSignal | undefined, 
   sessionRuntimeLaunchQueue = new Promise<void>((resolve) => {
     releaseCurrent = resolve;
   });
+  let acquiredTurn = false;
+  let skippedWhileQueued = false;
+  const releaseAfterQueuedAbort = () => {
+    if (skippedWhileQueued) {
+      return;
+    }
+    skippedWhileQueued = true;
+    void waitForTurn.finally(() => {
+      releaseCurrent?.();
+    });
+  };
 
   let onAbort: (() => void) | undefined;
   const abortPromise =
@@ -649,8 +660,9 @@ async function withSessionRuntimeLaunchLock<T>(signal: AbortSignal | undefined, 
 
   try {
     await (abortPromise ? Promise.race([waitForTurn, abortPromise]) : waitForTurn);
+    acquiredTurn = true;
   } catch (error) {
-    releaseCurrent?.();
+    releaseAfterQueuedAbort();
     throw error;
   } finally {
     if (signal && onAbort) {
@@ -659,7 +671,11 @@ async function withSessionRuntimeLaunchLock<T>(signal: AbortSignal | undefined, 
   }
 
   if (signal?.aborted) {
-    releaseCurrent?.();
+    if (!acquiredTurn) {
+      releaseAfterQueuedAbort();
+    } else {
+      releaseCurrent?.();
+    }
     throw new Error("Aborted");
   }
 

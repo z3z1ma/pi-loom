@@ -83,6 +83,47 @@ export function hasTrustedPostIteration(run: RalphReadResult, iterationId: strin
   return launchedIteration !== null && launchedIteration.decision !== null;
 }
 
+function hasRunningLaunchEvent(run: RalphReadResult, iterationId: string): boolean {
+  return run.runtimeArtifacts.some(
+    (artifact) =>
+      artifact.iterationId === iterationId &&
+      artifact.events.some((event) => event.type === "launch_state" && event.state === "running"),
+  );
+}
+
+function iterationExecuted(run: RalphReadResult, iterationId: string): boolean {
+  return hasTrustedPostIteration(run, iterationId) || hasRunningLaunchEvent(run, iterationId);
+}
+
+export function hasDurableActiveLaunch(run: RalphReadResult): boolean {
+  return run.state.nextLaunch.runtime === "session" && run.state.nextIterationId !== null;
+}
+
+export async function reserveDurableLaunch(
+  ctx: RalphContextLike,
+  input: ExecuteRalphLoopInput,
+  run: RalphReadResult,
+  created = false,
+): Promise<RalphReadResult> {
+  if (hasDurableActiveLaunch(run)) {
+    throw new Error(
+      `Ralph run ${run.state.runId} already has an active session launch for ${run.state.nextIterationId}.`,
+    );
+  }
+
+  const store = createRalphStore(ctx.cwd);
+  const focus = input.prompt?.trim() || run.state.objective;
+  const instructions = created
+    ? run.state.nextLaunch.instructions
+    : input.prompt?.trim()
+      ? [`Primary objective for the next bounded iteration: ${input.prompt.trim()}`]
+      : undefined;
+
+  return run.state.postIteration === null
+    ? await store.prepareLaunchAsync(run.state.runId, { focus, instructions, requireFresh: true })
+    : await store.resumeRunAsync(run.state.runId, { focus, instructions, requireFresh: true });
+}
+
 function isTerminalStatus(status: RalphRunStatus): boolean {
   return ["completed", "halted", "failed", "archived"].includes(status);
 }
@@ -289,8 +330,18 @@ async function persistRuntimeFailure(
   });
   let run = await store.decideRunAsync(ref, {
     operatorRequestedStop:
-      execution.status === "cancelled" && !timeoutExceeded && !budgetExceeded && !runtimeUnavailable,
-    runtimeFailure: execution.status !== "cancelled" && !timeoutExceeded && !budgetExceeded && !runtimeUnavailable,
+      execution.status === "cancelled" &&
+      !timeoutExceeded &&
+      !queueTimeoutExceeded &&
+      !budgetExceeded &&
+      !runtimeUnavailable,
+    runtimeFailure:
+      execution.status !== "cancelled" &&
+      !timeoutExceeded &&
+      !queueTimeoutExceeded &&
+      !budgetExceeded &&
+      !runtimeUnavailable,
+    queueTimeoutExceeded,
     runtimeUnavailable,
     timeoutExceeded,
     budgetExceeded,
@@ -553,19 +604,21 @@ async function executePreparedIteration(
   const totalTokens = totalRuntimeTokens(updated);
   const budgetLimit = updated.state.policySnapshot.tokenBudget;
   const requiresBudgetEvidence = budgetLimit !== null;
-  const missingBudgetEvidence = requiresBudgetEvidence && totalTokens === null;
+  const launchStarted = hasRunningLaunchEvent(updated, run.launch.iterationId);
+  const missingBudgetEvidence = requiresBudgetEvidence && totalTokens === null && launchStarted;
   const budgetExceeded = requiresBudgetEvidence && totalTokens !== null && totalTokens > budgetLimit;
 
   if (!hasDurableCheckpoint) {
     updated = await persistRuntimeFailure(ctx.cwd, ref, normalizedExecution, run.launch.iterationId, options.jobId, {
-      timeoutExceeded: timeoutExceeded || queueTimeoutExceeded,
+      timeoutExceeded,
       queueTimeoutExceeded,
       budgetExceeded,
       runtimeUnavailable: missingBudgetEvidence,
     });
   } else if (timeoutExceeded || budgetExceeded || missingBudgetEvidence || queueTimeoutExceeded) {
     updated = await store.decideRunAsync(ref, {
-      timeoutExceeded: timeoutExceeded || queueTimeoutExceeded,
+      queueTimeoutExceeded,
+      timeoutExceeded,
       budgetExceeded,
       runtimeUnavailable: missingBudgetEvidence,
       summary: queueTimeoutExceeded
@@ -644,8 +697,9 @@ export async function executeRalphLoop(
         break;
       }
 
-      const launch =
-        run.state.postIteration === null
+      const launch = hasDurableActiveLaunch(run)
+        ? run
+        : run.state.postIteration === null
           ? await store.prepareLaunchAsync(run.state.runId, {
               focus: input.prompt?.trim() || run.state.objective,
               instructions: stepIndex === 0 ? steeringInstructions : undefined,
@@ -657,15 +711,17 @@ export async function executeRalphLoop(
 
       const executed = await executePreparedIteration(ctx, run.state.runId, signal, launch, options);
       run = executed.run;
-      steps.push({
-        iterationId: launch.launch.iterationId,
-        iteration: launch.launch.iteration,
-        exitCode: executed.execution.exitCode,
-        output: executed.execution.output,
-        stderr: executed.execution.stderr,
-        finalStatus: run.state.status,
-        finalDecision: run.state.latestDecision?.kind ?? null,
-      });
+      if (iterationExecuted(run, launch.launch.iterationId)) {
+        steps.push({
+          iterationId: launch.launch.iterationId,
+          iteration: launch.launch.iteration,
+          exitCode: executed.execution.exitCode,
+          output: executed.execution.output,
+          stderr: executed.execution.stderr,
+          finalStatus: run.state.status,
+          finalDecision: run.state.latestDecision?.kind ?? null,
+        });
+      }
 
       if (!shouldContinue(run)) {
         break;

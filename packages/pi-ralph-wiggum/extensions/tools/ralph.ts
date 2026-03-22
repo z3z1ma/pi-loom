@@ -9,12 +9,25 @@ import {
   type ExecuteRalphLoopResult,
   ensureRalphRun,
   executeRalphLoop,
+  hasDurableActiveLaunch,
   isRalphLoopExecutionInFlight,
   renderLoopResult,
+  reserveDurableLaunch,
 } from "../domain/loop.js";
-import type { DecideRalphRunInput, RalphCritiqueLink } from "../domain/models.js";
+import type { DecideRalphRunInput, RalphCritiqueLink, RalphReadResult } from "../domain/models.js";
 import { renderDashboard, renderRalphDetail } from "../domain/render.js";
 import { createRalphStore } from "../domain/store.js";
+import {
+  type RalphRunRenderDetails,
+  renderRalphCheckpointCall,
+  renderRalphCheckpointResult,
+  renderRalphJobCall,
+  renderRalphJobResult,
+  renderRalphReadCall,
+  renderRalphReadResult,
+  renderRalphRunCall,
+  renderRalphRunResult,
+} from "../ui/renderers.js";
 
 function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
   return { ...schema, description } as T;
@@ -258,10 +271,47 @@ function normalizeWorkspaceJobIds(jobIds: readonly string[] | undefined, cwd: st
   return jobIds.filter((jobId) => getWorkspaceJob(jobId, cwd) !== null);
 }
 
+async function rollbackReservedLaunch(
+  ctx: ExtensionContext,
+  reserved: RalphReadResult,
+  previousState: RalphReadResult["state"],
+  summary: string,
+): Promise<void> {
+  const store = getStore(ctx);
+  const current = await store.readRunAsync(reserved.state.runId);
+  if (current.state.nextIterationId !== reserved.launch.iterationId || current.state.nextLaunch.runtime !== "session") {
+    return;
+  }
+  await store.cancelLaunchAsync(reserved.state.runId, previousState, reserved.launch.iterationId, summary);
+}
+
 function machineResult(details: Record<string, unknown>, text: string) {
   return {
     content: [{ type: "text" as const, text }],
     details,
+  };
+}
+
+function buildRalphRunRenderDetails(input: {
+  prompt?: string;
+  startedAt: number;
+  created: boolean;
+  updates: string[];
+  run: ExecuteRalphLoopResult["run"]["summary"] | null;
+  state: RalphRunRenderDetails["state"];
+  result: ExecuteRalphLoopResult | null;
+  asyncState?: RalphRunRenderDetails["async"];
+}): RalphRunRenderDetails {
+  return {
+    kind: "ralph_run",
+    prompt: input.prompt?.trim() || null,
+    startedAt: input.startedAt,
+    created: input.created,
+    updates: [...input.updates],
+    run: input.run,
+    state: input.state,
+    result: input.result,
+    async: input.asyncState ?? null,
   };
 }
 
@@ -394,6 +444,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Read full mode when you need the latest iterations, launch descriptor, and dashboard together.",
     ],
     parameters: RalphReadParams,
+    renderCall: (args, theme) => renderRalphReadCall(args as Record<string, unknown>, theme),
+    renderResult: (result, options, theme) => renderRalphReadResult(result, options, theme),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const result = await getStore(ctx).readRunAsync(params.ref);
       const jobs = getRunJobs(result.state.runId, ctx.cwd);
@@ -431,6 +483,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Prefer this tool over piecemeal low-level writes so verifier, critique, iteration, and decision state stay in sync.",
     ],
     parameters: RalphCheckpointParams,
+    renderCall: (args, theme) => renderRalphCheckpointCall(args as Record<string, unknown>, theme),
+    renderResult: (result, _options, theme) => renderRalphCheckpointResult(result, theme),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const run = await checkpointRun(getStore(ctx), {
         ref: params.ref,
@@ -464,6 +518,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "This tool intentionally executes bounded session-runtime iterations; it does not keep a hidden long-running transcript alive.",
     ],
     parameters: RalphRunParams,
+    renderCall: (args, theme) => renderRalphRunCall(args as Record<string, unknown>, theme),
+    renderResult: (result, options, theme) => renderRalphRunResult(result, options, theme),
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const input: ExecuteRalphLoopInput = {
         ref: params.ref,
@@ -473,69 +529,179 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         linkedRefs: params.linkedRefs as ExecuteRalphLoopInput["linkedRefs"],
         policySnapshot: params.policySnapshot as ExecuteRalphLoopInput["policySnapshot"],
       };
+      const startedAt = Date.now();
+      const progressUpdates: string[] = [];
       const ensured = await ensureRalphRun(ctx, input);
       assertNoRunningRunJob(ensured.run.state.runId, ctx.cwd);
+      if (isRalphLoopExecutionInFlight(ctx.cwd, ensured.run.state.runId)) {
+        throw new Error(
+          `Ralph run ${ensured.run.state.runId} already has an in-flight loop execution in workspace ${ctx.cwd}.`,
+        );
+      }
+      const hasPreparedLaunch = hasDurableActiveLaunch(ensured.run);
+      let reservedWasFresh = false;
+      const reserved =
+        input.ref && hasPreparedLaunch
+          ? params.prompt
+            ? ensured.run.state.nextLaunch.resume
+              ? await getStore(ctx).resumeRunAsync(ensured.run.state.runId, {
+                  focus: params.prompt,
+                  instructions: [`Primary objective for the next bounded iteration: ${params.prompt}`],
+                })
+              : await getStore(ctx).prepareLaunchAsync(ensured.run.state.runId, {
+                  focus: params.prompt,
+                  instructions: [`Primary objective for the next bounded iteration: ${params.prompt}`],
+                })
+            : ensured.run
+          : await reserveDurableLaunch(ctx, input, ensured.run, ensured.created);
+      reservedWasFresh = !(input.ref && hasPreparedLaunch);
 
       if (params.background === true) {
-        if (isRalphLoopExecutionInFlight(ctx.cwd, ensured.run.state.runId)) {
-          throw new Error(
-            `Ralph run ${ensured.run.state.runId} already has an in-flight loop execution in workspace ${ctx.cwd}.`,
-          );
-        }
-        const jobId = ralphJobManager.register(
-          "ralph_run",
-          `Ralph run ${ensured.run.state.runId}`,
-          async ({ jobId: runningJobId, signal: jobSignal, reportProgress }) => {
-            await reportProgress(`Starting background Ralph run ${ensured.run.state.runId}.`, {
-              jobId: runningJobId,
-              runId: ensured.run.state.runId,
-            });
-            return executeRalphLoop(ctx, { ...input, ref: ensured.run.state.runId }, jobSignal, {
-              jobId: runningJobId,
-              onUpdate: async (text) => {
-                await reportProgress(text, { jobId: runningJobId, runId: ensured.run.state.runId });
-              },
-            });
-          },
-          {
-            metadata: { runId: ensured.run.state.runId, cwd: ctx.cwd },
-            onProgress: async (text, details) => {
-              onUpdate?.({
-                content: [{ type: "text", text }],
-                details: {
-                  async: {
-                    state: "running",
-                    jobId: typeof details?.jobId === "string" ? details.jobId : null,
-                    runId: ensured.run.state.runId,
-                    type: "ralph_run",
-                  },
-                  run: ensured.run.summary,
-                },
+        let jobId: string;
+        try {
+          jobId = ralphJobManager.register(
+            "ralph_run",
+            `Ralph run ${reserved.state.runId}`,
+            async ({ jobId: runningJobId, signal: jobSignal, reportProgress }) => {
+              await reportProgress(`Starting background Ralph run ${reserved.state.runId}.`, {
+                jobId: runningJobId,
+                runId: reserved.state.runId,
               });
+              try {
+                return await executeRalphLoop(ctx, { ...input, ref: reserved.state.runId }, jobSignal, {
+                  jobId: runningJobId,
+                  onUpdate: async (text) => {
+                    progressUpdates.push(text);
+                    await reportProgress(text, { jobId: runningJobId, runId: reserved.state.runId });
+                  },
+                });
+              } catch (error) {
+                if (reservedWasFresh) {
+                  await rollbackReservedLaunch(
+                    ctx,
+                    reserved,
+                    ensured.run.state,
+                    "Background Ralph launch failed before a worker session started.",
+                  );
+                }
+                throw error;
+              }
             },
-          },
-        );
+            {
+              metadata: { runId: reserved.state.runId, cwd: ctx.cwd },
+              onProgress: async (text, details) => {
+                progressUpdates.push(text);
+                onUpdate?.({
+                  content: [{ type: "text", text }],
+                  details: {
+                    async: {
+                      state: "running",
+                      jobId: typeof details?.jobId === "string" ? details.jobId : null,
+                      runId: reserved.state.runId,
+                      type: "ralph_run",
+                    },
+                    run: reserved.summary,
+                    ui: buildRalphRunRenderDetails({
+                      prompt: params.prompt,
+                      startedAt,
+                      created: ensured.created,
+                      updates: progressUpdates.slice(-8),
+                      run: reserved.summary,
+                      state: "background",
+                      result: null,
+                      asyncState: {
+                        state: "running",
+                        jobId: typeof details?.jobId === "string" ? details.jobId : null,
+                        runId: reserved.state.runId,
+                        type: "ralph_run",
+                      },
+                    }),
+                  },
+                });
+              },
+            },
+          );
+        } catch (error) {
+          if (reservedWasFresh) {
+            await getStore(ctx).cancelLaunchAsync(
+              reserved.state.runId,
+              ensured.run.state,
+              reserved.launch.iterationId,
+              "Background Ralph launch registration failed before a worker session started.",
+            );
+          }
+          throw error;
+        }
         const job = ralphJobManager.getJob(jobId);
         return machineResult(
           {
-            async: { state: "running", jobId, runId: ensured.run.state.runId, type: "ralph_run" },
-            run: ensured.run.summary,
+            async: { state: "running", jobId, runId: reserved.state.runId, type: "ralph_run" },
+            run: reserved.summary,
             job,
+            ui: buildRalphRunRenderDetails({
+              prompt: params.prompt,
+              startedAt,
+              created: ensured.created,
+              updates: progressUpdates,
+              run: reserved.summary,
+              state: "background",
+              result: null,
+              asyncState: { state: "running", jobId, runId: reserved.state.runId, type: "ralph_run" },
+            }),
           },
-          `Started background Ralph run ${ensured.run.state.runId} as job ${jobId}. Use ralph_job_read, ralph_job_wait, or ralph_job_cancel to manage it.`,
+          `Started background Ralph run ${reserved.state.runId} as job ${jobId}. Use ralph_job_read, ralph_job_wait, or ralph_job_cancel to manage it.`,
         );
       }
 
-      const result = await executeRalphLoop(ctx, { ...input, ref: ensured.run.state.runId }, signal, {
-        onUpdate: (text) => {
-          onUpdate?.({
-            content: [{ type: "text", text }],
-            details: { runRef: ensured.run.state.runId },
-          });
-        },
-      });
+      let result: ExecuteRalphLoopResult;
+      try {
+        result = await executeRalphLoop(ctx, { ...input, ref: reserved.state.runId }, signal, {
+          onUpdate: (text) => {
+            progressUpdates.push(text);
+            onUpdate?.({
+              content: [{ type: "text", text }],
+              details: {
+                runRef: reserved.state.runId,
+                ui: buildRalphRunRenderDetails({
+                  prompt: params.prompt,
+                  startedAt,
+                  created: ensured.created,
+                  updates: progressUpdates.slice(-8),
+                  run: reserved.summary,
+                  state: "running",
+                  result: null,
+                }),
+              },
+            });
+          },
+        });
+      } catch (error) {
+        if (reservedWasFresh) {
+          await rollbackReservedLaunch(
+            ctx,
+            reserved,
+            ensured.run.state,
+            "Foreground Ralph launch failed before a worker session started.",
+          );
+        }
+        throw error;
+      }
       const normalizedResult = ensured.created ? { ...result, created: true } : result;
-      return machineResult({ result: normalizedResult }, renderLoopResult(normalizedResult));
+      return machineResult(
+        {
+          result: normalizedResult,
+          ui: buildRalphRunRenderDetails({
+            prompt: params.prompt,
+            startedAt,
+            created: normalizedResult.created,
+            updates: progressUpdates.slice(-8),
+            run: normalizedResult.run.summary,
+            state: "completed",
+            result: normalizedResult,
+          }),
+        },
+        renderLoopResult(normalizedResult),
+      );
     },
   });
 
@@ -549,6 +715,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Read the linked Ralph run separately if you need the durable orchestration state as well as the job lifecycle snapshot.",
     ],
     parameters: RalphJobReadParams,
+    renderCall: (args, theme) => renderRalphJobCall("ralph_job_read", args as Record<string, unknown>, theme),
+    renderResult: (result, options, theme) => renderRalphJobResult(result, options, theme),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const job = getWorkspaceJob(params.jobId, ctx.cwd);
       if (!job) {
@@ -570,6 +738,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Leave jobIds unset to wait for any tracked Ralph background job.",
     ],
     parameters: RalphJobWaitParams,
+    renderCall: (args, theme) => renderRalphJobCall("ralph_job_wait", args as Record<string, unknown>, theme),
+    renderResult: (result, options, theme) => renderRalphJobResult(result, options, theme),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const jobIds = normalizeWorkspaceJobIds(params.jobIds, ctx.cwd);
       if (jobIds.length === 0) {
@@ -607,6 +777,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Cancel only jobs you intentionally want to stop; the underlying Ralph run will record a durable cancelled/failure outcome if the worker never checkpoints.",
     ],
     parameters: RalphJobCancelParams,
+    renderCall: (args, theme) => renderRalphJobCall("ralph_job_cancel", args as Record<string, unknown>, theme),
+    renderResult: (result, options, theme) => renderRalphJobResult(result, options, theme),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const job = getWorkspaceJob(params.jobId, ctx.cwd);
       if (!job) {

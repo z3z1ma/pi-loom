@@ -8,6 +8,7 @@ import { handleRalphCommand } from "./commands/ralph.js";
 import { createRalphStore } from "./domain/store.js";
 import { buildRalphSystemPrompt, getBaseRalphGuidance } from "./prompts/guidance.js";
 import { registerRalphTools } from "./tools/ralph.js";
+import { type RalphCommandRenderDetails, renderRalphCommandMessage } from "./ui/renderers.js";
 
 const RALPH_COMMAND = "ralph";
 let removeRalphTerminalListener: (() => void) | null = null;
@@ -29,6 +30,7 @@ function sendRalphCommandMessage(
   pi: ExtensionAPI,
   customType: "ralph-command-result" | "ralph-command-error",
   content: string,
+  details?: RalphCommandRenderDetails,
 ): void {
   if (!content.trim()) {
     return;
@@ -38,6 +40,7 @@ function sendRalphCommandMessage(
       customType,
       content,
       display: true,
+      details,
     },
     { triggerTurn: false },
   );
@@ -46,12 +49,22 @@ function sendRalphCommandMessage(
 async function launchRalphCommand(pi: ExtensionAPI, args: string, ctx: ExtensionCommandContext): Promise<void> {
   try {
     const output = await handleRalphCommand(args, ctx);
-    if (output) {
-      sendRalphCommandMessage(pi, "ralph-command-result", output);
+    if (output.text) {
+      sendRalphCommandMessage(pi, "ralph-command-result", output.text, {
+        kind: "ralph_command",
+        level: "result",
+        prompt: output.prompt,
+        result: output.result,
+      });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    sendRalphCommandMessage(pi, "ralph-command-error", message);
+    sendRalphCommandMessage(pi, "ralph-command-error", message, {
+      kind: "ralph_command",
+      level: "error",
+      prompt: args.trim() || null,
+      result: null,
+    });
     ctx.ui.notify(message, "error");
   }
 }
@@ -79,6 +92,13 @@ function installRalphCommandListener(pi: ExtensionAPI, ctx: ExtensionContext): v
 }
 
 export default function piRalph(pi: ExtensionAPI): void {
+  pi.registerMessageRenderer("ralph-command-result", (message, options, theme) =>
+    renderRalphCommandMessage(message as { content: string; details?: RalphCommandRenderDetails }, options, theme),
+  );
+  pi.registerMessageRenderer("ralph-command-error", (message, options, theme) =>
+    renderRalphCommandMessage(message as { content: string; details?: RalphCommandRenderDetails }, options, theme),
+  );
+
   pi.registerCommand(RALPH_COMMAND, {
     description: "Run a bounded Ralph loop from the current conversation and prompt",
     handler: async (args: string, ctx: ExtensionCommandContext) => {

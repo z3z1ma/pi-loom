@@ -103,6 +103,8 @@ Package manifests do not define their own `scripts`; contributor workflows are r
 - Use `omp -e .` from inside a package when you need to load a single extension locally.
 - Root `package.json` is the authoritative extension loader. `pi-storage` participates as a workspace dependency package, not as a `pi.extensions` entrypoint.
 - Vitest is configured from the repo root with `packages/*/__tests__/**/*.test.ts`; run targeted tests from the root so path resolution matches the workspace config.
+- Extension UI has an important interactive-mode quirk: `ctx.ui.setWidget(...)` is funneled through Oh My Pi's `ExtensionUiController.setHookWidget`, which calls `statusLine.setHookStatus(key, String(content))`. In practice that means interactive widgets are flattened into a single status-line string; arrays are stringified, newlines are sanitized away, and `undefined` can render literally if passed through the widget path.
+- For live one-line extension status in interactive sessions, prefer `ctx.ui.setStatus(key, text)` and clear it with `ctx.ui.setStatus(key, undefined)`. Reserve `setWidget` for RPC mode or for hosts that truly honor widget lines/components, and verify behavior in the actual Pi TUI before depending on multiline rendering.
 
 ## Testing & QA
 - Framework: Vitest (`vitest.config.ts`), Node environment.

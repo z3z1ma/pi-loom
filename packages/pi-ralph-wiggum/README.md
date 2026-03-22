@@ -14,6 +14,7 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 - durable per-iteration runtime artifacts that capture launch lifecycle, streamed assistant output, tool execution events, stderr/error text, and missing-checkpoint failures
 - runtime-limit and token-budget enforcement that halts runs explicitly when bounded execution exceeds the configured policy
 - strict resume/checkpoint integrity: resumed runs do not inherit ambient transcript context, stale checkpoint ids are rejected, and a fresh continuation decision is required before a post-iteration relaunch
+- task-style TUI rendering for `ralph_run` and Ralph job tools, plus structured human command result/error messages for `/ralph`
 - background Ralph execution backed by an in-process async job manager so long-running bounded iterations can be started, inspected, awaited, and cancelled without losing durable run truth
 - extension lifecycle hooks that initialize the Ralph ledger for orchestration state management
 

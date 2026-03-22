@@ -52,6 +52,7 @@ type MockPi = {
   handlers: RegisteredHandlers;
   commands: RegisteredCommands;
   registerTool: ReturnType<typeof vi.fn>;
+  registerMessageRenderer: ReturnType<typeof vi.fn>;
   registerCommand: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
   sendMessage: ReturnType<typeof vi.fn>;
@@ -69,6 +70,7 @@ function createMockPi(): MockPi {
     registerTool: vi.fn((definition: ToolDefinition) => {
       tools.set(definition.name, definition);
     }),
+    registerMessageRenderer: vi.fn(),
     registerCommand: vi.fn((name: string, definition: RegisteredCommand) => {
       commands.set(name, definition);
     }),
@@ -143,6 +145,8 @@ describe("pi-ralph-wiggum extension", () => {
     piRalph(mockPi as unknown as ExtensionAPI);
 
     expect(mockPi.commands.has("ralph")).toBe(true);
+    expect(mockPi.registerMessageRenderer).toHaveBeenCalledWith("ralph-command-result", expect.any(Function));
+    expect(mockPi.registerMessageRenderer).toHaveBeenCalledWith("ralph-command-error", expect.any(Function));
     expect(getCommand(mockPi, "ralph").description).toContain("bounded Ralph loop");
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "ralph_checkpoint",
@@ -164,7 +168,18 @@ describe("pi-ralph-wiggum extension", () => {
     const { default: piRalph } = await import("../extensions/index.js");
     piRalph(mockPi as unknown as ExtensionAPI);
 
-    vi.mocked(handleRalphCommand).mockResolvedValueOnce("Rendered Ralph command output");
+    vi.mocked(handleRalphCommand).mockResolvedValueOnce({
+      text: "Rendered Ralph command output",
+      result: {
+        created: true,
+        steps: [],
+        run: {
+          summary: { id: "ralph-run", status: "active", phase: "executing", title: "Loop" },
+          state: { latestDecision: null, waitingFor: "none", postIteration: null },
+          runtimeArtifacts: [],
+        },
+      },
+    } as never);
 
     const sessionStart = getHandler(mockPi, "session_start");
     const { ctx, ui } = createCommandContext("/workspace/ralph-index");
@@ -187,6 +202,7 @@ describe("pi-ralph-wiggum extension", () => {
         customType: "ralph-command-result",
         content: "Rendered Ralph command output",
         display: true,
+        details: expect.objectContaining({ kind: "ralph_command", level: "result" }),
       },
       { triggerTurn: false },
     );
@@ -197,7 +213,18 @@ describe("pi-ralph-wiggum extension", () => {
     const { default: piRalph } = await import("../extensions/index.js");
     piRalph(mockPi as unknown as ExtensionAPI);
 
-    vi.mocked(handleRalphCommand).mockResolvedValueOnce("Rendered Ralph command output");
+    vi.mocked(handleRalphCommand).mockResolvedValueOnce({
+      text: "Rendered Ralph command output",
+      result: {
+        created: true,
+        steps: [],
+        run: {
+          summary: { id: "ralph-run", status: "active", phase: "executing", title: "Loop" },
+          state: { latestDecision: null, waitingFor: "none", postIteration: null },
+          runtimeArtifacts: [],
+        },
+      },
+    } as never);
 
     const command = getCommand(mockPi, "ralph");
     const { ctx, ui } = createCommandContext("/workspace/ralph-index");
@@ -209,6 +236,7 @@ describe("pi-ralph-wiggum extension", () => {
         customType: "ralph-command-result",
         content: "Rendered Ralph command output",
         display: true,
+        details: expect.objectContaining({ kind: "ralph_command", level: "result" }),
       },
       { triggerTurn: false },
     );
@@ -231,6 +259,7 @@ describe("pi-ralph-wiggum extension", () => {
         customType: "ralph-command-error",
         content: "Usage: /ralph [xN] <prompt>",
         display: true,
+        details: expect.objectContaining({ kind: "ralph_command", level: "error" }),
       },
       { triggerTurn: false },
     );

@@ -8,7 +8,7 @@ import type {
   UpdateTicketInput,
 } from "../domain/models.js";
 import { renderTicketDetail } from "../domain/render.js";
-import { createTicketStore, type TicketStore } from "../domain/store.js";
+import type { TicketStore } from "../domain/store.js";
 import {
   createTicketWorkbenchModel,
   filterTicketsByQuery,
@@ -19,7 +19,6 @@ import {
   nextActionLines,
   orderedTickets,
   recentChangeLines,
-  summarizeTicketsForWidget,
   type TicketWorkbenchModel,
   type TicketWorkbenchTabId,
 } from "./ticket-workbench-model.js";
@@ -1031,22 +1030,18 @@ function renderMenu(menu: Exclude<WorkbenchMenu, null>, options: MenuOption[], t
 }
 
 export async function syncTicketHomeWidget(ctx: ExtensionContext): Promise<void> {
-  if (!("ui" in ctx) || typeof ctx.ui?.setWidget !== "function") {
+  if (!("ui" in ctx)) {
     return;
   }
-  const store = createTicketStore(ctx.cwd);
-  await store.initLedgerAsync();
-  const tickets = await store.listTicketsAsync({ includeClosed: true });
-  const model = createTicketWorkbenchModel(tickets, await store.graphAsync());
-  const lines = [
-    renderWidgetCountsText(model),
-    `Ready: ${summarizeTicketsForWidget(tickets, "ready")}`,
-    `Blocked: ${summarizeTicketsForWidget(tickets, "blocked")}`,
-    `Recent: ${recentChangeLines(tickets, 2).join(" • ")}`,
-    `Next: ${nextActionLines(tickets).join(" • ")}`,
-  ];
 
-  ctx.ui.setWidget("ticket-home", lines);
+  const ui = ctx.ui as ExtensionContext["ui"] & {
+    setStatus?: (key: string, text: string | undefined) => void;
+  };
+  if (typeof ui?.setStatus !== "function") {
+    return;
+  }
+
+  ui.setStatus("ticket-home", undefined);
 }
 
 export async function loadTicketWorkspaceSnapshot(
@@ -1157,7 +1152,7 @@ export function renderTicketWorkspaceText(snapshot: TicketWorkspaceSnapshot): st
           : ["No tickets yet."]),
       ].join("\n");
     }
-    case "detail":
+    case "detail": {
       if (snapshot.detail) {
         return [
           renderTicketDetail(snapshot.detail),
@@ -1183,6 +1178,7 @@ export function renderTicketWorkspaceText(snapshot: TicketWorkspaceSnapshot): st
       return summary
         ? [`Ticket workbench: detail (${summary.id})`, "", ...previewLines(summary, null, snapshot.graph)].join("\n")
         : `Unknown ticket: ${detailRef}`;
+    }
   }
 }
 

@@ -105,6 +105,7 @@ function createCommandContext(
     editor: ReturnType<typeof vi.fn>;
     getEditorText: ReturnType<typeof vi.fn>;
     onTerminalInput: ReturnType<typeof vi.fn>;
+    setStatus: ReturnType<typeof vi.fn>;
     setWidget: ReturnType<typeof vi.fn>;
     setEditorText: ReturnType<typeof vi.fn>;
     setEditorComponent: ReturnType<typeof vi.fn>;
@@ -117,6 +118,7 @@ function createCommandContext(
     editor: vi.fn(async () => undefined),
     getEditorText: vi.fn(() => ""),
     onTerminalInput: vi.fn(() => () => {}),
+    setStatus: vi.fn(),
     setWidget: vi.fn(),
     setEditorText: vi.fn(),
     setEditorComponent: vi.fn(),
@@ -181,11 +183,13 @@ describe("pi-ticketing extension", () => {
       await store.createTicketAsync({ title: "Seed workspace" });
       await command.handler("open home", fallbackCtx);
       expect(fallbackUi.notify).toHaveBeenCalledWith(expect.stringContaining("Ticket workbench: overview"), "info");
-      expect(fallbackUi.setWidget).toHaveBeenCalled();
+      expect(fallbackUi.setStatus).toHaveBeenCalledWith("ticket-home", undefined);
+      expect(fallbackUi.setWidget).not.toHaveBeenCalled();
 
       fallbackUi.notify.mockClear();
       await command.handler("review blocked", fallbackCtx);
       expect(fallbackUi.notify).toHaveBeenCalledWith(expect.stringContaining("Ticket workbench: overview"), "info");
+      expect(fallbackUi.setStatus).toHaveBeenNthCalledWith(2, "ticket-home", undefined);
     } finally {
       cleanup();
     }

@@ -126,6 +126,8 @@ describe("ralph tools", () => {
       "ralph_run",
     ]);
     expect(getTool(mockPi, "ralph_run").promptSnippet).toContain("primary Ralph loop tool");
+    expect(getTool(mockPi, "ralph_run").renderCall).toEqual(expect.any(Function));
+    expect(getTool(mockPi, "ralph_run").renderResult).toEqual(expect.any(Function));
     expect(checkpointTool.promptGuidelines).toContain(
       "This is the safe way for a fresh Ralph worker session to commit its bounded iteration outcome for the launched iteration id.",
     );
@@ -307,6 +309,62 @@ describe("ralph tools", () => {
           ctx,
         ),
       ).rejects.toThrow("cannot checkpoint iteration iter-001");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("reuses an already prepared durable launch when ralph_run resumes without a new prompt", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    const runRalphLaunchMock = vi.mocked(runRalphLaunch);
+    runRalphLaunchMock.mockReset();
+    try {
+      const mockPi = createMockPi();
+      const { registerRalphTools } = await import("../extensions/tools/ralph.js");
+      registerRalphTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+      const store = createRalphStore(cwd);
+      const created = store.createRun({
+        title: "Durable launch guard",
+        objective: "Reject overlapping launches when a session launch is already reserved.",
+        policySnapshot: { verifierRequired: false },
+      });
+      const prepared = store.prepareLaunch(created.state.runId, { focus: "Reserved iteration" });
+
+      runRalphLaunchMock.mockImplementationOnce(async (_cwd, launch) => {
+        createRalphStore(cwd).appendIteration(created.state.runId, {
+          id: launch.iterationId,
+          status: "accepted",
+          summary: "Reused the prepared launch.",
+          decision: continueDecision("Prepared launch remained resumable."),
+        });
+        return {
+          command: "pi",
+          args: ["session-runtime"],
+          exitCode: 0,
+          output: "done",
+          stderr: "",
+          usage: { measured: true, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+          status: "completed",
+        };
+      });
+
+      const runTool = getTool(mockPi, "ralph_run");
+      const resumed = await runTool.execute(
+        "call-durable-guard",
+        { ref: created.state.runId },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      expect(resumed).toMatchObject({
+        details: {
+          result: {
+            steps: [expect.objectContaining({ iterationId: prepared.launch.iterationId, exitCode: 0 })],
+          },
+        },
+      });
     } finally {
       cleanup();
     }

@@ -39,6 +39,7 @@ export const RALPH_DECISION_REASONS = [
   "operator_requested",
   "runtime_unavailable",
   "runtime_failure",
+  "queue_wait_timeout_exceeded",
   "timeout_exceeded",
   "budget_exceeded",
   "worker_requested_completion",
@@ -389,6 +390,7 @@ export interface DecideRalphRunInput {
   operatorRequestedStop?: boolean;
   runtimeUnavailable?: boolean;
   runtimeFailure?: boolean;
+  queueTimeoutExceeded?: boolean;
   timeoutExceeded?: boolean;
   budgetExceeded?: boolean;
   summary?: string;
@@ -400,4 +402,5 @@ export interface PrepareRalphLaunchInput {
   focus?: string;
   instructions?: string[];
   resume?: boolean;
+  requireFresh?: boolean;
 }

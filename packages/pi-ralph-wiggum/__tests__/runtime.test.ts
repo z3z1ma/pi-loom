@@ -305,6 +305,79 @@ describe("ralph runtime session execution", () => {
     expect(createCall?.options.model).toEqual({ provider: "anthropic", id: "claude-test" });
   });
 
+  it("preserves the session-runtime launch lock when a queued launch is aborted", async () => {
+    globalThis.__piLoomHarnessOutcome = { waitForAbort: true };
+
+    const firstLaunch: RalphLaunchDescriptor = {
+      runId: "run-lock-first",
+      iterationId: "iter-001",
+      iteration: 1,
+      createdAt: "2026-03-20T12:00:00.000Z",
+      runtime: "session",
+      packetRef: "ralph-run:run-lock-first:packet",
+      launchRef: "ralph-run:run-lock-first:launch",
+      resume: false,
+      instructions: [],
+    };
+    const secondLaunch: RalphLaunchDescriptor = {
+      runId: "run-lock-second",
+      iterationId: "iter-001",
+      iteration: 1,
+      createdAt: "2026-03-20T12:01:00.000Z",
+      runtime: "session",
+      packetRef: "ralph-run:run-lock-second:packet",
+      launchRef: "ralph-run:run-lock-second:launch",
+      resume: false,
+      instructions: [],
+    };
+    const thirdLaunch: RalphLaunchDescriptor = {
+      runId: "run-lock-third",
+      iterationId: "iter-001",
+      iteration: 1,
+      createdAt: "2026-03-20T12:02:00.000Z",
+      runtime: "session",
+      packetRef: "ralph-run:run-lock-third:packet",
+      launchRef: "ralph-run:run-lock-third:launch",
+      resume: false,
+      instructions: [],
+    };
+
+    const firstAbort = new AbortController();
+    const secondAbort = new AbortController();
+
+    const firstPromise = runRalphLaunch("/workspace/project", firstLaunch, firstAbort.signal, undefined, {
+      [PI_PARENT_HARNESS_PACKAGE_ROOT_ENV]: fakeHarnessRoot,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const secondPromise = runRalphLaunch("/workspace/project", secondLaunch, secondAbort.signal, undefined, {
+      [PI_PARENT_HARNESS_PACKAGE_ROOT_ENV]: fakeHarnessRoot,
+    });
+    secondAbort.abort();
+    await expect(secondPromise).resolves.toMatchObject({ status: "cancelled" });
+
+    const thirdPromise = runRalphLaunch("/workspace/project", thirdLaunch, undefined, undefined, {
+      [PI_PARENT_HARNESS_PACKAGE_ROOT_ENV]: fakeHarnessRoot,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const queuedCreateCount = (globalThis.__piLoomHarnessCalls ?? []).filter(
+      (entry): entry is { type: string } =>
+        typeof entry === "object" && entry !== null && (entry as { type?: string }).type === "createAgentSession",
+    ).length;
+    expect(queuedCreateCount).toBe(1);
+
+    globalThis.__piLoomHarnessOutcome = { stopReason: "stop", text: "session runtime ok" };
+    firstAbort.abort();
+
+    await expect(firstPromise).resolves.toMatchObject({ status: "cancelled" });
+    await expect(thirdPromise).resolves.toMatchObject({ status: "completed" });
+  });
+
   it("forwards parent extension paths and discovery policy through DefaultResourceLoader when available", async () => {
     const launch: RalphLaunchDescriptor = {
       runId: "run-session-extensions",
@@ -868,28 +941,26 @@ describe("ralph loop policy enforcement", () => {
     });
 
     const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
-    runtimeSpy.mockImplementationOnce(
-      async (_cwd, _launch, signal, _onUpdate, _extraEnv, onEvent) => {
-        await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
-        return await new Promise((resolve) => {
-          signal?.addEventListener(
-            "abort",
-            () => {
-              resolve({
-                command: "pi",
-                args: ["session-runtime"],
-                exitCode: 1,
-                output: "",
-                stderr: "Aborted",
-                usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
-                status: "cancelled",
-              });
-            },
-            { once: true },
-          );
-        });
-      },
-    );
+    runtimeSpy.mockImplementationOnce(async (_cwd, _launch, signal, _onUpdate, _extraEnv, onEvent) => {
+      await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
+      return await new Promise((resolve) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            resolve({
+              command: "pi",
+              args: ["session-runtime"],
+              exitCode: 1,
+              output: "",
+              stderr: "Aborted",
+              usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+              status: "cancelled",
+            });
+          },
+          { once: true },
+        );
+      });
+    });
 
     const { executeRalphLoop } = await import("../extensions/domain/loop.js");
     const loopPromise = executeRalphLoop(
@@ -923,41 +994,39 @@ describe("ralph loop policy enforcement", () => {
     });
 
     const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
-    runtimeSpy.mockImplementationOnce(
-      async (_cwd, launch, signal, _onUpdate, _extraEnv, onEvent) => {
-        await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
-        return await new Promise((resolve) => {
-          signal?.addEventListener(
-            "abort",
-            () => {
-              createRalphStore(workspace).appendIteration(run.state.runId, {
-                id: launch.iterationId,
-                status: "accepted",
-                summary: "Checkpoint landed during timeout shutdown.",
-                decision: {
-                  kind: "continue",
-                  reason: "unknown",
-                  summary: "Checkpoint existed even though timeout policy wins.",
-                  decidedAt: new Date().toISOString(),
-                  decidedBy: "policy",
-                  blockingRefs: [],
-                },
-              });
-              resolve({
-                command: "pi",
-                args: ["session-runtime"],
-                exitCode: 1,
-                output: "",
-                stderr: "Timed out",
-                usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
-                status: "failed",
-              });
-            },
-            { once: true },
-          );
-        });
-      },
-    );
+    runtimeSpy.mockImplementationOnce(async (_cwd, launch, signal, _onUpdate, _extraEnv, onEvent) => {
+      await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
+      return await new Promise((resolve) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            createRalphStore(workspace).appendIteration(run.state.runId, {
+              id: launch.iterationId,
+              status: "accepted",
+              summary: "Checkpoint landed during timeout shutdown.",
+              decision: {
+                kind: "continue",
+                reason: "unknown",
+                summary: "Checkpoint existed even though timeout policy wins.",
+                decidedAt: new Date().toISOString(),
+                decidedBy: "policy",
+                blockingRefs: [],
+              },
+            });
+            resolve({
+              command: "pi",
+              args: ["session-runtime"],
+              exitCode: 1,
+              output: "",
+              stderr: "Timed out",
+              usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+              status: "failed",
+            });
+          },
+          { once: true },
+        );
+      });
+    });
 
     const { executeRalphLoop } = await import("../extensions/domain/loop.js");
     const loopPromise = executeRalphLoop(
