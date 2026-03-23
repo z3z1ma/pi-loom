@@ -353,6 +353,8 @@ function normalizeRuntimeRecord(record: RalphIterationRuntimeRecord): RalphItera
       runId: normalizeRalphRunId(record.launch.runId),
       iterationId: record.launch.iterationId.trim(),
       iteration: Math.max(1, Math.floor(record.launch.iteration)),
+      ticketRef: normalizeOptionalString(record.launch.ticketRef) ?? "(unbound-ticket)",
+      planRef: normalizeOptionalString(record.launch.planRef),
       instructions: normalizeStringList(record.launch.instructions),
     },
     missingCheckpoint: record.missingCheckpoint === true,
@@ -1795,12 +1797,14 @@ export class RalphStore {
       iteration: iteration?.iteration ?? Math.max(1, state.lastIterationNumber || 1),
       createdAt: currentTimestamp(),
       runtime: "descriptor_only",
+      ticketRef: state.scope.ticketId ?? state.activeTicketId ?? "(unbound-ticket)",
+      planRef: state.scope.planId,
       packetRef: toRalphPacketRef(state.runId),
       launchRef: toRalphLaunchRef(state.runId),
       resume: state.nextLaunch.resume,
       instructions: [
         "Prepare one fresh Ralph iteration at a time.",
-        `Use ${toRalphPacketRef(state.runId)} as the canonical packet for the next iteration.`,
+        `Read the canonical packet through ralph_read mode=packet ticketRef=${state.scope.ticketId ?? state.activeTicketId ?? "(unbound-ticket)"}${state.scope.planId ? ` planRef=${state.scope.planId}` : ""}.`,
         `Persist iteration updates for ${iteration?.id ?? "iter-001"} through Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
       ],
     };
@@ -2231,6 +2235,8 @@ export class RalphStore {
       iteration: iteration.iteration,
       createdAt: state.nextLaunch.preparedAt ?? currentTimestamp(),
       runtime: "session",
+      ticketRef: state.scope.ticketId ?? state.activeTicketId ?? "(unbound-ticket)",
+      planRef: state.scope.planId,
       packetRef: toRalphPacketRef(state.runId),
       launchRef: toRalphLaunchRef(state.runId),
       resume: input.resume === true,
@@ -2238,7 +2244,7 @@ export class RalphStore {
         state.nextLaunch.instructions.length > 0
           ? state.nextLaunch.instructions
           : [
-              `Read ${toRalphPacketRef(state.runId)} before acting.`,
+              `Read the canonical packet through ralph_read mode=packet ticketRef=${state.scope.ticketId ?? state.activeTicketId ?? "(unbound-ticket)"}${state.scope.planId ? ` planRef=${state.scope.planId}` : ""}.`,
               `Persist iteration updates for ${iteration.id} through the Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
               "Execute exactly one bounded iteration and record an explicit policy decision before exiting.",
             ],
@@ -2495,6 +2501,8 @@ export class RalphStore {
           input.iteration ?? linkedIteration?.iteration ?? existing?.iteration ?? current.state.lastIterationNumber + 1,
         createdAt: existing?.launch.createdAt ?? current.state.nextLaunch.preparedAt ?? now,
         runtime: "session" as const,
+        ticketRef: current.state.scope.ticketId ?? current.state.activeTicketId ?? "(unbound-ticket)",
+        planRef: current.state.scope.planId,
         packetRef: toRalphPacketRef(current.state.runId),
         launchRef: toRalphLaunchRef(current.state.runId),
         resume: current.state.nextLaunch.resume,
@@ -2713,7 +2721,10 @@ export class RalphStore {
 
   prepareLaunch(ref: string, input: PrepareRalphLaunchInput = {}): RalphReadResult {
     const current = this.readRun(ref);
-    if (["completed", "halted", "failed", "archived"].includes(current.state.status)) {
+    if (
+      ["completed", "halted", "failed", "archived"].includes(current.state.status) &&
+      input.allowTerminalRerun !== true
+    ) {
       throw new Error(`Ralph run ${current.state.runId} cannot launch from status ${current.state.status}.`);
     }
     if (current.state.waitingFor !== "none") {
@@ -2721,7 +2732,7 @@ export class RalphStore {
         `Ralph run ${current.state.runId} is waiting for ${current.state.waitingFor} and cannot launch until that gate is cleared.`,
       );
     }
-    if (current.state.postIteration) {
+    if (current.state.postIteration && input.allowTerminalRerun !== true) {
       const hasFreshContinueDecision =
         current.state.latestDecision?.kind === "continue" &&
         current.state.latestDecisionIterationId === current.state.postIteration.iterationId;

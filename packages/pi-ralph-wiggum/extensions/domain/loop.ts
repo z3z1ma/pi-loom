@@ -4,13 +4,13 @@ import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import type { RalphPacketContext, RalphReadResult, RalphRunScope, RalphRunStatus } from "./models.js";
+import { deriveRalphRunId } from "./paths.js";
 import {
   buildParentSessionRuntimeEnv,
   type RalphExecutionResult,
   type RalphLaunchEvent,
   runRalphLaunch,
 } from "./runtime.js";
-import { deriveRalphRunId } from "./paths.js";
 import { createRalphStore } from "./store.js";
 
 type RalphContextLike =
@@ -210,10 +210,15 @@ export async function reserveDurableLaunch(
       ? [`Primary objective for the next bounded iteration: ${steeringText.trim()}`]
       : undefined;
 
-  const reserved =
-    refreshed.state.postIteration === null
-      ? await store.prepareLaunchAsync(refreshed.state.runId, { focus, instructions, requireFresh: true })
-      : await store.resumeRunAsync(refreshed.state.runId, { focus, instructions, requireFresh: true });
+  const requiresFreshLaunch = refreshed.state.postIteration === null || refreshed.state.latestDecision?.kind === "halt";
+  const reserved = requiresFreshLaunch
+    ? await store.prepareLaunchAsync(refreshed.state.runId, {
+        focus,
+        instructions,
+        requireFresh: true,
+        allowTerminalRerun: refreshed.state.latestDecision?.kind === "halt",
+      })
+    : await store.resumeRunAsync(refreshed.state.runId, { focus, instructions, requireFresh: true });
 
   return steeringText?.trim()
     ? await store.consumeQueuedSteeringAsync(reserved.state.runId, reserved.launch.iterationId)
@@ -222,6 +227,14 @@ export async function reserveDurableLaunch(
 
 function isTerminalStatus(status: RalphRunStatus): boolean {
   return ["completed", "halted", "failed", "archived"].includes(status);
+}
+
+function canPrepareFreshIteration(status: RalphRunStatus): boolean {
+  return !["completed", "archived"].includes(status);
+}
+
+function canRerunFromTerminalStatus(status: RalphRunStatus): boolean {
+  return ["halted", "failed"].includes(status);
 }
 
 function truncate(text: string, maxLength: number): string {
@@ -433,6 +446,7 @@ function buildSummary(scope: RalphRunScope, steeringPrompt: string | undefined):
 function buildRunInstructions(scope: RalphRunScope, steeringPrompt: string | undefined): string[] {
   const instructions = [
     `Operate only within ticket ${scope.ticketId ?? "(none)"} under plan ${scope.planId ?? "(none)"}${scope.specChangeId ? ` and its governing spec ${scope.specChangeId}` : ""}.`,
+    `Read the canonical packet through ralph_read mode=packet ticketRef=${scope.ticketId ?? "(none)"}${scope.planId ? ` planRef=${scope.planId}` : ""}.`,
     "Perform one bounded Ralph iteration and persist a single durable checkpoint before exit.",
   ];
   if (steeringPrompt?.trim()) {
@@ -1071,7 +1085,7 @@ async function prepareBoundIteration(
     };
   }
 
-  if (run.state.latestDecision?.kind === "halt") {
+  if (run.state.latestDecision?.kind === "halt" && !canRerunFromTerminalStatus(run.state.status)) {
     return {
       shouldExecute: false,
       run: await store.updateRunAsync(run.state.runId, {
@@ -1149,7 +1163,7 @@ export async function executeRalphLoop(
         ? Math.floor(input.iterations)
         : null;
 
-    while (!isTerminalStatus(run.state.status)) {
+    while (canPrepareFreshIteration(run.state.status)) {
       const prepared = await prepareBoundIteration(ctx, input, run);
       run = prepared.run;
       if (!prepared.shouldExecute || isTerminalStatus(run.state.status)) {

@@ -260,13 +260,17 @@ export function renderRalphDetail(result: RalphReadResult): string {
 }
 
 export function renderLaunchDescriptor(_cwd: string, launch: RalphLaunchDescriptor): string {
+  const packetReadCall = `ralph_read ticketRef=${launch.ticketRef}${launch.planRef ? ` planRef=${launch.planRef}` : ""} mode=packet`;
   return [
     `Ralph single-iteration launch for ${launch.runId}`,
     `Prepared: ${launch.createdAt}`,
     `Iteration: ${launch.iteration} (${launch.iterationId})`,
     `Runtime: ${launch.runtime}`,
     `Mode: ${launch.resume ? "resume" : "fresh launch"}`,
+    `Ticket ref: ${launch.ticketRef}`,
+    `Plan ref: ${launch.planRef ?? "(none)"}`,
     `Packet ref: ${launch.packetRef}`,
+    `Packet read call: ${packetReadCall}`,
     "",
     "Instructions:",
     ...launch.instructions.map((instruction) => `- ${instruction}`),
@@ -274,15 +278,19 @@ export function renderLaunchDescriptor(_cwd: string, launch: RalphLaunchDescript
 }
 
 export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor): string {
+  const packetReadCall = `ralph_read ticketRef=${launch.ticketRef}${launch.planRef ? ` planRef=${launch.planRef}` : ""} mode=packet`;
   return [
     `Execute one bounded Ralph iteration for managed run ${launch.runId} using ${launch.packetRef}.`,
     "",
     "This is a fresh Ralph session-runtime worker. Do not continue the prior worker transcript.",
     `Iteration: ${launch.iteration} (${launch.iterationId})`,
     `Mode: ${launch.resume ? "resume" : "fresh launch"}`,
+    `Ticket ref: ${launch.ticketRef}`,
+    `Plan ref: ${launch.planRef ?? "(none)"}`,
     "",
     "Before acting:",
-    `- Read ${launch.packetRef}.`,
+    `- Call ${packetReadCall}.`,
+    "- Use the exact ticketRef/planRef from this launch when reading Ralph packet state; do not derive alternate refs from the run id or packet ref.",
     "- Treat the governing plan, bound ticket, optional spec, steering, and constitutional context in the packet as canonical source material.",
     "- Work only one bounded iteration; do not silently self-loop.",
     `- Persist status, verifier evidence, critique references, and the continuation decision through \`ralph_checkpoint\` using iterationId=${launch.iterationId}.`,

@@ -138,6 +138,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-15T14:33:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-123:packet",
       launchRef: "ralph-run:run-123:launch",
       resume: true,
@@ -145,9 +147,16 @@ describe("ralph runtime session execution", () => {
     };
 
     expect(renderLaunchDescriptor("/tmp/different-root", launch)).toContain("Packet ref: ralph-run:run-123:packet");
+    expect(renderLaunchDescriptor("/tmp/different-root", launch)).toContain(
+      "Packet read call: ralph_read ticketRef=ticket-456 planRef=plan-123 mode=packet",
+    );
     const prompt = renderLaunchPrompt("/tmp/different-root", launch);
     expect(prompt).toContain(
       "Execute one bounded Ralph iteration for managed run run-123 using ralph-run:run-123:packet.",
+    );
+    expect(prompt).toContain("Call ralph_read ticketRef=ticket-456 planRef=plan-123 mode=packet.");
+    expect(prompt).toContain(
+      "Use the exact ticketRef/planRef from this launch when reading Ralph packet state; do not derive alternate refs from the run id or packet ref.",
     );
     expect(prompt).toContain(
       "Persist status, verifier evidence, critique references, and the continuation decision through `ralph_checkpoint` using iterationId=iter-001.",
@@ -155,6 +164,50 @@ describe("ralph runtime session execution", () => {
     expect(prompt).toContain(
       "Call ralph_checkpoint ref=run-123 iterationId=iter-001 once with the complete bounded-iteration outcome.",
     );
+  });
+
+  it("preserves exact bound ticket and long plan refs in launch guidance while keeping ticket-only guidance truthful", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "pi-ralph-launch-guidance-"));
+    try {
+      seedRuntimeLinkedEntities(workspace);
+      const store = createRalphStore(workspace);
+      const longPlanRef = "plan-production-readiness-rollout-phase-7-with-cross-region-cutover-checklist";
+      seedRuntimeLinkedEntity(workspace, "plan", longPlanRef, "Production readiness rollout");
+
+      const boundRun = store.createRun({
+        title: "Long plan-bound launch",
+        objective: "Keep bound refs exact in worker guidance.",
+        scope: createTicketBoundScope("ticket-456", longPlanRef),
+      });
+      const prepared = store.prepareLaunch(boundRun.state.runId, { focus: "Verify prompt guidance" });
+
+      expect(prepared.launch.planRef).toBe(longPlanRef);
+      expect(prepared.launch.ticketRef).toBe("ticket-456");
+      expect(renderLaunchPrompt(workspace, prepared.launch)).toContain(
+        `Call ralph_read ticketRef=ticket-456 planRef=${longPlanRef} mode=packet.`,
+      );
+
+      const ticketOnlyLaunch: RalphLaunchDescriptor = {
+        runId: "ticket-only-run",
+        iterationId: "iter-001",
+        iteration: 1,
+        createdAt: "2026-03-20T12:00:00.000Z",
+        runtime: "session",
+        ticketRef: "ticket-456",
+        planRef: null,
+        packetRef: "ralph-run:ticket-only-run:packet",
+        launchRef: "ralph-run:ticket-only-run:launch",
+        resume: false,
+        instructions: [],
+      };
+
+      expect(renderLaunchPrompt(workspace, ticketOnlyLaunch)).toContain(
+        "Call ralph_read ticketRef=ticket-456 mode=packet.",
+      );
+      expect(renderLaunchPrompt(workspace, ticketOnlyLaunch)).toContain("Plan ref: (none)");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   it("projects dashboard artifact refs from the run id", () => {
@@ -347,6 +400,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-session:packet",
       launchRef: "ralph-run:run-session:launch",
       resume: false,
@@ -397,6 +452,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-lock-first:packet",
       launchRef: "ralph-run:run-lock-first:launch",
       resume: false,
@@ -408,6 +465,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:01:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-lock-second:packet",
       launchRef: "ralph-run:run-lock-second:launch",
       resume: false,
@@ -455,6 +514,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-session-extensions:packet",
       launchRef: "ralph-run:run-session-extensions:launch",
       resume: false,
@@ -520,6 +581,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-session-new-session:packet",
       launchRef: "ralph-run:run-session-new-session:launch",
       resume: false,
@@ -571,6 +634,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-events:packet",
       launchRef: "ralph-run:run-events:launch",
       resume: false,
@@ -636,6 +701,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-error:packet",
       launchRef: "ralph-run:run-error:launch",
       resume: false,
@@ -665,6 +732,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-session-idle:packet",
       launchRef: "ralph-run:run-session-idle:launch",
       resume: false,
@@ -700,6 +769,8 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
+      ticketRef: "ticket-456",
+      planRef: "plan-123",
       packetRef: "ralph-run:run-abort:packet",
       launchRef: "ralph-run:run-abort:launch",
       resume: false,
@@ -1060,6 +1131,94 @@ describe("ralph loop policy enforcement", () => {
       id: "iter-001",
       decision: { kind: "halt", reason: "timeout_exceeded" },
     });
+    runtimeSpy.mockRestore();
+  });
+
+  it("reruns a halted runtime-failure loop by preparing a fresh bounded iteration", async () => {
+    vi.useFakeTimers();
+    const store = createRalphStore(workspace);
+    const run = store.createRun({
+      title: "Rerunnable halted Ralph Run",
+      objective: "Resume after a runtime-induced halt.",
+      policySnapshot: { verifierRequired: false, maxRuntimeMinutes: 1 },
+      scope: createTicketBoundScope(),
+    });
+
+    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    runtimeSpy
+      .mockImplementationOnce(async (_cwd, _launch, signal, _onUpdate, _extraEnv, onEvent) => {
+        await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
+        return await new Promise((resolve) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              resolve({
+                command: "pi",
+                args: ["session-runtime"],
+                exitCode: 1,
+                output: "",
+                stderr: "Aborted",
+                usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+                status: "cancelled",
+              });
+            },
+            { once: true },
+          );
+        });
+      })
+      .mockImplementationOnce(async (_cwd, launch) => {
+        createRalphStore(workspace).appendIteration(run.state.runId, {
+          id: launch.iterationId,
+          status: "accepted",
+          summary: "Fresh rerun checkpoint landed.",
+          decision: {
+            kind: "continue",
+            reason: "unknown",
+            summary: "Fresh iteration can continue after the rerun.",
+            decidedAt: new Date().toISOString(),
+            decidedBy: "policy",
+            blockingRefs: [],
+          },
+        });
+
+        return {
+          command: "pi",
+          args: ["session-runtime"],
+          exitCode: 0,
+          output: "rerun ok",
+          stderr: "",
+          usage: { measured: true, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+          status: "completed",
+        };
+      });
+
+    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const firstLoop = executeRalphLoop(
+      {
+        cwd: workspace,
+        sessionManager: { getBranch: () => [] },
+      } as unknown as ExtensionContext,
+      { ref: run.state.runId, prompt: "do work", iterations: 1 },
+    );
+    await vi.advanceTimersByTimeAsync(60_001);
+    await vi.advanceTimersByTimeAsync(2_001);
+    const firstResult = await firstLoop;
+
+    expect(firstResult.run.state.status).toBe("halted");
+    expect(firstResult.run.iterations.at(-1)?.id).toBe("iter-001");
+
+    const secondResult = await executeRalphLoop(
+      {
+        cwd: workspace,
+        sessionManager: { getBranch: () => [] },
+      } as unknown as ExtensionContext,
+      { ref: run.state.runId, prompt: "try again", iterations: 1 },
+    );
+
+    expect(secondResult.steps).toHaveLength(1);
+    expect(secondResult.steps[0]).toMatchObject({ iterationId: "iter-002", finalDecision: "continue" });
+    expect(secondResult.run.iterations.at(-1)).toMatchObject({ id: "iter-002", status: "accepted" });
+    expect(secondResult.run.state.status).toBe("active");
     runtimeSpy.mockRestore();
   });
 

@@ -244,6 +244,8 @@ function createReadResult(
       iteration: 1,
       createdAt: "2026-03-21T00:00:00.000Z",
       runtime: "descriptor_only",
+      ticketRef: overrides?.ticketId ?? "t-1001",
+      planRef: overrides?.planId ?? null,
       packetRef: `ralph-run:${ref}:packet`,
       launchRef: `ralph-run:${ref}:launch`,
       resume: false,

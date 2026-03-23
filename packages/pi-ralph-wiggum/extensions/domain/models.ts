@@ -215,6 +215,8 @@ export interface RalphLaunchDescriptor {
   iteration: number;
   createdAt: string;
   runtime: "session" | "descriptor_only";
+  ticketRef: string;
+  planRef: string | null;
   packetRef: string;
   launchRef: string;
   resume: boolean;
@@ -477,4 +479,5 @@ export interface PrepareRalphLaunchInput {
   instructions?: string[];
   resume?: boolean;
   requireFresh?: boolean;
+  allowTerminalRerun?: boolean;
 }
