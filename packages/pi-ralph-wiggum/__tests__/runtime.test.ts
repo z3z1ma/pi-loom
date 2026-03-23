@@ -1,13 +1,193 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DefaultResourceLoader, type ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { vi } from "vitest";
+
+vi.mock("@mariozechner/pi-coding-agent", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@mariozechner/pi-coding-agent")>();
+  const actualWithOptionalSettings = actual as typeof actual & {
+    Settings?: { init?: (options?: { cwd?: string; agentDir?: string }) => Promise<unknown> };
+  };
+  const settingsValues = () => ((globalThis as Record<string, unknown>).__piLoomHarnessSettingsValues as Record<string, unknown> | undefined) ?? {};
+
+  class MockHarnessSession {
+    options: Record<string, unknown>;
+    state = { messages: [] as Array<Record<string, unknown>> };
+    listeners: Array<(event: unknown) => void> = [];
+    pendingPromptResolve: (() => void) | null = null;
+    messageDelivered = false;
+    agent = {
+      waitForIdle: async () => {
+        globalThis.__piLoomHarnessCalls?.push({ type: "agentWaitForIdle" });
+        await this.runHook("agentWaitForIdle");
+      },
+    };
+    modelRegistry = {
+      find: (provider: string, modelId: string) => {
+        globalThis.__piLoomHarnessCalls?.push({ type: "modelRegistryFind", provider, modelId });
+        return { provider, id: modelId, reasoning: true };
+      },
+    };
+
+    constructor(options: Record<string, unknown>) {
+      this.options = options;
+    }
+
+    currentOutcome() {
+      return globalThis.__piLoomHarnessOutcome ?? { stopReason: "stop", text: "session runtime ok" };
+    }
+
+    async runHook(phase: "prompt" | "sessionWaitForIdle" | "agentWaitForIdle" | "abort", promptText?: string) {
+      await globalThis.__piLoomHarnessHook?.({
+        phase,
+        promptText,
+        sessionOptions: this.options,
+        env: { ...process.env },
+        outcome: this.currentOutcome(),
+        emitEvent: (event) => this.emitEvent(event),
+      });
+    }
+
+    emitEvent(event: unknown) {
+      globalThis.__piLoomHarnessCalls?.push({ type: "emitEvent", event });
+      for (const listener of this.listeners) {
+        listener(event);
+      }
+    }
+
+    emitAssistantMessage(outcome = this.currentOutcome()) {
+      if (this.messageDelivered) return;
+      this.messageDelivered = true;
+      const usage = {
+        input: outcome.usage?.input ?? 0,
+        output: outcome.usage?.output ?? 0,
+        cacheRead: outcome.usage?.cacheRead ?? 0,
+        cacheWrite: outcome.usage?.cacheWrite ?? 0,
+        totalTokens:
+          outcome.usage?.totalTokens ??
+          (outcome.usage?.input ?? 0) +
+            (outcome.usage?.output ?? 0) +
+            (outcome.usage?.cacheRead ?? 0) +
+            (outcome.usage?.cacheWrite ?? 0),
+      };
+      const message = {
+        role: "assistant",
+        stopReason: outcome.stopReason ?? "stop",
+        errorMessage: outcome.errorMessage,
+        usage,
+        content: outcome.text ? [{ type: "text", text: outcome.text }] : [],
+      };
+      this.state.messages.push(message);
+      this.emitEvent({ type: "message_end", message });
+    }
+
+    async bindExtensions(bindings: Record<string, unknown>) {
+      globalThis.__piLoomHarnessCalls?.push({ type: "bindExtensions", bindings });
+    }
+
+    getAllToolNames() {
+      return globalThis.__piLoomHarnessToolNames ?? ["read", "ticket_read", "ticket_write", "ralph_read"];
+    }
+
+    getAllTools() {
+      return this.getAllToolNames().map((name) => ({ name }));
+    }
+
+    async setActiveToolsByName(toolNames: string[]) {
+      globalThis.__piLoomHarnessCalls?.push({ type: "setActiveTools", toolNames });
+    }
+
+    async setModel(model: unknown) {
+      globalThis.__piLoomHarnessCalls?.push({ type: "setModel", model });
+    }
+
+    subscribe(listener: (event: unknown) => void) {
+      this.listeners.push(listener);
+      return () => {
+        this.listeners = this.listeners.filter((candidate) => candidate !== listener);
+      };
+    }
+
+    async prompt(text: string) {
+      globalThis.__piLoomHarnessCalls?.push({ type: "prompt", text, env: { ...process.env } });
+      const outcome = this.currentOutcome();
+      await this.runHook("prompt", text);
+      if (outcome.waitForAbort) {
+        return new Promise<void>((resolve) => {
+          this.pendingPromptResolve = resolve;
+        });
+      }
+      if (!outcome.deferAssistantUntilSessionIdle) {
+        this.emitAssistantMessage(outcome);
+      }
+    }
+
+    async waitForIdle() {
+      globalThis.__piLoomHarnessCalls?.push({ type: "sessionWaitForIdle" });
+      await this.runHook("sessionWaitForIdle");
+      if (this.currentOutcome().deferAssistantUntilSessionIdle) {
+        this.emitAssistantMessage(this.currentOutcome());
+      }
+    }
+
+    async abort() {
+      globalThis.__piLoomHarnessCalls?.push({ type: "abort" });
+      await this.runHook("abort");
+      this.emitAssistantMessage({
+        stopReason: "aborted",
+        errorMessage: this.currentOutcome().errorMessage ?? "Aborted",
+        text: "",
+      });
+      this.pendingPromptResolve?.();
+      this.pendingPromptResolve = null;
+    }
+
+    async dispose() {
+      globalThis.__piLoomHarnessCalls?.push({ type: "dispose" });
+    }
+  }
+
+  return {
+    ...actual,
+    createAgentSession: vi.fn(async (options: Record<string, unknown>) => {
+      globalThis.__piLoomHarnessCalls?.push({ type: "createAgentSession", options });
+      return { session: new MockHarnessSession(options) };
+    }),
+    SessionManager: {
+      ...actual.SessionManager,
+      inMemory: vi.fn((cwd?: string) => {
+        globalThis.__piLoomHarnessCalls?.push({ type: "sessionManagerInMemory", cwd });
+        return { cwd };
+      }),
+    },
+    Settings: {
+      ...(actualWithOptionalSettings.Settings ?? {}),
+      isolated: vi.fn((overrides?: Record<string, unknown>) => ({ __settings: true, overrides: overrides ?? {} })),
+      init: vi.fn(async (options?: { cwd?: string; agentDir?: string }) => {
+        globalThis.__piLoomHarnessCalls?.push({ type: "settingsInit", options });
+        return actualWithOptionalSettings.Settings?.init
+          ? actualWithOptionalSettings.Settings.init(options)
+          : { ...options, __settings: true };
+      }),
+    },
+    settings: {
+      get: vi.fn((key: string) => settingsValues()[key]),
+    },
+    SETTINGS_SCHEMA: {
+      extensions: {},
+      disabledExtensions: {},
+      "async.enabled": {},
+    },
+  };
+});
+
+import { type ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildRalphDashboard } from "../extensions/domain/dashboard.js";
 import { hasTrustedPostIteration } from "../extensions/domain/loop.js";
 import type { RalphLaunchDescriptor, RalphRunState } from "../extensions/domain/models.js";
@@ -24,7 +204,6 @@ import {
   PI_PARENT_SESSION_DISABLE_EXTENSION_DISCOVERY_ENV,
   PI_PARENT_SESSION_MODEL_ID_ENV,
   PI_PARENT_SESSION_MODEL_PROVIDER_ENV,
-  resolveRequiredRalphWorkerExtensionPaths,
   resolveRalphExtensionRoot,
   runRalphLaunch,
 } from "../extensions/domain/runtime.js";
@@ -184,6 +363,7 @@ describe("ralph runtime session execution", () => {
 
   beforeEach(() => {
     resetFakeHarnessState();
+    delete (globalThis as Record<string, unknown>).__piLoomHarnessSettingsValues;
     const fakeHarness = createFakeHarnessPackage();
     fakeHarnessRoot = fakeHarness.root;
     cleanupFakeHarness = fakeHarness.cleanup;
@@ -464,6 +644,7 @@ describe("ralph runtime session execution", () => {
   });
 
   it("executes launches through a harness session runtime with the requested model context", async () => {
+    (globalThis as Record<string, unknown>).__piLoomHarnessSettingsValues = { extensions: ["."], disabledExtensions: [] };
     const launch: RalphLaunchDescriptor = {
       runId: "run-session",
       iterationId: "iter-001",
@@ -511,32 +692,20 @@ describe("ralph runtime session execution", () => {
         }),
       ]),
     );
-    expect(createCall?.options.additionalExtensionPaths).toEqual(
-      expect.arrayContaining(resolveRequiredRalphWorkerExtensionPaths()),
-    );
-    expect(createCall?.options.model).toEqual({ provider: "anthropic", id: "claude-test" });
-  });
-
-  it("resolves explicit fallback extension entrypoints that load required Ralph worker tools", async () => {
-    const loader = new DefaultResourceLoader({
-      cwd: process.cwd(),
-      additionalExtensionPaths: resolveRequiredRalphWorkerExtensionPaths(),
-      noExtensions: true,
+    expect(createCall?.options).toMatchObject({
+      cwd: "/workspace/project",
+      sessionManager: expect.any(Object),
+      settings: {
+        __settings: true,
+        overrides: expect.objectContaining({ extensions: ["."], disabledExtensions: [], "async.enabled": false }),
+      },
     });
-
-    await loader.reload();
-
-    const extensionTools = loader
-      .getExtensions()
-      .extensions.flatMap((extension) => [...extension.tools.keys()])
-      .sort();
-
-    expect(extensionTools).toEqual(expect.arrayContaining(["ralph_read", "ticket_read", "ticket_write"]));
+    expect(createCall?.options).not.toHaveProperty("additionalExtensionPaths");
+    expect(createCall?.options).not.toHaveProperty("disableExtensionDiscovery");
+    expect(createCall?.options).not.toHaveProperty("resourceLoader");
   });
 
   it("allows concurrent session launches to reach session creation without a global queue", async () => {
-    globalThis.__piLoomHarnessOutcome = { waitForAbort: true };
-
     const firstLaunch: RalphLaunchDescriptor = {
       runId: "run-lock-first",
       iterationId: "iter-001",
@@ -591,14 +760,12 @@ describe("ralph runtime session execution", () => {
 
     expect(queuedCreateCount).toBe(2);
 
-    firstAbort.abort();
-    secondAbort.abort();
-
-    await expect(firstPromise).resolves.toMatchObject({ status: "cancelled" });
-    await expect(secondPromise).resolves.toMatchObject({ status: "cancelled" });
+    await expect(firstPromise).resolves.toMatchObject({ status: "completed" });
+    await expect(secondPromise).resolves.toMatchObject({ status: "completed" });
   });
 
-  it("forwards parent extension paths and discovery policy through DefaultResourceLoader when available", async () => {
+  it("uses task-like SDK session construction even when extension env is forwarded", async () => {
+    (globalThis as Record<string, unknown>).__piLoomHarnessSettingsValues = { extensions: ["."], disabledExtensions: [] };
     const launch: RalphLaunchDescriptor = {
       runId: "run-session-extensions",
       iterationId: "iter-001",
@@ -631,38 +798,21 @@ describe("ralph runtime session execution", () => {
         typeof entry === "object" && entry !== null && (entry as { type?: string }).type === "createAgentSession",
     );
 
-    expect(globalThis.__piLoomHarnessCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "resourceLoaderConstructed",
-          options: expect.objectContaining({
-            cwd: nestedCwd,
-            additionalExtensionPaths: [nestedCwd, externalExtension],
-            noExtensions: true,
-          }),
-        }),
-        expect.objectContaining({
-          type: "resourceLoaderReload",
-          options: expect.objectContaining({
-            cwd: nestedCwd,
-            additionalExtensionPaths: [nestedCwd, externalExtension],
-            noExtensions: true,
-          }),
-        }),
-      ]),
-    );
     expect(createCall?.options).toMatchObject({
       cwd: nestedCwd,
-      additionalExtensionPaths: [nestedCwd, externalExtension],
-      disableExtensionDiscovery: true,
-      resourceLoader: expect.objectContaining({
-        options: expect.objectContaining({
-          cwd: nestedCwd,
-          additionalExtensionPaths: [nestedCwd, externalExtension],
-          noExtensions: true,
+      sessionManager: expect.any(Object),
+      settings: {
+        __settings: true,
+        overrides: expect.objectContaining({
+          extensions: expect.arrayContaining([".", nestedCwd, externalExtension]),
+          disabledExtensions: [],
+          "async.enabled": false,
         }),
-      }),
+      },
     });
+    expect(createCall?.options).not.toHaveProperty("additionalExtensionPaths");
+    expect(createCall?.options).not.toHaveProperty("disableExtensionDiscovery");
+    expect(createCall?.options).not.toHaveProperty("resourceLoader");
   });
 
   it("fails fast when forwarded extensions do not provide Ralph worker tools", async () => {

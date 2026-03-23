@@ -34,25 +34,6 @@ export interface RalphExecutionResult {
   events?: RalphRuntimeEvent[];
 }
 
-interface HarnessSessionRuntime {
-  createAgentSession: (options: Record<string, unknown>) => Promise<{
-    session: HarnessSession;
-    modelFallbackMessage?: string;
-  }>;
-  DefaultResourceLoader?: new (options: {
-    cwd?: string;
-    additionalExtensionPaths?: string[];
-    noExtensions?: boolean;
-  }) => HarnessResourceLoader;
-  SessionManager: {
-    inMemory: (cwd?: string) => unknown;
-  };
-}
-
-interface HarnessResourceLoader {
-  reload?: () => Promise<void>;
-}
-
 interface HarnessAssistantMessage {
   role?: string;
   stopReason?: string;
@@ -73,15 +54,17 @@ interface HarnessSession {
     waitForIdle?: () => Promise<void>;
   };
   state?: {
-    messages?: HarnessAssistantMessage[];
+    messages?: unknown[];
   };
   bindExtensions?: (bindings: Record<string, unknown>) => Promise<void>;
   getAllTools?: () => Array<{ name: string }>;
+  getAllToolNames?: () => string[];
+  getActiveToolNames?: () => string[];
   modelRegistry?: {
     find?: (provider: string, modelId: string) => unknown;
   };
-  setActiveToolsByName?: (toolNames: string[]) => Promise<void>;
-  setModel?: (model: unknown) => Promise<void>;
+  setActiveToolsByName?: (toolNames: string[]) => void | Promise<void>;
+  setModel?: (...args: any[]) => void | Promise<void>;
   prompt: (text: string) => Promise<void>;
   dispose?: () => void | Promise<void>;
   subscribe?: (listener: (event: unknown) => void) => (() => void) | undefined;
@@ -104,6 +87,23 @@ interface RequestedModelRuntime {
   modelId: string;
 }
 
+interface HarnessSdkModule {
+  entryPath: string;
+  createSession: (cwd: string) => Promise<{
+    session: HarnessSession;
+    modelFallbackMessage?: string;
+  }>;
+}
+
+type HarnessRootSettingsApi = {
+  settings?: { get?: (key: string) => unknown };
+  Settings?: {
+    isolated?: (overrides?: Record<string, unknown>) => unknown;
+    init?: (options?: { cwd?: string; agentDir?: string }) => Promise<unknown>;
+  };
+  SETTINGS_SCHEMA?: Record<string, unknown>;
+};
+
 const REQUIRED_RALPH_WORKER_TOOL_NAMES = ["ralph_read", "ticket_read", "ticket_write"] as const;
 
 export type RalphLaunchEvent = RalphRuntimeEvent;
@@ -118,7 +118,7 @@ export const PI_PARENT_SESSION_CWD_ENV = "PI_PARENT_SESSION_CWD";
 export const PI_PARENT_SESSION_ADDITIONAL_EXTENSION_PATHS_ENV = "PI_PARENT_SESSION_ADDITIONAL_EXTENSION_PATHS";
 export const PI_PARENT_SESSION_DISABLE_EXTENSION_DISCOVERY_ENV = "PI_PARENT_SESSION_DISABLE_EXTENSION_DISCOVERY";
 
-const harnessRuntimeCache = new Map<string, Promise<HarnessSessionRuntime>>();
+const harnessSdkCache = new Map<string, Promise<HarnessSdkModule>>();
 
 function trimToUndefined(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -258,90 +258,12 @@ function resolveCurrentSessionExtensionConfig(input: { env: NodeJS.ProcessEnv; c
   };
 }
 
-function resolveNestedSessionExtensionConfig(
-  env: NodeJS.ProcessEnv,
-  cwd: string,
-): {
-  additionalExtensionPaths?: string[];
-  disableExtensionDiscovery?: boolean;
-} {
-  const parentCwd = trimToUndefined(env[PI_PARENT_SESSION_CWD_ENV]);
-  const forwardedPaths = parseStringArrayOverride(env[PI_PARENT_SESSION_ADDITIONAL_EXTENSION_PATHS_ENV]);
-  const disableExtensionDiscovery = parseBooleanOverride(env[PI_PARENT_SESSION_DISABLE_EXTENSION_DISCOVERY_ENV]);
-
-  return {
-    additionalExtensionPaths:
-      forwardedPaths && parentCwd
-        ? [
-            ...new Set(
-              forwardedPaths.map((extensionPath) => remapExtensionPathForNestedSession(extensionPath, parentCwd, cwd)),
-            ),
-          ]
-        : forwardedPaths,
-    disableExtensionDiscovery: disableExtensionDiscovery === true ? true : undefined,
-  };
-}
-
-type ExtensionManifest = { extensions?: string[] };
-
-function readExtensionManifest(packageJsonPath: string): ExtensionManifest | null {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")) as { pi?: ExtensionManifest; omp?: ExtensionManifest };
-    return parsed.pi ?? parsed.omp ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveExtensionEntriesFromPackageRoot(packageRoot: string): string[] {
-  const packageJsonPath = path.join(packageRoot, "package.json");
-  const manifest = readExtensionManifest(packageJsonPath);
-  const manifestEntries = manifest?.extensions
-    ?.map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((entry) => path.resolve(packageRoot, entry));
-  if (manifestEntries && manifestEntries.length > 0) {
-    return manifestEntries;
-  }
-
-  const defaultEntries = [path.join(packageRoot, "extensions", "index.ts"), path.join(packageRoot, "extensions", "index.js")];
-  return defaultEntries.filter((entry) => fs.existsSync(entry));
-}
-
-export function resolveRequiredRalphWorkerExtensionPaths(): string[] {
-  const ralphPackageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-  const ticketPackageRoot = path.dirname(require.resolve("@pi-loom/pi-ticketing/package.json"));
-  return [...new Set([...resolveExtensionEntriesFromPackageRoot(ralphPackageRoot), ...resolveExtensionEntriesFromPackageRoot(ticketPackageRoot)])];
-}
-
-function withGuaranteedRalphWorkerExtensionPaths(paths: string[] | undefined): string[] {
-  return paths && paths.length > 0 ? paths : resolveRequiredRalphWorkerExtensionPaths();
-}
-
-async function buildNestedSessionResourceLoader(
-  runtime: HarnessSessionRuntime,
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-): Promise<HarnessResourceLoader | undefined> {
-  if (!runtime.DefaultResourceLoader) {
-    return undefined;
-  }
-
-  const extensionConfig = resolveNestedSessionExtensionConfig(env, cwd);
-  const resourceLoader = new runtime.DefaultResourceLoader({
-    cwd,
-    additionalExtensionPaths: withGuaranteedRalphWorkerExtensionPaths(extensionConfig.additionalExtensionPaths),
-    noExtensions: extensionConfig.disableExtensionDiscovery,
-  });
-  await resourceLoader.reload?.();
-  return resourceLoader;
-}
-
-function extractAssistantText(message: HarnessAssistantMessage | undefined): string {
-  if (!Array.isArray(message?.content)) {
+function extractAssistantText(message: unknown): string {
+  const candidate = message as { content?: unknown } | undefined;
+  if (!Array.isArray(candidate?.content)) {
     return "";
   }
-  return message.content
+  return candidate.content
     .filter((part) => part.type === "text" && typeof part.text === "string")
     .map((part) => part.text?.trim() ?? "")
     .filter(Boolean)
@@ -353,13 +275,14 @@ function normalizeUsageValue(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-function extractAssistantUsage(message: HarnessAssistantMessage | undefined): RalphRuntimeUsage {
-  const measured = Boolean(message?.usage);
-  const input = normalizeUsageValue(message?.usage?.input);
-  const output = normalizeUsageValue(message?.usage?.output);
-  const cacheRead = normalizeUsageValue(message?.usage?.cacheRead);
-  const cacheWrite = normalizeUsageValue(message?.usage?.cacheWrite);
-  const totalFromMessage = normalizeUsageValue(message?.usage?.totalTokens);
+function extractAssistantUsage(message: unknown): RalphRuntimeUsage {
+  const candidate = message as { usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number } } | undefined;
+  const measured = Boolean(candidate?.usage);
+  const input = normalizeUsageValue(candidate?.usage?.input);
+  const output = normalizeUsageValue(candidate?.usage?.output);
+  const cacheRead = normalizeUsageValue(candidate?.usage?.cacheRead);
+  const cacheWrite = normalizeUsageValue(candidate?.usage?.cacheWrite);
+  const totalFromMessage = normalizeUsageValue(candidate?.usage?.totalTokens);
   return {
     measured,
     input,
@@ -370,14 +293,14 @@ function extractAssistantUsage(message: HarnessAssistantMessage | undefined): Ra
   };
 }
 
-function extractAssistantUsageFromMessages(messages: HarnessAssistantMessage[] | undefined): RalphRuntimeUsage {
+function extractAssistantUsageFromMessages(messages: unknown[] | undefined): RalphRuntimeUsage {
   if (!Array.isArray(messages)) {
     return { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
   }
 
   return messages.reduce<RalphRuntimeUsage>(
     (aggregate, message) => {
-      if (message?.role !== "assistant") {
+      if ((message as { role?: unknown } | undefined)?.role !== "assistant") {
         return aggregate;
       }
       const usage = extractAssistantUsage(message);
@@ -397,15 +320,13 @@ function extractAssistantUsageFromMessages(messages: HarnessAssistantMessage[] |
   );
 }
 
-function findLastAssistantMessage(
-  messages: HarnessAssistantMessage[] | undefined,
-): HarnessAssistantMessage | undefined {
+function findLastAssistantMessage(messages: unknown[] | undefined): unknown {
   if (!Array.isArray(messages)) {
     return undefined;
   }
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message?.role === "assistant") {
+    if ((message as { role?: unknown } | undefined)?.role === "assistant") {
       return message;
     }
   }
@@ -418,6 +339,56 @@ function readJsonFile<T>(filePath: string, readFileSync: (filePath: string, enco
   } catch {
     return null;
   }
+}
+
+async function loadHarnessSettingsSchema(entryPath: string, candidate: HarnessRootSettingsApi): Promise<Record<string, unknown> | null> {
+  if (candidate.SETTINGS_SCHEMA && typeof candidate.SETTINGS_SCHEMA === "object") {
+    return candidate.SETTINGS_SCHEMA;
+  }
+
+  const settingsModulePaths = [
+    path.join(path.dirname(entryPath), "config", "settings.ts"),
+    path.join(path.dirname(entryPath), "config", "settings.js"),
+  ];
+
+  for (const modulePath of settingsModulePaths) {
+    if (!fs.existsSync(modulePath)) {
+      continue;
+    }
+    const module = await import(pathToFileURL(modulePath).href);
+    const schema = (module as { SETTINGS_SCHEMA?: unknown }).SETTINGS_SCHEMA;
+    if (schema && typeof schema === "object") {
+      return schema as Record<string, unknown>;
+    }
+  }
+
+  return null;
+}
+
+async function createTaskLikeSettingsSnapshot(
+  entryPath: string,
+  candidate: HarnessRootSettingsApi,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+): Promise<unknown | null> {
+  if (typeof candidate.Settings?.isolated !== "function" || typeof candidate.settings?.get !== "function") {
+    return null;
+  }
+
+  const schema = await loadHarnessSettingsSchema(entryPath, candidate);
+  if (!schema) {
+    return null;
+  }
+
+  const snapshot: Record<string, unknown> = {};
+  for (const key of Object.keys(schema)) {
+    snapshot[key] = candidate.settings.get(key);
+  }
+  const extensionConfig = resolveCurrentSessionExtensionConfig({ env, cwd });
+  const currentExtensions = Array.isArray(snapshot.extensions) ? snapshot.extensions.filter((entry) => typeof entry === "string") : [];
+  snapshot.extensions = [...new Set([...currentExtensions, ...(extensionConfig.additionalExtensionPaths ?? [])])];
+  snapshot["async.enabled"] = false;
+  return candidate.Settings.isolated(snapshot);
 }
 
 function extractToolExecutionEvent(event: unknown): RalphRuntimeEvent | null {
@@ -647,25 +618,68 @@ function resolveHarnessRuntimeEntryPath(deps: PiSpawnDeps = {}): string {
   return resolvedEntry;
 }
 
-async function loadHarnessSessionRuntime(deps: PiSpawnDeps = {}): Promise<HarnessSessionRuntime> {
+async function loadHarnessSdk(deps: PiSpawnDeps = {}): Promise<HarnessSdkModule> {
   const entryPath = resolveHarnessRuntimeEntryPath(deps);
-  const cached = harnessRuntimeCache.get(entryPath);
+  const cached = harnessSdkCache.get(entryPath);
   if (cached) {
     return cached;
   }
 
   const pending = import(pathToFileURL(entryPath).href).then((runtimeModule) => {
-    const candidate = runtimeModule as Partial<HarnessSessionRuntime>;
-    if (
-      typeof candidate.createAgentSession !== "function" ||
-      typeof candidate.SessionManager?.inMemory !== "function"
-    ) {
-      throw new Error(`Harness SDK entry ${entryPath} does not expose createAgentSession and SessionManager.inMemory.`);
+    const candidate = runtimeModule as {
+      createAgentSession?: (options: Record<string, unknown>) => Promise<{ session: HarnessSession; modelFallbackMessage?: string }>;
+      SessionManager?: { inMemory?: (cwd?: string) => unknown };
+      SettingsManager?: { create?: (cwd?: string, agentDir?: string) => unknown };
+      Settings?: { isolated?: (overrides?: Record<string, unknown>) => unknown; init?: (options?: { cwd?: string; agentDir?: string }) => Promise<unknown> };
+      settings?: { get?: (key: string) => unknown };
+      SETTINGS_SCHEMA?: Record<string, unknown>;
+    };
+
+    if (typeof candidate.createAgentSession !== "function" || typeof candidate.SessionManager?.inMemory !== "function") {
+      throw new Error(
+        `Harness SDK entry ${entryPath} does not expose createAgentSession and SessionManager.inMemory.`,
+      );
     }
-    return candidate as HarnessSessionRuntime;
+
+    if (typeof candidate.Settings?.init === "function") {
+      return {
+        entryPath,
+        createSession: async (cwd: string) => {
+          const settings =
+            (await createTaskLikeSettingsSnapshot(entryPath, candidate, deps.env ?? process.env, cwd)) ??
+            (await candidate.Settings!.init!({ cwd }));
+          return candidate.createAgentSession!({
+            cwd,
+            sessionManager: candidate.SessionManager!.inMemory!(cwd),
+            settings,
+          });
+        },
+      } satisfies HarnessSdkModule;
+    }
+
+    if (typeof candidate.SettingsManager?.create === "function") {
+      return {
+        entryPath,
+        createSession: async (cwd: string) =>
+          candidate.createAgentSession!({
+            cwd,
+            sessionManager: candidate.SessionManager!.inMemory!(cwd),
+            settingsManager: candidate.SettingsManager!.create!(cwd),
+          }),
+      } satisfies HarnessSdkModule;
+    }
+
+    return {
+      entryPath,
+      createSession: async (cwd: string) =>
+        candidate.createAgentSession!({
+          cwd,
+          sessionManager: candidate.SessionManager!.inMemory!(cwd),
+        }),
+    } satisfies HarnessSdkModule;
   });
 
-  harnessRuntimeCache.set(entryPath, pending);
+  harnessSdkCache.set(entryPath, pending);
   return pending;
 }
 
@@ -757,45 +771,14 @@ function getRequestedModelRuntime(env: NodeJS.ProcessEnv): RequestedModelRuntime
   };
 }
 
-function buildSessionCreationOptions(
-  runtime: HarnessSessionRuntime,
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-  resourceLoader?: HarnessResourceLoader,
-): Record<string, unknown> {
-  const requestedModel = getRequestedModelRuntime(env);
-  const extensionConfig = resolveNestedSessionExtensionConfig(env, cwd);
-  const additionalExtensionPaths = withGuaranteedRalphWorkerExtensionPaths(extensionConfig.additionalExtensionPaths);
-  const options: Record<string, unknown> = {
-    cwd,
-    sessionManager: runtime.SessionManager.inMemory(cwd),
-  };
-
-  if (additionalExtensionPaths.length > 0) {
-    options.additionalExtensionPaths = additionalExtensionPaths;
-  }
-  if (extensionConfig.disableExtensionDiscovery === true) {
-    options.disableExtensionDiscovery = true;
-  }
-
-  if (resourceLoader) {
-    options.resourceLoader = resourceLoader;
-  }
-
-  if (requestedModel) {
-    options.model = {
-      provider: requestedModel.provider,
-      id: requestedModel.modelId,
-    };
-  }
-
-  return options;
-}
-
 function listSessionToolNames(session: HarnessSession): string[] {
-  return typeof session.getAllTools === "function"
-    ? session.getAllTools().flatMap((tool) => (typeof tool?.name === "string" && tool.name.trim() ? [tool.name] : []))
-    : [];
+  if (typeof session.getAllToolNames === "function") {
+    return session.getAllToolNames().map((name) => name.trim()).filter(Boolean);
+  }
+  if (typeof session.getAllTools === "function") {
+    return session.getAllTools().flatMap((tool) => (typeof tool?.name === "string" && tool.name.trim() ? [tool.name] : []));
+  }
+  return [];
 }
 
 async function ensureRalphWorkerToolsAvailable(session: HarnessSession): Promise<string[]> {
@@ -930,11 +913,9 @@ export async function runRalphLaunch(
   let unsubscribe: (() => void) | undefined;
 
   try {
-    command = resolveHarnessRuntimeEntryPath({ env: runtimeEnv });
-    const runtime = await loadHarnessSessionRuntime({ env: runtimeEnv });
+    const harnessSdk = await loadHarnessSdk({ env: runtimeEnv });
+    command = harnessSdk.entryPath;
     const prompt = renderLaunchPrompt(cwd, launch);
-    const resourceLoader = await buildNestedSessionResourceLoader(runtime, cwd, runtimeEnv);
-    const createOptions = buildSessionCreationOptions(runtime, cwd, runtimeEnv, resourceLoader);
 
     recordEvent({ type: "launch_state", state: "queued", at: new Date().toISOString() });
 
@@ -942,7 +923,7 @@ export async function runRalphLaunch(
         startedAt = new Date().toISOString();
         recordEvent({ type: "launch_state", state: "running", at: startedAt });
 
-        const created = await runtime.createAgentSession(createOptions);
+        const created = await harnessSdk.createSession(cwd);
         session = created.session;
 
         await bindHeadlessExtensions(created.session, runtimeEnv);
@@ -993,7 +974,9 @@ export async function runRalphLaunch(
           signal?.removeEventListener("abort", handleAbort);
         }
 
-        const lastAssistant = findLastAssistantMessage(created.session.state?.messages);
+        const lastAssistant = findLastAssistantMessage(created.session.state?.messages) as
+          | { errorMessage?: string; stopReason?: string }
+          | undefined;
         const output = extractAssistantText(lastAssistant);
         const errorText = trimToUndefined(lastAssistant?.errorMessage) ?? undefined;
         const usage = extractAssistantUsageFromMessages(created.session.state?.messages);

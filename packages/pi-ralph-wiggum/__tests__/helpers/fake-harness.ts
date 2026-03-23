@@ -35,6 +35,8 @@ declare global {
   var __piLoomHarnessHook: ((context: FakeHarnessHookContext) => void | Promise<void>) | undefined;
   // eslint-disable-next-line no-var
   var __piLoomHarnessToolNames: string[] | undefined;
+  // eslint-disable-next-line no-var
+  var __piLoomHarnessSettingsValues: Record<string, unknown> | undefined;
 }
 
 export function resetFakeHarnessState(): void {
@@ -42,6 +44,7 @@ export function resetFakeHarnessState(): void {
   globalThis.__piLoomHarnessOutcome = undefined;
   globalThis.__piLoomHarnessHook = undefined;
   globalThis.__piLoomHarnessToolNames = undefined;
+  globalThis.__piLoomHarnessSettingsValues = undefined;
 }
 
 export function clearFakeHarnessState(): void {
@@ -49,6 +52,7 @@ export function clearFakeHarnessState(): void {
   delete globalThis.__piLoomHarnessOutcome;
   delete globalThis.__piLoomHarnessHook;
   delete globalThis.__piLoomHarnessToolNames;
+  delete globalThis.__piLoomHarnessSettingsValues;
 }
 
 export function createFakeHarnessPackage(): { root: string; cleanup: () => void } {
@@ -145,8 +149,12 @@ class FakeSession {
     globalThis.__piLoomHarnessCalls.push({ type: "bindExtensions", bindings });
   }
 
+  getAllToolNames() {
+    return globalThis.__piLoomHarnessToolNames ?? ["read", "ticket_read", "ticket_write", "ralph_read"];
+  }
+
   getAllTools() {
-    return (globalThis.__piLoomHarnessToolNames ?? ["read", "ticket_read", "ticket_write", "ralph_read"]).map((name) => ({ name }));
+    return this.getAllToolNames().map((name) => ({ name }));
   }
 
   async setActiveToolsByName(toolNames) {
@@ -214,6 +222,36 @@ export const SessionManager = {
     return { cwd };
   },
 };
+
+export class Settings {
+  static isolated(overrides = {}) {
+    return { __settings: true, overrides };
+  }
+
+  static async init(options = {}) {
+    globalThis.__piLoomHarnessCalls.push({ type: "settingsInit", options });
+    return { ...options, __settings: true };
+  }
+}
+
+export const settings = {
+  get(key) {
+    return (globalThis.__piLoomHarnessSettingsValues ?? {})[key];
+  },
+};
+
+export const SETTINGS_SCHEMA = {
+  extensions: {},
+  disabledExtensions: {},
+  "async.enabled": {},
+};
+
+export class SettingsManager {
+  static create(cwd, agentDir) {
+    globalThis.__piLoomHarnessCalls.push({ type: "settingsManagerCreate", cwd, agentDir });
+    return { cwd, agentDir };
+  }
+}
 
 export class DefaultResourceLoader {
   constructor(options) {
