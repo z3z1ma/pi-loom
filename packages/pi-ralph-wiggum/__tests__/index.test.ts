@@ -147,9 +147,8 @@ describe("pi-ralph-wiggum extension", () => {
     expect(mockPi.commands.has("ralph")).toBe(true);
     expect(mockPi.registerMessageRenderer).toHaveBeenCalledWith("ralph-command-result", expect.any(Function));
     expect(mockPi.registerMessageRenderer).toHaveBeenCalledWith("ralph-command-error", expect.any(Function));
-    expect(getCommand(mockPi, "ralph").description).toContain("bounded Ralph loop");
+    expect(getCommand(mockPi, "ralph").description).toContain("managed Ralph runs");
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "ralph_checkpoint",
       "ralph_job_cancel",
       "ralph_job_read",
       "ralph_job_wait",

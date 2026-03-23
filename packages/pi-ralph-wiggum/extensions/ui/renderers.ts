@@ -139,7 +139,7 @@ function renderRunSummaryLines(
     return [theme.fg("dim", "Run not initialized yet.")];
   }
   const state = result?.run.state;
-  const checkpoint = state?.postIteration ? `${state.postIteration.iteration} [${state.postIteration.status}]` : "none";
+  const latestIteration = state?.postIteration ? `${state.postIteration.iteration} [${state.postIteration.status}]` : "none";
   const runtime = result?.run.runtimeArtifacts.at(-1)
     ? `${result.run.runtimeArtifacts.at(-1)?.iteration} [${result.run.runtimeArtifacts.at(-1)?.status}]`
     : "none";
@@ -150,7 +150,7 @@ function renderRunSummaryLines(
     ),
     line(theme, "Waiting:", theme.fg("muted", state?.waitingFor ?? runSummary.waitingFor ?? "none")),
     line(theme, "Decision:", theme.fg("muted", state?.latestDecision?.kind ?? runSummary.decision ?? "none")),
-    line(theme, "Checkpoint:", theme.fg("muted", checkpoint)),
+    line(theme, "Iteration:", theme.fg("muted", latestIteration)),
     line(theme, "Runtime:", theme.fg("muted", runtime)),
   ];
 }
@@ -334,50 +334,17 @@ export function renderRalphReadResult(
   return new Text(theme.fg("dim", truncateToWidth(text, options.expanded ? 400 : 100)), 0, 0);
 }
 
-export function renderRalphCheckpointCall(args: Record<string, unknown>, theme: Theme): Component {
-  const ref = typeof args.ref === "string" ? args.ref : "(unknown)";
-  const iterationId = typeof args.iterationId === "string" ? args.iterationId : "(unknown)";
-  return new Text(
-    `${theme.fg("toolTitle", theme.bold("ralph_checkpoint"))} ${theme.fg("accent", ref)} ${META_SEPARATOR} ${theme.fg("dim", iterationId)}`,
-    0,
-    0,
-  );
-}
-
-export function renderRalphCheckpointResult(
-  result: { details?: unknown; content: Array<{ type: string; text?: string }> },
-  theme: Theme,
-): Component {
-  const details =
-    result.details && typeof result.details === "object" ? (result.details as Record<string, unknown>) : null;
-  const run = (details?.run as RalphReadResult | undefined) ?? undefined;
-  const text = result.content.find((entry) => entry.type === "text")?.text ?? "";
-  if (!run) {
-    return new Text(theme.fg("dim", truncateToWidth(text, 100)), 0, 0);
-  }
-  const checkpoint = run.state.postIteration
-    ? `${run.state.postIteration.iterationId} [${run.state.postIteration.status}]`
-    : "none";
-  const summary = [
-    `${theme.fg("success", "✓")} ${theme.fg("accent", theme.bold(`Checkpoint: ${run.summary.title}`))}`,
-    line(theme, "Decision:", theme.fg("muted", run.state.latestDecision?.kind ?? "none")),
-    line(theme, "Waiting:", theme.fg("muted", run.state.waitingFor)),
-    line(theme, "Checkpoint:", theme.fg("muted", checkpoint)),
-  ];
-  return new Text(summary.join("\n"), 0, 0);
-}
-
 function renderJobBlock(
   jobs: AsyncJob<string, unknown, unknown>[],
-  runs: RalphReadResult[],
+  runs: RalphRunSummary[],
   expanded: boolean,
   theme: Theme,
 ): string[] {
   return jobs.flatMap((job) => {
     const run = runs.find(
-      (candidate) => candidate.state.runId === (job.metadata as { runId?: string } | undefined)?.runId,
+      (candidate) => candidate.id === (job.metadata as { runId?: string } | undefined)?.runId,
     );
-    const displayStatus = run?.summary.status ?? job.status;
+    const displayStatus = run?.status ?? job.status;
     const label = `${theme.fg(statusColor(displayStatus), statusIcon(theme, displayStatus))} ${theme.fg("accent", theme.bold(job.label))} ${badge(theme, displayStatus, statusColor(displayStatus))}${META_SEPARATOR}${theme.fg("dim", formatDurationMs(job.startTime, job.endTime ?? Date.now()))}`;
     const details = [
       line(theme, "Run:", theme.fg("muted", (job.metadata as { runId?: string } | undefined)?.runId ?? "(unknown)")),
@@ -385,8 +352,8 @@ function renderJobBlock(
       line(theme, "Progress:", theme.fg("muted", job.progress?.text ?? "(none)")),
       ...(run
         ? [
-            line(theme, "Decision:", theme.fg("muted", run.state.latestDecision?.kind ?? "none")),
-            line(theme, "Waiting:", theme.fg("muted", run.state.waitingFor)),
+            line(theme, "Decision:", theme.fg("muted", run.decision ?? "none")),
+            line(theme, "Waiting:", theme.fg("muted", run.waitingFor)),
           ]
         : []),
     ];
@@ -416,7 +383,7 @@ export function renderRalphJobResult(
     : details?.job
       ? [details.job as AsyncJob<string, unknown, unknown>]
       : [];
-  const runs = Array.isArray(details?.runs) ? (details?.runs as RalphReadResult[]) : [];
+  const runs = Array.isArray(details?.runs) ? (details?.runs as RalphRunSummary[]) : [];
   const text = result.content.find((entry) => entry.type === "text")?.text ?? "";
   if (jobs.length === 0) {
     return new Text(theme.fg("dim", truncateToWidth(text, 120)), 0, 0);

@@ -2,8 +2,17 @@ import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi
 import { createConstitutionalStore } from "@pi-loom/pi-constitution/extensions/domain/store.js";
 import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
 import { createSpecStore } from "@pi-loom/pi-specs/extensions/domain/store.js";
+import type { TicketReadResult, TicketStatus } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
-import type { RalphPacketContext, RalphReadResult, RalphRunScope, RalphRunStatus } from "./models.js";
+import type {
+  RalphPacketContext,
+  RalphReadResult,
+  RalphRunPhase,
+  RalphRunScope,
+  RalphRunStatus,
+  RalphWaitingFor,
+  UpsertRalphIterationRuntimeInput,
+} from "./models.js";
 import { deriveRalphRunId } from "./paths.js";
 import {
   buildParentSessionRuntimeEnv,
@@ -53,9 +62,18 @@ export interface ExecuteRalphLoopResult {
   steps: RalphLoopStepResult[];
 }
 
+export interface RalphLoopProgressUpdate {
+  text: string;
+  kind: "assistant_output" | "launch_state" | "tool_execution" | "status";
+}
+
 export interface ExecuteRalphLoopOptions {
-  onUpdate?: (text: string) => void;
+  onUpdate?: (update: string | RalphLoopProgressUpdate) => void;
   jobId?: string | null;
+}
+
+function toProgressUpdate(update: string | RalphLoopProgressUpdate, fallbackKind: RalphLoopProgressUpdate["kind"]): RalphLoopProgressUpdate {
+  return typeof update === "string" ? { text: update, kind: fallbackKind } : update;
 }
 
 interface BoundRunContext {
@@ -71,9 +89,188 @@ interface BoundRunContext {
   docIds: string[];
 }
 
+interface TicketLedgerSnapshot {
+  ticketId: string;
+  status: TicketStatus;
+  closed: boolean;
+  updatedAt: string;
+  bodyState: string;
+  journalState: string;
+  checkpointState: string;
+  blockersState: string;
+  depsState: string;
+}
+
+interface SynthesizedTicketIteration {
+  iterationStatus: "accepted" | "reviewing";
+  decision: NonNullable<RalphReadResult["state"]["latestDecision"]>;
+  summary: string;
+  workerSummary: string;
+  notes: string[];
+}
+
 export interface EnsureRalphRunResult {
   run: RalphReadResult;
   created: boolean;
+}
+
+async function applyRunPolicySnapshot(
+  store: ReturnType<typeof createRalphStore>,
+  run: RalphReadResult,
+  policySnapshot: ExecuteRalphLoopInput["policySnapshot"] | undefined,
+): Promise<RalphReadResult> {
+  if (!policySnapshot) {
+    return run;
+  }
+  return store.updateRunAsync(run.state.runId, { policySnapshot });
+}
+
+function snapshotTicketLedger(ticket: TicketReadResult): TicketLedgerSnapshot {
+  return {
+    ticketId: ticket.summary.id,
+    status: ticket.summary.status,
+    closed: ticket.summary.closed,
+    updatedAt: ticket.summary.updatedAt,
+    bodyState: [
+      ticket.ticket.body.summary,
+      ticket.ticket.body.context,
+      ticket.ticket.body.plan,
+      ticket.ticket.body.notes,
+      ticket.ticket.body.verification,
+      ticket.ticket.body.journalSummary,
+    ].join("\n---\n"),
+    journalState: ticket.journal.map((entry) => `${entry.id}:${entry.kind}:${entry.createdAt}:${entry.text}`).join("\n"),
+    checkpointState: ticket.checkpoints.map((entry) => `${entry.id}:${entry.createdAt}:${entry.title}:${entry.body}`).join("\n"),
+    blockersState: [...ticket.blockers].sort().join(","),
+    depsState: [...ticket.summary.deps].sort().join(","),
+  };
+}
+
+async function readTicketLedgerSnapshot(cwd: string, ticketRef: string): Promise<TicketLedgerSnapshot | null> {
+  return createTicketStore(cwd)
+    .readTicketAsync(ticketRef)
+    .then((ticket) => snapshotTicketLedger(ticket))
+    .catch(() => null);
+}
+
+function ticketLedgerChanged(before: TicketLedgerSnapshot | null, after: TicketLedgerSnapshot | null): boolean {
+  if (!before || !after) {
+    return false;
+  }
+  return (
+    before.status !== after.status ||
+    before.closed !== after.closed ||
+    before.updatedAt !== after.updatedAt ||
+    before.bodyState !== after.bodyState ||
+    before.journalState !== after.journalState ||
+    before.checkpointState !== after.checkpointState ||
+    before.blockersState !== after.blockersState ||
+    before.depsState !== after.depsState
+  );
+}
+
+function describeTicketLedgerDelta(before: TicketLedgerSnapshot, after: TicketLedgerSnapshot): string[] {
+  const delta: string[] = [];
+  if (before.status !== after.status) {
+    delta.push(`status ${before.status} → ${after.status}`);
+  }
+  if (!before.closed && after.closed) {
+    delta.push("ticket closed");
+  }
+  if (before.bodyState !== after.bodyState) {
+    delta.push("ticket body updated");
+  }
+  if (before.journalState !== after.journalState) {
+    delta.push("ticket journal updated");
+  }
+  if (before.checkpointState !== after.checkpointState) {
+    delta.push("ticket checkpoints updated");
+  }
+  if (before.blockersState !== after.blockersState) {
+    delta.push("blockers changed");
+  }
+  if (before.depsState !== after.depsState) {
+    delta.push("dependencies changed");
+  }
+  if (delta.length === 0 && before.updatedAt !== after.updatedAt) {
+    delta.push(`ticket updated at ${after.updatedAt}`);
+  }
+  return delta.length > 0 ? delta : ["ticket ledger changed"];
+}
+
+function synthesizeTicketIteration(
+  ticketId: string,
+  before: TicketLedgerSnapshot,
+  after: TicketLedgerSnapshot,
+): SynthesizedTicketIteration {
+  const delta = describeTicketLedgerDelta(before, after);
+  const workerSummary = delta.join("; ");
+  if (after.closed) {
+    return {
+      iterationStatus: "accepted",
+      decision: managedDecision("complete", "goal_reached", `Ticket ${ticketId} closed during bounded iteration.`),
+      summary: `Ticket ${ticketId} closed during bounded iteration.`,
+      workerSummary,
+      notes: delta,
+    };
+  }
+  if (after.status === "blocked") {
+    return {
+      iterationStatus: "reviewing",
+      decision: managedDecision("pause", "policy_blocked", `Ticket ${ticketId} is blocked after bounded iteration.`),
+      summary: `Ticket ${ticketId} is blocked after bounded iteration.`,
+      workerSummary,
+      notes: delta,
+    };
+  }
+  if (after.status === "review") {
+    return {
+      iterationStatus: "reviewing",
+      decision: managedDecision("pause", "manual_review_required", `Ticket ${ticketId} is waiting in review after bounded iteration.`),
+      summary: `Ticket ${ticketId} is waiting in review after bounded iteration.`,
+      workerSummary,
+      notes: delta,
+    };
+  }
+  const summary =
+    before.status !== after.status
+      ? `Ticket ${ticketId} moved to ${after.status} during bounded iteration.`
+      : `Ticket ${ticketId} recorded durable activity during bounded iteration.`;
+  return {
+    iterationStatus: "accepted",
+    decision: managedDecision("continue", "unknown", `${summary} Another bounded iteration may proceed if policy allows.`),
+    summary,
+    workerSummary,
+    notes: delta,
+  };
+}
+
+function decisionState(decision: NonNullable<RalphReadResult["state"]["latestDecision"]>): {
+  status: RalphRunStatus;
+  phase: RalphRunPhase;
+  waitingFor: RalphWaitingFor;
+  stopReason: RalphReadResult["state"]["stopReason"];
+} {
+  switch (decision.kind) {
+    case "continue":
+      return { status: "active", phase: "deciding", waitingFor: "none", stopReason: null };
+    case "pause":
+      if (decision.reason === "manual_review_required") {
+        return { status: "waiting_for_review", phase: "reviewing", waitingFor: "critique", stopReason: decision.reason };
+      }
+      return { status: "paused", phase: "reviewing", waitingFor: "operator", stopReason: decision.reason };
+    case "complete":
+      return { status: "completed", phase: "completed", waitingFor: "none", stopReason: decision.reason };
+    case "halt":
+      return {
+        status: decision.reason === "runtime_failure" ? "failed" : "halted",
+        phase: "halted",
+        waitingFor: "none",
+        stopReason: decision.reason,
+      };
+    case "escalate":
+      return { status: "paused", phase: "reviewing", waitingFor: "operator", stopReason: decision.reason };
+  }
 }
 
 export interface RalphRunBinding {
@@ -84,7 +281,8 @@ export interface RalphRunBinding {
 }
 
 const inFlightLoopExecutions = new Set<string>();
-const TIMEOUT_CHECKPOINT_GRACE_MS = 2_000;
+const TICKET_ACTIVITY_GRACE_MS = 2_000;
+const RUNTIME_PERSIST_FLUSH_MS = 200;
 const TICKET_ONLY_PLAN_KEY = "ticket-only";
 
 function loopExecutionKey(cwd: string, runId: string): string {
@@ -447,7 +645,7 @@ function buildRunInstructions(scope: RalphRunScope, steeringPrompt: string | und
   const instructions = [
     `Operate only within ticket ${scope.ticketId ?? "(none)"} under plan ${scope.planId ?? "(none)"}${scope.specChangeId ? ` and its governing spec ${scope.specChangeId}` : ""}.`,
     `Read the canonical packet through ralph_read mode=packet ticketRef=${scope.ticketId ?? "(none)"}${scope.planId ? ` planRef=${scope.planId}` : ""}.`,
-    "Perform one bounded Ralph iteration and persist a single durable checkpoint before exit.",
+    "Perform one bounded Ralph iteration and leave durable bound-ticket activity before exit.",
   ];
   if (steeringPrompt?.trim()) {
     instructions.push(`Operator notes: ${steeringPrompt.trim()}`);
@@ -516,7 +714,7 @@ async function persistRuntimeFailure(
     output: execution.output,
     stderr: execution.stderr,
     usage: execution.usage,
-    missingCheckpoint: true,
+    missingTicketActivity: true,
     jobId,
   });
   await store.appendIterationAsync(ref, {
@@ -530,24 +728,24 @@ async function persistRuntimeFailure(
         : runtimeUnavailable
           ? "The bounded iteration finished without runtime token-usage metadata, so the configured budget could not be enforced truthfully."
           : budgetExceeded
-            ? "The bounded iteration exhausted the configured token budget before a durable checkpoint was trusted."
+            ? "The bounded iteration exhausted the configured token budget before durable ticket activity was observed."
             : execution.status === "cancelled"
-              ? "The session-backed launch was cancelled before a durable Ralph checkpoint was written."
+              ? "The session-backed launch was cancelled before durable bound-ticket activity was recorded."
               : execution.exitCode === 0
-                ? "The session-backed launch returned without durable Ralph iteration state."
+                ? "The session-backed launch returned without durable bound-ticket activity."
                 : `Session runtime exited with code ${execution.exitCode}.`,
     notes: [
       queueTimeoutExceeded
         ? "Session-backed launch exceeded the configured queue wait limit before a fresh worker started."
         : timeoutExceeded
-          ? "Session-backed launch exceeded the configured runtime limit before leaving a durable post-iteration checkpoint."
+          ? "Session-backed launch exceeded the configured runtime limit before leaving durable bound-ticket activity."
           : runtimeUnavailable
             ? "Session-backed launch ended without runtime token-usage metadata required for truthful budget enforcement."
             : budgetExceeded
-              ? "Session-backed launch exceeded the configured token budget before leaving a durable post-iteration checkpoint."
+              ? "Session-backed launch exceeded the configured token budget before leaving durable bound-ticket activity."
               : execution.status === "cancelled"
-                ? "Session-backed launch was cancelled before leaving a durable post-iteration checkpoint."
-                : "Session-backed launch exited without leaving a durable post-iteration checkpoint.",
+                ? "Session-backed launch was cancelled before leaving durable bound-ticket activity."
+                : "Session-backed launch exited without leaving durable bound-ticket activity.",
     ],
   });
   let run = await store.decideRunAsync(ref, {
@@ -627,9 +825,9 @@ function buildQueuedTimeoutExecutionResult(run: RalphReadResult, timeoutMs: numb
   };
 }
 
-async function waitForTimeoutCheckpointGrace(): Promise<void> {
+async function waitForTicketActivityGrace(): Promise<void> {
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => resolve(), TIMEOUT_CHECKPOINT_GRACE_MS);
+    const timer = setTimeout(() => resolve(), TICKET_ACTIVITY_GRACE_MS);
     timer.unref?.();
   });
 }
@@ -702,11 +900,79 @@ async function executePreparedIteration(
   });
   const timeoutMs =
     run.state.policySnapshot.maxRuntimeMinutes === null ? null : run.state.policySnapshot.maxRuntimeMinutes * 60 * 1000;
+  const ticketBeforeLaunch = await readTicketLedgerSnapshot(ctx.cwd, run.launch.ticketRef);
   const executionSignal = createExecutionSignal(signal);
   let queueTimeoutExceeded = false;
   let queueTimeoutTimer: NodeJS.Timeout | null = null;
   let streamedOutput = "";
   let latestRuntimeStatus: "queued" | "running" = "queued";
+  let pendingRuntimeUpdate: UpsertRalphIterationRuntimeInput | null = null;
+  let flushTimer: NodeJS.Timeout | null = null;
+  let flushChain = Promise.resolve();
+  let flushError: Error | null = null;
+
+  const mergeRuntimeUpdate = (update: UpsertRalphIterationRuntimeInput): void => {
+    pendingRuntimeUpdate = pendingRuntimeUpdate
+      ? {
+          ...pendingRuntimeUpdate,
+          ...update,
+          usage: { ...pendingRuntimeUpdate.usage, ...update.usage },
+          events: [...(pendingRuntimeUpdate.events ?? []), ...(update.events ?? [])],
+          launch: update.launch ?? pendingRuntimeUpdate.launch,
+        }
+      : {
+          ...update,
+          usage: update.usage ? { ...update.usage } : undefined,
+          events: [...(update.events ?? [])],
+        };
+  };
+
+  const flushRuntimeUpdate = async (): Promise<void> => {
+    if (!pendingRuntimeUpdate) {
+      return;
+    }
+    const update = pendingRuntimeUpdate;
+    pendingRuntimeUpdate = null;
+    await store.upsertIterationRuntimeAsync(ref, update);
+  };
+
+  const queueRuntimePersistence = (update: UpsertRalphIterationRuntimeInput, immediate = false): void => {
+    mergeRuntimeUpdate(update);
+    if (immediate) {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      flushChain = flushChain.then(() => flushRuntimeUpdate()).catch((error) => {
+        flushError = error instanceof Error ? error : new Error(String(error));
+      });
+      return;
+    }
+    if (flushTimer) {
+      return;
+    }
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      flushChain = flushChain.then(() => flushRuntimeUpdate()).catch((error) => {
+        flushError = error instanceof Error ? error : new Error(String(error));
+      });
+    }, RUNTIME_PERSIST_FLUSH_MS);
+    flushTimer.unref?.();
+  };
+
+  const flushRuntimePersistenceNow = async (): Promise<void> => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    flushChain = flushChain.then(() => flushRuntimeUpdate()).catch((error) => {
+      flushError = error instanceof Error ? error : new Error(String(error));
+    });
+    await flushChain;
+    if (flushError) {
+      throw flushError;
+    }
+  };
 
   const queueTimeoutPromise =
     timeoutMs && timeoutMs > 0
@@ -720,26 +986,27 @@ async function executePreparedIteration(
         })
       : null;
 
-  await store.upsertIterationRuntimeAsync(ref, {
+  queueRuntimePersistence({
     iterationId: run.launch.iterationId,
     iteration: run.launch.iteration,
     status: "queued",
     startedAt: new Date().toISOString(),
     launch: run.launch,
     jobId: options.jobId,
-  });
+  }, true);
+  await flushRuntimePersistenceNow();
 
   const runtimePromise = runRalphLaunch(
     ctx.cwd,
     run.launch,
     executionSignal.signal,
-    async (text) => {
+    (text) => {
       if (executionSignal.timedOut()) {
         return;
       }
       streamedOutput = appendRuntimeOutput(streamedOutput, text);
-      options.onUpdate?.(text);
-      await store.upsertIterationRuntimeAsync(ref, {
+      options.onUpdate?.({ text, kind: "assistant_output" });
+      queueRuntimePersistence({
         iterationId: run.launch.iterationId,
         iteration: run.launch.iteration,
         status: latestRuntimeStatus,
@@ -749,7 +1016,7 @@ async function executePreparedIteration(
       });
     },
     runtimeEnv,
-    async (event) => {
+    (event) => {
       if (executionSignal.signal?.aborted) {
         return;
       }
@@ -765,9 +1032,12 @@ async function executePreparedIteration(
       }
       const updateText = renderRuntimeEventUpdate(event, run.launch.iterationId);
       if (updateText) {
-        options.onUpdate?.(updateText);
+        options.onUpdate?.({
+          text: updateText,
+          kind: event.type === "launch_state" ? "launch_state" : "tool_execution",
+        });
       }
-      await store.upsertIterationRuntimeAsync(ref, {
+      queueRuntimePersistence({
         iterationId: run.launch.iterationId,
         iteration: run.launch.iteration,
         status: event.type === "launch_state" ? event.state : latestRuntimeStatus,
@@ -787,6 +1057,7 @@ async function executePreparedIteration(
     clearTimeout(queueTimeoutTimer);
   }
   executionSignal.cleanup();
+  await flushRuntimePersistenceNow();
   const timeoutExceeded = executionSignal.timedOut();
   const normalizedExecution =
     timeoutExceeded && execution.status === "cancelled"
@@ -797,7 +1068,7 @@ async function executePreparedIteration(
         }
       : execution;
 
-  await store.upsertIterationRuntimeAsync(ref, {
+  queueRuntimePersistence({
     iterationId: run.launch.iterationId,
     iteration: run.launch.iteration,
     status:
@@ -814,45 +1085,90 @@ async function executePreparedIteration(
     stderr: normalizedExecution.stderr,
     usage: normalizedExecution.usage,
     launch: run.launch,
+    missingTicketActivity: false,
     jobId: options.jobId,
-  });
+  }, true);
+  await flushRuntimePersistenceNow();
 
   if (timeoutExceeded) {
-    await waitForTimeoutCheckpointGrace();
+    await waitForTicketActivityGrace();
   }
 
   let updated = await store.readRunAsync(ref);
-  const hasDurableCheckpoint = hasTrustedPostIteration(updated, run.launch.iterationId);
+  const ticketAfterLaunch = await readTicketLedgerSnapshot(ctx.cwd, run.launch.ticketRef);
+  const hasDurableTicketActivity = ticketLedgerChanged(ticketBeforeLaunch, ticketAfterLaunch);
+  updated = await store.upsertIterationRuntimeAsync(ref, {
+    iterationId: run.launch.iterationId,
+    iteration: run.launch.iteration,
+    missingTicketActivity: !hasDurableTicketActivity,
+    jobId: options.jobId,
+  });
   const totalTokens = totalRuntimeTokens(updated);
   const budgetLimit = updated.state.policySnapshot.tokenBudget;
   const requiresBudgetEvidence = budgetLimit !== null;
   const launchStarted = hasRunningLaunchEvent(updated, run.launch.iterationId);
   const missingBudgetEvidence = requiresBudgetEvidence && totalTokens === null && launchStarted;
   const budgetExceeded = requiresBudgetEvidence && totalTokens !== null && totalTokens > budgetLimit;
+  const operatorRequestedStop =
+    normalizedExecution.status === "cancelled" &&
+    !timeoutExceeded &&
+    !queueTimeoutExceeded &&
+    !budgetExceeded &&
+    !missingBudgetEvidence;
+  const runtimeFailure =
+    normalizedExecution.status !== "completed" &&
+    !operatorRequestedStop &&
+    !timeoutExceeded &&
+    !queueTimeoutExceeded &&
+    !budgetExceeded &&
+    !missingBudgetEvidence;
 
-  if (!hasDurableCheckpoint) {
+  if (!hasDurableTicketActivity || !ticketBeforeLaunch || !ticketAfterLaunch) {
     updated = await persistRuntimeFailure(ctx.cwd, ref, normalizedExecution, run.launch.iterationId, options.jobId, {
       timeoutExceeded,
       queueTimeoutExceeded,
       budgetExceeded,
       runtimeUnavailable: missingBudgetEvidence,
     });
-  } else if (timeoutExceeded || budgetExceeded || missingBudgetEvidence || queueTimeoutExceeded) {
-    updated = await store.decideRunAsync(ref, {
-      queueTimeoutExceeded,
-      timeoutExceeded,
-      budgetExceeded,
-      runtimeUnavailable: missingBudgetEvidence,
-      summary: queueTimeoutExceeded
-        ? "The Ralph run exceeded its allowed wait for the session runtime queue before a fresh worker started."
-        : timeoutExceeded
-          ? "The Ralph run exceeded its configured runtime limit."
-          : missingBudgetEvidence
-            ? "The Ralph run requires runtime token-usage evidence to enforce its configured token budget."
-            : "The Ralph run exceeded its configured token budget.",
-      decidedBy: missingBudgetEvidence ? "runtime" : "policy",
+  } else {
+    const synthesized = synthesizeTicketIteration(run.launch.ticketRef, ticketBeforeLaunch, ticketAfterLaunch);
+    updated = await store.appendIterationAsync(ref, {
+      id: run.launch.iterationId,
+      status: synthesized.iterationStatus,
+      completedAt: normalizedExecution.completedAt ?? ticketAfterLaunch.updatedAt,
+      summary: synthesized.summary,
+      workerSummary: synthesized.workerSummary,
+      decision: synthesized.decision,
+      notes: synthesized.notes,
     });
-    if (updated.state.latestDecision) {
+    if (
+      timeoutExceeded ||
+      budgetExceeded ||
+      missingBudgetEvidence ||
+      queueTimeoutExceeded ||
+      operatorRequestedStop ||
+      runtimeFailure
+    ) {
+      updated = await store.decideRunAsync(ref, {
+        operatorRequestedStop,
+        runtimeFailure,
+        queueTimeoutExceeded,
+        timeoutExceeded,
+        budgetExceeded,
+        runtimeUnavailable: missingBudgetEvidence,
+        summary: queueTimeoutExceeded
+          ? "The Ralph run exceeded its allowed wait for the session runtime queue before a fresh worker started."
+          : timeoutExceeded
+            ? "The Ralph run exceeded its configured runtime limit."
+            : missingBudgetEvidence
+              ? "The Ralph run requires runtime token-usage evidence to enforce its configured token budget."
+              : operatorRequestedStop
+                ? synthesized.decision.summary
+                : runtimeFailure
+                  ? normalizedExecution.stderr || normalizedExecution.output || "Session runtime exited unsuccessfully after updating the bound ticket."
+                  : "The Ralph run exceeded its configured token budget.",
+        decidedBy: operatorRequestedStop ? "operator" : missingBudgetEvidence || runtimeFailure ? "runtime" : "policy",
+      });
       updated = await store.appendIterationAsync(ref, {
         id: run.launch.iterationId,
         decision: updated.state.latestDecision,
@@ -863,8 +1179,22 @@ async function executePreparedIteration(
               ? "The session runtime queue wait exceeded the configured limit before a fresh worker began running."
               : missingBudgetEvidence
                 ? "Runtime token usage metadata was unavailable, so the configured token budget could not be enforced truthfully."
-                : "Policy halted the run because the bounded iteration exceeded the configured token budget.",
+                : operatorRequestedStop
+                  ? "The session runtime was cancelled after durable ticket activity was recorded."
+                  : runtimeFailure
+                    ? `Session runtime exited with code ${normalizedExecution.exitCode ?? "unknown"} after durable ticket activity was recorded.`
+                    : "Policy halted the run because the bounded iteration exceeded the configured token budget.",
         ],
+      });
+    } else {
+      const nextState = decisionState(synthesized.decision);
+      updated = await store.updateRunAsync(ref, {
+        latestDecision: synthesized.decision,
+        status: nextState.status,
+        phase: nextState.phase,
+        waitingFor: nextState.waitingFor,
+        stopReason: nextState.stopReason,
+        activeTicketId: updated.state.scope.ticketId,
       });
     }
   }
@@ -878,7 +1208,8 @@ export async function ensureRalphRun(
 ): Promise<EnsureRalphRunResult> {
   const store = createRalphStore(ctx.cwd);
   if (input.ref) {
-    return { run: await store.readRunAsync(input.ref), created: false };
+    const run = await store.readRunAsync(input.ref);
+    return { run: await applyRunPolicySnapshot(store, run, input.policySnapshot), created: false };
   }
   const ticketRef = input.ticketRef?.trim();
   if (!ticketRef) {
@@ -886,7 +1217,10 @@ export async function ensureRalphRun(
   }
   const binding = await resolveRalphRunBinding(ctx.cwd, { ticketRef, planRef: input.planRef ?? null });
   if (binding.existingRun) {
-    return { run: binding.existingRun, created: false };
+    return {
+      run: await applyRunPolicySnapshot(store, binding.existingRun, input.policySnapshot),
+      created: false,
+    };
   }
   const context = await readBoundRunContext(ctx.cwd, binding.planId, binding.ticketId);
   const scope = toBoundRunScope(context);
@@ -928,7 +1262,8 @@ export async function ensureRalphRun(
     return { run: created, created: true };
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Ralph run already exists")) {
-      return { run: await store.readRunAsync(binding.runId), created: false };
+      const run = await store.readRunAsync(binding.runId);
+      return { run: await applyRunPolicySnapshot(store, run, input.policySnapshot), created: false };
     }
     throw error;
   }
@@ -1211,7 +1546,7 @@ export function renderLoopResult(result: ExecuteRalphLoopResult): string {
     `Iterations executed this call: ${result.steps.length}`,
     `Latest decision: ${latest.state.latestDecision?.kind ?? "none"}`,
     `Waiting for: ${latest.state.waitingFor}`,
-    `Post-iteration checkpoint: ${latest.state.postIteration ? `${latest.state.postIteration.iteration} [${latest.state.postIteration.status}]` : "none"}`,
+    `Latest bounded iteration: ${latest.state.postIteration ? `${latest.state.postIteration.iteration} [${latest.state.postIteration.status}]` : "none"}`,
     `Latest runtime: ${latest.runtimeArtifacts.at(-1) ? `${latest.runtimeArtifacts.at(-1)?.iteration} [${latest.runtimeArtifacts.at(-1)?.status}]` : "none"}`,
   ];
 

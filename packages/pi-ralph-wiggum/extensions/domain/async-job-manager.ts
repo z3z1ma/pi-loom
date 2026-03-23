@@ -104,7 +104,6 @@ export class AsyncJobManager<TJobType extends string = string, TMetadata = unkno
         timestamp: Date.now(),
         sequence: progressSequence,
       };
-      this.#notifyWaiters();
       if (!options.onProgress) {
         return;
       }

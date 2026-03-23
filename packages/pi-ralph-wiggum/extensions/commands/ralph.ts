@@ -145,7 +145,8 @@ async function runTicketLoop(
       { ticketRef: input.ticketRef, planRef: input.planRef, prompt, iterations: 1 },
       undefined,
       {
-        onUpdate: (text) => {
+        onUpdate: (update) => {
+          const text = typeof update === "string" ? update : update.text;
           if (typeof ctx.ui?.setStatus === "function") {
             ctx.ui.setStatus(
               RALPH_STATUS_KEY,

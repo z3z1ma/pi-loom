@@ -263,7 +263,7 @@ export interface RalphIterationRuntimeRecord {
   usage: RalphRuntimeUsage;
   events: RalphRuntimeEvent[];
   launch: RalphLaunchDescriptor;
-  missingCheckpoint: boolean;
+  missingTicketActivity: boolean;
   jobId: string | null;
 }
 
@@ -334,7 +334,7 @@ export interface RalphDashboardLatestRuntime {
   updatedAt: string;
   completedAt: string | null;
   exitCode: number | null;
-  missingCheckpoint: boolean;
+  missingTicketActivity: boolean;
   jobId: string | null;
 }
 
@@ -343,7 +343,7 @@ export interface RalphDashboard {
   packetRef: string;
   runRef: string;
   launchRef: string;
-  latestIteration: RalphDashboardLatestIteration | null;
+  latestBoundedIteration: RalphDashboardLatestIteration | null;
   latestRuntime: RalphDashboardLatestRuntime | null;
   counts: {
     iterations: number;
@@ -446,7 +446,7 @@ export interface UpsertRalphIterationRuntimeInput {
   usage?: Partial<RalphRuntimeUsage>;
   events?: RalphRuntimeEvent[];
   launch?: RalphLaunchDescriptor;
-  missingCheckpoint?: boolean;
+  missingTicketActivity?: boolean;
   jobId?: string | null;
 }
 

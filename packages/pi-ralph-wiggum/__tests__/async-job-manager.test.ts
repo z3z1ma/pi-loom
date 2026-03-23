@@ -130,6 +130,28 @@ describe("AsyncJobManager", () => {
     await manager.waitForAll();
   });
 
+  it("does not resolve waiters on progress-only updates", async () => {
+    vi.useFakeTimers();
+    const manager = new AsyncJobManager({ retentionMs: 1_000 });
+    const release = createDeferred<string>();
+
+    const jobId = manager.register("iteration", "progressing", async ({ reportProgress }) => {
+      await reportProgress("step 1");
+      await reportProgress("step 2");
+      return release.promise;
+    });
+
+    const waitPromise = manager.waitForJobs([jobId], { timeoutMs: 20 });
+    await vi.advanceTimersByTimeAsync(20);
+
+    await expect(waitPromise).resolves.toEqual([
+      expect.objectContaining({ id: jobId, status: "running", progress: expect.objectContaining({ text: "step 2" }) }),
+    ]);
+
+    release.resolve("done");
+    await manager.waitForAll();
+  });
+
   it("returns current known statuses on timeout and ignores unknown ids", async () => {
     vi.useFakeTimers();
     const manager = new AsyncJobManager({ retentionMs: 1_000 });

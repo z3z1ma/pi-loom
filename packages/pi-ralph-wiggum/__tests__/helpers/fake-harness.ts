@@ -33,18 +33,22 @@ declare global {
   var __piLoomHarnessOutcome: FakeHarnessOutcome | undefined;
   // eslint-disable-next-line no-var
   var __piLoomHarnessHook: ((context: FakeHarnessHookContext) => void | Promise<void>) | undefined;
+  // eslint-disable-next-line no-var
+  var __piLoomHarnessToolNames: string[] | undefined;
 }
 
 export function resetFakeHarnessState(): void {
   globalThis.__piLoomHarnessCalls = [];
   globalThis.__piLoomHarnessOutcome = undefined;
   globalThis.__piLoomHarnessHook = undefined;
+  globalThis.__piLoomHarnessToolNames = undefined;
 }
 
 export function clearFakeHarnessState(): void {
   delete globalThis.__piLoomHarnessCalls;
   delete globalThis.__piLoomHarnessOutcome;
   delete globalThis.__piLoomHarnessHook;
+  delete globalThis.__piLoomHarnessToolNames;
 }
 
 export function createFakeHarnessPackage(): { root: string; cleanup: () => void } {
@@ -142,7 +146,7 @@ class FakeSession {
   }
 
   getAllTools() {
-    return [{ name: "read" }, { name: "ralph_checkpoint" }];
+    return (globalThis.__piLoomHarnessToolNames ?? ["read", "ticket_read", "ticket_write", "ralph_read"]).map((name) => ({ name }));
   }
 
   async setActiveToolsByName(toolNames) {

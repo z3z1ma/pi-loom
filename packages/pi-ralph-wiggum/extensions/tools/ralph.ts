@@ -2,25 +2,25 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { analyzeListQuery, renderAnalyzedListQuery } from "@pi-loom/pi-storage/storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
-import { type Static, Type } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 import type { AsyncJob } from "../domain/async-job-manager.js";
 import { AsyncJobManager } from "../domain/async-job-manager.js";
 import {
   type ExecuteRalphLoopInput,
   type ExecuteRalphLoopResult,
+  type RalphLoopProgressUpdate,
   ensureRalphRun,
   executeRalphLoop,
   isRalphLoopExecutionInFlight,
   renderLoopResult,
   resolveRalphRunBinding,
 } from "../domain/loop.js";
-import type { DecideRalphRunInput, RalphCritiqueLink, RalphReadResult } from "../domain/models.js";
+import { runRalphLoopInWorker, toWorkerModel } from "../domain/loop-worker.js";
+import type { RalphReadResult } from "../domain/models.js";
 import { renderDashboard, renderRalphDetail } from "../domain/render.js";
 import { createRalphStore } from "../domain/store.js";
 import {
   type RalphRunRenderDetails,
-  renderRalphCheckpointCall,
-  renderRalphCheckpointResult,
   renderRalphJobCall,
   renderRalphJobResult,
   renderRalphReadCall,
@@ -53,19 +53,6 @@ const RalphRunPhaseEnum = StringEnum([
 ] as const);
 const RalphDecisionKindEnum = StringEnum(["continue", "pause", "complete", "halt", "escalate"] as const);
 const RalphWaitingForEnum = StringEnum(["none", "verifier", "critique", "operator"] as const);
-const RalphIterationStatusEnum = StringEnum([
-  "pending",
-  "running",
-  "reviewing",
-  "accepted",
-  "rejected",
-  "failed",
-  "cancelled",
-] as const);
-const RalphVerifierSourceKindEnum = StringEnum(["manual", "plan", "ticket", "test", "diagnostic", "runtime"] as const);
-const RalphVerifierVerdictEnum = StringEnum(["not_run", "pass", "concerns", "fail"] as const);
-const RalphCritiqueLinkKindEnum = StringEnum(["context", "launched", "blocking", "accepted", "followup"] as const);
-const RalphCritiqueVerdictEnum = StringEnum(["pass", "concerns", "blocked", "needs_revision"] as const);
 const RalphReadModeEnum = StringEnum(["full", "state", "packet", "run", "dashboard"] as const);
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 
@@ -106,94 +93,16 @@ const PolicySnapshotSchema = Type.Object({
     Type.Boolean({ description: "Route the loop through operator review gates before final completion decisions." }),
   ),
   allowOperatorPause: Type.Optional(
-    Type.Boolean({ description: "Allow operator steering to pause or reshape the loop at iteration boundaries." }),
+    Type.Boolean({
+      description:
+        "Allow additive operator steering to pause or modestly reshape the loop at iteration boundaries without replacing the bound ticket contract.",
+    }),
   ),
   notes: Type.Optional(
     Type.Array(Type.String({ description: "Additional policy notes that become part of the durable loop context." })),
   ),
 });
 
-const VerifierSummarySchema = Type.Object({
-  sourceKind: Type.Optional(
-    withDescription(RalphVerifierSourceKindEnum, "Verifier evidence source kind for this iteration outcome."),
-  ),
-  sourceRef: Type.Optional(
-    Type.String({
-      description: "Verifier source reference such as a plan id, ticket id, test target, or diagnostic artifact.",
-    }),
-  ),
-  verdict: Type.Optional(
-    withDescription(RalphVerifierVerdictEnum, "Verifier conclusion for the bounded iteration outcome."),
-  ),
-  summary: Type.Optional(
-    Type.String({ description: "Compact verifier narrative describing what the evidence means for this iteration." }),
-  ),
-  required: Type.Optional(Type.Boolean({ description: "Marks verifier evidence as required for this scope." })),
-  blocker: Type.Optional(
-    Type.Boolean({ description: "Marks the verifier result as gating further loop progress until addressed." }),
-  ),
-  checkedAt: Type.Optional(
-    Type.String({ description: "ISO timestamp describing when the verifier evidence was gathered." }),
-  ),
-  evidence: Type.Optional(
-    Type.Array(
-      Type.String({ description: "Verifier evidence references, commands, or artifacts that justify the verdict." }),
-    ),
-  ),
-});
-
-const CritiqueLinkSchema = Type.Object({
-  critiqueId: Type.String({ description: "Critique id associated with this bounded iteration." }),
-  kind: Type.Optional(
-    withDescription(RalphCritiqueLinkKindEnum, "Role this critique plays in the current iteration context."),
-  ),
-  verdict: Type.Optional(
-    withDescription(RalphCritiqueVerdictEnum, "Critique verdict carried into the Ralph checkpoint."),
-  ),
-  required: Type.Optional(
-    Type.Boolean({ description: "Marks this critique as part of the required review context for the loop." }),
-  ),
-  blocking: Type.Optional(Type.Boolean({ description: "Marks this critique as an active gate on further progress." })),
-  reviewedAt: Type.Optional(Type.String({ description: "ISO timestamp for the critique review event." })),
-  findingIds: Type.Optional(
-    Type.Array(Type.String({ description: "Accepted or referenced critique finding ids relevant to this iteration." })),
-  ),
-  summary: Type.Optional(
-    Type.String({ description: "Compact explanation of why this critique link matters for the iteration." }),
-  ),
-});
-
-const DecisionInputSchema = Type.Object({
-  workerRequestedCompletion: Type.Optional(
-    Type.Boolean({
-      description:
-        "Worker-level signal that the current bounded iteration reached a truthful stopping point for the selected ticket.",
-    }),
-  ),
-  operatorRequestedStop: Type.Optional(
-    Type.Boolean({ description: "Operator-level stop signal carried into the checkpoint decision input." }),
-  ),
-  runtimeUnavailable: Type.Optional(
-    Type.Boolean({ description: "Runtime support or usage evidence was unavailable for the current iteration." }),
-  ),
-  runtimeFailure: Type.Optional(Type.Boolean({ description: "Runtime execution failed for the current iteration." })),
-  timeoutExceeded: Type.Optional(
-    Type.Boolean({ description: "Runtime limit was exceeded for the current iteration." }),
-  ),
-  budgetExceeded: Type.Optional(Type.Boolean({ description: "Token budget was exceeded for the current iteration." })),
-  summary: Type.Optional(
-    Type.String({ description: "Decision summary that will be preserved with the durable continuation record." }),
-  ),
-  decidedBy: Type.Optional(
-    withDescription(
-      StringEnum(["policy", "verifier", "critique", "operator", "runtime"] as const),
-      "Primary decision source for the continuation record produced from this checkpoint.",
-    ),
-  ),
-  blockingRefs: Type.Optional(
-    Type.Array(Type.String({ description: "Refs that explain any current loop gate or stopping condition." })),
-  ),
-});
 
 const RalphListParams = Type.Object({
   exactStatus: Type.Optional(
@@ -253,7 +162,7 @@ const RalphRunParams = Type.Object({
   steeringPrompt: Type.Optional(
     Type.String({
       description:
-        "Durable operator steering for the next iteration boundary. This guidance is preserved in run state and applied to the bound ticket run.",
+        "Optional additive operator guidance for the next iteration boundary. This supplements, and must not override, the bound ticket and governing plan contract.",
     }),
   ),
   background: Type.Optional(
@@ -270,7 +179,10 @@ const RalphSteerParams = Type.Object({
   planRef: Type.Optional(
     Type.String({ description: "Optional governing plan ref for the Ralph run that should absorb the steering." }),
   ),
-  text: Type.String({ description: "Steering text to queue durably for the next iteration boundary." }),
+  text: Type.String({
+    description:
+      "Minor additive steering text to queue durably for the next iteration boundary without replacing the ticket-driven execution contract.",
+  }),
 });
 
 const RalphStopParams = Type.Object({
@@ -314,34 +226,6 @@ const RalphJobWaitParams = Type.Object({
   ),
   timeoutMs: Type.Optional(Type.Number({ description: "Optional wait timeout in milliseconds for the current call." })),
 });
-
-const RalphCheckpointParams = Type.Object({
-  ref: Type.String({
-    description:
-      "Ralph run display id or `ralph-run:<display-id>` ref receiving the checkpoint. Canonical Ralph entity ids remain internal storage details.",
-  }),
-  iterationId: Type.String({
-    description:
-      "Explicit launched iteration id from the Ralph launch packet. Reuse this exact id if you update the same bounded iteration checkpoint again.",
-  }),
-  status: withDescription(RalphIterationStatusEnum, "Bounded iteration status being committed."),
-  focus: Type.Optional(Type.String({ description: "Ticket-sized focus statement for this bounded iteration." })),
-  summary: Type.Optional(Type.String({ description: "Outcome summary for the bounded iteration." })),
-  workerSummary: Type.Optional(
-    Type.String({
-      description:
-        "Worker-centric execution summary highlighting what changed, what was verified, and what remains relevant.",
-    }),
-  ),
-  startedAt: Type.Optional(Type.String({ description: "ISO timestamp for when this bounded iteration started." })),
-  completedAt: Type.Optional(Type.String({ description: "ISO timestamp for when this bounded iteration completed." })),
-  verifierSummary: Type.Optional(VerifierSummarySchema),
-  critiqueLinks: Type.Optional(Type.Array(CritiqueLinkSchema)),
-  notes: Type.Optional(Type.Array(Type.String({ description: "Additional durable notes for this iteration record." }))),
-  decisionInput: DecisionInputSchema,
-});
-
-type RalphCheckpointParamsValue = Static<typeof RalphCheckpointParams>;
 
 function getStore(ctx: ExtensionContext) {
   return createRalphStore(ctx.cwd);
@@ -387,6 +271,48 @@ function getRunningRunJob(
   return getRunningRunJobs(runId, cwd)[0] ?? null;
 }
 
+function yieldToEventLoop(): Promise<void> {
+  return Promise.resolve();
+}
+
+function createThrottledTextEmitter(
+  emit: (update: RalphLoopProgressUpdate) => void,
+  intervalMs: number,
+): { push: (update: RalphLoopProgressUpdate) => void; flush: () => void } {
+  let timer: NodeJS.Timeout | null = null;
+  let latestUpdate: RalphLoopProgressUpdate | null = null;
+
+  const flush = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (!latestUpdate) {
+      return;
+    }
+    const update = latestUpdate;
+    latestUpdate = null;
+    emit(update);
+  };
+
+  return {
+    push(update: RalphLoopProgressUpdate) {
+      if (update.kind !== "assistant_output") {
+        flush();
+        emit(update);
+        return;
+      }
+      latestUpdate = update;
+      if (timer) {
+        return;
+      }
+      timer = setTimeout(flush, intervalMs);
+      timer.unref?.();
+    },
+    flush,
+  };
+}
+
 export async function resolveTargetRalphRun(
   ctx: ExtensionContext,
   ticketRef: string,
@@ -419,7 +345,7 @@ async function syncRunSchedulerWithJobs(ctx: ExtensionContext, runId: string): P
 export async function startRalphLoopJob(
   ctx: ExtensionContext,
   input: ExecuteRalphLoopInput,
-  onProgress?: (text: string) => void | Promise<void>,
+  onProgress?: (update: RalphLoopProgressUpdate) => void | Promise<void>,
 ): Promise<{ run: RalphReadResult; created: boolean; jobId: string; alreadyRunning: boolean }> {
   const store = getStore(ctx);
   const ensured = await ensureRalphRun(ctx, input);
@@ -440,29 +366,36 @@ export async function startRalphLoopJob(
     "ralph_run",
     `Ralph run ${run.state.runId}`,
     async ({ jobId: runningJobId, signal: jobSignal, reportProgress }) => {
+      await yieldToEventLoop();
       await store.setSchedulerAsync(run.state.runId, {
         status: "running",
         updatedAt: new Date().toISOString(),
         jobId: runningJobId,
         note: `Managed Ralph loop running for ticket ${run.state.scope.ticketId ?? "(none)"}.`,
       });
-      await reportProgress(`Starting managed Ralph loop ${run.state.runId}.`, {
+      const startingUpdate: RalphLoopProgressUpdate = {
+        text: `Starting managed Ralph loop ${run.state.runId}.`,
+        kind: "status",
+      };
+      void reportProgress(startingUpdate.text, {
         jobId: runningJobId,
         runId: run.state.runId,
       });
-      if (onProgress) {
-        await onProgress(`Starting managed Ralph loop ${run.state.runId}.`);
-      }
+      void onProgress?.(startingUpdate);
       try {
-        return await executeRalphLoop(ctx, { ref: run.state.runId }, jobSignal, {
-          jobId: runningJobId,
-          onUpdate: async (text) => {
-            await reportProgress(text, { jobId: runningJobId, runId: run.state.runId });
-            if (onProgress) {
-              await onProgress(text);
-            }
+        return await runRalphLoopInWorker(
+          {
+            cwd: ctx.cwd,
+            runId: run.state.runId,
+            jobId: runningJobId,
+            model: toWorkerModel(ctx.model),
           },
-        });
+          jobSignal,
+          (update) => {
+            void reportProgress(update.text, { jobId: runningJobId, runId: run.state.runId, kind: update.kind });
+            void onProgress?.(update);
+          },
+        );
       } finally {
         await syncRunSchedulerWithJobs(ctx, run.state.runId);
       }
@@ -581,82 +514,6 @@ function renderJobSummary(job: AsyncJob<RalphJobType, RalphJobMetadata, ExecuteR
   ].join("\n");
 }
 
-function materializeCritiqueLink(
-  link: NonNullable<RalphCheckpointParamsValue["critiqueLinks"]>[number],
-): RalphCritiqueLink {
-  return {
-    critiqueId: link.critiqueId,
-    kind: link.kind ?? "context",
-    verdict: link.verdict ?? null,
-    required: link.required === true,
-    blocking: link.blocking === true,
-    reviewedAt: link.reviewedAt ?? null,
-    findingIds: link.findingIds ?? [],
-    summary: link.summary ?? "",
-  };
-}
-
-async function checkpointRun(
-  store: ReturnType<typeof getStore>,
-  params: {
-    ref: string;
-    iterationId: string;
-    status: "pending" | "running" | "reviewing" | "accepted" | "rejected" | "failed" | "cancelled";
-    focus?: string;
-    summary?: string;
-    workerSummary?: string;
-    startedAt?: string;
-    completedAt?: string;
-    verifierSummary?: {
-      sourceKind?: "manual" | "plan" | "ticket" | "test" | "diagnostic" | "runtime";
-      sourceRef?: string;
-      verdict?: "not_run" | "pass" | "concerns" | "fail";
-      summary?: string;
-      required?: boolean;
-      blocker?: boolean;
-      checkedAt?: string;
-      evidence?: string[];
-    };
-    critiqueLinks?: Array<{
-      critiqueId: string;
-      kind?: "context" | "launched" | "blocking" | "accepted" | "followup";
-      verdict?: "pass" | "concerns" | "blocked" | "needs_revision";
-      required?: boolean;
-      blocking?: boolean;
-      reviewedAt?: string;
-      findingIds?: string[];
-      summary?: string;
-    }>;
-    notes?: string[];
-    decisionInput: DecideRalphRunInput;
-  },
-) {
-  let run = await store.appendIterationAsync(params.ref, {
-    id: params.iterationId,
-    requireActiveIteration: true,
-    status: params.status,
-    focus: params.focus,
-    summary: params.summary,
-    workerSummary: params.workerSummary,
-    startedAt: params.startedAt,
-    completedAt: params.completedAt,
-    verifier: params.verifierSummary,
-    critiqueLinks: params.critiqueLinks?.map((link) => materializeCritiqueLink(link)),
-    notes: params.notes,
-  });
-
-  run = await store.decideRunAsync(params.ref, params.decisionInput);
-
-  if (run.state.latestDecision) {
-    run = await store.appendIterationAsync(params.ref, {
-      id: params.iterationId,
-      decision: run.state.latestDecision,
-    });
-  }
-
-  return run;
-}
-
 export function registerRalphTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "ralph_list",
@@ -668,7 +525,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Use this tool to rediscover the loop that should carry the next stretch of planned implementation work.",
       "Start with `text` and let the default relevance ranking surface the likely loop family before narrowing by exact lifecycle filters.",
-      "Use exact filters when you want one operational slice such as active delivery, paused review, or completed run checkpoints.",
+      "Use exact filters when you want one operational slice such as active delivery, paused review, or completed bounded iterations.",
       "If a zero-result query used exact filters, inspect the returned query diagnostics and broader suggestions before assuming no Ralph run exists.",
     ],
     parameters: RalphListParams,
@@ -758,50 +615,17 @@ export function registerRalphTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "ralph_checkpoint",
-    label: "ralph_checkpoint",
-    description:
-      "Persist one bounded Ralph iteration checkpoint for an explicit launched iteration id, including verifier evidence, critique context, and a continuation decision that the managed loop can evaluate against the workplan.",
-    promptSnippet:
-      "Commit one complete iteration outcome at a time so the managed loop can inspect plan progress, verifier evidence, and review posture from durable state.",
-    promptGuidelines: [
-      "Use this tool from the fresh Ralph worker session that owns the launched iteration id.",
-      "Pass the explicit `iterationId` from the launch packet so repeated updates stay attached to the same bounded unit of work.",
-      "Provide `decisionInput` with the evidence needed for the loop-level continuation decision.",
-      "Use the checkpoint as the durable handoff from worker execution back to loop orchestration, including the verifier and critique context that matters for plan progress.",
-    ],
-    parameters: RalphCheckpointParams,
-    renderCall: (args, theme) => renderRalphCheckpointCall(args as Record<string, unknown>, theme),
-    renderResult: (result, _options, theme) => renderRalphCheckpointResult(result, theme),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const run = await checkpointRun(getStore(ctx), {
-        ref: params.ref,
-        iterationId: params.iterationId,
-        status: params.status,
-        focus: params.focus,
-        summary: params.summary,
-        workerSummary: params.workerSummary,
-        startedAt: params.startedAt,
-        completedAt: params.completedAt,
-        verifierSummary: params.verifierSummary,
-        critiqueLinks: params.critiqueLinks,
-        notes: params.notes,
-        decisionInput: params.decisionInput,
-      });
-      return machineResult({ run }, renderRalphDetail(run));
-    },
-  });
-
-  pi.registerTool({
     name: "ralph_run",
     label: "ralph_run",
     description:
-      "Start or continue the managed Ralph loop bound to one plan ticket, carrying that ticket through repeated fresh-context iterations with durable state, steering, review evidence, and scheduler control.",
+      "Start or continue the managed Ralph loop bound to one plan ticket, carrying that ticket through repeated fresh-context iterations where the bound ticket ledger remains the authoritative execution record.",
     promptSnippet:
-      "Use this when one ticket under a governing plan should advance through bounded Ralph iterations with fresh context and durable review state.",
+      "Use this when one ticket under a governing plan should advance through bounded Ralph iterations while the worker keeps the bound ticket durably current.",
     promptGuidelines: [
       "Provide `ticketRef`; Ralph binds the run to that exact ticket and uses `planRef` when supplied or inferable.",
       "The system owns run ids. AI callers should identify Ralph work by plan/ticket, not by a chosen run ref.",
+      "The bound ticket is the execution ledger. Each bounded iteration should use ticket tools to keep status, notes, verification, and blockers truthful before exit.",
+      "Treat `steeringPrompt` as additive context only. It can clarify or reprioritize the next iteration, but it must not override the governing ticket or turn into step-by-step micromanagement.",
       "Background execution is well suited to parallel ticket delivery because distinct ticket-bound runs may proceed concurrently.",
       "Do not try to launch two Ralph runs against the same ticket at the same time.",
     ],
@@ -822,10 +646,13 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         let backgroundRunId: string | null = null;
         let backgroundRunSummary: ExecuteRalphLoopResult["run"]["summary"] | null = null;
         let backgroundCreated = false;
-        const started = await startRalphLoopJob(ctx, input, async (text) => {
-          progressUpdates.push(text);
+        const backgroundUpdateEmitter = createThrottledTextEmitter((update) => {
+          progressUpdates.push(update.text);
+          if (progressUpdates.length > 24) {
+            progressUpdates.splice(0, progressUpdates.length - 24);
+          }
           onUpdate?.({
-            content: [{ type: "text", text }],
+            content: [{ type: "text", text: update.text }],
             details: {
               async: {
                 state: "running",
@@ -851,11 +678,15 @@ export function registerRalphTools(pi: ExtensionAPI): void {
               }),
             },
           });
+        }, 100);
+        const started = await startRalphLoopJob(ctx, input, (update) => {
+          backgroundUpdateEmitter.push(update);
         });
         backgroundJobId = started.jobId;
         backgroundRunId = started.run.state.runId;
         backgroundRunSummary = started.run.summary;
         backgroundCreated = started.created;
+        backgroundUpdateEmitter.flush();
         const job = ralphJobManager.getJob(started.jobId);
         return machineResult(
           {
@@ -885,10 +716,14 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         run = await getStore(ctx).queueSteeringAsync(run.state.runId, params.steeringPrompt.trim());
       }
       const result = await executeRalphLoop(ctx, { ref: run.state.runId }, signal, {
-        onUpdate: (text) => {
-          progressUpdates.push(text);
+        onUpdate: (update) => {
+          const progress = typeof update === "string" ? { text: update, kind: "assistant_output" as const } : update;
+          progressUpdates.push(progress.text);
+          if (progressUpdates.length > 24) {
+            progressUpdates.splice(0, progressUpdates.length - 24);
+          }
           onUpdate?.({
-            content: [{ type: "text", text }],
+            content: [{ type: "text", text: progress.text }],
             details: {
               runRef: run.state.runId,
               ui: buildRalphRunRenderDetails({
@@ -926,10 +761,13 @@ export function registerRalphTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "ralph_steer",
     label: "ralph_steer",
-    description: "Queue durable steering that the managed Ralph loop will absorb at the next iteration boundary.",
-    promptSnippet: "Use this to shape the next step of a ticket-bound Ralph run through durable operator guidance.",
+    description:
+      "Queue minor additive steering that the managed Ralph loop will absorb at the next iteration boundary without replacing the ticket-driven contract.",
+    promptSnippet:
+      "Use this for small clarifications or reprioritization on a ticket-bound Ralph run; the governing ticket and plan still define the work.",
     promptGuidelines: [
-      "Queue steering whenever the bound ticket needs reprioritization, clarification, or a newly discovered constraint carried into the next iteration.",
+      "Queue steering when the bound ticket needs a small reprioritization, clarification, or a newly discovered constraint carried into the next iteration.",
+      "Do not use steering to replace the governing ticket, rewrite Ralph's base operating discipline, or micromanage the loop step by step.",
       "Steering becomes part of durable loop state and is consumed at the next iteration boundary.",
     ],
     parameters: RalphSteerParams,
@@ -1029,7 +867,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
           if (!parsed.cwd || !parsed.runId) {
             return [];
           }
-          return [createRalphStore(parsed.cwd).readRunAsync(parsed.runId)];
+          return [createRalphStore(parsed.cwd).readRunSummaryAsync(parsed.runId)];
         }),
       );
       return machineResult({ jobs, runs }, jobs.map((job) => renderJobSummary(job)).join("\n\n"));

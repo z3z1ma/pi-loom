@@ -223,8 +223,8 @@ describe("RalphStore durable memory", () => {
     expect(readback.dashboard.counts.iterations).toBe(0);
     expect(readback.launch.instructions).toEqual(
       expect.arrayContaining([
-        expect.stringContaining(`ralph-run:${created.state.runId}:packet`),
-        expect.stringContaining(`ref=ralph-run:${created.state.runId}`),
+        expect.stringContaining(`ralph_read mode=packet ticketRef=ticket-456 planRef=plan-123.`),
+        expect.stringContaining(`Update the bound ticket ledger durably for iter-001`),
       ]),
     );
   }, 10000);

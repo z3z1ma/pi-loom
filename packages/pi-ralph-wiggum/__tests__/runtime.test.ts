@@ -2,9 +2,11 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
+import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRalphDashboard } from "../extensions/domain/dashboard.js";
 import { hasTrustedPostIteration } from "../extensions/domain/loop.js";
@@ -28,7 +30,7 @@ import {
 import { createRalphStore } from "../extensions/domain/store.js";
 import { clearFakeHarnessState, createFakeHarnessPackage, resetFakeHarnessState } from "./helpers/fake-harness.js";
 
-function createTicketBoundScope(ticketId = "ticket-456", planId = "plan-123", specChangeId = "spec-789") {
+function createTicketBoundScope(ticketId = "rt-0456", planId = "plan-123", specChangeId = "spec-789") {
   return {
     mode: "execute" as const,
     specChangeId,
@@ -56,14 +58,56 @@ function seedRuntimeLinkedEntity(
       : kind === "ticket"
         ? {
             record: {
-              summary: { id: displayId, status: "active", title },
+              summary: {
+                id: displayId,
+                title,
+                status: "open",
+                storedStatus: "open",
+                priority: "medium",
+                type: "task",
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                deps: [],
+                links: [],
+                initiativeIds: [],
+                researchIds: [],
+                tags: [],
+                parent: null,
+                closed: false,
+                archived: false,
+                archivedAt: null,
+                ref: `ticket:${displayId}`,
+              },
+              journal: [],
+              attachments: [],
+              checkpoints: [],
+              children: [],
               blockers: [],
               ticket: {
+                closed: false,
+                archived: false,
+                archivedAt: null,
+                ref: `ticket:${displayId}`,
                 frontmatter: {
+                  id: displayId,
+                  title,
+                  status: "open",
+                  priority: "medium",
+                  type: "task",
+                  "created-at": timestamp,
+                  "updated-at": timestamp,
+                  tags: [],
+                  deps: [],
+                  links: [],
                   "initiative-ids": [],
                   "research-ids": [],
-                  "roadmap-item-ids": [],
-                  "spec-change-id": "spec-789",
+                  parent: null,
+                  assignee: null,
+                  acceptance: [],
+                  labels: [],
+                  risk: "medium",
+                  "review-status": "none",
+                  "external-refs": [],
                 },
                 body: {
                   summary: `${title} summary`,
@@ -104,8 +148,33 @@ function seedRuntimeLinkedEntity(
 
 function seedRuntimeLinkedEntities(workspace: string) {
   seedRuntimeLinkedEntity(workspace, "plan", "plan-123", "Default plan");
-  seedRuntimeLinkedEntity(workspace, "ticket", "ticket-456", "Default ticket");
+  seedRuntimeLinkedEntity(workspace, "ticket", "rt-0456", "Default ticket");
   seedRuntimeLinkedEntity(workspace, "spec_change", "spec-789", "Default spec");
+}
+
+async function recordBoundTicketActivity(
+  workspace: string,
+  ticketId: string,
+  options: {
+    status?: "open" | "in_progress" | "review";
+    journalText?: string;
+    verificationText?: string;
+    close?: boolean;
+  } = {},
+): Promise<void> {
+  const ticketStore = createTicketStore(workspace);
+  if (options.status) {
+    await ticketStore.updateTicketAsync(ticketId, { status: options.status });
+  }
+  if (options.journalText) {
+    await ticketStore.addJournalEntryAsync(ticketId, "progress", options.journalText);
+  }
+  if (options.verificationText) {
+    await ticketStore.addJournalEntryAsync(ticketId, "verification", options.verificationText);
+  }
+  if (options.close) {
+    await ticketStore.closeTicketAsync(ticketId, options.verificationText ?? "Verified during bounded iteration.");
+  }
 }
 
 describe("ralph runtime session execution", () => {
@@ -138,7 +207,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-15T14:33:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-123:packet",
       launchRef: "ralph-run:run-123:launch",
@@ -148,21 +217,21 @@ describe("ralph runtime session execution", () => {
 
     expect(renderLaunchDescriptor("/tmp/different-root", launch)).toContain("Packet ref: ralph-run:run-123:packet");
     expect(renderLaunchDescriptor("/tmp/different-root", launch)).toContain(
-      "Packet read call: ralph_read ticketRef=ticket-456 planRef=plan-123 mode=packet",
+      "Packet read call: ralph_read ticketRef=rt-0456 planRef=plan-123 mode=packet",
     );
     const prompt = renderLaunchPrompt("/tmp/different-root", launch);
     expect(prompt).toContain(
       "Execute one bounded Ralph iteration for managed run run-123 using ralph-run:run-123:packet.",
     );
-    expect(prompt).toContain("Call ralph_read ticketRef=ticket-456 planRef=plan-123 mode=packet.");
+    expect(prompt).toContain("Call ralph_read ticketRef=rt-0456 planRef=plan-123 mode=packet.");
     expect(prompt).toContain(
       "Use the exact ticketRef/planRef from this launch when reading Ralph packet state; do not derive alternate refs from the run id or packet ref.",
     );
     expect(prompt).toContain(
-      "Persist status, verifier evidence, critique references, and the continuation decision through `ralph_checkpoint` using iterationId=iter-001.",
+      "Record durable progress through the bound ticket ledger: update ticket status, body, journal, checkpoints, or other ticket-backed evidence as needed.",
     );
     expect(prompt).toContain(
-      "Call ralph_checkpoint ref=run-123 iterationId=iter-001 once with the complete bounded-iteration outcome.",
+      "Leave durable ticket activity for iterationId=iter-001; Ralph will reconcile the latest bounded iteration from the ticket after exit.",
     );
   });
 
@@ -177,14 +246,14 @@ describe("ralph runtime session execution", () => {
       const boundRun = store.createRun({
         title: "Long plan-bound launch",
         objective: "Keep bound refs exact in worker guidance.",
-        scope: createTicketBoundScope("ticket-456", longPlanRef),
+        scope: createTicketBoundScope("rt-0456", longPlanRef),
       });
       const prepared = store.prepareLaunch(boundRun.state.runId, { focus: "Verify prompt guidance" });
 
       expect(prepared.launch.planRef).toBe(longPlanRef);
-      expect(prepared.launch.ticketRef).toBe("ticket-456");
+      expect(prepared.launch.ticketRef).toBe("rt-0456");
       expect(renderLaunchPrompt(workspace, prepared.launch)).toContain(
-        `Call ralph_read ticketRef=ticket-456 planRef=${longPlanRef} mode=packet.`,
+        `Call ralph_read ticketRef=rt-0456 planRef=${longPlanRef} mode=packet.`,
       );
 
       const ticketOnlyLaunch: RalphLaunchDescriptor = {
@@ -193,7 +262,7 @@ describe("ralph runtime session execution", () => {
         iteration: 1,
         createdAt: "2026-03-20T12:00:00.000Z",
         runtime: "session",
-        ticketRef: "ticket-456",
+        ticketRef: "rt-0456",
         planRef: null,
         packetRef: "ralph-run:ticket-only-run:packet",
         launchRef: "ralph-run:ticket-only-run:launch",
@@ -202,7 +271,7 @@ describe("ralph runtime session execution", () => {
       };
 
       expect(renderLaunchPrompt(workspace, ticketOnlyLaunch)).toContain(
-        "Call ralph_read ticketRef=ticket-456 mode=packet.",
+        "Call ralph_read ticketRef=rt-0456 mode=packet.",
       );
       expect(renderLaunchPrompt(workspace, ticketOnlyLaunch)).toContain("Plan ref: (none)");
     } finally {
@@ -400,7 +469,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-session:packet",
       launchRef: "ralph-run:run-session:launch",
@@ -435,10 +504,11 @@ describe("ralph runtime session execution", () => {
           model: expect.objectContaining({ provider: "anthropic", id: "claude-test" }),
         }),
         expect.objectContaining({ type: "bindExtensions" }),
+        expect.objectContaining({
+          type: "setActiveTools",
+          toolNames: expect.arrayContaining(["ralph_read", "ticket_read", "ticket_write"]),
+        }),
       ]),
-    );
-    expect((globalThis.__piLoomHarnessCalls ?? []).map((entry) => (entry as { type?: string }).type)).not.toContain(
-      "setActiveTools",
     );
     expect(createCall?.options.model).toEqual({ provider: "anthropic", id: "claude-test" });
   });
@@ -452,7 +522,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-lock-first:packet",
       launchRef: "ralph-run:run-lock-first:launch",
@@ -465,7 +535,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:01:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-lock-second:packet",
       launchRef: "ralph-run:run-lock-second:launch",
@@ -514,7 +584,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-session-extensions:packet",
       launchRef: "ralph-run:run-session-extensions:launch",
@@ -562,6 +632,8 @@ describe("ralph runtime session execution", () => {
     );
     expect(createCall?.options).toMatchObject({
       cwd: nestedCwd,
+      additionalExtensionPaths: [nestedCwd, externalExtension],
+      disableExtensionDiscovery: true,
       resourceLoader: expect.objectContaining({
         options: expect.objectContaining({
           cwd: nestedCwd,
@@ -570,8 +642,30 @@ describe("ralph runtime session execution", () => {
         }),
       }),
     });
-    expect(createCall?.options).not.toHaveProperty("additionalExtensionPaths");
-    expect(createCall?.options).not.toHaveProperty("disableExtensionDiscovery");
+  });
+
+  it("fails fast when forwarded extensions do not provide Ralph worker tools", async () => {
+    const launch: RalphLaunchDescriptor = {
+      runId: "run-session-missing-tools",
+      iterationId: "iter-001",
+      iteration: 1,
+      createdAt: "2026-03-20T12:00:00.000Z",
+      runtime: "session",
+      ticketRef: "rt-0456",
+      planRef: "plan-123",
+      packetRef: "ralph-run:run-session-missing-tools:packet",
+      launchRef: "ralph-run:run-session-missing-tools:launch",
+      resume: false,
+      instructions: [],
+    };
+
+    globalThis.__piLoomHarnessToolNames = ["read"];
+    const result = await runRalphLaunch("/workspace/project", launch, undefined, undefined, {
+      [PI_PARENT_HARNESS_PACKAGE_ROOT_ENV]: fakeHarnessRoot,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("missing required tools: ralph_read, ticket_read, ticket_write");
   });
 
   it("forwards full upstream newSession options through headless extension bindings", async () => {
@@ -581,7 +675,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-session-new-session:packet",
       launchRef: "ralph-run:run-session-new-session:launch",
@@ -634,7 +728,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-events:packet",
       launchRef: "ralph-run:run-events:launch",
@@ -692,7 +786,7 @@ describe("ralph runtime session execution", () => {
   it("surfaces assistant errors from the harness session runtime", async () => {
     globalThis.__piLoomHarnessOutcome = {
       stopReason: "error",
-      errorMessage: "Harness session failed before checkpointing.",
+      errorMessage: "Harness session failed before updating the ticket ledger.",
     };
 
     const launch: RalphLaunchDescriptor = {
@@ -701,7 +795,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-error:packet",
       launchRef: "ralph-run:run-error:launch",
@@ -716,14 +810,14 @@ describe("ralph runtime session execution", () => {
     expect(result).toMatchObject({
       exitCode: 1,
       output: "",
-      stderr: "Harness session failed before checkpointing.",
+      stderr: "Harness session failed before updating the ticket ledger.",
     });
   });
 
-  it("waits for session-level idle completion before reading the assistant result", async () => {
+  it("waits for session idle before returning the assistant message", async () => {
     globalThis.__piLoomHarnessOutcome = {
       deferAssistantUntilSessionIdle: true,
-      text: "session idle delivered the checkpoint",
+      text: "session idle delivered the ticket update",
     };
 
     const launch: RalphLaunchDescriptor = {
@@ -732,7 +826,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-session-idle:packet",
       launchRef: "ralph-run:run-session-idle:launch",
@@ -746,7 +840,7 @@ describe("ralph runtime session execution", () => {
 
     expect(result).toMatchObject({
       exitCode: 0,
-      output: "session idle delivered the checkpoint",
+      output: "session idle delivered the ticket update",
       stderr: "",
     });
     expect(globalThis.__piLoomHarnessCalls).toEqual(
@@ -769,7 +863,7 @@ describe("ralph runtime session execution", () => {
       iteration: 1,
       createdAt: "2026-03-20T12:00:00.000Z",
       runtime: "session",
-      ticketRef: "ticket-456",
+      ticketRef: "rt-0456",
       planRef: "plan-123",
       packetRef: "ralph-run:run-abort:packet",
       launchRef: "ralph-run:run-abort:launch",
@@ -799,22 +893,22 @@ describe("ralph runtime session execution", () => {
     expect(callTypes.includes("abort") || !callTypes.includes("prompt")).toBe(true);
   });
 
-  it("recognizes trusted durable checkpoints by iteration id", () => {
+  it("recognizes trusted durable iteration state by iteration id", () => {
     const workspace = mkdtempSync(join(tmpdir(), "pi-ralph-trusted-checkpoint-"));
     try {
       seedRuntimeLinkedEntities(workspace);
       const store = createRalphStore(workspace);
       const run = store.createRun({
-        title: "Trusted checkpoint detection",
-        objective: "Recognize a complete durable checkpoint for a bounded iteration.",
+        title: "Trusted iteration detection",
+        objective: "Recognize complete durable iteration state for a bounded iteration.",
         scope: createTicketBoundScope(),
       });
       const prepared = store.prepareLaunch(run.state.runId, { focus: "Check the iteration helper." });
       const updated = store.appendIteration(run.state.runId, {
         id: prepared.launch.iterationId,
         status: "accepted",
-        summary: "Checkpoint landed.",
-        workerSummary: "Durable checkpoint persisted.",
+        summary: "Iteration state landed.",
+        workerSummary: "Durable ticket-backed iteration state persisted.",
         decision: {
           kind: "pause",
           reason: "operator_requested",
@@ -832,24 +926,24 @@ describe("ralph runtime session execution", () => {
     }
   });
 
-  it("keeps the launched iteration trusted after a later checkpoint updates postIteration", () => {
+  it("keeps the launched iteration trusted after a later iteration updates postIteration", () => {
     const workspace = mkdtempSync(join(tmpdir(), "pi-ralph-duplicate-checkpoint-"));
     try {
       seedRuntimeLinkedEntities(workspace);
       const store = createRalphStore(workspace);
       const run = store.createRun({
-        title: "Duplicate checkpoint trust",
+        title: "Duplicate iteration trust",
         objective: "Keep trust bound to the launched iteration id.",
         scope: createTicketBoundScope(),
       });
 
-      const prepared = store.prepareLaunch(run.state.runId, { focus: "Checkpoint the launched iteration." });
+      const prepared = store.prepareLaunch(run.state.runId, { focus: "Record the launched iteration state." });
       const launchedIterationId = prepared.launch.iterationId;
 
       store.appendIteration(run.state.runId, {
         id: launchedIterationId,
         status: "accepted",
-        summary: "Initial checkpoint landed.",
+        summary: "Initial iteration state landed.",
         workerSummary: "The launched iteration recorded its outcome.",
         decision: {
           kind: "continue",
@@ -868,10 +962,10 @@ describe("ralph runtime session execution", () => {
         throw new Error("Expected a later iteration id after resume.");
       }
 
-      const duplicateCheckpoint = store.appendIteration(run.state.runId, {
+      const duplicateIteration = store.appendIteration(run.state.runId, {
         id: launchedIterationId,
         status: "accepted",
-        summary: "Duplicate checkpoint refreshed the same iteration.",
+        summary: "Duplicate iteration update refreshed the same iteration.",
         workerSummary: "The launched iteration kept its explicit decision.",
       });
 
@@ -879,14 +973,14 @@ describe("ralph runtime session execution", () => {
         id: laterIterationId,
         status: "reviewing",
         summary: "A later iteration now owns postIteration.",
-        workerSummary: "This newer checkpoint should not break trust in the launched iteration.",
+        workerSummary: "This newer iteration should not break trust in the launched iteration.",
       });
 
       const finalRun = store.readRun(run.state.runId);
 
       expect(finalRun.state.postIteration).toMatchObject({ iterationId: laterIterationId, status: "reviewing" });
-      expect(duplicateCheckpoint.iterations.find((iteration) => iteration.id === launchedIterationId)).toMatchObject({
-        summary: "Duplicate checkpoint refreshed the same iteration.",
+      expect(duplicateIteration.iterations.find((iteration) => iteration.id === launchedIterationId)).toMatchObject({
+        summary: "Duplicate iteration update refreshed the same iteration.",
         decision: expect.objectContaining({ kind: "continue" }),
       });
       expect(hasTrustedPostIteration(finalRun, launchedIterationId)).toBe(true);
@@ -1003,7 +1097,7 @@ describe("ralph loop policy enforcement", () => {
     store.appendIteration(run.state.runId, {
       id: firstLaunch.launch.iterationId,
       status: "accepted",
-      summary: "Persist the first bounded checkpoint before resuming.",
+      summary: "Persist the first bounded iteration state before resuming.",
       decision: {
         kind: "continue",
         reason: "unknown",
@@ -1023,18 +1117,9 @@ describe("ralph loop policy enforcement", () => {
       expect(launch.resume).toBe(true);
       expect(launch.iterationId).toBe("iter-002");
 
-      createRalphStore(workspace).appendIteration(run.state.runId, {
-        id: launch.iterationId,
-        status: "accepted",
-        summary: "Accepted resumed iteration.",
-        decision: {
-          kind: "continue",
-          reason: "unknown",
-          summary: "Stay eligible for another bounded iteration.",
-          decidedAt: new Date().toISOString(),
-          decidedBy: "policy",
-          blockingRefs: [],
-        },
+      await recordBoundTicketActivity(workspace, launch.ticketRef, {
+        status: "in_progress",
+        journalText: "Accepted resumed iteration.",
       });
 
       return {
@@ -1134,6 +1219,87 @@ describe("ralph loop policy enforcement", () => {
     runtimeSpy.mockRestore();
   });
 
+  it("applies a rerun policy snapshot for an existing bound run before enforcing runtime limits", async () => {
+    const boundWorkspace = mkdtempSync(join(tmpdir(), "pi-ralph-loop-bound-policy-"));
+    try {
+      const store = createRalphStore(boundWorkspace);
+      const ticketStore = createTicketStore(boundWorkspace);
+      const planStore = createPlanStore(boundWorkspace);
+      const ticket = await ticketStore.createTicketAsync({ title: "Bound ticket" });
+      const plan = await planStore.createPlan({
+        title: "Bound plan",
+        sourceTarget: { kind: "workspace", ref: "." },
+      });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: ticket.summary.id, role: "implementation" });
+      const run = store.createRun({
+        title: "Bound Ralph Run",
+        objective: "Update durable policy before rerunning an existing bound run.",
+        policySnapshot: { mode: "balanced", verifierRequired: false, maxRuntimeMinutes: 5 },
+        scope: {
+          ...createTicketBoundScope(ticket.summary.id, plan.state.planId),
+          specChangeId: null,
+        },
+      });
+
+      const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+      runtimeSpy.mockImplementationOnce(async (_cwd, _launch, signal, _onUpdate, _extraEnv, onEvent) => {
+        await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
+        return await new Promise((resolve) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              resolve({
+                command: "pi",
+                args: ["session-runtime"],
+                exitCode: 1,
+                output: "",
+                stderr: "Aborted",
+                usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+                status: "cancelled",
+              });
+            },
+            { once: true },
+          );
+        });
+      });
+
+      const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+      vi.useFakeTimers();
+      const loopPromise = executeRalphLoop(
+        {
+          cwd: boundWorkspace,
+          sessionManager: { getBranch: () => [] },
+        } as unknown as ExtensionContext,
+        {
+          ticketRef: ticket.summary.id,
+          planRef: plan.state.planId,
+          prompt: "rerun with stricter timeout",
+          iterations: 1,
+          policySnapshot: { mode: "strict", verifierRequired: false, maxRuntimeMinutes: 1 },
+        },
+      );
+      await vi.advanceTimersByTimeAsync(60_001);
+      await vi.advanceTimersByTimeAsync(2_001);
+      const result = await loopPromise;
+
+      expect(result.created).toBe(false);
+      expect(result.run.state.latestDecision).toMatchObject({ kind: "halt", reason: "timeout_exceeded" });
+      expect(result.run.state.policySnapshot).toMatchObject({
+        mode: "strict",
+        maxRuntimeMinutes: 1,
+        verifierRequired: false,
+      });
+      expect(createRalphStore(boundWorkspace).readRun(run.state.runId).state.policySnapshot).toMatchObject({
+        mode: "strict",
+        maxRuntimeMinutes: 1,
+        verifierRequired: false,
+      });
+      runtimeSpy.mockRestore();
+    } finally {
+      rmSync(boundWorkspace, { recursive: true, force: true });
+    }
+  }, 15000);
+
   it("reruns a halted runtime-failure loop by preparing a fresh bounded iteration", async () => {
     vi.useFakeTimers();
     const store = createRalphStore(workspace);
@@ -1167,18 +1333,9 @@ describe("ralph loop policy enforcement", () => {
         });
       })
       .mockImplementationOnce(async (_cwd, launch) => {
-        createRalphStore(workspace).appendIteration(run.state.runId, {
-          id: launch.iterationId,
-          status: "accepted",
-          summary: "Fresh rerun checkpoint landed.",
-          decision: {
-            kind: "continue",
-            reason: "unknown",
-            summary: "Fresh iteration can continue after the rerun.",
-            decidedAt: new Date().toISOString(),
-            decidedBy: "policy",
-            blockingRefs: [],
-          },
+        await recordBoundTicketActivity(workspace, launch.ticketRef, {
+          status: "in_progress",
+          journalText: "Fresh rerun ticket activity landed.",
         });
 
         return {
@@ -1212,22 +1369,32 @@ describe("ralph loop policy enforcement", () => {
         cwd: workspace,
         sessionManager: { getBranch: () => [] },
       } as unknown as ExtensionContext,
-      { ref: run.state.runId, prompt: "try again", iterations: 1 },
+      {
+        ref: run.state.runId,
+        prompt: "try again",
+        iterations: 1,
+        policySnapshot: { mode: "strict", verifierRequired: false, maxRuntimeMinutes: 2 },
+      },
     );
 
     expect(secondResult.steps).toHaveLength(1);
     expect(secondResult.steps[0]).toMatchObject({ iterationId: "iter-002", finalDecision: "continue" });
     expect(secondResult.run.iterations.at(-1)).toMatchObject({ id: "iter-002", status: "accepted" });
     expect(secondResult.run.state.status).toBe("active");
+    expect(secondResult.run.state.policySnapshot).toMatchObject({
+      mode: "strict",
+      maxRuntimeMinutes: 2,
+      verifierRequired: false,
+    });
     runtimeSpy.mockRestore();
   });
 
-  it("honors a late timeout checkpoint during the grace window instead of writing missing-checkpoint failure state", async () => {
+  it("honors late ticket activity during the grace window instead of writing missing-ticket-activity failure state", async () => {
     vi.useFakeTimers();
     const store = createRalphStore(workspace);
     const run = store.createRun({
       title: "Timeout grace Ralph Run",
-      objective: "Keep a late checkpoint truthful when timeout fires first.",
+      objective: "Keep late ticket activity truthful when timeout fires first.",
       policySnapshot: { verifierRequired: false, maxRuntimeMinutes: 1 },
       scope: createTicketBoundScope(),
     });
@@ -1238,19 +1405,10 @@ describe("ralph loop policy enforcement", () => {
       return await new Promise((resolve) => {
         signal?.addEventListener(
           "abort",
-          () => {
-            createRalphStore(workspace).appendIteration(run.state.runId, {
-              id: launch.iterationId,
-              status: "accepted",
-              summary: "Checkpoint landed during timeout shutdown.",
-              decision: {
-                kind: "continue",
-                reason: "unknown",
-                summary: "Checkpoint existed even though timeout policy wins.",
-                decidedAt: new Date().toISOString(),
-                decidedBy: "policy",
-                blockingRefs: [],
-              },
+          async () => {
+            await recordBoundTicketActivity(workspace, launch.ticketRef, {
+              status: "in_progress",
+              journalText: "Ticket activity landed during timeout shutdown.",
             });
             resolve({
               command: "pi",
@@ -1279,7 +1437,7 @@ describe("ralph loop policy enforcement", () => {
     await vi.advanceTimersByTimeAsync(2_001);
     const result = await loopPromise;
 
-    expect(result.run.runtimeArtifacts.at(-1)).toMatchObject({ missingCheckpoint: false, status: "failed" });
+    expect(result.run.runtimeArtifacts.at(-1)).toMatchObject({ missingTicketActivity: false, status: "failed" });
     expect(result.run.iterations.at(-1)).toMatchObject({
       id: "iter-001",
       status: "accepted",
@@ -1299,18 +1457,9 @@ describe("ralph loop policy enforcement", () => {
 
     const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
     runtimeSpy.mockImplementationOnce(async (_cwd, launch) => {
-      createRalphStore(workspace).appendIteration(run.state.runId, {
-        id: launch.iterationId,
-        status: "accepted",
-        summary: "Checkpointed bounded iteration before the policy audit.",
-        decision: {
-          kind: "continue",
-          reason: "unknown",
-          summary: "Worker requested another bounded iteration.",
-          decidedAt: new Date().toISOString(),
-          decidedBy: "policy",
-          blockingRefs: [],
-        },
+      await recordBoundTicketActivity(workspace, launch.ticketRef, {
+        status: "in_progress",
+        journalText: "Ticket activity recorded before the policy audit.",
       });
 
       return {

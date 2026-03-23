@@ -17,6 +17,7 @@ describe("ralph prompt guidance", () => {
     expect(guidance).toContain("durable steering, stop requests, and packet context");
     expect(guidance).toContain("long transcripts as a liability");
     expect(guidance).toContain("run one bounded iteration at a time");
+    expect(guidance).toContain("bound ticket as the authoritative execution ledger");
     expect(guidance).toContain("reject shallow run updates");
     expect(guidance).toContain(
       "bind each Ralph run to one exact ticket and use a governing plan when one is supplied or inferable; inherit the governing spec from that plan when present",
@@ -27,7 +28,7 @@ describe("ralph prompt guidance", () => {
     expect(guidance).toContain(
       "use `ralph_run` with required `ticketRef` and optional `planRef` to create or resume the system-owned Ralph run",
     );
-    expect(guidance).toContain("use `ralph_steer` to queue durable steering for the next iteration boundary");
+    expect(guidance).toContain("use `ralph_steer` to queue minor additive steering for the next iteration boundary");
     expect(guidance).toContain("use `ralph_stop` to request a clean stop for the managed loop");
   });
 
@@ -46,15 +47,13 @@ describe("ralph prompt guidance", () => {
     const toolSource = readFileSync(new URL("../extensions/tools/ralph.ts", import.meta.url), "utf8");
 
     expect(toolSource).toContain(
-      "one ticket under a governing plan should advance through bounded Ralph iterations with fresh context and durable review state",
+      "one ticket under a governing plan should advance through bounded Ralph iterations while the worker keeps the bound ticket durably current",
     );
+    expect(toolSource).toContain("The bound ticket is the execution ledger.");
+    expect(toolSource).toContain("must not override the governing ticket");
     expect(toolSource).toContain(
       "Background execution is well suited to parallel ticket delivery because distinct ticket-bound runs may proceed concurrently.",
     );
-    expect(toolSource).toContain(
-      "Use this tool from the fresh Ralph worker session that owns the launched iteration id",
-    );
-    expect(toolSource).toContain("Commit one complete iteration outcome at a time");
     expect(toolSource).toContain("Background execution is well suited to parallel ticket delivery");
     expect(toolSource).toContain("ralph_job_wait");
   });

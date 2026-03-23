@@ -104,6 +104,8 @@ interface RequestedModelRuntime {
   modelId: string;
 }
 
+const REQUIRED_RALPH_WORKER_TOOL_NAMES = ["ralph_read", "ticket_read", "ticket_write"] as const;
+
 export type RalphLaunchEvent = RalphRuntimeEvent;
 
 export const PI_PARENT_HARNESS_EXEC_PATH_ENV = "PI_PARENT_HARNESS_EXEC_PATH";
@@ -699,21 +701,21 @@ function buildSessionCreationOptions(
   resourceLoader?: HarnessResourceLoader,
 ): Record<string, unknown> {
   const requestedModel = getRequestedModelRuntime(env);
+  const extensionConfig = resolveNestedSessionExtensionConfig(env, cwd);
   const options: Record<string, unknown> = {
     cwd,
     sessionManager: runtime.SessionManager.inMemory(cwd),
   };
 
+  if (extensionConfig.additionalExtensionPaths) {
+    options.additionalExtensionPaths = extensionConfig.additionalExtensionPaths;
+  }
+  if (extensionConfig.disableExtensionDiscovery === true) {
+    options.disableExtensionDiscovery = true;
+  }
+
   if (resourceLoader) {
     options.resourceLoader = resourceLoader;
-  } else {
-    const extensionConfig = resolveNestedSessionExtensionConfig(env, cwd);
-    if (extensionConfig.additionalExtensionPaths) {
-      options.additionalExtensionPaths = extensionConfig.additionalExtensionPaths;
-    }
-    if (extensionConfig.disableExtensionDiscovery === true) {
-      options.disableExtensionDiscovery = true;
-    }
   }
 
   if (requestedModel) {
@@ -724,6 +726,26 @@ function buildSessionCreationOptions(
   }
 
   return options;
+}
+
+function listSessionToolNames(session: HarnessSession): string[] {
+  return typeof session.getAllTools === "function"
+    ? session.getAllTools().flatMap((tool) => (typeof tool?.name === "string" && tool.name.trim() ? [tool.name] : []))
+    : [];
+}
+
+async function ensureRalphWorkerToolsAvailable(session: HarnessSession): Promise<string[]> {
+  const toolNames = listSessionToolNames(session);
+  const missing = REQUIRED_RALPH_WORKER_TOOL_NAMES.filter((name) => !toolNames.includes(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `Ralph nested session is missing required tools: ${missing.join(", ")}. Ensure parent extension paths are forwarded explicitly to the nested run.`,
+    );
+  }
+  if (typeof session.setActiveToolsByName === "function" && toolNames.length > 0) {
+    await session.setActiveToolsByName(toolNames);
+  }
+  return toolNames;
 }
 
 async function applyRequestedModelToSession(session: HarnessSession, env: NodeJS.ProcessEnv): Promise<void> {
@@ -861,6 +883,7 @@ export async function runRalphLaunch(
 
         await bindHeadlessExtensions(created.session, runtimeEnv);
         await applyRequestedModelToSession(created.session, runtimeEnv);
+        await ensureRalphWorkerToolsAvailable(created.session);
 
         if (typeof created.session.subscribe === "function") {
           unsubscribe = created.session.subscribe((event) => {

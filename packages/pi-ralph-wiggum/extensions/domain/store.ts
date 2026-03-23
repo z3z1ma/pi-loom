@@ -8,7 +8,7 @@ import { createEntityId, createLinkId, createRandomLoomId } from "@pi-loom/pi-st
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
+import { requireResolvedRepositoryIdentity, resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
 import { openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { buildRalphDashboard, summarizeRalphRun } from "./dashboard.js";
 import { renderBulletList, renderSection } from "./frontmatter.js";
@@ -36,6 +36,7 @@ import type {
   RalphReadResult,
   RalphRunPhase,
   RalphRunScope,
+  RalphRunSummary,
   RalphRunState,
   RalphRunStatus,
   RalphRuntimeArtifactStatus,
@@ -128,6 +129,7 @@ function isRalphRuntimeArtifactAttributes(
 
 interface StoredRalphEntityRow {
   id: string;
+  space_id: string;
   display_id: string | null;
   version: number;
   created_at: string;
@@ -135,7 +137,62 @@ interface StoredRalphEntityRow {
 }
 
 function openRalphCatalogSync(cwd: string) {
-  return openWorkspaceStorageSync(cwd);
+  const opened = openWorkspaceStorageSync(cwd);
+  return {
+    ...opened,
+    identity: requireResolvedRepositoryIdentity(opened.identity),
+  };
+}
+
+interface RalphArtifactRow {
+  id: string;
+  display_id: string | null;
+  version: number;
+  created_at: string;
+  attributes_json: string;
+}
+
+interface RalphReadCacheEntry {
+  updatedAt: string;
+  result: RalphReadResult;
+}
+
+const ralphReadResultCache = new Map<string, RalphReadCacheEntry>();
+
+function ralphReadCacheKey(cwd: string, runId: string): string {
+  return `${resolve(cwd)}::${runId}`;
+}
+
+function listOwnedArtifactRowsSync(
+  cwd: string,
+  owner: { entityId: string; spaceId: string },
+  projectionOwner: string,
+  artifactType: string,
+): RalphArtifactRow[] {
+  const { storage } = openRalphCatalogSync(cwd);
+  const rows = storage.db
+    .prepare(
+      `
+        SELECT e.id, e.display_id, e.version, e.created_at, e.attributes_json
+        FROM links l
+        JOIN entities e ON e.id = l.from_entity_id
+        WHERE l.kind = ?
+          AND l.to_entity_id = ?
+          AND e.space_id = ?
+          AND e.kind = ?
+      `,
+    )
+    .all("belongs_to", owner.entityId, owner.spaceId, "artifact") as RalphArtifactRow[];
+
+  return rows.filter((row) => {
+    const attributes = parseStoredJson<Record<string, unknown>>(row.attributes_json, {});
+    return (
+      hasProjectedArtifactAttributes(attributes) &&
+      attributes.projectionOwner === projectionOwner &&
+      attributes.artifactType === artifactType &&
+      attributes.owner.entityId === owner.entityId
+    );
+  });
 }
 
 function parseStoredJson<T>(value: string, fallback: T): T {
@@ -174,7 +231,7 @@ function findStoredRalphRow(cwd: string, runId: string): StoredRalphEntityRow | 
   const { storage, identity } = openRalphCatalogSync(cwd);
   return (storage.db
     .prepare(
-      "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1",
+      "SELECT id, space_id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1",
     )
     .get(identity.space.id, ENTITY_KIND, runId) ?? null) as StoredRalphEntityRow | null;
 }
@@ -205,7 +262,7 @@ function ralphSearchText(record: RalphReadResult): string[] {
     record.dashboard.waitingFor,
     record.state.latestDecision?.summary ?? "",
     record.dashboard.latestDecision?.summary ?? "",
-    record.dashboard.latestIteration?.summary ?? "",
+    record.dashboard.latestBoundedIteration?.summary ?? "",
     record.state.verifierSummary.summary,
     record.state.verifierSummary.sourceRef,
     ...record.state.policySnapshot.notes,
@@ -252,7 +309,7 @@ function filterAndSortRalphSummaries(records: RalphReadResult[], filter: RalphLi
         { value: record.summary.policyMode, weight: 7 },
         { value: record.state.waitingFor, weight: 6 },
         { value: record.state.latestDecision?.summary, weight: 6 },
-        { value: record.dashboard.latestIteration?.summary, weight: 5 },
+        { value: record.dashboard.latestBoundedIteration?.summary, weight: 5 },
         { value: ralphSearchText(record).join(" "), weight: 3 },
       ],
     })),
@@ -332,6 +389,7 @@ function normalizeRuntimeEvents(events: readonly RalphRuntimeEvent[] | undefined
 }
 
 function normalizeRuntimeRecord(record: RalphIterationRuntimeRecord): RalphIterationRuntimeRecord {
+  const legacyRecord = record as RalphIterationRuntimeRecord & { missingCheckpoint?: boolean };
   return {
     id: record.id.trim(),
     runId: normalizeRalphRunId(record.runId),
@@ -357,7 +415,7 @@ function normalizeRuntimeRecord(record: RalphIterationRuntimeRecord): RalphItera
       planRef: normalizeOptionalString(record.launch.planRef),
       instructions: normalizeStringList(record.launch.instructions),
     },
-    missingCheckpoint: record.missingCheckpoint === true,
+    missingTicketActivity: record.missingTicketActivity === true || legacyRecord.missingCheckpoint === true,
     jobId: normalizeOptionalString(record.jobId),
   };
 }
@@ -470,26 +528,7 @@ function syncIterationArtifactsSync(
   timestamp: string,
 ): void {
   const { storage } = openRalphCatalogSync(cwd);
-  const existingRows = storage.db
-    .prepare(
-      "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ?",
-    )
-    .all(owner.spaceId, "artifact") as Array<{
-    id: string;
-    display_id: string | null;
-    version: number;
-    created_at: string;
-    attributes_json: string;
-  }>;
-  const managed = existingRows.filter((row) => {
-    const attributes = parseStoredJson<Record<string, unknown>>(row.attributes_json, {});
-    return (
-      hasProjectedArtifactAttributes(attributes) &&
-      attributes.projectionOwner === RALPH_ITERATION_PROJECTION_OWNER &&
-      attributes.artifactType === RALPH_ITERATION_ARTIFACT_TYPE &&
-      attributes.owner.entityId === owner.entityId
-    );
-  });
+  const managed = listOwnedArtifactRowsSync(cwd, owner, RALPH_ITERATION_PROJECTION_OWNER, RALPH_ITERATION_ARTIFACT_TYPE);
   const existingByDisplayId = new Map(managed.map((row) => [row.display_id ?? row.id, row]));
   const desiredDisplayIds = new Set<string>();
 
@@ -555,26 +594,7 @@ function syncRuntimeArtifactsSync(
   timestamp: string,
 ): void {
   const { storage } = openRalphCatalogSync(cwd);
-  const existingRows = storage.db
-    .prepare(
-      "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ?",
-    )
-    .all(owner.spaceId, "artifact") as Array<{
-    id: string;
-    display_id: string | null;
-    version: number;
-    created_at: string;
-    attributes_json: string;
-  }>;
-  const managed = existingRows.filter((row) => {
-    const attributes = parseStoredJson<Record<string, unknown>>(row.attributes_json, {});
-    return (
-      hasProjectedArtifactAttributes(attributes) &&
-      attributes.projectionOwner === RALPH_RUNTIME_PROJECTION_OWNER &&
-      attributes.artifactType === RALPH_RUNTIME_ARTIFACT_TYPE &&
-      attributes.owner.entityId === owner.entityId
-    );
-  });
+  const managed = listOwnedArtifactRowsSync(cwd, owner, RALPH_RUNTIME_PROJECTION_OWNER, RALPH_RUNTIME_ARTIFACT_TYPE);
   const existingByDisplayId = new Map(managed.map((row) => [row.display_id ?? row.id, row]));
   const desiredDisplayIds = new Set<string>();
 
@@ -1349,7 +1369,7 @@ function verifierMatchesLatestIteration(state: RalphRunState, verifier: RalphVer
   return latestIterationId === null || verifier.iterationId === latestIterationId;
 }
 
-function isCheckpointIterationAllowed(
+function isLatestIterationWritable(
   state: RalphRunState,
   iterations: readonly RalphIterationRecord[],
   iterationId: string,
@@ -1362,11 +1382,11 @@ function isCheckpointIterationAllowed(
     return true;
   }
   const matchesPreparedIteration = state.nextIterationId === iterationId;
-  const matchesLatestCheckpoint =
+  const matchesLatestIteration =
     state.postIteration?.iterationId === iterationId &&
     state.nextIterationId === null &&
     state.nextLaunch.runtime === null;
-  return matchesPreparedIteration || matchesLatestCheckpoint;
+  return matchesPreparedIteration || matchesLatestIteration;
 }
 
 function createPacketSummary(state: RalphRunState): string {
@@ -1448,7 +1468,7 @@ export class RalphStore {
       roadmap: this.buildContextSummary(state.linkedRefs.roadmapItemIds, (ref) => {
         const constitution = readStructuredEntityAttributesSync<{
           state: { roadmapItems: Array<{ id: string; status: string; title: string }> };
-        }>(this.cwd, "constitution", resolveWorkspaceIdentity(this.cwd).repository.slug);
+        }>(this.cwd, "constitution", requireResolvedRepositoryIdentity(resolveWorkspaceIdentity(this.cwd)).repository.slug);
         const item = constitution?.state.roadmapItems.find((entry) => entry.id === ref);
         if (!item) throw new Error(`Unknown roadmap item: ${ref}`);
         return `${item.id} [${item.status}] ${item.title}`;
@@ -1521,7 +1541,7 @@ export class RalphStore {
           `- status: ${latestIteration.status}`,
           `- focus: ${latestIteration.focus || "(none)"}`,
           `- summary: ${latestIteration.summary || "(none)"}`,
-          `- worker summary: ${latestIteration.workerSummary || "(none)"}`,
+          `- ticket activity summary: ${latestIteration.workerSummary || "(none)"}`,
           `- verifier: ${latestIteration.verifier.verdict}`,
         ].join("\n")
       : "(none)";
@@ -1533,7 +1553,7 @@ export class RalphStore {
           `- completed at: ${state.postIteration.completedAt ?? "(not completed)"}`,
           `- focus: ${state.postIteration.focus || "(none)"}`,
           `- summary: ${state.postIteration.summary || "(none)"}`,
-          `- worker summary: ${state.postIteration.workerSummary || "(none)"}`,
+          `- ticket activity summary: ${state.postIteration.workerSummary || "(none)"}`,
           `- verifier: ${state.postIteration.verifier.verdict}`,
           `- critiques: ${state.postIteration.critiqueLinks.map((link) => link.critiqueId).join(", ") || "(none)"}`,
           `- decision: ${state.postIteration.decision?.kind ?? "(none)"}`,
@@ -1556,7 +1576,7 @@ export class RalphStore {
           `- started at: ${latestRuntime.startedAt}`,
           `- completed at: ${latestRuntime.completedAt ?? "(not completed)"}`,
           `- exit code: ${latestRuntime.exitCode ?? "(none)"}`,
-          `- missing checkpoint: ${latestRuntime.missingCheckpoint ? "yes" : "no"}`,
+          `- missing ticket activity: ${latestRuntime.missingTicketActivity ? "yes" : "no"}`,
           `- command: ${latestRuntime.command || "(none)"}`,
           `- events: ${latestRuntime.events.length}`,
         ].join("\n")
@@ -1671,10 +1691,10 @@ export class RalphStore {
           `- stop request: ${state.stopRequest ? `${state.stopRequest.summary} @ ${state.stopRequest.requestedAt}` : "(none)"}`,
         ].join("\n"),
       ),
-      renderSection("Post-Iteration Checkpoint", postIterationLines),
+      renderSection("Latest Bounded Iteration", postIterationLines),
       renderSection("Next Launch State", nextLaunchLines),
       renderSection("Latest Runtime Artifact", runtimeLines),
-      renderSection("Latest Iteration", latestIterationLines),
+      renderSection("Latest Iteration Ledger Entry", latestIterationLines),
       renderListSection("Linked Plans", context.plans),
       renderListSection("Linked Tickets", context.tickets),
       renderListSection("Linked Critiques", context.critiques),
@@ -1689,7 +1709,7 @@ export class RalphStore {
           "- Perform one bounded iteration only.",
           "- Execute only the authoritative active scope described above.",
           "- Treat the spec, plan, and ticket context in this packet as the canonical source for this iteration.",
-          "- Persist verifier evidence, critique references, and the continuation decision back into the Ralph run so the next caller can inspect the post-iteration state after exit.",
+          "- Leave durable evidence in the bound ticket ledger so Ralph can reconcile the latest bounded iteration after exit.",
           "- Do not report completion unless the current ticket or planning scope is actually complete and the policy gates permit stopping.",
         ].join("\n"),
       ),
@@ -1722,11 +1742,7 @@ export class RalphStore {
     if (!row) {
       return [];
     }
-    const { storage, identity } = openRalphCatalogSync(this.cwd);
-    const rows = storage.db
-      .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ?")
-      .all(identity.space.id, "artifact") as Array<{ attributes_json: string }>;
-    return rows
+    return listOwnedArtifactRowsSync(this.cwd, { entityId: row.id, spaceId: row.space_id }, RALPH_ITERATION_PROJECTION_OWNER, RALPH_ITERATION_ARTIFACT_TYPE)
       .map((artifact) => parseStoredJson<Record<string, unknown>>(artifact.attributes_json, {}))
       .filter(
         (attributes): attributes is ProjectedArtifactEntityAttributes<RalphIterationArtifactPayload> =>
@@ -1741,11 +1757,7 @@ export class RalphStore {
     if (!row) {
       return [];
     }
-    const { storage, identity } = openRalphCatalogSync(this.cwd);
-    const rows = storage.db
-      .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ?")
-      .all(identity.space.id, "artifact") as Array<{ attributes_json: string }>;
-    return rows
+    return listOwnedArtifactRowsSync(this.cwd, { entityId: row.id, spaceId: row.space_id }, RALPH_RUNTIME_PROJECTION_OWNER, RALPH_RUNTIME_ARTIFACT_TYPE)
       .map((artifact) => parseStoredJson<Record<string, unknown>>(artifact.attributes_json, {}))
       .filter(
         (attributes): attributes is ProjectedArtifactEntityAttributes<RalphRuntimeArtifactPayload> =>
@@ -1786,8 +1798,8 @@ export class RalphStore {
           ? state.nextLaunch.instructions
           : [
               `Read ${toRalphPacketRef(state.runId)} before acting.`,
-              `Persist iteration updates for ${nextIteration.id} through the Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
-              "Execute exactly one bounded iteration and record an explicit policy decision before exiting.",
+              `Update the bound ticket ledger durably for ${nextIteration.id}; Ralph will reconcile the latest bounded iteration after exit.`,
+              "Execute exactly one bounded iteration and leave the truthful next-step state in the ticket before exiting.",
             ],
     };
   }
@@ -1807,12 +1819,20 @@ export class RalphStore {
       instructions: [
         "Prepare one fresh Ralph iteration at a time.",
         `Read the canonical packet through ralph_read mode=packet ticketRef=${state.scope.ticketId ?? state.activeTicketId ?? "(unbound-ticket)"}${state.scope.planId ? ` planRef=${state.scope.planId}` : ""}.`,
-        `Persist iteration updates for ${iteration?.id ?? "iter-001"} through Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
+        `Update the bound ticket ledger durably for ${iteration?.id ?? "iter-001"}; Ralph will reconcile the latest bounded iteration after exit.`,
       ],
     };
   }
 
-  private writeArtifacts(
+  private cacheReadResult(record: RalphReadResult): RalphReadResult {
+    ralphReadResultCache.set(ralphReadCacheKey(this.cwd, record.state.runId), {
+      updatedAt: record.state.updatedAt,
+      result: record,
+    });
+    return record;
+  }
+
+  private buildReadResult(
     state: RalphRunState,
     launchOverride?: RalphLaunchDescriptor | null,
     iterationsOverride?: RalphIterationRecord[],
@@ -1847,7 +1867,7 @@ export class RalphStore {
       runtimeArtifacts,
     );
 
-    const record: RalphReadResult = {
+    return {
       state: normalizedState,
       summary,
       packet,
@@ -1858,6 +1878,15 @@ export class RalphStore {
       dashboard,
       artifacts,
     };
+  }
+
+  private writeArtifacts(
+    state: RalphRunState,
+    launchOverride?: RalphLaunchDescriptor | null,
+    iterationsOverride?: RalphIterationRecord[],
+    runtimeArtifactsOverride?: RalphIterationRuntimeRecord[],
+  ): RalphReadResult {
+    const record = this.buildReadResult(state, launchOverride, iterationsOverride, runtimeArtifactsOverride);
     const { storage, identity } = openRalphCatalogSync(this.cwd);
     const desiredProjectedLinks = buildProjectedRalphLinks(record.state);
     assertProjectedRalphLinksResolvable(this.cwd, identity.space.id, desiredProjectedLinks);
@@ -1890,7 +1919,7 @@ export class RalphStore {
         spaceId: identity.space.id,
         repositoryId: owningRepositoryId,
       },
-      iterations,
+      record.iterations,
       record.state.updatedAt,
     );
     syncRuntimeArtifactsSync(
@@ -1902,7 +1931,7 @@ export class RalphStore {
         spaceId: identity.space.id,
         repositoryId: owningRepositoryId,
       },
-      runtimeArtifacts,
+      record.runtimeArtifacts,
       record.state.updatedAt,
     );
     // Roadmap refs point at embedded constitution items, so phase 1 projects only canonical entity relationships.
@@ -1913,7 +1942,7 @@ export class RalphStore {
       desired: desiredProjectedLinks,
       timestamp: record.state.updatedAt,
     });
-    return record;
+    return this.cacheReadResult(record);
   }
 
   private createDefaultState(input: CreateRalphRunInput, runId: string, timestamp: string): RalphRunState {
@@ -2247,8 +2276,8 @@ export class RalphStore {
           ? state.nextLaunch.instructions
           : [
               `Read the canonical packet through ralph_read mode=packet ticketRef=${state.scope.ticketId ?? state.activeTicketId ?? "(unbound-ticket)"}${state.scope.planId ? ` planRef=${state.scope.planId}` : ""}.`,
-              `Persist iteration updates for ${iteration.id} through the Ralph tools with ref=${toRalphRunRef(state.runId)}.`,
-              "Execute exactly one bounded iteration and record an explicit policy decision before exiting.",
+              `Update the bound ticket ledger durably for ${iteration.id}; Ralph will reconcile the latest bounded iteration after exit.`,
+              "Execute exactly one bounded iteration and leave the truthful next-step state in the ticket before exiting.",
             ],
     };
   }
@@ -2264,7 +2293,18 @@ export class RalphStore {
   readRun(ref: string): RalphReadResult {
     this.initLedger();
     const runDir = this.resolveRunDirectory(ref);
-    return this.writeArtifacts(this.readState(runDir));
+    const state = this.readState(runDir);
+    const cached = ralphReadResultCache.get(ralphReadCacheKey(this.cwd, state.runId));
+    if (cached && cached.updatedAt === state.updatedAt) {
+      return cached.result;
+    }
+    return this.cacheReadResult(this.buildReadResult(state));
+  }
+
+  readRunSummary(ref: string): RalphRunSummary {
+    this.initLedger();
+    const runDir = this.resolveRunDirectory(ref);
+    return this.summarizeRun(this.readState(runDir), runDir);
   }
 
   createRun(input: CreateRalphRunInput): RalphReadResult {
@@ -2343,9 +2383,9 @@ export class RalphStore {
         "iter",
         history.map((entry) => entry.id),
       );
-    if (input.requireActiveIteration === true && !isCheckpointIterationAllowed(current.state, latestIterations, id)) {
+    if (input.requireActiveIteration === true && !isLatestIterationWritable(current.state, latestIterations, id)) {
       throw new Error(
-        `Ralph run ${current.state.runId} cannot checkpoint iteration ${id} because it is not the active or latest checkpointable iteration.`,
+        `Ralph run ${current.state.runId} cannot update iteration ${id} because it is not the active or latest writable iteration.`,
       );
     }
     const iterationNumber = existing?.iteration ?? current.state.lastIterationNumber + 1;
@@ -2531,7 +2571,7 @@ export class RalphStore {
       }),
       events: [...(existing?.events ?? []), ...(input.events ?? [])],
       launch,
-      missingCheckpoint: input.missingCheckpoint ?? existing?.missingCheckpoint ?? false,
+      missingTicketActivity: input.missingTicketActivity ?? existing?.missingTicketActivity ?? false,
       jobId: input.jobId ?? existing?.jobId ?? null,
     });
 
@@ -2547,7 +2587,7 @@ export class RalphStore {
         iterationId: record.iterationId,
         status: record.status,
         exitCode: record.exitCode,
-        missingCheckpoint: record.missingCheckpoint,
+        missingTicketActivity: record.missingTicketActivity,
         jobId: record.jobId,
       },
       now,
@@ -2875,6 +2915,10 @@ export class RalphStore {
 
   async readRunAsync(ref: string): Promise<RalphReadResult> {
     return this.readRun(ref);
+  }
+
+  async readRunSummaryAsync(ref: string): Promise<RalphRunSummary> {
+    return this.readRunSummary(ref);
   }
 
   async createRunAsync(input: CreateRalphRunInput): Promise<RalphReadResult> {

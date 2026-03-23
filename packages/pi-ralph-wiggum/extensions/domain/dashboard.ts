@@ -67,7 +67,7 @@ export function buildRalphDashboard(
     packetRef: toRalphPacketRef(state.runId),
     runRef: toRalphDocumentRef(state.runId),
     launchRef: toRalphLaunchRef(state.runId),
-    latestIteration: latestIteration
+    latestBoundedIteration: latestIteration
       ? {
           id: latestIteration.id,
           iteration: latestIteration.iteration,
@@ -85,7 +85,7 @@ export function buildRalphDashboard(
           updatedAt: latestRuntime.updatedAt,
           completedAt: latestRuntime.completedAt,
           exitCode: latestRuntime.exitCode,
-          missingCheckpoint: latestRuntime.missingCheckpoint,
+          missingTicketActivity: latestRuntime.missingTicketActivity,
           jobId: latestRuntime.jobId,
         }
       : null,
