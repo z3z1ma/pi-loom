@@ -2,19 +2,18 @@
 
 SQLite-backed Ralph managed-loop orchestration for pi.
 
-This package adds a bounded Ralph-specific orchestration layer with canonical run state stored in SQLite via pi-storage. Ralph now manages one durable, plan-anchored loop per workspace: it keeps the run truthful between fresh-context worker launches, advances the governing plan ticket-by-ticket, and exits only when the plan is complete or the operator stops, pauses, or steers the loop.
+This package adds a bounded Ralph-specific orchestration layer with canonical run state stored in SQLite via pi-storage. Ralph runs are ticket-bound: each run is durably tied to one ticket, optionally anchored to a governing plan when one is supplied or inferable, keeps that ticket's orchestration state truthful between fresh-context worker launches, and exits only when the ticket run completes or the operator stops, pauses, or steers it.
 
 ## Capabilities
 
 - `/ralph` human command surface for `start`, `stop`, `steer`, and `status`
 - `ralph_run`, `ralph_steer`, `ralph_stop`, `ralph_read`, and Ralph-native background job tools for AI callers
-- canonical run records stored in SQLite with human-facing run display ids backed by opaque entity ids, packet context, queued steering, and revisable post-iteration checkpoints
-- one managed Ralph loop per workspace so the active governing plan stays unambiguous
+- canonical run records stored in SQLite with system-owned run ids derived from the effective plan/ticket binding (using a ticket-only sentinel when no plan applies), packet context, queued steering, and revisable post-iteration checkpoints
+- multiple Ralph runs may coexist in one workspace when they do not target the same ticket concurrently
 - plan-anchored execution where the governing spec is inherited from the plan when present
 - fresh-context ticket iterations with durable runtime checkpoint artifacts for launch lifecycle, tool activity, streamed assistant output, stderr, and failures
 - background execution backed by an in-process async job manager so long-running loops can be started, inspected, awaited, and cancelled without losing durable run truth
 - explicit operator control over start/stop/steer/status instead of transcript-only orchestration
-- ticket synthesis when a governing plan has no linked tickets yet, followed by review-aware pausing if the plan still lacks executable ticket scope
 - runtime-limit and token-budget enforcement that halts runs explicitly when bounded execution exceeds the configured policy
 - extension lifecycle hooks that initialize the Ralph ledger for orchestration state management
 
@@ -38,24 +37,24 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 
 ## Current implementation status
 
-The package ships a human-facing `/ralph` command plus an AI-facing tool surface centered on the managed plan loop.
+The package ships a human-facing `/ralph` command plus an AI-facing tool surface centered on ticket-bound Ralph runs.
 
 Human command usage:
 
-- `/ralph start <plan-ref> [steering prompt]` — start the managed loop for a governing plan, or continue the existing loop for that same plan
-- `/ralph stop [run-ref]` — request that the active managed loop stop cleanly
-- `/ralph steer <text>` or `/ralph steer ref <run-ref> <text>` — queue durable steering for the next iteration boundary
-- `/ralph status [run-ref]` — inspect the current durable loop state
+- `/ralph start <ticket-ref> [steering prompt]` — run the ticket-bound Ralph loop until that ticket completes or no further truthful progress is possible
+- `/ralph start <plan-ref> [steering prompt]` — iterate the plan's linked tickets until they complete or no further truthful progress is possible
+- `/ralph start <plan-ref> <ticket-ref> [steering prompt]` — run the Ralph loop for one exact plan/ticket binding
+- `/ralph stop <ticket-ref>` or `/ralph stop <plan-ref> <ticket-ref>` — request that the targeted Ralph run stop cleanly
+- `/ralph steer <ticket-ref> <text>` or `/ralph steer <plan-ref> <ticket-ref> <text>` — queue durable steering for the next iteration boundary of the targeted run
+- `/ralph status <ticket-ref>` or `/ralph status <plan-ref> <ticket-ref>` — inspect the current durable state of the targeted run
 
 AI tool usage:
 
-- use `ralph_run` to start a new managed loop with `planRef`, or continue an existing loop with `ref`
-- use `ralph_steer` to add durable steering without relying on ambient transcript state
-- use `ralph_stop` to stop the loop cleanly, optionally cancelling the active background job
-- use `ralph_read` to inspect packets, dashboards, queued steering, and durable run state through human-facing run display ids while canonical storage ids remain opaque underneath
+- use `ralph_run` with required `ticketRef` and optional `planRef` to create or continue the system-owned run for that ticket binding
+- use `ralph_steer`, `ralph_stop`, and `ralph_read` with the same `ticketRef` and optional `planRef` to manipulate or inspect the targeted run without choosing run ids in AI input
 - use `ralph_job_read`, `ralph_job_wait`, and `ralph_job_cancel` for explicit background-job inspection, waiting, and cancellation
 
-`ralph_run` is the primary loop tool. It creates or resumes the single managed loop for the workspace, anchors execution to the governing plan, inherits the governing spec from that plan when present, and runs fresh-context bounded iterations until the plan ticket graph is complete or the loop pauses, halts, or is stopped. There is no separate planning-mode Ralph run surface anymore: if a plan lacks linked tickets, Ralph performs ticket synthesis inside the managed loop and pauses for operator review if the plan still has no executable tickets afterward.
+`ralph_run` is the primary loop tool. It creates or resumes the system-owned Ralph run for one exact `ticketRef` plus its effective plan binding, inherits the governing spec from the plan when one is present, and runs fresh-context bounded iterations against that ticket until the run pauses, halts, or completes. Parallelism is therefore explicit: different tickets may run in parallel, but the same ticket must not have two Ralph runs executing at once.
 
 `ralph_checkpoint` remains the only trusted way for a fresh Ralph worker session-runtime launch to commit a bounded iteration outcome. Reusing the same `iterationId` updates that iteration's checkpoint rather than creating immutable history entries. A session-runtime exit without a durable checkpoint is treated as failure and recorded as such.
 

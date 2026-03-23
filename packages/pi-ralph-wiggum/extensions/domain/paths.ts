@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 
 export interface RalphPaths {
@@ -44,6 +45,14 @@ export function normalizeRalphRunRef(value: string): string {
   const withoutPrefix = withoutAt.startsWith("ralph-run:") ? withoutAt.slice("ralph-run:".length) : withoutAt;
   const runToken = withoutPrefix.split(":")[0] ?? withoutPrefix;
   return normalizeRalphRunId(runToken);
+}
+
+export function deriveRalphRunId(planRef: string | null, ticketRef: string): string {
+  const normalizedPlanRef = planRef?.trim() || "ticket-only";
+  const planSlug = slugifyRalphValue(normalizedPlanRef).slice(0, 24);
+  const ticketSlug = slugifyRalphValue(ticketRef).slice(0, 24);
+  const suffix = createHash("sha256").update(`${normalizedPlanRef}\u241f${ticketRef}`).digest("hex").slice(0, 12);
+  return normalizeRalphRunId(`plan-${planSlug}--ticket-${ticketSlug}-${suffix}`);
 }
 
 export function getRalphPaths(cwd: string): RalphPaths {

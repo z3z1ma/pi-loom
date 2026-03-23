@@ -375,7 +375,6 @@ export interface RalphListFilter {
 }
 
 export interface CreateRalphRunInput {
-  runId?: string;
   title: string;
   objective?: string;
   summary?: string;

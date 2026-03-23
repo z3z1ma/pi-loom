@@ -11,6 +11,7 @@ import {
 } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CreateRalphRunInput } from "../extensions/domain/models.js";
+import { deriveRalphRunId } from "../extensions/domain/paths.js";
 import { createRalphStore } from "../extensions/domain/store.js";
 
 function createExecutionRun(
@@ -104,6 +105,7 @@ function seedLinkedEntity(
 function seedDefaultLinkedEntities(workspace: string) {
   seedLinkedEntity(workspace, "plan", "plan-123", "Default plan");
   seedLinkedEntity(workspace, "ticket", "ticket-456", "Default ticket");
+  seedLinkedEntity(workspace, "ticket", "ticket-457", "Alternate ticket");
   seedLinkedEntity(workspace, "spec_change", "spec-789", "Default spec");
 }
 
@@ -148,12 +150,13 @@ describe("RalphStore durable memory", () => {
         required: true,
       },
     });
+    const expectedRunId = deriveRalphRunId("plan-123", "ticket-456");
 
     expect(ledger).toMatchObject({
       initialized: true,
       root: expect.stringMatching(/catalog\.sqlite$/),
     });
-    expect(created.state.runId).toBe("ralph-rollout");
+    expect(created.state.runId).toBe(expectedRunId);
     expect(created.state.linkedRefs.planIds).toEqual(["plan-123"]);
     expect(created.state.linkedRefs.ticketIds).toEqual(["ticket-456"]);
     expect(created.state.linkedRefs.specChangeIds).toEqual(["spec-789"]);
@@ -171,7 +174,7 @@ describe("RalphStore durable memory", () => {
       ticketId: "ticket-456",
     });
     expect(created.launch).toMatchObject({
-      runId: "ralph-rollout",
+      runId: expectedRunId,
       iterationId: "iter-001",
       iteration: 1,
       runtime: "descriptor_only",
@@ -196,7 +199,7 @@ describe("RalphStore durable memory", () => {
 
     const readback = store.readRun(created.state.runId);
     expect(readback.state).toMatchObject({
-      runId: "ralph-rollout",
+      runId: expectedRunId,
       objective: "Coordinate one bounded orchestration loop.",
       status: "planned",
       phase: "preparing",
@@ -211,7 +214,7 @@ describe("RalphStore durable memory", () => {
       lastIterationNumber: 0,
     });
     expect(readback.summary).toMatchObject({
-      id: "ralph-rollout",
+      id: expectedRunId,
       status: "planned",
       decision: null,
       iterationCount: 0,
@@ -414,6 +417,48 @@ describe("RalphStore durable memory", () => {
       packetRef: `ralph-run:${created.state.runId}:packet`,
     });
   }, 120000);
+
+  it("prepares fresh concurrent launches and still allows older active iterations to checkpoint", () => {
+    vi.setSystemTime(new Date("2026-03-15T15:05:00.000Z"));
+    const store = createRalphStore(workspace);
+
+    const run = createExecutionRun(store, {
+      title: "Concurrent launch state",
+      objective: "Allow parallel session launches on distinct tickets.",
+      linkedRefs: {
+        planIds: ["plan-123"],
+        ticketIds: ["ticket-456"],
+        specChangeIds: ["spec-789"],
+      },
+    });
+
+    const firstLaunch = store.prepareLaunch(run.state.runId, { focus: "First concurrent launch", requireFresh: true });
+
+    vi.setSystemTime(new Date("2026-03-15T15:06:00.000Z"));
+    const secondLaunch = store.prepareLaunch(run.state.runId, {
+      focus: "Second concurrent launch",
+      requireFresh: true,
+    });
+
+    expect(firstLaunch.launch.iterationId).toBe("iter-001");
+    expect(secondLaunch.launch.iterationId).toBe("iter-002");
+    expect(secondLaunch.state.nextIterationId).toBe("iter-002");
+
+    vi.setSystemTime(new Date("2026-03-15T15:07:00.000Z"));
+    const checkpointedFirst = store.appendIteration(run.state.runId, {
+      id: firstLaunch.launch.iterationId,
+      requireActiveIteration: true,
+      status: "running",
+      summary: "The first launch is still actively checkpointing.",
+    });
+
+    expect(checkpointedFirst.iterations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "iter-001", status: "running" }),
+        expect.objectContaining({ id: "iter-002", status: "pending" }),
+      ]),
+    );
+  });
 
   it("records iteration state and pauses on blocking critique decisions", async () => {
     vi.setSystemTime(new Date("2026-03-15T14:10:00.000Z"));
@@ -664,7 +709,7 @@ describe("RalphStore durable memory", () => {
     expect(decided.state.stopReason).toBeNull();
   });
 
-  it("keeps plan-anchored completion decisions loop-managed even when the worker reports completion", () => {
+  it("completes a ticket-bound run when verifier gates pass and the worker reports completion", () => {
     const store = createRalphStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T14:20:00.000Z"));
@@ -702,23 +747,28 @@ describe("RalphStore durable memory", () => {
     });
 
     expect(completed.state.latestDecision).toMatchObject({
-      kind: "continue",
-      reason: "worker_requested_completion",
+      kind: "complete",
+      reason: "goal_reached",
     });
-    expect(completed.state.status).toBe("active");
-    expect(completed.state.phase).toBe("deciding");
+    expect(completed.state.status).toBe("completed");
+    expect(completed.state.phase).toBe("completed");
     expect(completed.state.nextIterationId).toBeNull();
     expect(completed.state.nextLaunch).toMatchObject({
       runtime: null,
       resume: false,
       preparedAt: null,
     });
-    expect(completed.state.stopReason).toBeNull();
+    expect(completed.state.stopReason).toBe("goal_reached");
 
     vi.setSystemTime(new Date("2026-03-15T14:30:00.000Z"));
     const resumableRun = createExecutionRun(store, {
       title: "Resume Launch Run",
       objective: "Prepare a fresh iteration after an accepted prior iteration.",
+      linkedRefs: {
+        planIds: ["plan-123"],
+        ticketIds: ["ticket-457"],
+        specChangeIds: ["spec-789"],
+      },
     });
 
     vi.setSystemTime(new Date("2026-03-15T14:31:00.000Z"));
@@ -743,7 +793,7 @@ describe("RalphStore durable memory", () => {
     });
 
     expect(() => store.resumeRun(resumableRun.state.runId, { focus: "Resume from durable state" })).toThrow(
-      "Ralph run resume-launch-run requires a fresh continuation decision for iteration iter-001 before launching again.",
+      `Ralph run ${resumableRun.state.runId} requires a fresh continuation decision for iteration iter-001 before launching again.`,
     );
 
     vi.setSystemTime(new Date("2026-03-15T14:32:30.000Z"));
@@ -980,7 +1030,7 @@ describe("RalphStore durable memory", () => {
     expect(paused.packet).toContain("waiting for: operator");
 
     expect(() => store.prepareLaunch(gated.state.runId)).toThrow(
-      "Ralph run manual-approval-run is waiting for operator and cannot launch until that gate is cleared.",
+      `Ralph run ${gated.state.runId} is waiting for operator and cannot launch until that gate is cleared.`,
     );
 
     const cleared = store.updateRun(gated.state.runId, {

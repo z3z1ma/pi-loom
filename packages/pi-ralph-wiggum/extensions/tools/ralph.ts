@@ -9,8 +9,8 @@ import {
   type ExecuteRalphLoopResult,
   ensureRalphRun,
   executeRalphLoop,
-  findActiveRalphRun,
   isRalphLoopExecutionInFlight,
+  resolveRalphRunBinding,
   renderLoopResult,
 } from "../domain/loop.js";
 import type { DecideRalphRunInput, RalphCritiqueLink, RalphReadResult } from "../domain/models.js";
@@ -234,10 +234,10 @@ const RalphListParams = Type.Object({
 });
 
 const RalphReadParams = Type.Object({
-  ref: Type.String({
-    description:
-      "Run display id, run path, or Ralph artifact path. Canonical Ralph entity ids stay opaque in storage and are not part of the public read surface.",
-  }),
+  ticketRef: Type.String({ description: "Ticket ref bound to the Ralph run you want to inspect." }),
+  planRef: Type.Optional(
+    Type.String({ description: "Optional governing plan ref for the Ralph run you want to inspect." }),
+  ),
   mode: Type.Optional(
     withDescription(
       RalphReadModeEnum,
@@ -247,22 +247,12 @@ const RalphReadParams = Type.Object({
 });
 
 const RalphRunParams = Type.Object({
-  ref: Type.Optional(
-    Type.String({
-      description:
-        "Existing Ralph run display id or `ralph-run:<display-id>` ref to continue, inspect, or add steering to within the managed loop.",
-    }),
-  ),
-  planRef: Type.Optional(
-    Type.String({
-      description:
-        "Governing plan ref for a new managed loop. The loop inherits its governing spec from the plan when present and can synthesize ticket scope when the plan begins with an empty linked-ticket set.",
-    }),
-  ),
+  ticketRef: Type.String({ description: "Ticket ref that the Ralph run is durably bound to." }),
+  planRef: Type.Optional(Type.String({ description: "Optional governing plan ref for the ticket-bound Ralph run." })),
   steeringPrompt: Type.Optional(
     Type.String({
       description:
-        "Durable operator steering for the next iteration boundary. This guidance is preserved in run state and picked up by the managed loop when it selects the next ticket.",
+        "Durable operator steering for the next iteration boundary. This guidance is preserved in run state and applied to the bound ticket run.",
     }),
   ),
   background: Type.Optional(
@@ -275,21 +265,17 @@ const RalphRunParams = Type.Object({
 });
 
 const RalphSteerParams = Type.Object({
-  ref: Type.Optional(
-    Type.String({
-      description:
-        "Target Ralph run display id or `ralph-run:<display-id>` ref. Leave unset to target the current active loop in the workspace.",
-    }),
+  ticketRef: Type.String({ description: "Ticket ref bound to the Ralph run that should absorb the steering." }),
+  planRef: Type.Optional(
+    Type.String({ description: "Optional governing plan ref for the Ralph run that should absorb the steering." }),
   ),
   text: Type.String({ description: "Steering text to queue durably for the next iteration boundary." }),
 });
 
 const RalphStopParams = Type.Object({
-  ref: Type.Optional(
-    Type.String({
-      description:
-        "Target Ralph run display id or `ralph-run:<display-id>` ref. Leave unset to target the current active loop in the workspace.",
-    }),
+  ticketRef: Type.String({ description: "Ticket ref bound to the Ralph run that should stop." }),
+  planRef: Type.Optional(
+    Type.String({ description: "Optional governing plan ref for the Ralph run that should stop." }),
   ),
   summary: Type.Optional(Type.String({ description: "Operator summary recorded with the durable stop request." })),
   cancelRunning: Type.Optional(
@@ -317,6 +303,12 @@ const RalphJobWaitParams = Type.Object({
         description:
           "Specific Ralph background job ids to wait on. Leave unset to wait for any tracked Ralph job in the workspace.",
       }),
+    ),
+  ),
+  mode: Type.Optional(
+    withDescription(
+      StringEnum(["any", "all"]),
+      "Wait mode: resolve when any tracked job settles or after all tracked jobs settle.",
     ),
   ),
   timeoutMs: Type.Optional(Type.Number({ description: "Optional wait timeout in milliseconds for the current call." })),
@@ -380,31 +372,47 @@ function getWorkspaceJob(
   return job;
 }
 
-function assertNoRunningRunJob(runId: string, cwd: string): void {
-  const runningJob = getRunJobs(runId, cwd).find((job) => job.status === "running");
-  if (runningJob) {
-    throw new Error(
-      `Ralph run ${runId} already has running background job ${runningJob.id}; wait for it to finish or cancel it before launching again.`,
-    );
-  }
+function getRunningRunJobs(
+  runId: string,
+  cwd: string,
+): AsyncJob<RalphJobType, RalphJobMetadata, ExecuteRalphLoopResult>[] {
+  return getRunJobs(runId, cwd).filter((job) => job.status === "running");
 }
 
 function getRunningRunJob(
   runId: string,
   cwd: string,
 ): AsyncJob<RalphJobType, RalphJobMetadata, ExecuteRalphLoopResult> | null {
-  return getRunJobs(runId, cwd).find((job) => job.status === "running") ?? null;
+  return getRunningRunJobs(runId, cwd)[0] ?? null;
 }
 
-export async function resolveTargetRalphRun(ctx: ExtensionContext, ref?: string): Promise<RalphReadResult> {
-  if (ref?.trim()) {
-    return getStore(ctx).readRunAsync(ref.trim());
+export async function resolveTargetRalphRun(
+  ctx: ExtensionContext,
+  ticketRef: string,
+  planRef?: string,
+): Promise<RalphReadResult> {
+  const binding = await resolveRalphRunBinding(ctx.cwd, { ticketRef, planRef });
+  return binding.existingRun ?? getStore(ctx).readRunAsync(binding.runId);
+}
+
+async function syncRunSchedulerWithJobs(ctx: ExtensionContext, runId: string): Promise<RalphReadResult> {
+  const store = getStore(ctx);
+  const current = await store.readRunAsync(runId);
+  const runningJobs = getRunningRunJobs(runId, ctx.cwd);
+  if (runningJobs.length === 0) {
+    return current;
   }
-  const active = await findActiveRalphRun(ctx.cwd);
-  if (!active) {
-    throw new Error(`No active Ralph loop exists in workspace ${ctx.cwd}.`);
-  }
-  return active;
+
+  const latestJob = runningJobs.at(-1) ?? null;
+  return store.setSchedulerAsync(runId, {
+    status: "running",
+    updatedAt: new Date().toISOString(),
+    jobId: latestJob?.id ?? null,
+    note:
+      runningJobs.length === 1
+        ? (current.state.scheduler.note ?? `Managed Ralph loop running as job ${latestJob?.id ?? "(unknown)"}.`)
+        : `${runningJobs.length} Ralph jobs are running for ticket ${current.state.scope.ticketId ?? current.state.runId}.`,
+  });
 }
 
 export async function startRalphLoopJob(
@@ -413,22 +421,16 @@ export async function startRalphLoopJob(
   onProgress?: (text: string) => void | Promise<void>,
 ): Promise<{ run: RalphReadResult; created: boolean; jobId: string; alreadyRunning: boolean }> {
   const store = getStore(ctx);
-  const active = await findActiveRalphRun(ctx.cwd);
   const ensured = await ensureRalphRun(ctx, input);
   let run = ensured.run;
-  if (active && active.state.runId !== run.state.runId) {
-    throw new Error(
-      `Workspace ${ctx.cwd} already has active Ralph loop ${active.summary.id} for plan ${active.state.scope.planId ?? "(none)"}. Stop it before starting ${run.state.scope.planId ?? input.planRef ?? run.state.runId}.`,
-    );
-  }
   if (!ensured.created && input.prompt?.trim()) {
     run = await store.queueSteeringAsync(run.state.runId, input.prompt.trim());
   }
+
   const runningJob = getRunningRunJob(run.state.runId, ctx.cwd);
   if (runningJob) {
     return { run, created: ensured.created, jobId: runningJob.id, alreadyRunning: true };
   }
-  assertNoRunningRunJob(run.state.runId, ctx.cwd);
   if (isRalphLoopExecutionInFlight(ctx.cwd, run.state.runId)) {
     throw new Error(`Ralph run ${run.state.runId} already has an in-flight loop execution in workspace ${ctx.cwd}.`);
   }
@@ -441,7 +443,7 @@ export async function startRalphLoopJob(
         status: "running",
         updatedAt: new Date().toISOString(),
         jobId: runningJobId,
-        note: `Managed Ralph loop running for ${run.state.scope.planId ?? "(none)"}.`,
+        note: `Managed Ralph loop running for ticket ${run.state.scope.ticketId ?? "(none)"}.`,
       });
       await reportProgress(`Starting managed Ralph loop ${run.state.runId}.`, {
         jobId: runningJobId,
@@ -450,15 +452,19 @@ export async function startRalphLoopJob(
       if (onProgress) {
         await onProgress(`Starting managed Ralph loop ${run.state.runId}.`);
       }
-      return executeRalphLoop(ctx, { ref: run.state.runId }, jobSignal, {
-        jobId: runningJobId,
-        onUpdate: async (text) => {
-          await reportProgress(text, { jobId: runningJobId, runId: run.state.runId });
-          if (onProgress) {
-            await onProgress(text);
-          }
-        },
-      });
+      try {
+        return await executeRalphLoop(ctx, { ref: run.state.runId }, jobSignal, {
+          jobId: runningJobId,
+          onUpdate: async (text) => {
+            await reportProgress(text, { jobId: runningJobId, runId: run.state.runId });
+            if (onProgress) {
+              await onProgress(text);
+            }
+          },
+        });
+      } finally {
+        await syncRunSchedulerWithJobs(ctx, run.state.runId);
+      }
     },
     {
       metadata: { runId: run.state.runId, cwd: ctx.cwd },
@@ -476,19 +482,21 @@ export async function startRalphLoopJob(
 
 export async function stopRalphLoop(
   ctx: ExtensionContext,
-  ref?: string,
+  ticketRef: string,
+  planRef?: string,
   summary?: string,
   cancelRunning = true,
-): Promise<{ run: RalphReadResult; cancelledJobId: string | null }> {
+): Promise<{ run: RalphReadResult; cancelledJobIds: string[] }> {
   const store = getStore(ctx);
-  const run = await resolveTargetRalphRun(ctx, ref);
+  const run = await resolveTargetRalphRun(ctx, ticketRef, planRef);
   let updated = await store.requestStopAsync(run.state.runId, summary, cancelRunning);
-  const runningJob = getRunningRunJob(run.state.runId, ctx.cwd);
-  if (cancelRunning && runningJob) {
-    ralphJobManager.cancel(runningJob.id);
-    return { run: updated, cancelledJobId: runningJob.id };
+  const runningJobs = getRunningRunJobs(run.state.runId, ctx.cwd);
+  if (cancelRunning && runningJobs.length > 0) {
+    const cancelledJobIds = runningJobs.filter((job) => ralphJobManager.cancel(job.id)).map((job) => job.id);
+    await syncRunSchedulerWithJobs(ctx, run.state.runId);
+    return { run: updated, cancelledJobIds };
   }
-  if (!runningJob) {
+  if (runningJobs.length === 0) {
     updated = await store.acknowledgeStopRequestAsync(run.state.runId);
     updated = await store.updateRunAsync(run.state.runId, {
       latestDecision: {
@@ -511,7 +519,7 @@ export async function stopRalphLoop(
       },
     });
   }
-  return { run: updated, cancelledJobId: null };
+  return { run: updated, cancelledJobIds: [] };
 }
 
 function normalizeWorkspaceJobIds(jobIds: readonly string[] | undefined, cwd: string): string[] {
@@ -687,7 +695,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Read Ralph loop state, packet, dashboard, or rendered run artifacts from durable Loom orchestration memory.",
     promptSnippet: "Read the Ralph packet or run state before deciding whether to launch another bounded iteration.",
     promptGuidelines: [
-      "Read packet mode when preparing the next fresh worker iteration for a substantial implementation plan.",
+      "Read packet mode when preparing the next fresh worker iteration for a ticket-bound Ralph run.",
       "Read dashboard mode when triaging loop progress, review gates, or the current scheduler state.",
       "Read full mode when you need the loop state, iterations, runtime artifacts, launch descriptor, and dashboard together.",
     ],
@@ -695,7 +703,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     renderCall: (args, theme) => renderRalphReadCall(args as Record<string, unknown>, theme),
     renderResult: (result, options, theme) => renderRalphReadResult(result, options, theme),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = await getStore(ctx).readRunAsync(params.ref);
+      const result = await resolveTargetRalphRun(ctx, params.ticketRef, params.planRef);
       const jobs = getRunJobs(result.state.runId, ctx.cwd);
       if (params.mode === "packet") {
         return machineResult({ run: result.summary, packet: result.packet, jobs }, result.packet);
@@ -755,22 +763,21 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     name: "ralph_run",
     label: "ralph_run",
     description:
-      "Start or continue the managed Ralph loop for a governing workplan, carrying that plan through repeated fresh-context ticket iterations with durable state, steering, review evidence, and scheduler control until the work reaches completion.",
+      "Start or continue the managed Ralph loop bound to one plan ticket, carrying that ticket through repeated fresh-context iterations with durable state, steering, review evidence, and scheduler control.",
     promptSnippet:
-      "Use this when a durable implementation workplan should advance through ticket-sized iterations with fresh context, runtime evidence, and loop-level coordination.",
+      "Use this when one ticket under a governing plan should advance through bounded Ralph iterations with fresh context and durable review state.",
     promptGuidelines: [
-      "Provide `planRef` to launch a new loop from a durable implementation plan; the governing spec is inherited from that plan when present.",
-      "Provide `ref` to continue an existing loop and `steeringPrompt` when the next iteration should absorb new operator direction.",
-      "Background execution is well suited to multi-ticket delivery because the loop can keep advancing while the caller inspects durable state through `ralph_read` and the Ralph job tools.",
-      "This tool shines when the work is larger than one bounded edit and already has a real execution strategy captured in a plan.",
-      "One managed loop serves each workspace, keeping steering, review posture, and packet context concentrated around the active workplan.",
+      "Provide `ticketRef`; Ralph binds the run to that exact ticket and uses `planRef` when supplied or inferable.",
+      "The system owns run ids. AI callers should identify Ralph work by plan/ticket, not by a chosen run ref.",
+      "Background execution is well suited to parallel ticket delivery because distinct ticket-bound runs may proceed concurrently.",
+      "Do not try to launch two Ralph runs against the same ticket at the same time.",
     ],
     parameters: RalphRunParams,
     renderCall: (args, theme) => renderRalphRunCall(args as Record<string, unknown>, theme),
     renderResult: (result, options, theme) => renderRalphRunResult(result, options, theme),
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const input: ExecuteRalphLoopInput = {
-        ref: params.ref,
+        ticketRef: params.ticketRef,
         planRef: params.planRef,
         prompt: params.steeringPrompt,
         policySnapshot: params.policySnapshot as ExecuteRalphLoopInput["policySnapshot"],
@@ -887,14 +894,14 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     name: "ralph_steer",
     label: "ralph_steer",
     description: "Queue durable steering that the managed Ralph loop will absorb at the next iteration boundary.",
-    promptSnippet: "Use this to shape the next step of an active plan loop through durable operator guidance.",
+    promptSnippet: "Use this to shape the next step of a ticket-bound Ralph run through durable operator guidance.",
     promptGuidelines: [
-      "Queue steering whenever the plan needs reprioritization, clarification, or a newly discovered constraint carried into the next iteration.",
+      "Queue steering whenever the bound ticket needs reprioritization, clarification, or a newly discovered constraint carried into the next iteration.",
       "Steering becomes part of durable loop state and is consumed at the next iteration boundary.",
     ],
     parameters: RalphSteerParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const run = await resolveTargetRalphRun(ctx, params.ref);
+      const run = await resolveTargetRalphRun(ctx, params.ticketRef, params.planRef);
       const updated = await getStore(ctx).queueSteeringAsync(run.state.runId, params.text);
       return machineResult({ run: updated.summary }, `Queued Ralph steering for ${updated.summary.id}.`);
     },
@@ -906,18 +913,24 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     description:
       "Request a clean stop for the managed Ralph loop and optionally cancel the currently running background job.",
     promptSnippet:
-      "Use this to bring a plan loop to a controlled stopping point while preserving durable state and operator intent.",
+      "Use this to bring a ticket-bound Ralph run to a controlled stopping point while preserving durable state and operator intent.",
     promptGuidelines: [
-      "Leave `ref` unset to target the current active loop in the workspace.",
+      "Provide `ticketRef` and add `planRef` when the ticket could resolve to more than one Ralph run.",
       "Use `cancelRunning` when the stop request should take effect at the current runtime cancellation point as well as the next loop boundary.",
     ],
     parameters: RalphStopParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = await stopRalphLoop(ctx, params.ref, params.summary, params.cancelRunning !== false);
+      const result = await stopRalphLoop(
+        ctx,
+        params.ticketRef,
+        params.planRef,
+        params.summary,
+        params.cancelRunning !== false,
+      );
       return machineResult(
-        { run: result.run.summary, cancelledJobId: result.cancelledJobId },
-        result.cancelledJobId
-          ? `Requested stop for Ralph loop ${result.run.summary.id} and cancelled job ${result.cancelledJobId}.`
+        { run: result.run.summary, cancelledJobIds: result.cancelledJobIds },
+        result.cancelledJobIds.length > 0
+          ? `Requested stop for Ralph loop ${result.run.summary.id} and cancelled jobs ${result.cancelledJobIds.join(", ")}.`
           : `Requested stop for Ralph loop ${result.run.summary.id}.`,
       );
     },
@@ -953,7 +966,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       "Use this when you want a blocking handoff point for long-running plan execution with a durable wait primitive around job state.",
     promptGuidelines: [
       "Pass specific job ids when you are following one plan loop or a known small batch of jobs.",
-      "Leave `jobIds` unset to wait for any tracked Ralph job in the workspace.",
+      "Leave `jobIds` unset to wait on the tracked Ralph jobs in the workspace; use `mode` to choose any-vs-all semantics.",
       "Use the returned run snapshots to decide whether the loop should keep advancing, absorb steering, or enter a review gate.",
     ],
     parameters: RalphJobWaitParams,
@@ -967,7 +980,10 @@ export function registerRalphTools(pi: ExtensionAPI): void {
           "No matching Ralph background jobs are currently tracked in this workspace.",
         );
       }
-      const jobs = await ralphJobManager.waitForAnyJob({ jobIds, timeoutMs: params.timeoutMs });
+      const jobs =
+        params.mode === "all"
+          ? await ralphJobManager.waitForJobs(jobIds, { timeoutMs: params.timeoutMs })
+          : await ralphJobManager.waitForAnyJob({ jobIds, timeoutMs: params.timeoutMs });
       const runs = await Promise.all(
         Array.from(
           new Set(

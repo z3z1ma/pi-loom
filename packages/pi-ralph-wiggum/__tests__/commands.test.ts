@@ -1,22 +1,50 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
+import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { handleRalphCommand } from "../extensions/commands/ralph.js";
-import { findActiveRalphRun } from "../extensions/domain/loop.js";
+import { executeRalphLoop } from "../extensions/domain/loop.js";
 import { renderRalphDetail } from "../extensions/domain/render.js";
 import { createRalphStore } from "../extensions/domain/store.js";
-import { resolveTargetRalphRun, startRalphLoopJob, stopRalphLoop } from "../extensions/tools/ralph.js";
+import { resolveTargetRalphRun, stopRalphLoop } from "../extensions/tools/ralph.js";
 
 const mockStore = {
   initLedgerAsync: vi.fn(async () => ({ initialized: true, root: ".loom" })),
   queueSteeringAsync: vi.fn(async (ref: string, text: string) => createRun(ref, { title: `Steered ${text}` })),
 };
 
-vi.mock("../extensions/domain/loop.js", () => ({
-  findActiveRalphRun: vi.fn(async () => null),
-}));
-
 vi.mock("../extensions/domain/render.js", () => ({
   renderRalphDetail: vi.fn(() => "Rendered Ralph detail"),
+}));
+
+vi.mock("../extensions/domain/loop.js", () => ({
+  executeRalphLoop: vi.fn(async () => ({
+    created: false,
+    steps: [{ iterationId: "iter-001", iteration: 1, exitCode: 0, output: "ok", stderr: "", finalStatus: "active", finalDecision: "continue" }],
+    run: createRun("run-1", { status: "active", phase: "executing" }),
+  })),
+}));
+
+vi.mock("@pi-loom/pi-plans/extensions/domain/store.js", () => ({
+  createPlanStore: vi.fn(() => ({
+    readPlan: vi.fn(async (ref: string) => {
+      if (!ref.startsWith("plan-")) {
+        throw new Error(`Unknown plan: ${ref}`);
+      }
+      return { state: { linkedTickets: [{ ticketId: "ticket-1" }, { ticketId: "ticket-9" }] } };
+    }),
+  })),
+}));
+
+vi.mock("@pi-loom/pi-ticketing/extensions/domain/store.js", () => ({
+  createTicketStore: vi.fn(() => ({
+    readTicketAsync: vi.fn(async (ref: string) => {
+      if (!ref.startsWith("ticket-")) {
+        throw new Error(`Unknown ticket: ${ref}`);
+      }
+      return { summary: { closed: false } };
+    }),
+  })),
 }));
 
 vi.mock("../extensions/domain/store.js", () => ({
@@ -24,7 +52,6 @@ vi.mock("../extensions/domain/store.js", () => ({
 }));
 
 vi.mock("../extensions/tools/ralph.js", () => ({
-  startRalphLoopJob: vi.fn(),
   stopRalphLoop: vi.fn(),
   resolveTargetRalphRun: vi.fn(),
 }));
@@ -33,6 +60,7 @@ function createRun(
   ref: string,
   overrides?: Partial<{
     planId: string | null;
+    ticketId: string | null;
     title: string;
     status: string;
     phase: string;
@@ -47,7 +75,7 @@ function createRun(
     },
     state: {
       runId: ref,
-      scope: { planId: overrides?.planId ?? "plan-1" },
+      scope: { planId: overrides?.planId ?? "plan-1", ticketId: overrides?.ticketId ?? "ticket-1" },
     },
     runtimeArtifacts: [],
     iterations: [],
@@ -75,107 +103,135 @@ function createContext(cwd: string): {
 describe("/ralph command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(createPlanStore).mockReturnValue({
+      readPlan: vi.fn(async (ref: string) => {
+        if (!ref.startsWith("plan-")) {
+          throw new Error(`Unknown plan: ${ref}`);
+        }
+        return { state: { linkedTickets: [{ ticketId: "ticket-1" }, { ticketId: "ticket-9" }] } };
+      }),
+    } as never);
+    vi.mocked(createTicketStore).mockReturnValue({
+      readTicketAsync: vi.fn(async (ref: string) => {
+        if (!ref.startsWith("ticket-")) {
+          throw new Error(`Unknown ticket: ${ref}`);
+        }
+        return { summary: { closed: false } };
+      }),
+    } as never);
     mockStore.initLedgerAsync.mockResolvedValue({ initialized: true, root: ".loom" });
     mockStore.queueSteeringAsync.mockImplementation(async (ref: string, text: string) =>
       createRun(ref, { title: `Steered ${text}` }),
     );
-    vi.mocked(findActiveRalphRun).mockResolvedValue(null as never);
     vi.mocked(renderRalphDetail).mockReturnValue("Rendered Ralph detail");
-    vi.mocked(startRalphLoopJob).mockResolvedValue({
+    vi.mocked(executeRalphLoop).mockResolvedValue({
+      created: false,
+      steps: [{ iterationId: "iter-001", iteration: 1, exitCode: 0, output: "ok", stderr: "", finalStatus: "active", finalDecision: "continue" }],
       run: createRun("run-1"),
-      created: true,
-      jobId: "job-1",
-      alreadyRunning: false,
     } as never);
     vi.mocked(stopRalphLoop).mockResolvedValue({
       run: createRun("run-1", { phase: "halted", status: "halted" }),
-      cancelledJobId: null,
+      cancelledJobIds: [],
     } as never);
     vi.mocked(resolveTargetRalphRun).mockResolvedValue(createRun("run-1") as never);
   });
 
   it("starts a managed Ralph loop for a plan and forwards progress to the status line", async () => {
     const { ctx, ui } = createContext("/workspace/ralph-command");
-    vi.mocked(startRalphLoopJob).mockImplementationOnce(async (_ctx, input, onProgress) => {
-      expect(input).toEqual({ planRef: "plan-1", prompt: "tighten verifier gating" });
-      await onProgress?.("Queued next bounded iteration");
+    vi.mocked(executeRalphLoop).mockImplementationOnce(async (_ctx, input, _signal, options) => {
+      expect(input).toEqual({ planRef: "plan-1", ticketRef: "ticket-1", prompt: "tighten verifier gating", iterations: 1 });
+      await options?.onUpdate?.("Queued next bounded iteration");
       return {
-        run: createRun("run-1"),
-        created: true,
-        jobId: "job-1",
-        alreadyRunning: false,
+        created: false,
+        steps: [{ iterationId: "iter-001", iteration: 1, exitCode: 0, output: "ok", stderr: "", finalStatus: "completed", finalDecision: "complete" }],
+        run: createRun("run-1", { status: "completed", phase: "completed" }),
       } as never;
     });
 
-    const result = await handleRalphCommand("start plan-1 tighten verifier gating", ctx);
+    const result = await handleRalphCommand("start plan-1 ticket-1 tighten verifier gating", ctx);
 
     expect(createRalphStore).toHaveBeenCalledWith("/workspace/ralph-command");
     expect(mockStore.initLedgerAsync).toHaveBeenCalledTimes(1);
-    expect(startRalphLoopJob).toHaveBeenCalledTimes(1);
+    expect(executeRalphLoop).toHaveBeenCalledTimes(1);
     expect(ui.setStatus).toHaveBeenCalledWith("ralph-live-run", "⏳ Ralph · Queued next bounded iteration");
     expect(ui.setWidget).not.toHaveBeenCalled();
     expect(result).toEqual({
-      text: "Started managed Ralph loop run-1 for plan plan-1 as job job-1.",
-      result: null,
+      text: "Rendered Ralph detail",
+      result: expect.objectContaining({ run: expect.objectContaining({ summary: expect.objectContaining({ id: "run-1" }) }) }),
       prompt: "tighten verifier gating",
     });
   });
 
-  it("reuses the current loop for the same plan instead of starting a second one", async () => {
+  it("runs a ticket-only loop when the first token resolves to a ticket", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
-    vi.mocked(findActiveRalphRun).mockResolvedValue(createRun("run-1", { planId: "plan-1" }) as never);
-    vi.mocked(startRalphLoopJob).mockResolvedValueOnce({
-      run: createRun("run-1", { planId: "plan-1" }),
+    vi.mocked(executeRalphLoop).mockResolvedValueOnce({
       created: false,
-      jobId: "job-7",
-      alreadyRunning: true,
+      steps: [],
+      run: createRun("run-1", { status: "completed", phase: "completed" }),
     } as never);
 
-    const result = await handleRalphCommand("start plan-1 focus on verifier drift", ctx);
+    const result = await handleRalphCommand("start ticket-1 focus on verifier drift", ctx);
 
-    expect(startRalphLoopJob).toHaveBeenCalledWith(
+    expect(executeRalphLoop).toHaveBeenCalledWith(
       ctx,
-      { ref: "run-1", prompt: "focus on verifier drift" },
-      expect.any(Function),
+      { ticketRef: "ticket-1", planRef: undefined, prompt: "focus on verifier drift", iterations: 1 },
+      undefined,
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
     );
-    expect(result.text).toBe("Managed Ralph loop run-1 is already running as job job-7.");
+    expect(result.result?.run.summary.status).toBe("completed");
   });
 
-  it("rejects starting a second active loop for a different plan in the same workspace", async () => {
+  it("runs a plan-wide loop by iterating linked tickets", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
-    vi.mocked(findActiveRalphRun).mockResolvedValue(createRun("run-9", { planId: "plan-9" }) as never);
+    const ticketReads = new Map<string, number>();
+    vi.mocked(createTicketStore).mockReturnValue({
+      readTicketAsync: vi.fn(async (ref: string) => {
+        const count = (ticketReads.get(ref) ?? 0) + 1;
+        ticketReads.set(ref, count);
+        return { summary: { closed: count >= 3 } };
+      }),
+    } as never);
+    vi.mocked(executeRalphLoop)
+      .mockResolvedValueOnce({ created: false, steps: [{ iterationId: "iter-001", iteration: 1, exitCode: 0, output: "ok", stderr: "", finalStatus: "active", finalDecision: "continue" }], run: createRun("run-1") } as never)
+      .mockResolvedValueOnce({ created: false, steps: [{ iterationId: "iter-001", iteration: 1, exitCode: 0, output: "ok", stderr: "", finalStatus: "active", finalDecision: "continue" }], run: createRun("run-9", { ticketId: "ticket-9" }) } as never)
+      .mockResolvedValueOnce({ created: false, steps: [], run: createRun("run-1", { status: "completed", phase: "completed" }) } as never)
+      .mockResolvedValueOnce({ created: false, steps: [], run: createRun("run-9", { status: "completed", phase: "completed", ticketId: "ticket-9" }) } as never);
 
-    await expect(handleRalphCommand("start plan-1", ctx)).rejects.toThrow(
-      "Workspace /workspace/ralph-command already has active Ralph loop run-9 for plan plan-9. Stop it before starting plan plan-1.",
+    await handleRalphCommand("start plan-9", ctx);
+
+    expect(executeRalphLoop).toHaveBeenCalledWith(
+      ctx,
+      { planRef: "plan-9", ticketRef: "ticket-1", prompt: undefined, iterations: 1 },
+      undefined,
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
     );
-    expect(startRalphLoopJob).not.toHaveBeenCalled();
   });
 
   it("stops a targeted Ralph loop and clears the status line", async () => {
     const { ctx, ui } = createContext("/workspace/ralph-command");
     vi.mocked(stopRalphLoop).mockResolvedValueOnce({
       run: createRun("run-2", { status: "halted", phase: "halted" }),
-      cancelledJobId: "job-2",
+      cancelledJobIds: ["job-2", "job-3"],
     } as never);
 
-    const result = await handleRalphCommand("stop run-2", ctx);
+    const result = await handleRalphCommand("stop plan-2 ticket-2", ctx);
 
-    expect(stopRalphLoop).toHaveBeenCalledWith(ctx, "run-2");
+    expect(stopRalphLoop).toHaveBeenCalledWith(ctx, "ticket-2", "plan-2");
     expect(ui.setStatus).toHaveBeenCalledWith("ralph-live-run", undefined);
     expect(result).toEqual({
-      text: "Requested stop for Ralph loop run-2 and cancelled job job-2.",
+      text: "Requested stop for Ralph loop run-2 and cancelled jobs job-2, job-3.",
       result: null,
       prompt: null,
     });
   });
 
-  it("queues steering against the current active loop when no ref is provided", async () => {
+  it("queues steering against the bound ticket run", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
     vi.mocked(resolveTargetRalphRun).mockResolvedValueOnce(createRun("run-3") as never);
 
-    const result = await handleRalphCommand("steer tighten verifier gating", ctx);
+    const result = await handleRalphCommand("steer plan-3 ticket-3 tighten verifier gating", ctx);
 
-    expect(resolveTargetRalphRun).toHaveBeenCalledWith(ctx, undefined);
+    expect(resolveTargetRalphRun).toHaveBeenCalledWith(ctx, "ticket-3", "plan-3");
     expect(mockStore.queueSteeringAsync).toHaveBeenCalledWith("run-3", "tighten verifier gating");
     expect(result).toEqual({
       text: "Queued steering for Ralph loop run-3.",
@@ -184,23 +240,13 @@ describe("/ralph command", () => {
     });
   });
 
-  it("queues steering against an explicit run ref", async () => {
-    const { ctx } = createContext("/workspace/ralph-command");
-    vi.mocked(resolveTargetRalphRun).mockResolvedValueOnce(createRun("run-4") as never);
-
-    await handleRalphCommand("steer ref run-4 re-check the stop condition", ctx);
-
-    expect(resolveTargetRalphRun).toHaveBeenCalledWith(ctx, "run-4");
-    expect(mockStore.queueSteeringAsync).toHaveBeenCalledWith("run-4", "re-check the stop condition");
-  });
-
-  it("renders status for the targeted loop", async () => {
+  it("renders status for the targeted ticket run", async () => {
     const { ctx } = createContext("/workspace/ralph-command");
     vi.mocked(resolveTargetRalphRun).mockResolvedValueOnce(createRun("run-5") as never);
 
-    const result = await handleRalphCommand("status run-5", ctx);
+    const result = await handleRalphCommand("status plan-5 ticket-5", ctx);
 
-    expect(resolveTargetRalphRun).toHaveBeenCalledWith(ctx, "run-5");
+    expect(resolveTargetRalphRun).toHaveBeenCalledWith(ctx, "ticket-5", "plan-5");
     expect(renderRalphDetail).toHaveBeenCalledWith(
       expect.objectContaining({ summary: expect.objectContaining({ id: "run-5" }) }),
     );
@@ -211,10 +257,12 @@ describe("/ralph command", () => {
     const { ctx } = createContext("/workspace/ralph-command");
 
     await expect(handleRalphCommand("resume run-1", ctx)).rejects.toThrow(
-      "Usage: /ralph start <plan-ref> [steering prompt]",
+      "Usage: /ralph start <ticket-ref> [steering prompt]",
     );
-    await expect(handleRalphCommand("   ", ctx)).rejects.toThrow("Usage: /ralph start <plan-ref> [steering prompt]");
-    expect(startRalphLoopJob).not.toHaveBeenCalled();
+    await expect(handleRalphCommand("   ", ctx)).rejects.toThrow(
+      "Usage: /ralph start <ticket-ref> [steering prompt]",
+    );
+    expect(executeRalphLoop).not.toHaveBeenCalled();
     expect(stopRalphLoop).not.toHaveBeenCalled();
   });
 });

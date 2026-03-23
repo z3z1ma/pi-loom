@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
+import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRalphDashboard } from "../extensions/domain/dashboard.js";
 import { hasTrustedPostIteration } from "../extensions/domain/loop.js";
@@ -26,6 +27,86 @@ import {
 } from "../extensions/domain/runtime.js";
 import { createRalphStore } from "../extensions/domain/store.js";
 import { clearFakeHarnessState, createFakeHarnessPackage, resetFakeHarnessState } from "./helpers/fake-harness.js";
+
+function createTicketBoundScope(ticketId = "ticket-456", planId = "plan-123", specChangeId = "spec-789") {
+  return {
+    mode: "execute" as const,
+    specChangeId,
+    planId,
+    ticketId,
+    roadmapItemIds: [],
+    initiativeIds: [],
+    researchIds: [],
+    critiqueIds: [],
+    docIds: [],
+  };
+}
+
+function seedRuntimeLinkedEntity(
+  workspace: string,
+  kind: "plan" | "ticket" | "spec_change",
+  displayId: string,
+  title: string,
+) {
+  const { storage, identity } = openWorkspaceStorageSync(workspace);
+  const timestamp = new Date().toISOString();
+  const attributes =
+    kind === "plan"
+      ? { state: { planId: displayId, status: "active", title } }
+      : kind === "ticket"
+        ? {
+            record: {
+              summary: { id: displayId, status: "active", title },
+              blockers: [],
+              ticket: {
+                frontmatter: {
+                  "initiative-ids": [],
+                  "research-ids": [],
+                  "roadmap-item-ids": [],
+                  "spec-change-id": "spec-789",
+                },
+                body: {
+                  summary: `${title} summary`,
+                  context: `${title} context`,
+                  plan: `${title} plan`,
+                  notes: "",
+                  verification: `${title} verification`,
+                  journalSummary: "",
+                },
+              },
+            },
+          }
+        : { record: { summary: { id: displayId, status: "active" } }, state: { title } };
+
+  storage.db
+    .prepare(
+      `
+        INSERT INTO entities (id, kind, space_id, owning_repository_id, display_id, title, summary, status, version, tags_json, attributes_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    )
+    .run(
+      createEntityId(kind, identity.space.id, displayId, `${kind}:${displayId}`),
+      kind,
+      identity.space.id,
+      null,
+      displayId,
+      title,
+      `${title} summary`,
+      "active",
+      1,
+      JSON.stringify([]),
+      JSON.stringify(attributes),
+      timestamp,
+      timestamp,
+    );
+}
+
+function seedRuntimeLinkedEntities(workspace: string) {
+  seedRuntimeLinkedEntity(workspace, "plan", "plan-123", "Default plan");
+  seedRuntimeLinkedEntity(workspace, "ticket", "ticket-456", "Default ticket");
+  seedRuntimeLinkedEntity(workspace, "spec_change", "spec-789", "Default spec");
+}
 
 describe("ralph runtime session execution", () => {
   let fakeHarnessRoot: string;
@@ -663,10 +744,12 @@ describe("ralph runtime session execution", () => {
   it("recognizes trusted durable checkpoints by iteration id", () => {
     const workspace = mkdtempSync(join(tmpdir(), "pi-ralph-trusted-checkpoint-"));
     try {
+      seedRuntimeLinkedEntities(workspace);
       const store = createRalphStore(workspace);
       const run = store.createRun({
         title: "Trusted checkpoint detection",
         objective: "Recognize a complete durable checkpoint for a bounded iteration.",
+        scope: createTicketBoundScope(),
       });
       const prepared = store.prepareLaunch(run.state.runId, { focus: "Check the iteration helper." });
       const updated = store.appendIteration(run.state.runId, {
@@ -694,10 +777,12 @@ describe("ralph runtime session execution", () => {
   it("keeps the launched iteration trusted after a later checkpoint updates postIteration", () => {
     const workspace = mkdtempSync(join(tmpdir(), "pi-ralph-duplicate-checkpoint-"));
     try {
+      seedRuntimeLinkedEntities(workspace);
       const store = createRalphStore(workspace);
       const run = store.createRun({
         title: "Duplicate checkpoint trust",
         objective: "Keep trust bound to the launched iteration id.",
+        scope: createTicketBoundScope(),
       });
 
       const prepared = store.prepareLaunch(run.state.runId, { focus: "Checkpoint the launched iteration." });
@@ -761,6 +846,7 @@ describe("ralph review-state gating", () => {
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-ralph-runtime-"));
     vi.useFakeTimers();
+    seedRuntimeLinkedEntities(workspace);
   });
 
   afterEach(() => {
@@ -779,6 +865,7 @@ describe("ralph review-state gating", () => {
         verifierRequired: true,
         critiqueRequired: false,
       },
+      scope: createTicketBoundScope(),
     });
 
     vi.setSystemTime(new Date("2026-03-16T09:01:00.000Z"));
@@ -828,7 +915,7 @@ describe("ralph review-state gating", () => {
     });
 
     expect(() => store.prepareLaunch(created.state.runId)).toThrow(
-      "Ralph run verifier-blocked-review is waiting for operator and cannot launch until that gate is cleared.",
+      `Ralph run ${created.state.runId} is waiting for operator and cannot launch until that gate is cleared.`,
     );
   }, 90000);
 });
@@ -838,6 +925,7 @@ describe("ralph loop policy enforcement", () => {
 
   beforeEach(() => {
     workspace = mkdtempSync(join(tmpdir(), "pi-ralph-loop-runtime-"));
+    seedRuntimeLinkedEntities(workspace);
   });
 
   afterEach(() => {
@@ -851,6 +939,7 @@ describe("ralph loop policy enforcement", () => {
       title: "Existing Ralph Run",
       objective: "Resume from durable state only.",
       policySnapshot: { verifierRequired: false },
+      scope: createTicketBoundScope(),
     });
     const firstLaunch = store.prepareLaunch(run.state.runId, { focus: "Seed the first bounded iteration" });
     store.appendIteration(run.state.runId, {
@@ -940,6 +1029,7 @@ describe("ralph loop policy enforcement", () => {
       title: "Runtime bounded Ralph Run",
       objective: "Abort when the runtime limit is exceeded.",
       policySnapshot: { verifierRequired: false, maxRuntimeMinutes: 1 },
+      scope: createTicketBoundScope(),
     });
 
     const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
@@ -993,6 +1083,7 @@ describe("ralph loop policy enforcement", () => {
       title: "Timeout grace Ralph Run",
       objective: "Keep a late checkpoint truthful when timeout fires first.",
       policySnapshot: { verifierRequired: false, maxRuntimeMinutes: 1 },
+      scope: createTicketBoundScope(),
     });
 
     const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
@@ -1057,6 +1148,7 @@ describe("ralph loop policy enforcement", () => {
       title: "Budget bounded Ralph Run",
       objective: "Stop when token usage exceeds budget.",
       policySnapshot: { verifierRequired: false, tokenBudget: 100 },
+      scope: createTicketBoundScope(),
     });
 
     const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");

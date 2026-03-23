@@ -21,15 +21,14 @@ Ralph is distinct from the other Loom layers:
 Default Ralph posture:
 - treat long transcripts as a liability; prefer fresh-context iterations, but make the durable packet detailed enough to stand on its own between launches
 - run one bounded iteration at a time, persist useful post-iteration state, then let the managed loop decide what happens next
-- anchor the loop to one governing plan; inherit the governing spec from that plan when present rather than asking callers to restate it
-- maintain one managed Ralph loop per workspace; do not fork competing plan loops in the same workspace
-- if the governing plan has no linked tickets yet, synthesize ticket scope inside the managed loop and pause for review if executable tickets still do not exist
+- bind each Ralph run to one exact ticket and use a governing plan when one is supplied or inferable; inherit the governing spec from that plan when present rather than asking callers to restate it
+- multiple managed Ralph loops may coexist in one workspace when they do not execute the same ticket concurrently; do not let two loops work the same ticket at the same time
 - require explicit stop and pause behavior; do not trust model confidence alone
-- ground continuation decisions in verifier outputs, critique findings, linked acceptance signals, and the governing plan ticket graph
+- ground continuation decisions in verifier outputs, critique findings, linked acceptance signals, and the current ticket state under its governing plan
 - reject shallow run updates; each iteration record should capture substantive context, what changed, what was verified, what failed, and what remains unresolved
 
 Use Ralph tools to:
-- use `ralph_run` to start a new managed loop with `planRef` or continue an existing loop with `ref`
+- use `ralph_run` with required `ticketRef` and optional `planRef` to create or resume the system-owned Ralph run for that exact ticket binding
 - use `ralph_steer` to queue durable steering for the next iteration boundary
 - use `ralph_stop` to request a clean stop for the managed loop
 - use `ralph_read` to inspect packets, dashboards, and durable run state between iterations
@@ -39,9 +38,8 @@ Use Ralph tools to:
 Ralph remains directly usable on its own. Its user-facing surfaces should stay Ralph-native even when higher-level orchestration layers choose to build on top of it.
 
 AI-direct Ralph usage should be explicit rather than inferred:
-- for a new loop, call `ralph_run` with `planRef`; the governing spec is inherited from the plan when present
-- for an existing loop, call `ralph_run` with `ref` and optionally `steeringPrompt` when you want the next iteration to pick up new direction
-- use `ralph_steer` when you need durable steering without starting or interrupting a loop immediately
+- call `ralph_run` with `ticketRef` and optionally `planRef`; Ralph derives or creates the system-owned run id for that ticket binding internally and infers the plan when it can
+- use `ralph_steer`, `ralph_stop`, and `ralph_read` with the same `ticketRef` and optional `planRef` instead of choosing run ids in AI input
 - leave `background` unset unless you intentionally need a foreground call; the canonical production path is the background managed loop
 - inspect the durable result with `ralph_read` if you need more detail between iterations
 - use `ralph_job_wait` or `ralph_job_cancel` rather than inventing ad hoc polling or cancellation behavior for background Ralph work

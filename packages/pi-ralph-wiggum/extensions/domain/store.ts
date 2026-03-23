@@ -73,11 +73,11 @@ import {
   summarizeText,
 } from "./normalize.js";
 import {
+  deriveRalphRunId,
   getRalphArtifactPaths,
   getRalphRunDir,
   normalizeRalphRunId,
   normalizeRalphRunRef,
-  slugifyRalphValue,
 } from "./paths.js";
 import { renderRalphMarkdown } from "./render.js";
 
@@ -87,6 +87,7 @@ const RALPH_EVENT_ACTOR = "ralph-store";
 const RALPH_ITERATION_PROJECTION_OWNER = "ralph-iterations";
 const RALPH_ITERATION_ARTIFACT_TYPE = "ralph-iteration";
 const RALPH_RUNTIME_PROJECTION_OWNER = "ralph-runtime";
+const TICKET_ONLY_PLAN_KEY = "ticket-only";
 const RALPH_RUNTIME_ARTIFACT_TYPE = "ralph-runtime";
 
 interface RalphEntityAttributes {
@@ -1346,9 +1347,17 @@ function verifierMatchesLatestIteration(state: RalphRunState, verifier: RalphVer
   return latestIterationId === null || verifier.iterationId === latestIterationId;
 }
 
-function isCheckpointIterationAllowed(state: RalphRunState, iterationId: string): boolean {
+function isCheckpointIterationAllowed(
+  state: RalphRunState,
+  iterations: readonly RalphIterationRecord[],
+  iterationId: string,
+): boolean {
   if (["completed", "halted", "failed", "archived"].includes(state.status)) {
     return false;
+  }
+  const activeIteration = iterations.find((iteration) => iteration.id === iterationId) ?? null;
+  if (activeIteration && !isPostIterationStatus(activeIteration.status)) {
+    return true;
   }
   const matchesPreparedIteration = state.nextIterationId === iterationId;
   const matchesLatestCheckpoint =
@@ -1394,19 +1403,6 @@ export class RalphStore {
 
   private runDirectories(): string[] {
     return listStoredRalphStates(this.cwd).map((state) => getRalphRunDir(this.cwd, state.runId));
-  }
-
-  private nextRunId(seed: string): string {
-    const baseId = slugifyRalphValue(seed);
-    const existing = new Set(this.runDirectories().map((directory) => normalizeRalphRunRef(directory)));
-    if (!existing.has(baseId)) {
-      return baseId;
-    }
-    let attempt = 2;
-    while (existing.has(`${baseId}-${attempt}`)) {
-      attempt += 1;
-    }
-    return `${baseId}-${attempt}`;
   }
 
   private resolveRunDirectory(ref: string): string {
@@ -2108,15 +2104,33 @@ export class RalphStore {
       };
     }
 
-    if (latestStatus === "accepted" && state.scope.planId) {
+    if (
+      latestStatus === "accepted" &&
+      input.workerRequestedCompletion &&
+      state.policySnapshot.stopWhenVerified &&
+      verifierSatisfied
+    ) {
+      return {
+        kind: "complete",
+        reason: "goal_reached",
+        summary:
+          input.summary?.trim() ||
+          `Ticket ${state.scope.ticketId ?? "(none)"} reached a verified stopping point under plan ${state.scope.planId ?? "(none)"}.`,
+        decidedAt: currentTimestamp(),
+        decidedBy,
+        blockingRefs,
+      };
+    }
+
+    if (latestStatus === "accepted") {
       return {
         kind: "continue",
         reason: input.workerRequestedCompletion ? "worker_requested_completion" : "unknown",
         summary:
           input.summary?.trim() ||
           (input.workerRequestedCompletion
-            ? "The worker reported a truthful stopping point for this bounded iteration. The managed loop must inspect the governing plan ticket graph before deciding whether to continue or stop."
-            : "The bounded iteration finished. The managed loop must inspect the governing plan ticket graph before deciding what happens next."),
+            ? `The worker reported a truthful stopping point for ticket ${state.scope.ticketId ?? "(none)"}, but the Ralph run still needs another explicit iteration-level decision before stopping.`
+            : `The bounded iteration finished for ticket ${state.scope.ticketId ?? "(none)"}. The Ralph run remains eligible for another iteration.`),
         decidedAt: currentTimestamp(),
         decidedBy,
         blockingRefs,
@@ -2130,7 +2144,7 @@ export class RalphStore {
         summary:
           input.summary?.trim() ||
           (state.policySnapshot.stopWhenVerified && verifierSatisfied
-            ? "The worker reported completion, but the managed loop still needs to inspect the governing plan ticket graph before stopping."
+            ? `The worker reported completion for ticket ${state.scope.ticketId ?? "(none)"}, but the run still needs an explicit completion decision.`
             : "The worker reported completion, but the managed loop still requires another explicit loop-level decision before stopping."),
         decidedAt: currentTimestamp(),
         decidedBy: "policy",
@@ -2248,12 +2262,15 @@ export class RalphStore {
   createRun(input: CreateRalphRunInput): RalphReadResult {
     this.initLedger();
     const timestamp = currentTimestamp();
-    const requestedRunId = normalizeOptionalString(input.runId);
-    const runId = requestedRunId ? normalizeRalphRunId(requestedRunId) : this.nextRunId(input.title);
-    if (requestedRunId && findStoredRalphRow(this.cwd, runId)) {
-      throw new Error(`Ralph run already exists: ${runId}`);
+    const scope = normalizeRunScope(input.scope, input.linkedRefs);
+    if (!scope.planId || !scope.ticketId) {
+      throw new Error("Ralph runs require both a plan ref and a ticket ref.");
     }
-    const state = this.createDefaultState(input, runId, timestamp);
+    const runId = deriveRalphRunId(scope.planId ?? TICKET_ONLY_PLAN_KEY, scope.ticketId);
+    if (findStoredRalphRow(this.cwd, runId)) {
+      throw new Error(`Ralph run already exists for ${scope.planId}/${scope.ticketId}: ${runId}`);
+    }
+    const state = this.createDefaultState({ ...input, scope }, runId, timestamp);
     return this.writeArtifacts(state, this.defaultLaunchDescriptor(state, null));
   }
 
@@ -2318,7 +2335,7 @@ export class RalphStore {
         "iter",
         history.map((entry) => entry.id),
       );
-    if (input.requireActiveIteration === true && !isCheckpointIterationAllowed(current.state, id)) {
+    if (input.requireActiveIteration === true && !isCheckpointIterationAllowed(current.state, latestIterations, id)) {
       throw new Error(
         `Ralph run ${current.state.runId} cannot checkpoint iteration ${id} because it is not the active or latest checkpointable iteration.`,
       );
@@ -2716,11 +2733,15 @@ export class RalphStore {
     }
 
     let latest = this.latestIterationById(current.iterations, current.state.nextIterationId);
-    if (latest && !isPostIterationStatus(latest.status) && input.requireFresh === true) {
-      throw new Error(`Ralph run ${current.state.runId} already has an active session launch for ${latest.id}.`);
-    }
-    if (!latest || isPostIterationStatus(latest.status)) {
+    if (!latest || isPostIterationStatus(latest.status) || input.requireFresh === true) {
       const prepared = this.appendIteration(ref, {
+        id:
+          input.requireFresh === true
+            ? nextSequenceId(
+                "iter",
+                current.iterations.map((iteration) => iteration.id),
+              )
+            : undefined,
         status: "pending",
         focus: input.focus ?? current.state.objective,
         summary: input.resume

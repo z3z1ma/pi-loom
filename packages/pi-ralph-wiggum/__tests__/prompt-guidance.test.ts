@@ -19,14 +19,13 @@ describe("ralph prompt guidance", () => {
     expect(guidance).toContain("run one bounded iteration at a time");
     expect(guidance).toContain("reject shallow run updates");
     expect(guidance).toContain(
-      "anchor the loop to one governing plan; inherit the governing spec from that plan when present",
+      "bind each Ralph run to one exact ticket and use a governing plan when one is supplied or inferable; inherit the governing spec from that plan when present",
     );
-    expect(guidance).toContain("maintain one managed Ralph loop per workspace");
-    expect(guidance).toContain("synthesize ticket scope inside the managed loop");
+    expect(guidance).toContain("multiple managed Ralph loops may coexist in one workspace");
     expect(guidance).toContain("Ralph remains directly usable on its own");
     expect(guidance).toContain("Ralph orchestrates over those artifacts as the managed loop layer");
     expect(guidance).toContain(
-      "use `ralph_run` to start a new managed loop with `planRef` or continue an existing loop with `ref`",
+      "use `ralph_run` with required `ticketRef` and optional `planRef` to create or resume the system-owned Ralph run",
     );
     expect(guidance).toContain("use `ralph_steer` to queue durable steering for the next iteration boundary");
     expect(guidance).toContain("use `ralph_stop` to request a clean stop for the managed loop");
@@ -46,13 +45,17 @@ describe("ralph prompt guidance", () => {
   it("keeps Ralph tool prompt guidance aligned with the detail-first doctrine", () => {
     const toolSource = readFileSync(new URL("../extensions/tools/ralph.ts", import.meta.url), "utf8");
 
-    expect(toolSource).toContain("durable implementation workplan should advance through ticket-sized iterations");
-    expect(toolSource).toContain("One managed loop serves each workspace");
+    expect(toolSource).toContain(
+      "one ticket under a governing plan should advance through bounded Ralph iterations with fresh context and durable review state",
+    );
+    expect(toolSource).toContain(
+      "Background execution is well suited to parallel ticket delivery because distinct ticket-bound runs may proceed concurrently.",
+    );
     expect(toolSource).toContain(
       "Use this tool from the fresh Ralph worker session that owns the launched iteration id",
     );
     expect(toolSource).toContain("Commit one complete iteration outcome at a time");
-    expect(toolSource).toContain("Background execution is well suited to multi-ticket delivery");
+    expect(toolSource).toContain("Background execution is well suited to parallel ticket delivery");
     expect(toolSource).toContain("ralph_job_wait");
   });
 });

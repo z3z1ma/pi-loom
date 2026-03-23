@@ -205,18 +205,15 @@ export function renderRalphCommandWidgetLines(state: RalphLiveCommandWidgetState
 }
 
 export function renderRalphRunCall(args: Record<string, unknown>, theme: Theme): Component {
-  const target =
-    typeof args.ref === "string" && args.ref.trim()
-      ? args.ref.trim()
-      : typeof args.planRef === "string" && args.planRef.trim()
-        ? args.planRef.trim()
-        : "current loop";
+  const planRef = typeof args.planRef === "string" && args.planRef.trim() ? args.planRef.trim() : "(missing-plan)";
+  const ticketRef =
+    typeof args.ticketRef === "string" && args.ticketRef.trim() ? args.ticketRef.trim() : "(missing-ticket)";
+  const target = `${planRef}/${ticketRef}`;
   const prompt =
     typeof args.steeringPrompt === "string" && args.steeringPrompt.trim()
       ? truncateToWidth(args.steeringPrompt.trim(), 50)
       : "(no steering)";
-  const scopeLabel =
-    typeof args.planRef === "string" && args.planRef.trim() ? `plan/${args.planRef.trim()}` : "managed-loop";
+  const scopeLabel = `ticket/${ticketRef}`;
   const mode = args.background === false ? theme.fg("accent", "foreground") : theme.fg("warning", "background");
   const text = `${theme.fg("toolTitle", theme.bold("ralph_run"))} ${theme.fg("accent", target)} ${META_SEPARATOR} ${theme.fg("dim", scopeLabel)} ${META_SEPARATOR} ${mode} ${META_SEPARATOR} ${theme.fg("dim", prompt)}`;
   return new Text(text, 0, 0);
@@ -290,10 +287,11 @@ export function renderRalphRunResult(
 }
 
 export function renderRalphReadCall(args: Record<string, unknown>, theme: Theme): Component {
-  const ref = typeof args.ref === "string" ? args.ref : "(unknown)";
+  const planRef = typeof args.planRef === "string" ? args.planRef : "(unknown-plan)";
+  const ticketRef = typeof args.ticketRef === "string" ? args.ticketRef : "(unknown-ticket)";
   const mode = typeof args.mode === "string" ? args.mode : "full";
   return new Text(
-    `${theme.fg("toolTitle", theme.bold("ralph_read"))} ${theme.fg("accent", ref)} ${META_SEPARATOR} ${theme.fg("dim", mode)}`,
+    `${theme.fg("toolTitle", theme.bold("ralph_read"))} ${theme.fg("accent", `${planRef}/${ticketRef}`)} ${META_SEPARATOR} ${theme.fg("dim", mode)}`,
     0,
     0,
   );
