@@ -55,13 +55,14 @@ export function clearFakeHarnessState(): void {
   delete globalThis.__piLoomHarnessSettingsValues;
 }
 
-export function createFakeHarnessPackage(): { root: string; cleanup: () => void } {
+export function createFakeHarnessPackage(options: { shape?: "omp" | "pi" } = {}): { root: string; cleanup: () => void } {
+  const shape = options.shape ?? "omp";
   const root = mkdtempSync(join(tmpdir(), "pi-loom-harness-"));
   writeFileSync(
     join(root, "package.json"),
     JSON.stringify(
       {
-        name: "@oh-my-pi/pi-coding-agent",
+        name: shape === "omp" ? "@oh-my-pi/pi-coding-agent" : "@mariozechner/pi-coding-agent",
         type: "module",
         main: "./index.mjs",
       },
@@ -223,6 +224,7 @@ export const SessionManager = {
   },
 };
 
+${shape === "omp" ? `
 export class Settings {
   static isolated(overrides = {}) {
     return { __settings: true, overrides };
@@ -245,13 +247,14 @@ export const SETTINGS_SCHEMA = {
   disabledExtensions: {},
   "async.enabled": {},
 };
-
+` : `
 export class SettingsManager {
   static create(cwd, agentDir) {
     globalThis.__piLoomHarnessCalls.push({ type: "settingsManagerCreate", cwd, agentDir });
-    return { cwd, agentDir };
+    return { cwd, agentDir, __settingsManager: true };
   }
 }
+`}
 
 export class DefaultResourceLoader {
   constructor(options) {

@@ -815,6 +815,55 @@ describe("ralph runtime session execution", () => {
     expect(createCall?.options).not.toHaveProperty("resourceLoader");
   });
 
+  it("supports pi-mono style harness sdk settingsManager construction", async () => {
+    const piHarness = createFakeHarnessPackage({ shape: "pi" });
+    try {
+      const launch: RalphLaunchDescriptor = {
+        runId: "run-session-pi-mono",
+        iterationId: "iter-001",
+        iteration: 1,
+        createdAt: "2026-03-20T12:00:00.000Z",
+        runtime: "session",
+        ticketRef: "rt-0456",
+        planRef: "plan-123",
+        packetRef: "ralph-run:run-session-pi-mono:packet",
+        launchRef: "ralph-run:run-session-pi-mono:launch",
+        resume: false,
+        instructions: [],
+      };
+
+      const result = await runRalphLaunch("/workspace/project", launch, undefined, undefined, {
+        [PI_PARENT_HARNESS_PACKAGE_ROOT_ENV]: piHarness.root,
+      });
+
+      expect(result).toMatchObject({
+        command: join(piHarness.root, "index.mjs"),
+        exitCode: 0,
+        output: "session runtime ok",
+      });
+
+      const createCall = globalThis.__piLoomHarnessCalls?.find(
+        (entry): entry is { type: string; options: Record<string, unknown> } =>
+          typeof entry === "object" && entry !== null && (entry as { type?: string }).type === "createAgentSession",
+      );
+
+      expect(globalThis.__piLoomHarnessCalls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "settingsManagerCreate", cwd: "/workspace/project" }),
+          expect.objectContaining({ type: "sessionManagerInMemory", cwd: "/workspace/project" }),
+        ]),
+      );
+      expect(createCall?.options).toMatchObject({
+        cwd: "/workspace/project",
+        sessionManager: expect.any(Object),
+        settingsManager: expect.objectContaining({ __settingsManager: true }),
+      });
+      expect(createCall?.options).not.toHaveProperty("settings");
+    } finally {
+      piHarness.cleanup();
+    }
+  });
+
   it("fails fast when forwarded extensions do not provide Ralph worker tools", async () => {
     const launch: RalphLaunchDescriptor = {
       runId: "run-session-missing-tools",
