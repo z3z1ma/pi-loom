@@ -6,7 +6,6 @@ import type { RalphLaunchDescriptor, RalphRuntimeEvent, RalphRuntimeUsage } from
 import { renderLaunchPrompt } from "./render.js";
 
 const require = createRequire(import.meta.url);
-let sessionRuntimeLaunchQueue: Promise<void> = Promise.resolve();
 
 export interface PiSpawnDeps {
   execPath?: string;
@@ -627,99 +626,44 @@ function applyEnvironmentOverrides<T>(env: NodeJS.ProcessEnv, fn: () => Promise<
   });
 }
 
-async function withSessionRuntimeLaunchLock<T>(signal: AbortSignal | undefined, fn: () => Promise<T>): Promise<T> {
-  if (signal?.aborted) {
-    throw new Error("Aborted");
-  }
-
-  const waitForTurn = sessionRuntimeLaunchQueue.catch(() => undefined);
-  let releaseCurrent: (() => void) | undefined;
-  sessionRuntimeLaunchQueue = new Promise<void>((resolve) => {
-    releaseCurrent = resolve;
-  });
-  let acquiredTurn = false;
-  let skippedWhileQueued = false;
-  const releaseAfterQueuedAbort = () => {
-    if (skippedWhileQueued) {
-      return;
-    }
-    skippedWhileQueued = true;
-    void waitForTurn.finally(() => {
-      releaseCurrent?.();
-    });
-  };
-
-  let onAbort: (() => void) | undefined;
-  const abortPromise =
-    signal === undefined
-      ? undefined
-      : new Promise<never>((_, reject) => {
-          onAbort = () => reject(new Error("Aborted"));
-          signal.addEventListener("abort", onAbort, { once: true });
-        });
-
-  try {
-    await (abortPromise ? Promise.race([waitForTurn, abortPromise]) : waitForTurn);
-    acquiredTurn = true;
-  } catch (error) {
-    releaseAfterQueuedAbort();
-    throw error;
-  } finally {
-    if (signal && onAbort) {
-      signal.removeEventListener("abort", onAbort);
-    }
-  }
-
-  if (signal?.aborted) {
-    if (!acquiredTurn) {
-      releaseAfterQueuedAbort();
-    } else {
-      releaseCurrent?.();
-    }
-    throw new Error("Aborted");
-  }
-
-  try {
-    return await fn();
-  } finally {
-    releaseCurrent?.();
-  }
-}
-
-async function bindHeadlessExtensions(session: HarnessSession): Promise<void> {
+async function bindHeadlessExtensions(session: HarnessSession, runtimeEnv: NodeJS.ProcessEnv): Promise<void> {
   if (typeof session.bindExtensions !== "function") {
     return;
   }
+
+  const withRuntimeEnv = <T>(fn: () => Promise<T>) => applyEnvironmentOverrides(runtimeEnv, fn);
 
   await session.bindExtensions({
     commandContextActions: {
       waitForIdle: () => waitForSessionIdle(session),
       newSession: async (options?: { parentSession?: string; setup?: (sessionManager: unknown) => Promise<void> }) => {
-        const success = (await session.newSession?.(options)) ?? false;
+        const success = await withRuntimeEnv(async () => (await session.newSession?.(options)) ?? false);
         return { cancelled: !success };
       },
       fork: async (entryId: string) => {
-        return (await session.fork?.(entryId)) ?? { cancelled: true };
+        return withRuntimeEnv(async () => (await session.fork?.(entryId)) ?? { cancelled: true });
       },
       navigateTree: async (
         targetId: string,
         options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string },
       ) => {
-        return (
+        return withRuntimeEnv(async () =>
           (await session.navigateTree?.(targetId, {
             summarize: options?.summarize,
             customInstructions: options?.customInstructions,
             replaceInstructions: options?.replaceInstructions,
             label: options?.label,
-          })) ?? { cancelled: true }
+          })) ?? { cancelled: true },
         );
       },
       switchSession: async (sessionPath: string) => {
-        const success = (await session.switchSession?.(sessionPath)) ?? false;
+        const success = await withRuntimeEnv(async () => (await session.switchSession?.(sessionPath)) ?? false);
         return { cancelled: !success };
       },
       reload: async () => {
-        await session.reload?.();
+        await withRuntimeEnv(async () => {
+          await session.reload?.();
+        });
       },
     },
     onError: () => {},
@@ -908,15 +852,14 @@ export async function runRalphLaunch(
 
     recordEvent({ type: "launch_state", state: "queued", at: new Date().toISOString() });
 
-    const execution = await withSessionRuntimeLaunchLock(signal, () =>
-      applyEnvironmentOverrides(runtimeEnv, async () => {
+    const execution = await (async () => {
         startedAt = new Date().toISOString();
         recordEvent({ type: "launch_state", state: "running", at: startedAt });
 
         const created = await runtime.createAgentSession(createOptions);
         session = created.session;
 
-        await bindHeadlessExtensions(created.session);
+        await bindHeadlessExtensions(created.session, runtimeEnv);
         await applyRequestedModelToSession(created.session, runtimeEnv);
 
         if (typeof created.session.subscribe === "function") {
@@ -976,8 +919,7 @@ export async function runRalphLaunch(
           stderr: errorText ?? (aborted ? (isTimeoutAbortSignal(signal) ? "Timed out" : "Aborted") : ""),
           usage,
         };
-      }),
-    );
+      })();
 
     const completedAt = new Date().toISOString();
     const status: RalphExecutionResult["status"] = isTimeoutAbortSignal(signal)

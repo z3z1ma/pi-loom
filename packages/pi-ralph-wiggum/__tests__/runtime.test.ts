@@ -388,7 +388,7 @@ describe("ralph runtime session execution", () => {
     expect(createCall?.options.model).toEqual({ provider: "anthropic", id: "claude-test" });
   });
 
-  it("preserves the session-runtime launch lock when a queued launch is aborted", async () => {
+  it("allows concurrent session launches to reach session creation without a global queue", async () => {
     globalThis.__piLoomHarnessOutcome = { waitForAbort: true };
 
     const firstLaunch: RalphLaunchDescriptor = {
@@ -413,18 +413,6 @@ describe("ralph runtime session execution", () => {
       resume: false,
       instructions: [],
     };
-    const thirdLaunch: RalphLaunchDescriptor = {
-      runId: "run-lock-third",
-      iterationId: "iter-001",
-      iteration: 1,
-      createdAt: "2026-03-20T12:02:00.000Z",
-      runtime: "session",
-      packetRef: "ralph-run:run-lock-third:packet",
-      launchRef: "ralph-run:run-lock-third:launch",
-      resume: false,
-      instructions: [],
-    };
-
     const firstAbort = new AbortController();
     const secondAbort = new AbortController();
 
@@ -438,27 +426,26 @@ describe("ralph runtime session execution", () => {
     const secondPromise = runRalphLaunch("/workspace/project", secondLaunch, secondAbort.signal, undefined, {
       [PI_PARENT_HARNESS_PACKAGE_ROOT_ENV]: fakeHarnessRoot,
     });
-    secondAbort.abort();
-    await expect(secondPromise).resolves.toMatchObject({ status: "cancelled" });
 
-    const thirdPromise = runRalphLaunch("/workspace/project", thirdLaunch, undefined, undefined, {
-      [PI_PARENT_HARNESS_PACKAGE_ROOT_ENV]: fakeHarnessRoot,
-    });
+    let queuedCreateCount = 0;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      queuedCreateCount = (globalThis.__piLoomHarnessCalls ?? []).filter(
+        (entry): entry is { type: string } =>
+          typeof entry === "object" && entry !== null && (entry as { type?: string }).type === "createAgentSession",
+      ).length;
+      if (queuedCreateCount === 2) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
 
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(queuedCreateCount).toBe(2);
 
-    const queuedCreateCount = (globalThis.__piLoomHarnessCalls ?? []).filter(
-      (entry): entry is { type: string } =>
-        typeof entry === "object" && entry !== null && (entry as { type?: string }).type === "createAgentSession",
-    ).length;
-    expect(queuedCreateCount).toBe(1);
-
-    globalThis.__piLoomHarnessOutcome = { stopReason: "stop", text: "session runtime ok" };
     firstAbort.abort();
+    secondAbort.abort();
 
     await expect(firstPromise).resolves.toMatchObject({ status: "cancelled" });
-    await expect(thirdPromise).resolves.toMatchObject({ status: "completed" });
+    await expect(secondPromise).resolves.toMatchObject({ status: "cancelled" });
   });
 
   it("forwards parent extension paths and discovery policy through DefaultResourceLoader when available", async () => {
