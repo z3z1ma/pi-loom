@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { DefaultResourceLoader, type ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { createPlanStore } from "@pi-loom/pi-plans/extensions/domain/store.js";
 import { findEntityByDisplayId } from "@pi-loom/pi-storage/storage/entities.js";
 import { createEntityId } from "@pi-loom/pi-storage/storage/ids.js";
@@ -24,6 +24,7 @@ import {
   PI_PARENT_SESSION_DISABLE_EXTENSION_DISCOVERY_ENV,
   PI_PARENT_SESSION_MODEL_ID_ENV,
   PI_PARENT_SESSION_MODEL_PROVIDER_ENV,
+  resolveRequiredRalphWorkerExtensionPaths,
   resolveRalphExtensionRoot,
   runRalphLaunch,
 } from "../extensions/domain/runtime.js";
@@ -510,7 +511,27 @@ describe("ralph runtime session execution", () => {
         }),
       ]),
     );
+    expect(createCall?.options.additionalExtensionPaths).toEqual(
+      expect.arrayContaining(resolveRequiredRalphWorkerExtensionPaths()),
+    );
     expect(createCall?.options.model).toEqual({ provider: "anthropic", id: "claude-test" });
+  });
+
+  it("resolves explicit fallback extension entrypoints that load required Ralph worker tools", async () => {
+    const loader = new DefaultResourceLoader({
+      cwd: process.cwd(),
+      additionalExtensionPaths: resolveRequiredRalphWorkerExtensionPaths(),
+      noExtensions: true,
+    });
+
+    await loader.reload();
+
+    const extensionTools = loader
+      .getExtensions()
+      .extensions.flatMap((extension) => [...extension.tools.keys()])
+      .sort();
+
+    expect(extensionTools).toEqual(expect.arrayContaining(["ralph_read", "ticket_read", "ticket_write"]));
   });
 
   it("allows concurrent session launches to reach session creation without a global queue", async () => {

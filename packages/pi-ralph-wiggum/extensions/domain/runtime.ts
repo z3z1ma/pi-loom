@@ -282,6 +282,42 @@ function resolveNestedSessionExtensionConfig(
   };
 }
 
+type ExtensionManifest = { extensions?: string[] };
+
+function readExtensionManifest(packageJsonPath: string): ExtensionManifest | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")) as { pi?: ExtensionManifest; omp?: ExtensionManifest };
+    return parsed.pi ?? parsed.omp ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveExtensionEntriesFromPackageRoot(packageRoot: string): string[] {
+  const packageJsonPath = path.join(packageRoot, "package.json");
+  const manifest = readExtensionManifest(packageJsonPath);
+  const manifestEntries = manifest?.extensions
+    ?.map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => path.resolve(packageRoot, entry));
+  if (manifestEntries && manifestEntries.length > 0) {
+    return manifestEntries;
+  }
+
+  const defaultEntries = [path.join(packageRoot, "extensions", "index.ts"), path.join(packageRoot, "extensions", "index.js")];
+  return defaultEntries.filter((entry) => fs.existsSync(entry));
+}
+
+export function resolveRequiredRalphWorkerExtensionPaths(): string[] {
+  const ralphPackageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const ticketPackageRoot = path.dirname(require.resolve("@pi-loom/pi-ticketing/package.json"));
+  return [...new Set([...resolveExtensionEntriesFromPackageRoot(ralphPackageRoot), ...resolveExtensionEntriesFromPackageRoot(ticketPackageRoot)])];
+}
+
+function withGuaranteedRalphWorkerExtensionPaths(paths: string[] | undefined): string[] {
+  return paths && paths.length > 0 ? paths : resolveRequiredRalphWorkerExtensionPaths();
+}
+
 async function buildNestedSessionResourceLoader(
   runtime: HarnessSessionRuntime,
   cwd: string,
@@ -294,7 +330,7 @@ async function buildNestedSessionResourceLoader(
   const extensionConfig = resolveNestedSessionExtensionConfig(env, cwd);
   const resourceLoader = new runtime.DefaultResourceLoader({
     cwd,
-    additionalExtensionPaths: extensionConfig.additionalExtensionPaths,
+    additionalExtensionPaths: withGuaranteedRalphWorkerExtensionPaths(extensionConfig.additionalExtensionPaths),
     noExtensions: extensionConfig.disableExtensionDiscovery,
   });
   await resourceLoader.reload?.();
@@ -729,13 +765,14 @@ function buildSessionCreationOptions(
 ): Record<string, unknown> {
   const requestedModel = getRequestedModelRuntime(env);
   const extensionConfig = resolveNestedSessionExtensionConfig(env, cwd);
+  const additionalExtensionPaths = withGuaranteedRalphWorkerExtensionPaths(extensionConfig.additionalExtensionPaths);
   const options: Record<string, unknown> = {
     cwd,
     sessionManager: runtime.SessionManager.inMemory(cwd),
   };
 
-  if (extensionConfig.additionalExtensionPaths) {
-    options.additionalExtensionPaths = extensionConfig.additionalExtensionPaths;
+  if (additionalExtensionPaths.length > 0) {
+    options.additionalExtensionPaths = additionalExtensionPaths;
   }
   if (extensionConfig.disableExtensionDiscovery === true) {
     options.disableExtensionDiscovery = true;
