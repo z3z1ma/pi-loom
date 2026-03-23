@@ -1494,4 +1494,45 @@ describe("ralph loop policy enforcement", () => {
     });
     runtimeSpy.mockRestore();
   });
+
+  it("treats missing usage plus missing ticket activity as runtime failure, not runtime_unavailable", async () => {
+    const store = createRalphStore(workspace);
+    const run = store.createRun({
+      title: "No-activity usage gap Ralph Run",
+      objective: "Keep missing ticket activity as the primary failure signal.",
+      policySnapshot: { verifierRequired: false, tokenBudget: 100 },
+      scope: createTicketBoundScope(),
+    });
+
+    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    runtimeSpy.mockImplementationOnce(async () => ({
+      command: "pi",
+      args: ["session-runtime"],
+      exitCode: 0,
+      output: "",
+      stderr: "",
+      usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+      status: "completed",
+      events: [{ type: "launch_state", state: "running", at: new Date().toISOString() }],
+    }));
+
+    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const result = await executeRalphLoop(
+      {
+        cwd: workspace,
+        sessionManager: { getBranch: () => [] },
+      } as unknown as ExtensionContext,
+      { ref: run.state.runId, prompt: "do work", iterations: 1 },
+    );
+
+    expect(result.run.state.latestDecision).toMatchObject({ kind: "halt", reason: "runtime_failure" });
+    expect(result.run.state.latestDecision?.summary).not.toContain("token usage");
+    expect(result.run.runtimeArtifacts.at(-1)).toMatchObject({ missingTicketActivity: true });
+    expect(result.run.iterations.at(-1)).toMatchObject({
+      id: "iter-001",
+      status: "failed",
+      decision: { kind: "halt", reason: "runtime_failure" },
+    });
+    runtimeSpy.mockRestore();
+  });
 });

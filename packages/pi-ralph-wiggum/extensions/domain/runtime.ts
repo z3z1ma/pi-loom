@@ -334,6 +334,33 @@ function extractAssistantUsage(message: HarnessAssistantMessage | undefined): Ra
   };
 }
 
+function extractAssistantUsageFromMessages(messages: HarnessAssistantMessage[] | undefined): RalphRuntimeUsage {
+  if (!Array.isArray(messages)) {
+    return { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  }
+
+  return messages.reduce<RalphRuntimeUsage>(
+    (aggregate, message) => {
+      if (message?.role !== "assistant") {
+        return aggregate;
+      }
+      const usage = extractAssistantUsage(message);
+      if (!usage.measured) {
+        return aggregate;
+      }
+      return {
+        measured: true,
+        input: aggregate.input + usage.input,
+        output: aggregate.output + usage.output,
+        cacheRead: aggregate.cacheRead + usage.cacheRead,
+        cacheWrite: aggregate.cacheWrite + usage.cacheWrite,
+        totalTokens: aggregate.totalTokens + usage.totalTokens,
+      };
+    },
+    { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+  );
+}
+
 function findLastAssistantMessage(
   messages: HarnessAssistantMessage[] | undefined,
 ): HarnessAssistantMessage | undefined {
@@ -932,7 +959,7 @@ export async function runRalphLaunch(
         const lastAssistant = findLastAssistantMessage(created.session.state?.messages);
         const output = extractAssistantText(lastAssistant);
         const errorText = trimToUndefined(lastAssistant?.errorMessage) ?? undefined;
-        const usage = extractAssistantUsage(lastAssistant);
+        const usage = extractAssistantUsageFromMessages(created.session.state?.messages);
         const exitCode =
           aborted || lastAssistant?.stopReason === "error" || lastAssistant?.stopReason === "aborted" ? 1 : 0;
 

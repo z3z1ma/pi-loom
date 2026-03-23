@@ -693,17 +693,19 @@ async function persistRuntimeFailure(
   const queueTimeoutExceeded = decisionInput?.queueTimeoutExceeded === true;
   const budgetExceeded = decisionInput?.budgetExceeded === true;
   const runtimeUnavailable = decisionInput?.runtimeUnavailable === true;
+  const noTicketActivitySummary =
+    execution.status === "cancelled"
+      ? "The session-backed launch was cancelled before durable bound-ticket activity was recorded."
+      : execution.exitCode === 0
+        ? "The session-backed launch returned without durable bound-ticket activity."
+        : `Session runtime exited with code ${execution.exitCode}.`;
   const summary = queueTimeoutExceeded
     ? "The Ralph run exceeded its allowed wait for the session runtime queue before a fresh worker started."
     : timeoutExceeded
       ? "The Ralph run exceeded its configured runtime limit before completing the bounded iteration."
-      : runtimeUnavailable
-        ? "The Ralph run could not verify runtime token usage for the configured token budget."
-        : budgetExceeded
+      : budgetExceeded
           ? "The Ralph run exceeded its configured token budget during the bounded iteration."
-          : execution.stderr ||
-            execution.output ||
-            "Ralph session runtime exited unsuccessfully before finishing the iteration.";
+          : execution.stderr || execution.output || noTicketActivitySummary;
   await store.upsertIterationRuntimeAsync(ref, {
     iterationId,
     status: execution.status === "cancelled" ? "cancelled" : "failed",
@@ -725,27 +727,22 @@ async function persistRuntimeFailure(
       ? "The bounded iteration never acquired the session-runtime launch slot before the configured queue wait limit elapsed."
       : timeoutExceeded
         ? "The session-backed launch was aborted after the configured runtime limit elapsed."
-        : runtimeUnavailable
-          ? "The bounded iteration finished without runtime token-usage metadata, so the configured budget could not be enforced truthfully."
           : budgetExceeded
             ? "The bounded iteration exhausted the configured token budget before durable ticket activity was observed."
-            : execution.status === "cancelled"
-              ? "The session-backed launch was cancelled before durable bound-ticket activity was recorded."
-              : execution.exitCode === 0
-                ? "The session-backed launch returned without durable bound-ticket activity."
-                : `Session runtime exited with code ${execution.exitCode}.`,
+            : noTicketActivitySummary,
     notes: [
       queueTimeoutExceeded
         ? "Session-backed launch exceeded the configured queue wait limit before a fresh worker started."
         : timeoutExceeded
           ? "Session-backed launch exceeded the configured runtime limit before leaving durable bound-ticket activity."
-          : runtimeUnavailable
-            ? "Session-backed launch ended without runtime token-usage metadata required for truthful budget enforcement."
-            : budgetExceeded
+          : budgetExceeded
               ? "Session-backed launch exceeded the configured token budget before leaving durable bound-ticket activity."
               : execution.status === "cancelled"
                 ? "Session-backed launch was cancelled before leaving durable bound-ticket activity."
                 : "Session-backed launch exited without leaving durable bound-ticket activity.",
+      ...(runtimeUnavailable
+        ? ["Runtime token usage metadata was also unavailable for this no-activity failure, but missing ticket activity remains the primary failure signal."]
+        : []),
     ],
   });
   let run = await store.decideRunAsync(ref, {
@@ -759,19 +756,16 @@ async function persistRuntimeFailure(
       execution.status !== "cancelled" &&
       !timeoutExceeded &&
       !queueTimeoutExceeded &&
-      !budgetExceeded &&
-      !runtimeUnavailable,
+      !budgetExceeded,
     queueTimeoutExceeded,
-    runtimeUnavailable,
+    runtimeUnavailable: false,
     timeoutExceeded,
     budgetExceeded,
     summary,
     decidedBy:
       timeoutExceeded || budgetExceeded
         ? "policy"
-        : runtimeUnavailable
-          ? "runtime"
-          : execution.status === "cancelled"
+            : execution.status === "cancelled"
             ? "operator"
             : "runtime",
   });
