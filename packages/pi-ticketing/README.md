@@ -77,6 +77,8 @@ The `ticket_*` tools remain machine-facing and intentionally more explicit than 
 
 Use them when an agent needs structured access to the ledger, complete ticket bodies, graph state, or direct mutation operations. They are not the human UX surface.
 
+`ticket_list` is broad-text-first: exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state.
+
 Ticket refs accepted by the tools are the truthful human-facing forms the store resolves: repo-prefixed ids such as `pl-####`, `#pl-####`, `@pl-####`, `ticket:pl-####`, a markdown filename such as `pl-0001.md`, or a markdown path whose basename is the ticket id. Opaque canonical storage entity ids are internal and not supported tool refs.
 
 Status is exposed in two layers on purpose:

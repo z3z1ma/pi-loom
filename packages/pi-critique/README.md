@@ -7,6 +7,7 @@ This package adds a first-class critique layer where critique runs, findings, an
 ## Capabilities
 
 - `critique_*` tools for list/read/write/launch/run/finding/dashboard workflows
+- `critique_list` is broad-text-first; exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state
 - canonical critique records stored in SQLite with runs and findings history; packets and dashboards are rendered on demand from the SQLite store
 - packet compilation that pulls linked constitution, initiative, research, spec, and ticket context into a fresh-review handoff
 - follow-up ticket creation that marks findings as `accepted` while keeping them active until they are fixed, rejected, or superseded

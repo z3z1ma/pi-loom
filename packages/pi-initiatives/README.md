@@ -9,6 +9,7 @@ When active, the extension teaches the model to use initiatives as first-class s
 ## Features
 
 - canonical initiative records stored in SQLite via pi-storage
+- `initiative_list` is broad-text-first; exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state
 - explicit many-to-many links to spec changes and tickets, with initiative-owned backlink synchronization into research/spec/ticket/roadmap records
 - milestone, scope, outcome, risk, and status-summary tracking
 - truthful lifecycle timestamps: entering `completed` or `archived` sets the matching terminal timestamp, and leaving those statuses clears the stale terminal timestamp

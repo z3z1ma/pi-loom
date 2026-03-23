@@ -202,7 +202,7 @@ describe("docs tools", () => {
     expect(getTool(mockPi, "docs_list").promptSnippet).toContain("substantial durable explanations");
     expect(getTool(mockPi, "docs_list").parameters).toMatchObject({
       properties: {
-        status: expect.objectContaining({ enum: ["active", "archived"] }),
+        exactStatus: expect.objectContaining({ enum: ["active", "archived"] }),
       },
     });
     expect(getTool(mockPi, "docs_write").promptGuidelines).toContain(
@@ -313,7 +313,7 @@ describe("docs tools", () => {
         },
       });
 
-      const listed = await docsList.execute("call-6", { docType: "overview" }, undefined, undefined, ctx);
+      const listed = await docsList.execute("call-6", { exactDocType: "overview" }, undefined, undefined, ctx);
       expect(listed.details).toMatchObject({
         docs: [expect.objectContaining({ id: "documentation-memory-system", revisionCount: 2 })],
       });
@@ -353,7 +353,7 @@ describe("docs tools", () => {
 
       const listed = await docsList.execute(
         "call-list-documentation",
-        { topic: "documentation-memory" },
+        { exactTopic: "documentation-memory" },
         undefined,
         undefined,
         ctx,

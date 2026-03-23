@@ -298,7 +298,7 @@ describe("critique tools", () => {
         },
       });
 
-      const listed = await critiqueList.execute("call-8", { targetKind: "workspace" }, undefined, undefined, ctx);
+      const listed = await critiqueList.execute("call-8", { exactTargetKind: "workspace" }, undefined, undefined, ctx);
       expect(listed.details).toMatchObject({
         critiques: [expect.objectContaining({ id: "critique-workspace-plan", verdict: "needs_revision" })],
       });

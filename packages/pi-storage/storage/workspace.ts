@@ -65,8 +65,8 @@ function getOrCreateWorkspaceStorage(cwd: string, cacheKey: string): CachedWorks
   const opened = { identity, storage };
   const initialized = Promise.all([
     storage.upsertSpace(identity.space),
-    storage.upsertRepository(identity.repository),
-    storage.upsertWorktree(identity.worktree),
+    ...identity.repositories.map((repository) => storage.upsertRepository(repository)),
+    ...identity.worktrees.map((worktree) => storage.upsertWorktree(worktree)),
   ])
     .then(() => opened)
     .catch((error) => {

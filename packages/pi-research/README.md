@@ -7,6 +7,7 @@ When active, the extension teaches the model to preserve exploratory work as fir
 ## Features
 
 - durable research records persisted in SQLite via pi-storage
+- `research_list` is broad-text-first; exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state
 - append-only hypothesis history, including rejected hypotheses
 - current-state note, experiment, and source artifacts with machine-usable inventory
 - explicit links to initiatives, specs, and tickets
@@ -20,7 +21,7 @@ When active, the extension teaches the model to preserve exploratory work as fir
 - Child writes such as hypotheses, artifacts, and link or unlink operations also fail on unknown research ids.
 - Research summaries remain mutable as investigations evolve, while hypothesis history stays append-only so prior reasoning is preserved.
 - Artifact ids represent the current stored state for that artifact record. Updating an artifact id replaces its current metadata/body instead of creating immutable evidence snapshots.
-- `research_list.keyword` is an exact filter against the stored `keywords` list, not a fuzzy full-text match.
+- `research_list.exactKeyword` is an exact filter against the stored `keywords` list, not a fuzzy full-text match.
 
 ## Storage model
 

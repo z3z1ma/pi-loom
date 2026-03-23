@@ -109,7 +109,7 @@ async function parseLoopArgs(args: string, ctx: ExtensionCommandContext): Promis
     if (firstKinds.ticket) {
       return { kind: kind as "stop" | "status", ticketRef: first };
     }
-    if (firstKinds.plan && secondKinds.ticket) {
+    if (firstKinds.plan && secondKinds.ticket && second) {
       return { kind: kind as "stop" | "status", planRef: first, ticketRef: second };
     }
   }
@@ -120,7 +120,7 @@ async function parseLoopArgs(args: string, ctx: ExtensionCommandContext): Promis
       if (!text) throw new Error(RALPH_COMMAND_USAGE);
       return { kind: "steer", ticketRef: first, text };
     }
-    if (firstKinds.plan && secondKinds.ticket && tail) {
+    if (firstKinds.plan && secondKinds.ticket && second && tail) {
       return { kind: "steer", planRef: first, ticketRef: second, text: tail };
     }
   }

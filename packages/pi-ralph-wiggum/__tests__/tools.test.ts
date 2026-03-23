@@ -1,6 +1,13 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExecuteRalphLoopResult } from "../extensions/domain/loop.js";
+import type {
+  RalphContinuationDecision,
+  RalphDecisionReason,
+  RalphReadResult,
+  RalphRunPhase,
+  RalphRunStatus,
+} from "../extensions/domain/models.js";
 
 const mockStore = {
   listRunsAsync: vi.fn(async () => [{ id: "run-1", status: "active", phase: "executing", title: "Run One" }]),
@@ -22,7 +29,13 @@ const mockStore = {
       status: "active",
       phase: "executing",
       title: summary?.trim() ? `Stopping ${summary.trim()}` : "Stopping Run",
-      stopRequested: { summary: summary ?? null, cancelRunning: cancelRunning !== false },
+      stopRequest: {
+        requestedAt: "2026-03-21T00:00:00.000Z",
+        requestedBy: "operator",
+        summary: summary ?? "Stop requested.",
+        cancelRunning: cancelRunning !== false,
+        handledAt: null,
+      },
     }),
   ),
   acknowledgeStopRequestAsync: vi.fn(async (ref: string) =>
@@ -30,10 +43,10 @@ const mockStore = {
   ),
   updateRunAsync: vi.fn(async (ref: string, update: Record<string, unknown>) =>
     createReadResult(ref, {
-      status: (update.status as string | undefined) ?? "halted",
-      phase: (update.phase as string | undefined) ?? "halted",
-      latestDecision: update.latestDecision,
-      stopReason: update.stopReason as string | undefined,
+      status: (update.status as RalphRunStatus | undefined) ?? "halted",
+      phase: (update.phase as RalphRunPhase | undefined) ?? "halted",
+      latestDecision: update.latestDecision as RalphContinuationDecision | null | undefined,
+      stopReason: update.stopReason as RalphDecisionReason | undefined,
       scheduler: update.scheduler as Record<string, unknown> | undefined,
     }),
   ),
@@ -107,15 +120,21 @@ function createReadResult(
   overrides?: Partial<{
     planId: string | null;
     ticketId: string | null;
-    status: string;
-    phase: string;
+    status: RalphRunStatus;
+    phase: RalphRunPhase;
     title: string;
     scheduler: Record<string, unknown>;
-    latestDecision: unknown;
-    stopReason: string;
-    stopRequested: { summary: string | null; cancelRunning: boolean };
+    latestDecision: RalphContinuationDecision | null;
+    stopReason: RalphDecisionReason;
+    stopRequest: {
+      requestedAt: string;
+      requestedBy: "operator";
+      summary: string;
+      cancelRunning: boolean;
+      handledAt: string | null;
+    };
   }>,
-) {
+): RalphReadResult {
   const planId = overrides?.planId ?? "plan-1";
   const ticketId = overrides?.ticketId ?? "t-1001";
   return {
@@ -124,8 +143,13 @@ function createReadResult(
       status: overrides?.status ?? "active",
       phase: overrides?.phase ?? "executing",
       title: overrides?.title ?? "Run One",
+      updatedAt: "2026-03-21T00:00:00.000Z",
+      iterationCount: 0,
+      policyMode: "balanced",
       decision: null,
       waitingFor: "none",
+      objectiveSummary: "objective",
+      runRef: `ralph-run:${ref}`,
     },
     state: {
       runId: ref,
@@ -157,6 +181,7 @@ function createReadResult(
         critiqueIds: [],
         docIds: [],
       },
+      activeTicketId: ticketId,
       packetContext: {
         capturedAt: "2026-03-21T00:00:00.000Z",
         constitutionBrief: "Brief",
@@ -166,6 +191,7 @@ function createReadResult(
         priorIterationLearnings: [],
         operatorNotes: null,
       },
+      steeringQueue: [],
       policySnapshot: {
         mode: "balanced",
         maxIterations: null,
@@ -206,7 +232,7 @@ function createReadResult(
         note: "Managed Ralph loop scheduled.",
         ...(overrides?.scheduler ?? {}),
       },
-      stopRequested: overrides?.stopRequested ?? null,
+      stopRequest: overrides?.stopRequest ?? null,
     },
     iterations: [],
     runtimeArtifacts: [],
@@ -218,10 +244,29 @@ function createReadResult(
         status: overrides?.status ?? "active",
         phase: overrides?.phase ?? "executing",
         title: overrides?.title ?? "Run One",
+        updatedAt: "2026-03-21T00:00:00.000Z",
+        iterationCount: 0,
+        policyMode: "balanced",
+        decision: null,
+        waitingFor: "none",
+        objectiveSummary: "objective",
+        runRef: `ralph-run:${ref}`,
       },
       waitingFor: "none",
       latestDecision: overrides?.latestDecision ?? null,
-      counts: { iterations: 0, byStatus: {}, verifierVerdicts: {} },
+      counts: {
+        iterations: 0,
+        byStatus: {
+          pending: 0,
+          running: 0,
+          reviewing: 0,
+          accepted: 0,
+          rejected: 0,
+          failed: 0,
+          cancelled: 0,
+        },
+        verifierVerdicts: { not_run: 0, pass: 0, concerns: 0, fail: 0 },
+      },
       critiqueLinks: [],
       packetRef: `ralph-run:${ref}:packet`,
       runRef: `ralph-run:${ref}:run`,
@@ -343,16 +388,22 @@ describe("ralph tools", () => {
     mockStore.requestStopAsync.mockImplementation(async (ref: string, summary?: string, cancelRunning?: boolean) =>
       createReadResult(ref, {
         title: summary?.trim() ? `Stopping ${summary.trim()}` : "Stopping Run",
-        stopRequested: { summary: summary ?? null, cancelRunning: cancelRunning !== false },
+        stopRequest: {
+          requestedAt: "2026-03-21T00:00:00.000Z",
+          requestedBy: "operator",
+          summary: summary ?? "Stop requested.",
+          cancelRunning: cancelRunning !== false,
+          handledAt: null,
+        },
       }),
     );
     mockStore.acknowledgeStopRequestAsync.mockImplementation(async (ref: string) => createReadResult(ref));
     mockStore.updateRunAsync.mockImplementation(async (ref: string, update: Record<string, unknown>) =>
       createReadResult(ref, {
-        status: (update.status as string | undefined) ?? "halted",
-        phase: (update.phase as string | undefined) ?? "halted",
-        latestDecision: update.latestDecision,
-        stopReason: update.stopReason as string | undefined,
+        status: (update.status as RalphRunStatus | undefined) ?? "halted",
+        phase: (update.phase as RalphRunPhase | undefined) ?? "halted",
+        latestDecision: update.latestDecision as RalphContinuationDecision | null | undefined,
+        stopReason: update.stopReason as RalphDecisionReason | undefined,
         scheduler: update.scheduler as Record<string, unknown> | undefined,
       }),
     );

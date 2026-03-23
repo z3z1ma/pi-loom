@@ -197,7 +197,7 @@ describe("plan tools", () => {
 
       const listed = await planList.execute(
         "call-6",
-        { sourceKind: "workspace", linkedTicketId: ticket.summary.id },
+        { exactSourceKind: "workspace", exactLinkedTicketId: ticket.summary.id },
         undefined,
         undefined,
         ctx,
@@ -209,4 +209,59 @@ describe("plan tools", () => {
       cleanup();
     }
   }, 60000);
+
+  it("surfaces broader matches when exact list filters overconstrain plan discovery", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const mockPi = createMockPi();
+      const { registerPlanTools } = await import("../extensions/tools/plan.js");
+      registerPlanTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+
+      const planWrite = getTool(mockPi, "plan_write");
+      const planList = getTool(mockPi, "plan_list");
+
+      await planWrite.execute(
+        "call-overfiltered-create",
+        {
+          action: "create",
+          title: "Production-readiness rollout for first-class multi-repository Loom spaces",
+          sourceTarget: { kind: "workspace", ref: "repo" },
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const listed = await planList.execute(
+        "call-overfiltered-list",
+        {
+          text: "multi-repository loom spaces",
+          exactSourceKind: "initiative",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      expect(listed.details).toMatchObject({
+        plans: [],
+        queryDiagnostics: {
+          exactFilters: [{ key: "exactSourceKind", value: "initiative" }],
+          broaderMatchCount: 1,
+        },
+        broaderMatches: [
+          expect.objectContaining({ id: "production-readiness-rollout-for-first-class-multi-repository-loom-spaces" }),
+        ],
+      });
+      expect(listed.content).toEqual([
+        {
+          type: "text",
+          text: expect.stringContaining("Broader text-only matches without exact filters:"),
+        },
+      ]);
+    } finally {
+      cleanup();
+    }
+  });
 });

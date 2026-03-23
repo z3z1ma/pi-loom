@@ -103,10 +103,36 @@ describe("ticket tools", () => {
     expect(
       (
         getTool(mockPi, "ticket_list").parameters as unknown as {
-          properties: { includeArchived: { type: string; optional: boolean } };
+          properties: {
+            includeArchived: { type: string; optional: boolean };
+            exactStatus: { enum: string[]; optional: boolean };
+            exactType: { enum: string[]; optional: boolean };
+          };
         }
       ).properties.includeArchived,
     ).toMatchObject({ type: "boolean", optional: true });
+    expect(
+      (
+        getTool(mockPi, "ticket_list").parameters as unknown as {
+          properties: {
+            includeArchived: { type: string; optional: boolean };
+            exactStatus: { enum: string[]; optional: boolean };
+            exactType: { enum: string[]; optional: boolean };
+          };
+        }
+      ).properties.exactStatus,
+    ).toMatchObject({ enum: ["open", "ready", "in_progress", "blocked", "review", "closed"], optional: true });
+    expect(
+      (
+        getTool(mockPi, "ticket_list").parameters as unknown as {
+          properties: {
+            includeArchived: { type: string; optional: boolean };
+            exactStatus: { enum: string[]; optional: boolean };
+            exactType: { enum: string[]; optional: boolean };
+          };
+        }
+      ).properties.exactType,
+    ).toMatchObject({ enum: ["task", "bug", "feature", "epic", "chore", "review", "security"], optional: true });
     expect(getTool(mockPi, "ticket_checkpoint").promptGuidelines).toContain(
       "Use checkpoints for reusable durable handoff records, not ephemeral chat summaries.",
     );
@@ -412,7 +438,7 @@ describe("ticket tools", () => {
 
       const reopenedList = await ticketList.execute(
         "call-6",
-        { includeClosed: false, status: "ready" },
+        { includeClosed: false, exactStatus: "ready" },
         undefined,
         undefined,
         ctx,

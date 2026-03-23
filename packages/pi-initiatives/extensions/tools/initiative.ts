@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { analyzeListQuery, renderAnalyzedListQuery } from "@pi-loom/pi-storage/storage/list-query.js";
 import { LOOM_LIST_SORTS } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type { CreateInitiativeInput, InitiativeMilestoneInput, UpdateInitiativeInput } from "../domain/models.js";
@@ -35,7 +36,7 @@ function withDescription<T extends Record<string, unknown>>(schema: T, descripti
 }
 
 const InitiativeListParams = Type.Object({
-  status: Type.Optional(
+  exactStatus: Type.Optional(
     withDescription(
       InitiativeStatusEnum,
       "Optional exact status filter. Leave it unset on the first pass unless you intentionally want one initiative-state slice.",
@@ -56,7 +57,7 @@ const InitiativeListParams = Type.Object({
       "Optional result ordering override. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Set this only when you need recency, creation time, or id ordering instead of the default ranking.",
     ),
   ),
-  tag: Type.Optional(
+  exactTag: Type.Optional(
     Type.String({
       description:
         "Exact tag filter. Add only when you intentionally want to narrow results; the wrong tag hides valid matches.",
@@ -186,28 +187,48 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
     name: "initiative_list",
     label: "initiative_list",
     description:
-      "List initiatives from the durable local strategic memory layer. Leave `sort` unset for the default ordering: `updated_desc` without `text`, `relevance` with `text`. Start broad with `text`, then add exact filters like `tag` only when you intentionally want a narrower strategic slice.",
+      "List initiatives from the durable local strategic memory layer. Leave `sort` unset for the default ordering: `updated_desc` without `text`, `relevance` with `text`. Start broad with `text`, then add exact filters like `exactStatus` or `exactTag` only when you intentionally want a narrower strategic slice.",
     promptSnippet:
       "Inspect strategic context before creating a new initiative or assuming work has no long-horizon container; broad text search with the default relevance ranking is the safest first pass when the exact initiative title or tag is uncertain.",
     promptGuidelines: [
       "Use this tool before creating a new initiative so you do not fork program-level context.",
       "Start with `text` and no exact filters when rediscovering initiative context by theme, objective, or phrase; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
       "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
-      "`tag` is an exact filter and can hide valid matches if you guess the stored tag wrong.",
+      "`exactStatus` and `exactTag` are exact filters and can hide valid matches if you guess the stored values wrong.",
       "Archived initiatives are hidden by default; set `includeArchived` when checking whether older strategy still governs the current work or was explicitly retired.",
+      "If a zero-result query used exact filters, inspect the returned query diagnostics and broader suggestions before assuming no initiative exists.",
     ],
     parameters: InitiativeListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const initiatives = await getStore(ctx).listInitiatives({
-        status: params.status,
-        includeArchived: params.includeArchived,
-        text: params.text,
-        sort: params.sort,
-        tag: params.tag,
-      });
+      const result = await analyzeListQuery(
+        params,
+        (next) =>
+          getStore(ctx).listInitiatives({
+            status: next.exactStatus,
+            includeArchived: next.includeArchived,
+            text: next.text,
+            sort: next.sort,
+            tag: next.exactTag,
+          }),
+        {
+          text: params.text,
+          exactFilters: [
+            {
+              key: "exactStatus",
+              value: params.exactStatus,
+              clear: (current) => ({ ...current, exactStatus: undefined }),
+            },
+            { key: "exactTag", value: params.exactTag, clear: (current) => ({ ...current, exactTag: undefined }) },
+          ],
+        },
+      );
+
       return machineResult(
-        { initiatives },
-        initiatives.length > 0 ? initiatives.map(renderInitiativeSummary).join("\n") : "No initiatives.",
+        { initiatives: result.items, queryDiagnostics: result.diagnostics, broaderMatches: result.broaderMatches },
+        renderAnalyzedListQuery(result, {
+          emptyText: "No initiatives.",
+          renderItem: renderInitiativeSummary,
+        }),
       );
     },
   });

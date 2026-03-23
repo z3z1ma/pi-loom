@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { analyzeListQuery, renderAnalyzedListQuery } from "@pi-loom/pi-storage/storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type { AsyncJob } from "../domain/async-job-manager.js";
@@ -10,8 +11,8 @@ import {
   ensureRalphRun,
   executeRalphLoop,
   isRalphLoopExecutionInFlight,
-  resolveRalphRunBinding,
   renderLoopResult,
+  resolveRalphRunBinding,
 } from "../domain/loop.js";
 import type { DecideRalphRunInput, RalphCritiqueLink, RalphReadResult } from "../domain/models.js";
 import { renderDashboard, renderRalphDetail } from "../domain/render.js";
@@ -195,25 +196,25 @@ const DecisionInputSchema = Type.Object({
 });
 
 const RalphListParams = Type.Object({
-  status: Type.Optional(
+  exactStatus: Type.Optional(
     withDescription(
       RalphRunStatusEnum,
       "Optional exact run status filter. Leave it unset on the first pass unless you intentionally want one run-state slice.",
     ),
   ),
-  phase: Type.Optional(
+  exactPhase: Type.Optional(
     withDescription(
       RalphRunPhaseEnum,
       "Optional exact orchestration phase filter. Use this only when you already know which lifecycle phase you need.",
     ),
   ),
-  decision: Type.Optional(
+  exactDecision: Type.Optional(
     withDescription(
       RalphDecisionKindEnum,
       "Optional exact latest-decision filter. This matches the stored continuation decision kind and is useful when you want one precise continuation slice.",
     ),
   ),
-  waitingFor: Type.Optional(
+  exactWaitingFor: Type.Optional(
     withDescription(
       RalphWaitingForEnum,
       "Optional exact waiting-state filter for paused or review-gated runs. Use it when triaging a known blocker class, not as the first discovery step.",
@@ -661,29 +662,61 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     name: "ralph_list",
     label: "ralph_list",
     description:
-      "List durable Ralph loops and their current orchestration posture. Start broad with `text` when rediscovering a loop by plan, title, or recent context, then add exact filters such as `status`, `phase`, `decision`, or `waitingFor` when you want a narrower operational slice. Results default to `relevance` with `text`, otherwise `updated_desc`.",
+      "List durable Ralph loops and their current orchestration posture. Start broad with `text` when rediscovering a loop by plan, title, or recent context, then add exact filters such as `exactStatus`, `exactPhase`, `exactDecision`, or `exactWaitingFor` when you want a narrower operational slice. Results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
       "Inspect existing Ralph loops before starting or steering plan execution so durable orchestration state stays concentrated around the right workplan.",
     promptGuidelines: [
       "Use this tool to rediscover the loop that should carry the next stretch of planned implementation work.",
       "Start with `text` and let the default relevance ranking surface the likely loop family before narrowing by exact lifecycle filters.",
       "Use exact filters when you want one operational slice such as active delivery, paused review, or completed run checkpoints.",
+      "If a zero-result query used exact filters, inspect the returned query diagnostics and broader suggestions before assuming no Ralph run exists.",
     ],
     parameters: RalphListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const runs = await getStore(ctx).listRunsAsync({
-        status: params.status,
-        phase: params.phase,
-        decision: params.decision,
-        waitingFor: params.waitingFor,
-        text: params.text,
-        sort: params.sort as LoomListSort | undefined,
-      });
+      const result = await analyzeListQuery(
+        params,
+        (next) =>
+          getStore(ctx).listRunsAsync({
+            status: next.exactStatus,
+            phase: next.exactPhase,
+            decision: next.exactDecision,
+            waitingFor: next.exactWaitingFor,
+            text: next.text,
+            sort: next.sort as LoomListSort | undefined,
+          }),
+        {
+          text: params.text,
+          exactFilters: [
+            {
+              key: "exactStatus",
+              value: params.exactStatus,
+              clear: (current) => ({ ...current, exactStatus: undefined }),
+            },
+            {
+              key: "exactPhase",
+              value: params.exactPhase,
+              clear: (current) => ({ ...current, exactPhase: undefined }),
+            },
+            {
+              key: "exactDecision",
+              value: params.exactDecision,
+              clear: (current) => ({ ...current, exactDecision: undefined }),
+            },
+            {
+              key: "exactWaitingFor",
+              value: params.exactWaitingFor,
+              clear: (current) => ({ ...current, exactWaitingFor: undefined }),
+            },
+          ],
+        },
+      );
+
       return machineResult(
-        { runs },
-        runs.length > 0
-          ? runs.map((run) => `${run.id} [${run.status}/${run.phase}] ${run.title}`).join("\n")
-          : "No Ralph runs.",
+        { runs: result.items, queryDiagnostics: result.diagnostics, broaderMatches: result.broaderMatches },
+        renderAnalyzedListQuery(result, {
+          emptyText: "No Ralph runs.",
+          renderItem: (run) => `${run.id} [${run.status}/${run.phase}] ${run.title}`,
+        }),
       );
     },
   });

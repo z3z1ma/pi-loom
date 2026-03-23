@@ -360,7 +360,7 @@ describe("research tools", () => {
 
       const listedByKeyword = await getTool(mockPi, "research_list").execute(
         "call-3",
-        { keyword: "theme" },
+        { exactKeyword: "theme" },
         undefined,
         undefined,
         ctx,

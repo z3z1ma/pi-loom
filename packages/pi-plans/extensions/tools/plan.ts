@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { analyzeListQuery, renderAnalyzedListQuery } from "@pi-loom/pi-storage/storage/list-query.js";
 import { LOOM_LIST_SORTS } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type { CreatePlanInput, PlanContextRefsUpdate, UpdatePlanInput } from "../domain/models.js";
@@ -47,13 +48,13 @@ const PlanRevisionSchema = Type.Object({
 });
 
 const PlanListParams = Type.Object({
-  status: Type.Optional(
+  exactStatus: Type.Optional(
     withDescription(
       PlanStatusEnum,
       "Optional exact status filter: active, paused, completed, archived, or superseded.",
     ),
   ),
-  sourceKind: Type.Optional(
+  exactSourceKind: Type.Optional(
     withDescription(
       PlanSourceTargetKindEnum,
       "Optional exact source target kind filter. This matches the plan's upstream anchor (`sourceTarget.kind`): workspace, initiative, spec, or research. Leave it unset when you know the plan name or topic but do not know its anchor kind.",
@@ -71,7 +72,7 @@ const PlanListParams = Type.Object({
       "Optional result ordering override. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Set this only when you need recency, creation time, or id ordering instead of the default ranking.",
     ),
   ),
-  linkedTicketId: Type.Optional(
+  exactLinkedTicketId: Type.Optional(
     Type.String({ description: "Optional exact ticket id filter for plans linked to a specific ticket." }),
   ),
 });
@@ -225,28 +226,57 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     name: "plan_list",
     label: "plan_list",
     description:
-      "List durable execution plans. Leave `sort` unset for the default ordering: `updated_desc` without `text`, `relevance` with `text`. Start broad with `text` when rediscovering a plan by name, topic, or source context; add exact filters such as `status`, `sourceKind`, or `linkedTicketId` only when you intentionally want a narrower result set.",
+      "List durable execution plans. Leave `sort` unset for the default ordering: `updated_desc` without `text`, `relevance` with `text`. Start broad with `text` when rediscovering a plan by name, topic, or source context; add exact filters such as `exactStatus`, `exactSourceKind`, or `exactLinkedTicketId` only when you intentionally want a narrower result set.",
     promptSnippet:
       "Inspect existing plans before creating a new one so durable execution strategy does not fork; broad text search with the default relevance ranking is the safest first pass when you do not yet know the exact source anchor or status.",
     promptGuidelines: [
       "Use this tool before writing a new plan so broader execution strategy stays consolidated.",
       "When rediscovering an existing plan, start with `text` and no exact filters; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
       "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
-      "`status`, `sourceKind`, and `linkedTicketId` all narrow by exact stored values, and `sourceKind` in particular matches the upstream anchor type (`workspace`, `initiative`, `spec`, or `research`).",
+      "`exactStatus`, `exactSourceKind`, and `exactLinkedTicketId` all narrow by exact stored values, and `exactSourceKind` in particular matches the upstream anchor type (`workspace`, `initiative`, `spec`, or `research`).",
       "Add exact filters only after the broad search is still too wide or when you intentionally need one specific execution-plan slice.",
+      "If a zero-result query used exact filters, inspect the returned query diagnostics and broader text-only suggestions before assuming the plan is absent.",
     ],
     parameters: PlanListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const plans = await getStore(ctx).listPlans({
-        status: params.status,
-        sourceKind: params.sourceKind,
-        text: params.text,
-        sort: params.sort,
-        linkedTicketId: params.linkedTicketId,
-      });
+      const result = await analyzeListQuery(
+        params,
+        (next) =>
+          getStore(ctx).listPlans({
+            status: next.exactStatus,
+            sourceKind: next.exactSourceKind,
+            text: next.text,
+            sort: next.sort,
+            linkedTicketId: next.exactLinkedTicketId,
+          }),
+        {
+          text: params.text,
+          exactFilters: [
+            {
+              key: "exactStatus",
+              value: params.exactStatus,
+              clear: (current) => ({ ...current, exactStatus: undefined }),
+            },
+            {
+              key: "exactSourceKind",
+              value: params.exactSourceKind,
+              clear: (current) => ({ ...current, exactSourceKind: undefined }),
+            },
+            {
+              key: "exactLinkedTicketId",
+              value: params.exactLinkedTicketId,
+              clear: (current) => ({ ...current, exactLinkedTicketId: undefined }),
+            },
+          ],
+        },
+      );
+
       return machineResult(
-        { plans },
-        plans.length > 0 ? plans.map((plan) => `${plan.id} [${plan.status}] ${plan.title}`).join("\n") : "No plans.",
+        { plans: result.items, queryDiagnostics: result.diagnostics, broaderMatches: result.broaderMatches },
+        renderAnalyzedListQuery(result, {
+          emptyText: "No plans.",
+          renderItem: (plan) => `${plan.id} [${plan.status}] ${plan.title}`,
+        }),
       );
     },
   });

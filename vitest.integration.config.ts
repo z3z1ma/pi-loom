@@ -14,6 +14,7 @@ export default defineConfig({
       "packages/*/__tests__/integration-smoke.test.ts",
       "packages/*/__tests__/ticket-workspace.test.ts",
       "packages/pi-storage/__tests__/catalog.test.ts",
+      "packages/pi-storage/__tests__/list-query.test.ts",
       "packages/pi-storage/__tests__/list-search.test.ts",
       "packages/pi-storage/__tests__/link-projection-context.test.ts",
       "packages/pi-storage/__tests__/link-projection-execution.test.ts",

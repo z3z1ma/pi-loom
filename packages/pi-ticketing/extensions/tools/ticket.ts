@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { analyzeListQuery, renderAnalyzedListQuery } from "@pi-loom/pi-storage/storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type {
@@ -37,13 +38,13 @@ function withDescription<T extends Record<string, unknown>>(schema: T, descripti
 }
 
 const TicketListParams = Type.Object({
-  status: Type.Optional(
+  exactStatus: Type.Optional(
     withDescription(
       TicketStatusEnum,
       "Exact status filter. Start with text when discovering work; add status only once you intentionally want a narrower slice.",
     ),
   ),
-  type: Type.Optional(
+  exactType: Type.Optional(
     withDescription(
       TicketTypeEnum,
       "Exact type filter. Leave unset for broad discovery unless you already know the ticket kind you want.",
@@ -235,31 +236,55 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     name: "ticket_list",
     label: "ticket_list",
     description:
-      "List tickets from the durable local ledger using effective execution status. Prefer broad discovery with text first, then add exact filters only when you intentionally want to narrow the result set; results default to `relevance` with `text`, otherwise `updated_desc`.",
+      "List tickets from the durable local ledger using effective execution status. Prefer broad discovery with text first, then add exact filters such as `exactStatus` or `exactType` only when you intentionally want to narrow the result set; results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
       "Inspect backlog, ready work, blocked work, or existing intent before creating a new ticket. Start broad with text when uncertain, then narrow with exact filters; rely on the default relevance ranking unless you explicitly need a different ordering.",
     promptGuidelines: [
       "Use this tool before creating tickets so you do not duplicate existing work.",
-      "Start with text for broad-first discovery when you only know part of the title or intent; exact status and type filters can hide valid matches if you guess wrong.",
+      "Start with text for broad-first discovery when you only know part of the title or intent; exact filters such as `exactStatus` and `exactType` can hide valid matches if you guess wrong.",
       "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need another ordering such as chronology or id order.",
       "List and graph status are effective execution states derived from stored status plus open dependencies; use `ticket_read` when you also need the stored status field shown explicitly.",
       "Closed tickets are excluded by default, and archived tickets are also excluded by default even when includeClosed is true; opt into those histories only when you intentionally need them.",
-      "Use status filters to inspect ready or blocked work before proposing sequencing or parallelism once you have already narrowed the search intentionally.",
+      "Use exact status filters to inspect ready or blocked work before proposing sequencing or parallelism once you have already narrowed the search intentionally.",
+      "If a zero-result query used exact filters, inspect the returned query diagnostics and broader suggestions before assuming the ticket does not exist.",
       "Use the existing ledger to inherit durable context, dependencies, and verification expectations before writing a new ticket body.",
     ],
     parameters: TicketListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const tickets = await getStore(ctx).listTicketsAsync({
-        status: params.status as TicketStatus | undefined,
-        type: params.type,
-        includeClosed: params.includeClosed,
-        includeArchived: params.includeArchived,
-        text: params.text,
-        sort: params.sort as LoomListSort | undefined,
-      });
+      const result = await analyzeListQuery(
+        params,
+        (next) =>
+          getStore(ctx).listTicketsAsync({
+            status: next.exactStatus as TicketStatus | undefined,
+            type: next.exactType,
+            includeClosed: next.includeClosed,
+            includeArchived: next.includeArchived,
+            text: next.text,
+            sort: next.sort as LoomListSort | undefined,
+          }),
+        {
+          text: params.text,
+          exactFilters: [
+            {
+              key: "exactStatus",
+              value: params.exactStatus,
+              clear: (current) => ({ ...current, exactStatus: undefined }),
+            },
+            {
+              key: "exactType",
+              value: params.exactType,
+              clear: (current) => ({ ...current, exactType: undefined }),
+            },
+          ],
+        },
+      );
+
       return machineResult(
-        { tickets },
-        tickets.length > 0 ? tickets.map(renderTicketSummary).join("\n") : "No tickets.",
+        { tickets: result.items, queryDiagnostics: result.diagnostics, broaderMatches: result.broaderMatches },
+        renderAnalyzedListQuery(result, {
+          emptyText: "No tickets.",
+          renderItem: renderTicketSummary,
+        }),
       );
     },
   });

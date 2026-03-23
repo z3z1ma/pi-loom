@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { analyzeListQuery, renderAnalyzedListQuery } from "@pi-loom/pi-storage/storage/list-query.js";
 import { LOOM_LIST_SORTS } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type {
@@ -46,7 +47,7 @@ function withDescription<T extends Record<string, unknown>>(schema: T, descripti
 }
 
 const ResearchListParams = Type.Object({
-  status: Type.Optional(
+  exactStatus: Type.Optional(
     withDescription(
       ResearchStatusEnum,
       "Optional exact status filter. Leave it unset on the first pass unless you intentionally want one research-state slice.",
@@ -67,13 +68,13 @@ const ResearchListParams = Type.Object({
       "Optional result ordering override. Defaults to `relevance` when `text` is present, otherwise `updated_desc`. Set this only when you need recency, creation time, or id ordering instead of the default ranking.",
     ),
   ),
-  tag: Type.Optional(
+  exactTag: Type.Optional(
     Type.String({
       description:
         "Exact tag filter. Add only when you intentionally want to narrow results; the wrong tag hides valid matches.",
     }),
   ),
-  keyword: Type.Optional(
+  exactKeyword: Type.Optional(
     Type.String({
       description:
         "Exact keyword filter against the research record's stored `keywords` list. Use after a broad text search when you know the keyword already recorded on the target research.",
@@ -219,29 +220,54 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     name: "research_list",
     label: "research_list",
     description:
-      "List research records from the durable local knowledge memory. Leave `sort` unset for the default ordering: `updated_desc` without `text`, `relevance` with `text`. Start broad with `text`, then add exact filters like `tag` or `keyword` only when you intentionally want a narrower slice.",
+      "List research records from the durable local knowledge memory. Leave `sort` unset for the default ordering: `updated_desc` without `text`, `relevance` with `text`. Start broad with `text`, then add exact filters like `exactStatus`, `exactTag`, or `exactKeyword` only when you intentionally want a narrower slice.",
     promptSnippet:
       "Inspect existing research before creating a new investigation so you can reuse prior evidence, methodology, rejected paths, and open questions instead of restarting discovery; broad text search with the default relevance ranking is the safest first pass when the exact record shape is unknown.",
     promptGuidelines: [
       "Use this tool before opening new exploratory work so you do not fork existing knowledge.",
       "Start with `text` and no exact filters when rediscovering prior work by topic, question, or phrase; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
       "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
-      "`tag` and `keyword` are exact filters over stored metadata and can hide valid matches if you guess the recorded value wrong.",
+      "`exactStatus`, `exactTag`, and `exactKeyword` are exact filters over stored metadata and can hide valid matches if you guess the recorded value wrong.",
       "Archived research is hidden by default; set `includeArchived` when checking whether older investigations already resolved the uncertainty or should still inform the current search.",
+      "If a zero-result query used exact filters, inspect the returned query diagnostics and broader suggestions before assuming no research record exists.",
     ],
     parameters: ResearchListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = await getStore(ctx).listResearch({
-        status: params.status,
-        includeArchived: params.includeArchived,
-        text: params.text,
-        sort: params.sort,
-        tag: params.tag,
-        keyword: params.keyword,
-      });
+      const result = await analyzeListQuery(
+        params,
+        (next) =>
+          getStore(ctx).listResearch({
+            status: next.exactStatus,
+            includeArchived: next.includeArchived,
+            text: next.text,
+            sort: next.sort,
+            tag: next.exactTag,
+            keyword: next.exactKeyword,
+          }),
+        {
+          text: params.text,
+          exactFilters: [
+            {
+              key: "exactStatus",
+              value: params.exactStatus,
+              clear: (current) => ({ ...current, exactStatus: undefined }),
+            },
+            { key: "exactTag", value: params.exactTag, clear: (current) => ({ ...current, exactTag: undefined }) },
+            {
+              key: "exactKeyword",
+              value: params.exactKeyword,
+              clear: (current) => ({ ...current, exactKeyword: undefined }),
+            },
+          ],
+        },
+      );
+
       return machineResult(
-        { research },
-        research.length > 0 ? research.map(renderResearchSummary).join("\n") : "No research records.",
+        { research: result.items, queryDiagnostics: result.diagnostics, broaderMatches: result.broaderMatches },
+        renderAnalyzedListQuery(result, {
+          emptyText: "No research records.",
+          renderItem: renderResearchSummary,
+        }),
       );
     },
   });

@@ -86,6 +86,23 @@ export interface LoomWorktreeRecord extends LoomAuditFields {
   status: LoomWorktreeStatus;
 }
 
+export type LoomScopeBindingSource = "cwd" | "selection" | "persisted";
+
+export interface LoomActiveScopeRepositoryBinding {
+  repositoryId: LoomId;
+  worktreeId: LoomId | null;
+  source: LoomScopeBindingSource;
+}
+
+export interface LoomActiveScopeRecord extends LoomAuditFields {
+  spaceId: LoomId;
+  repositoryId: LoomId | null;
+  worktreeId: LoomId | null;
+  bindingSource: LoomScopeBindingSource;
+  isAmbiguous: boolean;
+  candidateRepositoryIds: LoomId[];
+}
+
 export interface LoomEntityRecord extends LoomAuditFields {
   id: LoomId;
   kind: LoomEntityKind;

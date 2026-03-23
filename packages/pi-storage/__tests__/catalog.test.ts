@@ -1,6 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import type { LoomRuntimeAttachment } from "../storage/contract.js";
 import { createEntityId, createLinkId, createRepositoryId } from "../storage/ids.js";
@@ -19,11 +20,40 @@ function createWorkspace(): { cwd: string; cleanup: () => void } {
   });
 }
 
+function createParentWorkspaceWithChildren(): { cwd: string; repositories: string[]; cleanup: () => void } {
+  const root = mkdtempSync(path.join(tmpdir(), "pi-storage-parent-workspace-"));
+  const createRepository = (name: string, remoteUrl: string) => {
+    const repoRoot = path.join(root, name);
+    mkdirSync(repoRoot, { recursive: true });
+    execFileSync("git", ["init"], { cwd: repoRoot, encoding: "utf-8" });
+    execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd: repoRoot, encoding: "utf-8" });
+    execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd: repoRoot, encoding: "utf-8" });
+    execFileSync("git", ["remote", "add", "origin", remoteUrl], { cwd: repoRoot, encoding: "utf-8" });
+    writeFileSync(path.join(repoRoot, "package.json"), `${JSON.stringify({ name })}\n`, "utf-8");
+    writeFileSync(path.join(repoRoot, "README.md"), "seed\n", "utf-8");
+    execFileSync("git", ["add", "."], { cwd: repoRoot, encoding: "utf-8" });
+    execFileSync("git", ["commit", "-m", "seed"], { cwd: repoRoot, encoding: "utf-8" });
+    return repoRoot;
+  };
+  const repoA = createRepository("service-a", "git@github.com:example/service-a.git");
+  const repoB = createRepository("service-b", "git@github.com:example/service-b.git");
+  return {
+    cwd: root,
+    repositories: [repoA, repoB],
+    cleanup: () => {
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
 async function seedCanonicalCatalog(
   cwd: string,
   catalog: SqliteLoomCatalog,
 ): Promise<{ entityIds: string[]; runtimeAttachment: LoomRuntimeAttachment }> {
   const identity = resolveWorkspaceIdentity(cwd);
+  if (!identity.repository || !identity.worktree) {
+    throw new Error("Expected unambiguous repository and worktree identity when seeding canonical catalog.");
+  }
   const timestamps = {
     createdAt: identity.space.createdAt,
     updatedAt: identity.space.updatedAt,
@@ -140,16 +170,52 @@ describe("pi-storage sqlite catalog backup flow", () => {
     cleanupPaths.push(cwd);
     try {
       const identity = resolveWorkspaceIdentity(cwd);
-      expect(identity.repository.remoteUrls).toEqual(["git@github.com:example/pi-loom.git"]);
-      expect(identity.repository.id).toContain("repo_");
-      expect(identity.worktree.repositoryId).toBe(identity.repository.id);
-      expect(identity.space.repositoryIds).toEqual([identity.repository.id]);
-      expect(identity.worktree.logicalKey.startsWith("worktree:")).toBe(true);
-      expect(identity.worktree.logicalKey.startsWith("/")).toBe(false);
+      expect(identity.repository).toBeTruthy();
+      expect(identity.worktree).toBeTruthy();
+      expect(identity.activeScope.isAmbiguous).toBe(false);
+      expect(identity.repository?.remoteUrls).toEqual(["git@github.com:example/pi-loom.git"]);
+      expect(identity.repository?.id).toContain("repo_");
+      expect(identity.worktree?.repositoryId).toBe(identity.repository?.id);
+      expect(identity.space.repositoryIds).toEqual([identity.repository?.id]);
+      expect(identity.worktree?.logicalKey.startsWith("worktree:")).toBe(true);
+      expect(identity.worktree?.logicalKey.startsWith("/")).toBe(false);
     } finally {
       cleanup();
     }
   });
+
+  it("surfaces an ambiguous active scope instead of inventing a parent-directory repository when multiple child repos exist", () => {
+    const { cwd, repositories, cleanup } = createParentWorkspaceWithChildren();
+    cleanupPaths.push(cwd);
+    try {
+      expect(repositories).toHaveLength(2);
+      const identity = resolveWorkspaceIdentity(cwd);
+      expect(identity.space.title).toContain("pi-storage-parent-workspace-");
+      expect(identity.repositories.map((repository) => repository.displayName).sort()).toEqual(["service-a", "service-b"]);
+      expect(identity.space.repositoryIds).toHaveLength(2);
+      expect(identity.activeScope.isAmbiguous).toBe(true);
+      expect(identity.activeScope.repositoryId).toBeNull();
+      expect(identity.activeScope.worktreeId).toBeNull();
+    } finally {
+      cleanup();
+    }
+  }, 15000);
+
+  it("keeps same-repository clones on the same branch as distinct worktrees", () => {
+    const first = createWorkspace();
+    const second = createWorkspace();
+    cleanupPaths.push(first.cwd, second.cwd);
+    try {
+      const firstIdentity = resolveWorkspaceIdentity(first.cwd);
+      const secondIdentity = resolveWorkspaceIdentity(second.cwd);
+      expect(firstIdentity.repository?.id).toBe(secondIdentity.repository?.id);
+      expect(firstIdentity.worktree?.id).not.toBe(secondIdentity.worktree?.id);
+      expect(firstIdentity.worktree?.logicalKey).not.toBe(secondIdentity.worktree?.logicalKey);
+    } finally {
+      first.cleanup();
+      second.cleanup();
+    }
+  }, 15000);
 
   it("exports sqlite-backed state into an explicit backup bundle without materializing workspace files", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -208,5 +274,5 @@ describe("pi-storage sqlite catalog backup flow", () => {
       sourceCatalog.close();
       cleanup();
     }
-  });
+  }, 15000);
 });

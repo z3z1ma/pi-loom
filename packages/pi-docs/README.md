@@ -7,7 +7,8 @@ This package adds a first-class documentation layer with canonical records store
 ## Capabilities
 
 - `docs_*` tools for list/read/write/packet/update/dashboard workflows
-- canonical documentation records stored in SQLite with revision history, and update packets or documentation views rendered from those records for inspection or explicit export
+- `docs_list` is broad-text-first; exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state
+- canonical documentation records stored in SQLite with revision history, and update packets or documentation views rendered from canonical records for inspection or explicit export
 - bounded update packets that pull linked constitution, initiative, research, spec, ticket, and critique context into a fresh documentation-maintainer handoff
 - revision history that keeps documentation updates observable and queryable as Loom memory
 

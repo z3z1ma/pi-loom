@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { analyzeListQuery, renderAnalyzedListQuery } from "@pi-loom/pi-storage/storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import { renderCritiqueDetail, renderDashboard } from "../domain/render.js";
@@ -80,22 +81,22 @@ const CritiqueTargetSchema = Type.Object({
 });
 
 const CritiqueListParams = Type.Object({
-  status: Type.Optional(
+  exactStatus: Type.Optional(
     withDescription(
       CritiqueStatusEnum,
       "Exact critique status filter. Start with text first unless you intentionally want one status bucket.",
     ),
   ),
-  verdict: Type.Optional(
+  exactVerdict: Type.Optional(
     withDescription(CritiqueVerdictEnum, "Exact verdict filter. Useful for targeted triage after broad discovery."),
   ),
-  targetKind: Type.Optional(
+  exactTargetKind: Type.Optional(
     withDescription(
       CritiqueTargetKindEnum,
       "Exact target kind filter. Leave unset unless you already know the critique target type.",
     ),
   ),
-  focusArea: Type.Optional(
+  exactFocusArea: Type.Optional(
     withDescription(
       CritiqueFocusAreaEnum,
       "Exact focus-area filter. This narrows to critiques whose recorded focus areas include the chosen value.",
@@ -277,7 +278,7 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
     name: "critique_list",
     label: "critique_list",
     description:
-      "List durable critique records. Prefer broad discovery with text first, then add exact status, verdict, target, or focus-area filters only when you intentionally want a narrower slice; results default to `relevance` with `text`, otherwise `updated_desc`.",
+      "List durable critique records. Prefer broad discovery with text first, then add exact filters such as `exactStatus`, `exactVerdict`, `exactTargetKind`, or `exactFocusArea` only when you intentionally want a narrower slice; results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
       "Inspect existing critiques before starting a new review so prior evidence, verdict reasoning, and follow-up findings are not duplicated or contradicted. Start broad with text when uncertain, then narrow deliberately; keep the default relevance ordering unless you intentionally need another sort.",
     promptGuidelines: [
@@ -285,24 +286,54 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
       "Prefer text first for broad discovery by critique id, title, target ref, or focus area; exact filters can hide valid matches if you guess the stored status, verdict, target kind, or focus area wrong.",
       "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need chronology or id order after filtering.",
       "Filter by focus area or verdict when triaging follow-up review work and when you need the strongest existing evidence trail first.",
+      "If a zero-result query used exact filters, inspect the returned query diagnostics and broader suggestions before assuming no critique exists.",
     ],
     parameters: CritiqueListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const critiques = await getStore(ctx).listCritiquesAsync({
-        status: params.status,
-        verdict: params.verdict,
-        targetKind: params.targetKind,
-        focusArea: params.focusArea,
-        text: params.text,
-        sort: params.sort as LoomListSort | undefined,
-      });
+      const result = await analyzeListQuery(
+        params,
+        (next) =>
+          getStore(ctx).listCritiquesAsync({
+            status: next.exactStatus,
+            verdict: next.exactVerdict,
+            targetKind: next.exactTargetKind,
+            focusArea: next.exactFocusArea,
+            text: next.text,
+            sort: next.sort as LoomListSort | undefined,
+          }),
+        {
+          text: params.text,
+          exactFilters: [
+            {
+              key: "exactStatus",
+              value: params.exactStatus,
+              clear: (current) => ({ ...current, exactStatus: undefined }),
+            },
+            {
+              key: "exactVerdict",
+              value: params.exactVerdict,
+              clear: (current) => ({ ...current, exactVerdict: undefined }),
+            },
+            {
+              key: "exactTargetKind",
+              value: params.exactTargetKind,
+              clear: (current) => ({ ...current, exactTargetKind: undefined }),
+            },
+            {
+              key: "exactFocusArea",
+              value: params.exactFocusArea,
+              clear: (current) => ({ ...current, exactFocusArea: undefined }),
+            },
+          ],
+        },
+      );
+
       return machineResult(
-        { critiques },
-        critiques.length > 0
-          ? critiques
-              .map((critique) => `${critique.id} [${critique.status}/${critique.verdict}] ${critique.title}`)
-              .join("\n")
-          : "No critiques.",
+        { critiques: result.items, queryDiagnostics: result.diagnostics, broaderMatches: result.broaderMatches },
+        renderAnalyzedListQuery(result, {
+          emptyText: "No critiques.",
+          renderItem: (critique) => `${critique.id} [${critique.status}/${critique.verdict}] ${critique.title}`,
+        }),
       );
     },
   });

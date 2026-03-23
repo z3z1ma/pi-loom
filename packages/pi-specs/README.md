@@ -9,6 +9,7 @@ Specification lifecycle is strict: proposed/clarifying/specified specs are mutab
 ## Features
 
 - durable specification records persisted in SQLite
+- `spec_list` is broad-text-first; exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state
 - canonical capability specs stored in SQLite, with review renderings generated when needed
 - append-only clarification and decision history per mutable spec
 - explicit initiative membership for cross-layer strategic traceability

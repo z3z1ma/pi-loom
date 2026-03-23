@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { analyzeListQuery, renderAnalyzedListQuery } from "@pi-loom/pi-storage/storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import { renderDashboard, renderDocumentationDetail, renderUpdatePrompt } from "../domain/render.js";
@@ -59,26 +60,26 @@ const SourceTargetSchema = Type.Object({
 });
 
 const DocsListParams = Type.Object({
-  status: Type.Optional(withDescription(DocStatusEnum, "Optional exact status filter: active or archived.")),
-  docType: Type.Optional(
+  exactStatus: Type.Optional(withDescription(DocStatusEnum, "Optional exact status filter: active or archived.")),
+  exactDocType: Type.Optional(
     withDescription(
       DocTypeEnum,
       "Optional exact documentation type filter. Leave it unset on the first pass unless you already know the durable doc classification.",
     ),
   ),
-  sectionGroup: Type.Optional(
+  exactSectionGroup: Type.Optional(
     withDescription(
       DocSectionGroupEnum,
       "Optional exact section-group filter for the rendered docs area (`overviews`, `guides`, `concepts`, or `operations`).",
     ),
   ),
-  sourceKind: Type.Optional(
+  exactSourceKind: Type.Optional(
     withDescription(
       DocSourceTargetKindEnum,
       "Optional exact source target kind filter (`initiative`, `spec`, `ticket`, `critique`, or `workspace`). Leave it unset when you know the topic but not the upstream anchor kind.",
     ),
   ),
-  topic: Type.Optional(
+  exactTopic: Type.Optional(
     Type.String({
       description:
         "Optional exact topic filter. Use this only when you already know the durable guide topic slug you want; guessed values can hide relevant documents.",
@@ -201,31 +202,68 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     name: "docs_list",
     label: "docs_list",
     description:
-      "List durable documentation records. Start broad with `text` when rediscovering a doc by title, topic, or source context; add exact filters such as `docType`, `sectionGroup`, `sourceKind`, or `topic` only when you intentionally want a narrower slice. Results default to `relevance` with `text`, otherwise `updated_desc`.",
+      "List durable documentation records. Start broad with `text` when rediscovering a doc by title, topic, or source context; add exact filters such as `exactDocType`, `exactSectionGroup`, `exactSourceKind`, or `exactTopic` only when you intentionally want a narrower slice. Results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
       "Inspect existing documentation records before creating new docs so substantial durable explanations stay focused, non-duplicative, and attached to the right record; broad text search is the safest first pass when you do not know the exact doc classification yet, and the default relevance ordering is usually the right first view.",
     promptGuidelines: [
       "Use this tool before creating a new documentation record so high-level topics stay consolidated in one durable, high-context document instead of fragmenting into shallow duplicates.",
-      "When rediscovering a durable document, start with `text` and no exact filters; `docType`, `sectionGroup`, `sourceKind`, and `topic` narrow by exact stored values and can hide valid matches if guessed wrong.",
+      "When rediscovering a durable document, start with `text` and no exact filters; `exactStatus`, `exactDocType`, `exactSectionGroup`, `exactSourceKind`, and `exactTopic` narrow by exact stored values and can hide valid matches if guessed wrong.",
       "The default ordering is `relevance` when `text` is present and `updated_desc` otherwise; set `sort` only when you intentionally need chronology or id order after filtering.",
       "Add exact filters only after the broad search is still too wide or when you intentionally need one specific documentation slice.",
+      "If a zero-result query used exact filters, inspect the returned query diagnostics and broader suggestions before assuming no documentation record exists.",
     ],
     parameters: DocsListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const docs = await getStore(ctx).listDocs({
-        status: params.status,
-        docType: params.docType,
-        sectionGroup: params.sectionGroup,
-        sourceKind: params.sourceKind,
-        topic: params.topic,
-        text: params.text,
-        sort: params.sort as LoomListSort | undefined,
-      });
+      const result = await analyzeListQuery(
+        params,
+        (next) =>
+          getStore(ctx).listDocs({
+            status: next.exactStatus,
+            docType: next.exactDocType,
+            sectionGroup: next.exactSectionGroup,
+            sourceKind: next.exactSourceKind,
+            topic: next.exactTopic,
+            text: next.text,
+            sort: next.sort as LoomListSort | undefined,
+          }),
+        {
+          text: params.text,
+          exactFilters: [
+            {
+              key: "exactStatus",
+              value: params.exactStatus,
+              clear: (current) => ({ ...current, exactStatus: undefined }),
+            },
+            {
+              key: "exactDocType",
+              value: params.exactDocType,
+              clear: (current) => ({ ...current, exactDocType: undefined }),
+            },
+            {
+              key: "exactSectionGroup",
+              value: params.exactSectionGroup,
+              clear: (current) => ({ ...current, exactSectionGroup: undefined }),
+            },
+            {
+              key: "exactSourceKind",
+              value: params.exactSourceKind,
+              clear: (current) => ({ ...current, exactSourceKind: undefined }),
+            },
+            {
+              key: "exactTopic",
+              value: params.exactTopic,
+              clear: (current) => ({ ...current, exactTopic: undefined }),
+            },
+          ],
+        },
+      );
+
       return machineResult(
-        { docs },
-        docs.length > 0
-          ? docs.map((doc) => `${doc.id} [${doc.status}/${doc.docType}] ${doc.title}`).join("\n")
-          : "No documentation records.",
+        { docs: result.items, queryDiagnostics: result.diagnostics, broaderMatches: result.broaderMatches },
+        renderAnalyzedListQuery(result, {
+          emptyText: "No documentation records.",
+          renderItem: (doc) => `${doc.id} [${doc.status}/${doc.docType}] ${doc.title}`,
+        }),
       );
     },
   });

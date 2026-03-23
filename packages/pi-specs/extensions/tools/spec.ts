@@ -1,5 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { analyzeListQuery, renderAnalyzedListQuery } from "@pi-loom/pi-storage/storage/list-query.js";
 import { LOOM_LIST_SORTS } from "@pi-loom/pi-storage/storage/list-search.js";
 import { type Static, Type } from "@sinclair/typebox";
 import type { SpecPlanInput } from "../domain/models.js";
@@ -23,7 +24,7 @@ function withDescription<T extends Record<string, unknown>>(schema: T, descripti
 }
 
 const SpecListParams = Type.Object({
-  status: Type.Optional(
+  exactStatus: Type.Optional(
     withDescription(
       SpecStatusEnum,
       "Optional exact spec status filter. Leave it unset on the first pass unless you intentionally want one status slice.",
@@ -138,30 +139,53 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     name: "spec_list",
     label: "spec_list",
     description:
-      "List specifications plus the separate capability summary set from durable local spec memory. Leave `sort` unset for the default specification ordering: `updated_desc` without `text`, `relevance` with `text`. `status` and `includeArchived` narrow only the specification list.",
+      "List specifications plus the separate capability summary set from durable local spec memory. Leave `sort` unset for the default specification ordering: `updated_desc` without `text`, `relevance` with `text`. `exactStatus` and `includeArchived` narrow only the specification list.",
     promptSnippet:
       "Inspect relevant existing specifications before opening a new specification or downstream plan so the work can inherit existing behavioral intent instead of re-inventing it; broad text search with the default relevance ranking is the safest first pass when you are rediscovering prior spec work.",
     promptGuidelines: [
       "Use this tool before creating a new specification so you do not duplicate existing capability work or re-state behavior that is already specified.",
       "Start with `text` when rediscovering prior spec work by capability, title, or phrase; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
       "Without `text`, the default sort is `updated_desc`; set `sort` only when you explicitly want created-time or id ordering instead of the normal recency view.",
-      "`status` and `includeArchived` apply only to specifications. Capability summaries are still returned separately and are not filtered by those specification filters.",
+      "`exactStatus` and `includeArchived` apply only to specifications. Capability summaries are still returned separately and are not filtered by those specification filters.",
       "`sort` applies only to the specification list. Capability summaries are still returned separately as an unranked companion set.",
       "Archived specifications are hidden by default; set `includeArchived` when checking whether older finalized or superseded specifications already cover the capability.",
+      "If a zero-result query used exact filters, inspect the returned query diagnostics and broader suggestions before assuming no specification exists.",
     ],
     parameters: SpecListParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const changes = await getStore(ctx).listChanges({
-        status: params.status,
-        includeArchived: params.includeArchived,
-        text: params.text,
-        sort: params.sort,
-      });
+      const result = await analyzeListQuery(
+        params,
+        (next) =>
+          getStore(ctx).listChanges({
+            status: next.exactStatus,
+            includeArchived: next.includeArchived,
+            text: next.text,
+            sort: next.sort,
+          }),
+        {
+          text: params.text,
+          exactFilters: [
+            {
+              key: "exactStatus",
+              value: params.exactStatus,
+              clear: (current) => ({ ...current, exactStatus: undefined }),
+            },
+          ],
+        },
+      );
       const capabilities = await getStore(ctx).listCapabilities();
       return machineResult(
-        { changes, capabilities },
+        {
+          changes: result.items,
+          capabilities,
+          queryDiagnostics: result.diagnostics,
+          broaderMatches: result.broaderMatches,
+        },
         [
-          changes.length > 0 ? changes.map(renderSpecSummary).join("\n") : "No specifications.",
+          renderAnalyzedListQuery(result, {
+            emptyText: "No specifications.",
+            renderItem: renderSpecSummary,
+          }),
           capabilities.length > 0
             ? `Capabilities: ${capabilities.map((capability) => capability.id).join(", ")}`
             : "Capabilities: none",

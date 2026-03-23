@@ -1776,6 +1776,8 @@ export class RalphStore {
       iteration: nextIteration.iteration,
       createdAt: state.nextLaunch.preparedAt ?? currentTimestamp(),
       runtime: state.nextLaunch.runtime ?? (state.nextLaunch.preparedAt ? "session" : "descriptor_only"),
+      ticketRef: state.scope.ticketId ?? state.activeTicketId ?? "(unbound-ticket)",
+      planRef: state.scope.planId,
       packetRef: toRalphPacketRef(state.runId),
       launchRef: toRalphLaunchRef(state.runId),
       resume: state.nextLaunch.resume,

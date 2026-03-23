@@ -8,6 +8,7 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 
 - `/ralph` human command surface for `start`, `stop`, `steer`, and `status`
 - `ralph_run`, `ralph_steer`, `ralph_stop`, `ralph_read`, and Ralph-native background job tools for AI callers
+- `ralph_list` is broad-text-first; exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state
 - canonical run records stored in SQLite with system-owned run ids derived from the effective plan/ticket binding (using a ticket-only sentinel when no plan applies), packet context, queued steering, and revisable post-iteration checkpoints
 - multiple Ralph runs may coexist in one workspace when they do not target the same ticket concurrently
 - plan-anchored execution where the governing spec is inherited from the plan when present
