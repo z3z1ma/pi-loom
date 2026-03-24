@@ -1,48 +1,70 @@
 {
-  "name": "pi-loom-workspace",
+  "name": "pi-loom",
   "version": "0.1.0",
-  "private": true,
-  "description": "Pi extension workspace focused on durable AI-native constitutional, research, initiative, specification, planning, ticket, Ralph-wiggum orchestration, critique, and documentation memory.",
+  "description": "Unified Pi Loom package for durable constitutional, research, initiative, specification, planning, ticket, critique, Ralph orchestration, documentation, and storage workflows.",
+  "type": "module",
+  "files": [
+    "constitution/",
+    "research/",
+    "initiatives/",
+    "specs/",
+    "plans/",
+    "ticketing/",
+    "critique/",
+    "docs/",
+    "ralph/",
+    "storage/",
+    "README.md",
+    "LICENSE"
+  ],
+  "imports": {
+    "#*": "./*"
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "biome check package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md packages",
-    "lint:fix": "biome check --write package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md packages",
+    "lint": "biome check package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md constitution critique docs initiatives plans ralph research specs storage ticketing",
+    "lint:fix": "biome check --write package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md constitution critique docs initiatives plans ralph research specs storage ticketing",
     "check": "npm run lint && npm run typecheck",
-    "check:ci": "biome ci package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md packages && tsc -p tsconfig.json --noEmit",
+    "check:ci": "biome ci package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md constitution critique docs initiatives plans ralph research specs storage ticketing && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
-  "workspaces": [
-    "packages/pi-loom"
-  ],
   "keywords": [
     "pi",
     "pi-package",
     "pi-extension",
+    "loom",
     "constitutional-memory",
-    "documentation",
+    "research",
     "initiatives",
-    "ticketing",
-    "workspace",
-    "planning",
     "specifications",
-    "ledger",
+    "planning",
+    "ticketing",
     "critique",
     "ralph",
-    "loom"
+    "documentation",
+    "storage"
   ],
   "pi": {
     "extensions": [
-      "./packages/pi-loom/constitution/extensions/index.ts",
-      "./packages/pi-loom/research/extensions/index.ts",
-      "./packages/pi-loom/initiatives/extensions/index.ts",
-      "./packages/pi-loom/specs/extensions/index.ts",
-      "./packages/pi-loom/plans/extensions/index.ts",
-      "./packages/pi-loom/ticketing/extensions/index.ts",
-      "./packages/pi-loom/critique/extensions/index.ts",
-      "./packages/pi-loom/ralph-wiggum/extensions/index.ts",
-      "./packages/pi-loom/docs/extensions/index.ts"
+      "./constitution/extensions/index.ts",
+      "./research/extensions/index.ts",
+      "./initiatives/extensions/index.ts",
+      "./specs/extensions/index.ts",
+      "./plans/extensions/index.ts",
+      "./ticketing/extensions/index.ts",
+      "./critique/extensions/index.ts",
+      "./ralph/extensions/index.ts",
+      "./docs/extensions/index.ts"
     ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": ">=0.57.0",
+    "@mariozechner/pi-coding-agent": ">=0.57.0",
+    "@sinclair/typebox": "^0.34.41"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.5",

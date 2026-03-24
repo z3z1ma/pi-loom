@@ -37,7 +37,7 @@ That means the next-stage opportunity is unusually clear:
 
 ## 1. Physical SQLite catalog
 
-Defined in `packages/pi-loom/storage/sqlite.ts`.
+Defined in `storage/sqlite.ts`.
 
 ### 1.1 Tables
 
@@ -65,7 +65,7 @@ Defined in `packages/pi-loom/storage/sqlite.ts`.
 
 ### 1.3 Core storage contract
 
-Defined in `packages/pi-loom/storage/contract.ts`.
+Defined in `storage/contract.ts`.
 
 #### Entity kinds
 

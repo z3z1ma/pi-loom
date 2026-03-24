@@ -1,23 +1,23 @@
 # pi-loom
 
-A single `pi-loom` package workspace for Loom's durable, AI-native memory and execution extensions.
+A single repo-root `pi-loom` package for Loom's durable, AI-native memory and execution extensions.
 
-This repository ships a single `packages/pi-loom/` package. Its domain subdirectories cover constitution, research, initiatives, specs, plans, ticketing, critique, Ralph orchestration, docs, and storage. Canonical state for all of them is persisted in SQLite via storage helpers and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` while defining its own Loom architecture.
+This repository itself is the `pi-loom` package. Its top-level domain directories cover constitution, research, initiatives, specs, plans, ticketing, critique, Ralph orchestration, docs, and storage. Canonical state for all of them is persisted in SQLite via storage helpers and rendered into packets, docs, plans, or other review surfaces only when needed. No checked-in `.loom/` tree is used as product state today; future `.loom/` exports, if added, will be one-way review surfaces derived from SQLite. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` while defining its own Loom architecture.
 
 Constitutional memory is the highest-order project context in this workspace. It captures durable vision, principles, constraints, roadmap items, and decisions that shape every lower layer. It is intentionally separate from `AGENTS.md`: constitutional state persisted in SQLite via pi-storage defines enduring project truth, while `AGENTS.md` remains operational guidance for how the harness or a directory should behave during execution.
 
 ## Package layout
 
-- `packages/pi-loom/constitution/` — constitutional memory extension area
-- `packages/pi-loom/research/` — research memory extension area
-- `packages/pi-loom/initiatives/` — initiative memory extension area
-- `packages/pi-loom/plans/` — planning memory extension area
-- `packages/pi-loom/ticketing/` — ticketing extension area
-- `packages/pi-loom/specs/` — specification memory extension area
-- `packages/pi-loom/critique/` — critique memory extension area
-- `packages/pi-loom/ralph-wiggum/` — Ralph Wiggum loop orchestration area
-- `packages/pi-loom/docs/` — documentation memory extension area
-- `packages/pi-loom/storage/` — shared storage implementation area
+- `constitution/` — constitutional memory extension area
+- `research/` — research memory extension area
+- `initiatives/` — initiative memory extension area
+- `plans/` — planning memory extension area
+- `ticketing/` — ticketing extension area
+- `specs/` — specification memory extension area
+- `critique/` — critique memory extension area
+- `ralph/` — Ralph Wiggum loop orchestration area
+- `docs/` — documentation memory extension area
+- `storage/` — shared storage implementation area
 - `.agents/resources/` — reference material
 
 ## Development
@@ -44,7 +44,6 @@ npm run test:integration
 To load Pi Loom locally once dependencies are installed:
 
 ```bash
-cd packages/pi-loom
 omp -e .
 ```
 
@@ -91,7 +90,7 @@ Pi Loom persists canonical operational state in SQLite via pi-storage. The stead
 - canonical operational Loom state lives in SQLite, the shared persistent catalog
 - packets, plans, and other human-facing renderings are generated from canonical records rather than treated as durable repo state
 - runtime-local worktree control-plane state remains clone-local scratch space and is not persisted as shared truth
-- generated or local `.loom/...` paths may appear in examples or tooling, but SQLite-backed records remain the system of record
+- exported `.loom/...` paths are optional derived review surfaces, not the system of record
 
 Before applying breaking catalog-schema changes, back up the current SQLite catalog manually. The standard backup command is:
 
@@ -108,7 +107,7 @@ Treat repo-visible artifacts as exports or review surfaces, not as canonical sta
 - Store any exported path references as workspace-root-relative values, never as absolute clone-local paths.
 - Commit generated review surfaces only when a workflow explicitly needs them for review.
 - Do not commit machine-oriented metadata, state, dashboards, or cached views; these are derived from SQLite and should not be duplicated in git.
-- Do not commit local durable runtime/control-plane artifacts whose job is to attach execution to one clone instead of defining shared state. This includes everything under `.loom/workers/`, `.loom/**/launch.json`, and everything under `.loom/runtime/`.
+- Do not commit local durable runtime/control-plane artifacts whose job is to attach execution to one clone instead of defining shared state. If future one-way `.loom/` exports return, that includes paths such as `.loom/workers/`, `.loom/**/launch.json`, and `.loom/runtime/`.
 - If an artifact is not an intentional export for humans, let it live in SQLite alone.
 
 ## Planning layer

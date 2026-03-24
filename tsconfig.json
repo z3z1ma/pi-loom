@@ -12,5 +12,16 @@
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["packages/pi-loom/**/*.ts"]
+  "include": [
+    "constitution/**/*.ts",
+    "research/**/*.ts",
+    "initiatives/**/*.ts",
+    "specs/**/*.ts",
+    "plans/**/*.ts",
+    "ticketing/**/*.ts",
+    "critique/**/*.ts",
+    "ralph/**/*.ts",
+    "docs/**/*.ts",
+    "storage/**/*.ts"
+  ]
 }
