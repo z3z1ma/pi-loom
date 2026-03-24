@@ -5,6 +5,12 @@ import {
   resolveExtensionRoot,
   runHarnessLaunch,
 } from "#ralph/domain/harness.js";
+import {
+  getWorktreeEnv,
+  provisionWorktree,
+  resolveWorktreeName,
+} from "#ralph/domain/worktree.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 
 export type DocsExecutionResult = HarnessExecutionResult;
 
@@ -38,17 +44,44 @@ export async function runDocsUpdate(
   signal: AbortSignal | undefined,
   onUpdate?: (text: string) => void,
   scope?: LoomRuntimeScope,
+  worktreeTicketRef?: string,
+  preferExternalRefNaming?: boolean,
 ): Promise<DocsExecutionResult> {
-  const env = scope ? runtimeScopeToEnv(scope) : undefined;
+  let finalCwd = cwd;
+  let worktreeEnv: Record<string, string> = {};
+
+  if (worktreeTicketRef) {
+    let externalRefs: string[] = [];
+    if (preferExternalRefNaming) {
+      try {
+        const ticket = await createTicketStore(cwd).readTicketAsync(worktreeTicketRef);
+        externalRefs = ticket.ticket.frontmatter["external-refs"] || [];
+      } catch {
+        // Fallback if ticket lookup fails
+      }
+    }
+    const branchName = resolveWorktreeName(
+      { ref: worktreeTicketRef, externalRefs },
+      cwd,
+      preferExternalRefNaming ?? false,
+    );
+    finalCwd = provisionWorktree(cwd, branchName);
+    worktreeEnv = getWorktreeEnv(cwd);
+  }
+
+  const env = {
+    ...(scope ? runtimeScopeToEnv(scope) : {}),
+    ...worktreeEnv,
+  };
 
   // runHarnessLaunch handles the session dir, tailing, and output parsing
   return runHarnessLaunch(
-    cwd,
+    finalCwd,
     prompt,
     signal,
     onUpdate,
     env,
     undefined, // onEvent
-    undefined  // extensionRoot (auto-resolve)
+    undefined, // extensionRoot (auto-resolve)
   );
 }

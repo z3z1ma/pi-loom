@@ -139,6 +139,17 @@ const CritiqueWriteParams = Type.Object({
 
 const CritiqueLaunchParams = Type.Object({
   ref: Type.String(),
+  worktreeTicketRef: Type.Optional(
+    Type.String({
+      description: "Optional ticket ref to execute this launch in an isolated worktree bound to that ticket.",
+    }),
+  ),
+  preferExternalRefNaming: Type.Optional(
+    Type.Boolean({
+      description:
+        "When using a worktree, prefer the external ticket ref (e.g. linear-123) for the branch name if available.",
+    }),
+  ),
 });
 
 const CritiqueRunParams = Type.Object({
@@ -443,6 +454,8 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
           });
         },
         runtimeScope,
+        params.worktreeTicketRef,
+        params.preferExternalRefNaming,
       );
       const critique = await store.readCritiqueAsync(existing.state.critiqueId);
       if (execution.exitCode !== 0) {
