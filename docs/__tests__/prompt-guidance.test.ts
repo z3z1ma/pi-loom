@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDocsSystemPrompt, getBaseDocsGuidance } from "../extensions/prompts/guidance.js";
+import { buildDocsSystemPrompt, getBaseDocsGuidance } from "../prompts/guidance.js";
 
 describe("docs prompt guidance", () => {
   it("loads durable docs doctrine from the packaged guidance file", () => {

@@ -1,13 +1,13 @@
-import type { RoadmapItem } from "#constitution/extensions/domain/models.js";
-import { createConstitutionalStore } from "#constitution/extensions/domain/store.js";
-import type { ResearchState } from "#research/extensions/domain/models.js";
-import { createResearchStore } from "#research/extensions/domain/store.js";
-import { SPEC_STATUSES } from "#specs/extensions/domain/models.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
+import type { RoadmapItem } from "#constitution/domain/models.js";
+import { createConstitutionalStore } from "#constitution/domain/store.js";
+import type { ResearchState } from "#research/domain/models.js";
+import { createResearchStore } from "#research/domain/store.js";
+import { SPEC_STATUSES } from "#specs/domain/models.js";
+import { createSpecStore } from "#specs/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import { TICKET_STATUSES, type TicketSummary } from "#ticketing/extensions/domain/models.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import { TICKET_STATUSES, type TicketSummary } from "#ticketing/domain/models.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import type {
   InitiativeDashboard,
   InitiativeDashboardMilestone,

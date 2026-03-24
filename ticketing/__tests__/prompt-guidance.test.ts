@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTicketingSystemPrompt, getBaseTicketingGuidance } from "../extensions/prompts/guidance.js";
+import { buildTicketingSystemPrompt, getBaseTicketingGuidance } from "../prompts/guidance.js";
 
 describe("ticketing prompt guidance", () => {
   it("loads durable ticketing doctrine from the packaged guidance file", () => {

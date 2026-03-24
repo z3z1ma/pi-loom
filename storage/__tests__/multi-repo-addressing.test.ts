@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createPlanStore } from "#plans/extensions/domain/store.js";
-import { createResearchStore } from "#research/extensions/domain/store.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import { createPlanStore } from "#plans/domain/store.js";
+import { createResearchStore } from "#research/domain/store.js";
+import { createSpecStore } from "#specs/domain/store.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import { discoverWorkspaceScope, revokeActiveScopeSelection, selectActiveScope } from "../repository.js";
 import { closeAllWorkspaceStorage, openRepositoryWorkspaceStorage, openWorkspaceStorage } from "../workspace.js";
 

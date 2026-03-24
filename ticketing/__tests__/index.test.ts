@@ -10,7 +10,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createTicketStore } from "../extensions/domain/store.js";
+import { createTicketStore } from "../domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -136,7 +136,7 @@ function createCommandContext(
 describe("pi-ticketing extension", () => {
   it("registers the /ticket workspace command, ticket tools, and lifecycle hooks", async () => {
     const mockPi = createMockPi();
-    const { default: piTicketing } = await import("../extensions/index.js");
+    const { default: piTicketing } = await import("../index.js");
 
     piTicketing(mockPi as unknown as ExtensionAPI);
 
@@ -161,7 +161,7 @@ describe("pi-ticketing extension", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { default: piTicketing } = await import("../extensions/index.js");
+      const { default: piTicketing } = await import("../index.js");
       piTicketing(mockPi as unknown as ExtensionAPI);
 
       const command = getCommand(mockPi, "ticket");
@@ -201,7 +201,7 @@ describe("pi-ticketing extension", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { default: piTicketing } = await import("../extensions/index.js");
+      const { default: piTicketing } = await import("../index.js");
       piTicketing(mockPi as unknown as ExtensionAPI);
       const beforeAgentStart = getHandler(mockPi, "before_agent_start");
 

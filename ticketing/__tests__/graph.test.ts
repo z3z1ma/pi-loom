@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTicketStore } from "../extensions/domain/store.js";
+import { createTicketStore } from "../domain/store.js";
 
 describe("ticket dependency graph", () => {
   let workspace: string;

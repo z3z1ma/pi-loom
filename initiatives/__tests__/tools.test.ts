@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import { createSpecStore } from "#specs/domain/store.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -66,7 +66,7 @@ function createContext(cwd: string): ExtensionContext {
 describe("initiative tools", () => {
   it("registers tool definitions with prompt snippets and prompt guidelines", async () => {
     const mockPi = createMockPi();
-    const { registerInitiativeTools } = await import("../extensions/tools/initiative.js");
+    const { registerInitiativeTools } = await import("../tools/initiative.js");
     registerInitiativeTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
@@ -95,7 +95,7 @@ describe("initiative tools", () => {
       const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" });
 
       const mockPi = createMockPi();
-      const { registerInitiativeTools } = await import("../extensions/tools/initiative.js");
+      const { registerInitiativeTools } = await import("../tools/initiative.js");
       registerInitiativeTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 
@@ -210,7 +210,7 @@ describe("initiative tools", () => {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
 
       const mockPi = createMockPi();
-      const { registerInitiativeTools } = await import("../extensions/tools/initiative.js");
+      const { registerInitiativeTools } = await import("../tools/initiative.js");
       registerInitiativeTools(mockPi as unknown as ExtensionAPI);
 
       const initiativeRead = getTool(mockPi, "initiative_read");

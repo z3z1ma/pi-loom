@@ -64,7 +64,7 @@ function createContext(cwd: string): ExtensionContext {
 describe("constitution tools", () => {
   it("registers tool definitions with prompt snippets and prompt guidelines", async () => {
     const mockPi = createMockPi();
-    const { registerConstitutionTools } = await import("../extensions/tools/constitution.js");
+    const { registerConstitutionTools } = await import("../tools/constitution.js");
     registerConstitutionTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
@@ -91,7 +91,7 @@ describe("constitution tools", () => {
     try {
       process.env.PI_LOOM_ROOT = path.join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { registerConstitutionTools } = await import("../extensions/tools/constitution.js");
+      const { registerConstitutionTools } = await import("../tools/constitution.js");
       registerConstitutionTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 

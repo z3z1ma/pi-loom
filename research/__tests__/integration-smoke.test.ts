@@ -2,10 +2,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createInitiativeStore } from "#initiatives/extensions/domain/store.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
-import { createResearchStore } from "../extensions/domain/store.js";
+import { createInitiativeStore } from "#initiatives/domain/store.js";
+import { createSpecStore } from "#specs/domain/store.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
+import { createResearchStore } from "../domain/store.js";
 
 describe("research integration smoke", () => {
   let workspace: string;

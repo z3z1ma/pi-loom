@@ -2,13 +2,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createCritiqueStore } from "#critique/extensions/domain/store.js";
+import { createCritiqueStore } from "#critique/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { createEntityId, createStableLoomId } from "#storage/ids.js";
 import { closeWorkspaceStorage, openWorkspaceStorage, openWorkspaceStorageSync } from "#storage/workspace.js";
-import type { CreateRalphRunInput } from "../extensions/domain/models.js";
-import { deriveRalphRunId } from "../extensions/domain/paths.js";
-import { createRalphStore } from "../extensions/domain/store.js";
+import type { CreateRalphRunInput } from "../domain/models.js";
+import { deriveRalphRunId } from "../domain/paths.js";
+import { createRalphStore } from "../domain/store.js";
 
 function createExecutionRun(
   store: ReturnType<typeof createRalphStore>,
@@ -466,7 +466,7 @@ describe("RalphStore durable memory", () => {
       target: {
         kind: "ticket",
         ref: "ticket-456",
-        locator: "ralph/extensions/domain/store.ts",
+        locator: "ralph/domain/store.ts",
       },
       focusAreas: ["architecture"],
       reviewQuestion: "Can the run continue safely after the verifier failure?",

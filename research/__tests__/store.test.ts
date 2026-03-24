@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import { createResearchStore } from "../extensions/domain/store.js";
+import { createResearchStore } from "../domain/store.js";
 
 describe("research store", () => {
   let workspace: string;

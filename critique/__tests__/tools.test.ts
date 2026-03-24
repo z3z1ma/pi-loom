@@ -8,7 +8,7 @@ let persistDurableRun = true;
 
 const runCritiqueLaunch = vi.fn(async (cwd: string, launch: { critiqueId: string }) => {
   if (persistDurableRun) {
-    const { createCritiqueStore } = await import("../extensions/domain/store.js");
+    const { createCritiqueStore } = await import("../domain/store.js");
     await createCritiqueStore(cwd).recordRunAsync(launch.critiqueId, {
       kind: "adversarial",
       verdict: "pass",
@@ -29,7 +29,7 @@ vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
 }));
 
-vi.mock("../extensions/domain/runtime.js", () => ({
+vi.mock("../domain/runtime.js", () => ({
   runCritiqueLaunch,
 }));
 
@@ -86,7 +86,7 @@ function createContext(cwd: string): ExtensionContext {
 describe("critique tools", () => {
   it("registers tool definitions with prompt snippets and prompt guidelines", async () => {
     const mockPi = createMockPi();
-    const { registerCritiqueTools } = await import("../extensions/tools/critique.js");
+    const { registerCritiqueTools } = await import("../tools/critique.js");
     registerCritiqueTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
@@ -115,7 +115,7 @@ describe("critique tools", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { registerCritiqueTools } = await import("../extensions/tools/critique.js");
+      const { registerCritiqueTools } = await import("../tools/critique.js");
       registerCritiqueTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 
@@ -312,7 +312,7 @@ describe("critique tools", () => {
     try {
       persistDurableRun = false;
       const mockPi = createMockPi();
-      const { registerCritiqueTools } = await import("../extensions/tools/critique.js");
+      const { registerCritiqueTools } = await import("../tools/critique.js");
       registerCritiqueTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 

@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSeededGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import { getCheckpointRef, getTicketRef } from "../extensions/domain/paths.js";
-import { createTicketStore } from "../extensions/domain/store.js";
+import { getCheckpointRef, getTicketRef } from "../domain/paths.js";
+import { createTicketStore } from "../domain/store.js";
 
 describe("TicketStore canonical storage", () => {
   let workspace: string;

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import type { PlanState } from "#plans/extensions/domain/models.js";
+import type { PlanState } from "#plans/domain/models.js";
 import type { LoomCanonicalStorage } from "#storage/contract.js";
 import { findEntityByDisplayId, upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js";
 import { createLinkId } from "#storage/ids.js";

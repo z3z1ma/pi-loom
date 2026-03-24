@@ -1,8 +1,8 @@
-import type { InitiativeSummary } from "#initiatives/extensions/domain/models.js";
-import type { SpecChangeSummary, SpecStatus } from "#specs/extensions/domain/models.js";
+import type { InitiativeSummary } from "#initiatives/domain/models.js";
+import type { SpecChangeSummary, SpecStatus } from "#specs/domain/models.js";
 import type { LoomListSort } from "#storage/list-search.js";
 import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
-import type { TicketStatus, TicketSummary } from "#ticketing/extensions/domain/models.js";
+import type { TicketStatus, TicketSummary } from "#ticketing/domain/models.js";
 
 export const RESEARCH_STATUSES = ["proposed", "active", "paused", "synthesized", "archived", "superseded"] as const;
 export const HYPOTHESIS_STATUSES = ["open", "supported", "rejected", "superseded"] as const;

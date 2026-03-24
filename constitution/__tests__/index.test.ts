@@ -80,7 +80,7 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
 describe("pi-constitution extension", () => {
   it("registers constitution tools and lifecycle hooks without slash commands", async () => {
     const mockPi = createMockPi();
-    const { default: piConstitution } = await import("../extensions/index.js");
+    const { default: piConstitution } = await import("../index.js");
 
     piConstitution(mockPi as unknown as ExtensionAPI);
 
@@ -100,7 +100,7 @@ describe("pi-constitution extension", () => {
     try {
       process.env.PI_LOOM_ROOT = path.join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { default: piConstitution } = await import("../extensions/index.js");
+      const { default: piConstitution } = await import("../index.js");
       piConstitution(mockPi as unknown as ExtensionAPI);
       const beforeAgentStart = getHandler(mockPi, "before_agent_start");
 

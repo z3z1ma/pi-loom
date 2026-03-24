@@ -1,6 +1,6 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { createPlanStore } from "#plans/extensions/domain/store.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import { createPlanStore } from "#plans/domain/store.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import { type ExecuteRalphLoopResult, executeRalphLoop } from "../domain/loop.js";
 import { renderRalphDetail } from "../domain/render.js";
 import { createRalphStore } from "../domain/store.js";

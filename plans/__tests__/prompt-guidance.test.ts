@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPlanSystemPrompt, getBasePlanGuidance } from "../extensions/prompts/guidance.js";
+import { buildPlanSystemPrompt, getBasePlanGuidance } from "../prompts/guidance.js";
 
 describe("plan prompt guidance", () => {
   it("loads durable planning doctrine from the packaged guidance file", () => {

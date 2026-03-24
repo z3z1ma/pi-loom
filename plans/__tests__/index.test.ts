@@ -81,7 +81,7 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
 describe("pi-plans extension", () => {
   it("registers plan tools and lifecycle hooks", async () => {
     const mockPi = createMockPi();
-    const { default: piPlans } = await import("../extensions/index.js");
+    const { default: piPlans } = await import("../index.js");
 
     piPlans(mockPi as unknown as ExtensionAPI);
 
@@ -102,7 +102,7 @@ describe("pi-plans extension", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { default: piPlans } = await import("../extensions/index.js");
+      const { default: piPlans } = await import("../index.js");
       piPlans(mockPi as unknown as ExtensionAPI);
       const beforeAgentStart = getHandler(mockPi, "before_agent_start");
 

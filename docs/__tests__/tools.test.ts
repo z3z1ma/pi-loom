@@ -7,7 +7,7 @@ import { upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js
 import { openRepositoryWorkspaceStorage } from "#storage/workspace.js";
 
 const runDocsUpdate = vi.fn(async (cwd: string) => {
-  const { createDocumentationStore } = await import("../extensions/domain/store.js");
+  const { createDocumentationStore } = await import("../domain/store.js");
   await createDocumentationStore(cwd).updateDoc("documentation-memory-system", {
     updateReason: "Persist fresh maintainer revision.",
     summary: "Updated through a fresh subprocess handoff.",
@@ -33,7 +33,7 @@ vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
 }));
 
-vi.mock("../extensions/domain/runtime.js", () => ({
+vi.mock("../domain/runtime.js", () => ({
   runDocsUpdate,
 }));
 
@@ -180,7 +180,7 @@ async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> 
 describe("docs tools", () => {
   it("registers tool definitions with prompt snippets and guidelines", async () => {
     const mockPi = createMockPi();
-    const { registerDocsTools } = await import("../extensions/tools/docs.js");
+    const { registerDocsTools } = await import("../tools/docs.js");
     registerDocsTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
@@ -218,7 +218,7 @@ describe("docs tools", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { registerDocsTools } = await import("../extensions/tools/docs.js");
+      const { registerDocsTools } = await import("../tools/docs.js");
       registerDocsTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 
@@ -326,7 +326,7 @@ describe("docs tools", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { registerDocsTools } = await import("../extensions/tools/docs.js");
+      const { registerDocsTools } = await import("../tools/docs.js");
       registerDocsTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
       const docId = await seedCanonicalDocumentationSnapshot(cwd);
@@ -370,7 +370,7 @@ describe("docs tools", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { registerDocsTools } = await import("../extensions/tools/docs.js");
+      const { registerDocsTools } = await import("../tools/docs.js");
       registerDocsTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 

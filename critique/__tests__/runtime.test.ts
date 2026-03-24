@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getPiSpawnCommand, resolveExtensionPackageRoot, resolvePiCliScript } from "../extensions/domain/runtime.js";
-import { createCritiqueStore } from "../extensions/domain/store.js";
+import { getPiSpawnCommand, resolveExtensionPackageRoot, resolvePiCliScript } from "../domain/runtime.js";
+import { createCritiqueStore } from "../domain/store.js";
 
 describe("critique runtime spawn resolution", () => {
   it("reuses the current script entrypoint when running under a JS runtime", () => {
@@ -54,9 +54,9 @@ describe("critique runtime spawn resolution", () => {
   });
 
   it("roots extension launches at the unified pi-loom package instead of the caller workspace", () => {
-    expect(
-      resolveExtensionPackageRoot(fileURLToPath(new URL("../extensions/domain/runtime.ts", import.meta.url))),
-    ).toBe(resolve("."));
+    expect(resolveExtensionPackageRoot(fileURLToPath(new URL("../domain/runtime.ts", import.meta.url)))).toBe(
+      resolve("."),
+    );
   });
 });
 

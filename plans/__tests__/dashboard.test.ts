@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildPlanDashboard } from "../extensions/domain/dashboard.js";
-import type { PlanState } from "../extensions/domain/models.js";
+import { buildPlanDashboard } from "../domain/dashboard.js";
+import type { PlanState } from "../domain/models.js";
 
 describe("plan dashboard", () => {
   it("keeps canonical refs and omits volatile timestamps", () => {

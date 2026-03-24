@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildSpecChecklist } from "../extensions/domain/checklist.js";
-import type { SpecChangeState } from "../extensions/domain/models.js";
+import { buildSpecChecklist } from "../domain/checklist.js";
+import type { SpecChangeState } from "../domain/models.js";
 
 function buildState(overrides: Partial<SpecChangeState> = {}): SpecChangeState {
   return {

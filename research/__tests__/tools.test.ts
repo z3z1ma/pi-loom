@@ -5,7 +5,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechn
 import { describe, expect, it, vi } from "vitest";
 import { findEntityByDisplayId, upsertEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import { createResearchStore } from "../extensions/domain/store.js";
+import { createResearchStore } from "../domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -67,7 +67,7 @@ function createContext(cwd: string): ExtensionContext {
 describe("research tools", () => {
   it("registers tool definitions with prompt snippets and guidelines", async () => {
     const mockPi = createMockPi();
-    const { registerResearchTools } = await import("../extensions/tools/research.js");
+    const { registerResearchTools } = await import("../tools/research.js");
     registerResearchTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
@@ -128,7 +128,7 @@ describe("research tools", () => {
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { registerResearchTools } = await import("../extensions/tools/research.js");
+      const { registerResearchTools } = await import("../tools/research.js");
       registerResearchTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 
@@ -268,7 +268,7 @@ describe("research tools", () => {
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { registerResearchTools } = await import("../extensions/tools/research.js");
+      const { registerResearchTools } = await import("../tools/research.js");
       registerResearchTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 
@@ -373,7 +373,7 @@ describe("research tools", () => {
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { registerResearchTools } = await import("../extensions/tools/research.js");
+      const { registerResearchTools } = await import("../tools/research.js");
       registerResearchTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 
@@ -470,7 +470,7 @@ describe("research tools", () => {
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { registerResearchTools } = await import("../extensions/tools/research.js");
+      const { registerResearchTools } = await import("../tools/research.js");
       registerResearchTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 

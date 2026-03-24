@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import type { ConstitutionalRecord } from "#constitution/extensions/domain/models.js";
-import { createConstitutionalStore } from "#constitution/extensions/domain/store.js";
-import type { CritiqueReadResult } from "#critique/extensions/domain/models.js";
-import { createCritiqueStore } from "#critique/extensions/domain/store.js";
-import type { InitiativeRecord } from "#initiatives/extensions/domain/models.js";
-import { createInitiativeStore } from "#initiatives/extensions/domain/store.js";
-import type { ResearchRecord } from "#research/extensions/domain/models.js";
-import { createResearchStore } from "#research/extensions/domain/store.js";
-import type { SpecChangeRecord } from "#specs/extensions/domain/models.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
+import type { ConstitutionalRecord } from "#constitution/domain/models.js";
+import { createConstitutionalStore } from "#constitution/domain/store.js";
+import type { CritiqueReadResult } from "#critique/domain/models.js";
+import { createCritiqueStore } from "#critique/domain/store.js";
+import type { InitiativeRecord } from "#initiatives/domain/models.js";
+import { createInitiativeStore } from "#initiatives/domain/store.js";
+import type { ResearchRecord } from "#research/domain/models.js";
+import { createResearchStore } from "#research/domain/store.js";
+import type { SpecChangeRecord } from "#specs/domain/models.js";
+import { createSpecStore } from "#specs/domain/store.js";
 import type { LoomEntityKind, LoomEntityRecord } from "#storage/contract.js";
 import {
   appendEntityEvent,
@@ -21,8 +21,8 @@ import { syncProjectedEntityLinks } from "#storage/links.js";
 import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
 import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
-import type { TicketReadResult } from "#ticketing/extensions/domain/models.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import type { TicketReadResult } from "#ticketing/domain/models.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import { buildDocumentationDashboard, getDocumentationDocumentRef, summarizeDocumentation } from "./dashboard.js";
 import { parseMarkdownArtifact, renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {

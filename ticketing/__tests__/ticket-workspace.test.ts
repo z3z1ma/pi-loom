@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createTicketStore, type TicketStore } from "../extensions/domain/store.js";
+import { createTicketStore, type TicketStore } from "../domain/store.js";
 import {
   loadTicketWorkspaceSnapshot,
   openInteractiveTicketWorkspace,
   type TicketWorkspaceAction,
   type TicketWorkspaceSnapshot,
-} from "../extensions/ui/ticket-workspace.js";
+} from "../ui/ticket-workspace.js";
 
 interface FakeCustomComponent {
   render(width: number): string[];

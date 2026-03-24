@@ -8,7 +8,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createCritiqueStore } from "../extensions/domain/store.js";
+import { createCritiqueStore } from "../domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -74,7 +74,7 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
 describe("pi-critique extension", () => {
   it("registers critique tools and lifecycle hooks", async () => {
     const mockPi = createMockPi();
-    const { default: piCritique } = await import("../extensions/index.js");
+    const { default: piCritique } = await import("../index.js");
 
     piCritique(mockPi as unknown as ExtensionAPI);
 
@@ -95,7 +95,7 @@ describe("pi-critique extension", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { default: piCritique } = await import("../extensions/index.js");
+      const { default: piCritique } = await import("../index.js");
       piCritique(mockPi as unknown as ExtensionAPI);
 
       const sessionStart = getHandler(mockPi, "session_start");
@@ -112,7 +112,7 @@ describe("pi-critique extension", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { default: piCritique } = await import("../extensions/index.js");
+      const { default: piCritique } = await import("../index.js");
       piCritique(mockPi as unknown as ExtensionAPI);
       const beforeAgentStart = getHandler(mockPi, "before_agent_start");
 

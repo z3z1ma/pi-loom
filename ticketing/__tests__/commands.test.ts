@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { handleTicketCommand } from "../extensions/commands/ticket.js";
-import { createTicketStore } from "../extensions/domain/store.js";
+import { handleTicketCommand } from "../commands/ticket.js";
+import { createTicketStore } from "../domain/store.js";
 
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-ticketing-commands-"));

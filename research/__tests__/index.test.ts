@@ -8,7 +8,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createResearchStore } from "../extensions/domain/store.js";
+import { createResearchStore } from "../domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -77,7 +77,7 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
 describe("pi-research extension", () => {
   it("registers research tools and lifecycle hooks", async () => {
     const mockPi = createMockPi();
-    const { default: piResearch } = await import("../extensions/index.js");
+    const { default: piResearch } = await import("../index.js");
 
     piResearch(mockPi as unknown as ExtensionAPI);
 
@@ -99,7 +99,7 @@ describe("pi-research extension", () => {
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { default: piResearch } = await import("../extensions/index.js");
+      const { default: piResearch } = await import("../index.js");
       piResearch(mockPi as unknown as ExtensionAPI);
       const sessionStart = getHandler(mockPi, "session_start");
 
@@ -116,7 +116,7 @@ describe("pi-research extension", () => {
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { default: piResearch } = await import("../extensions/index.js");
+      const { default: piResearch } = await import("../index.js");
       piResearch(mockPi as unknown as ExtensionAPI);
       const beforeAgentStart = getHandler(mockPi, "before_agent_start");
 

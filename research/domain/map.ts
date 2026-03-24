@@ -1,10 +1,10 @@
-import type { InitiativeState, InitiativeSummary } from "#initiatives/extensions/domain/models.js";
-import type { SpecChangeSummary } from "#specs/extensions/domain/models.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
+import type { InitiativeState, InitiativeSummary } from "#initiatives/domain/models.js";
+import type { SpecChangeSummary } from "#specs/domain/models.js";
+import { createSpecStore } from "#specs/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import type { TicketSummary } from "#ticketing/extensions/domain/models.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import type { TicketSummary } from "#ticketing/domain/models.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import type { ResearchArtifactRecord, ResearchHypothesisRecord, ResearchMap, ResearchState } from "./models.js";
 import { currentTimestamp, normalizeStringList } from "./normalize.js";
 

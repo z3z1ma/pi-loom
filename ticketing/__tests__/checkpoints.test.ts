@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import { getCheckpointRef } from "../extensions/domain/paths.js";
-import { createTicketStore } from "../extensions/domain/store.js";
+import { getCheckpointRef } from "../domain/paths.js";
+import { createTicketStore } from "../domain/store.js";
 
 describe("ticket checkpoints", () => {
   let workspace: string;

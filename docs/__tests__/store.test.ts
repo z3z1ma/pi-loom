@@ -2,13 +2,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createConstitutionalStore } from "#constitution/extensions/domain/store.js";
-import { createInitiativeStore } from "#initiatives/extensions/domain/store.js";
-import { createResearchStore } from "#research/extensions/domain/store.js";
+import { createConstitutionalStore } from "#constitution/domain/store.js";
+import { createInitiativeStore } from "#initiatives/domain/store.js";
+import { createResearchStore } from "#research/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import { parseMarkdownArtifact } from "../extensions/domain/frontmatter.js";
-import { createDocumentationStore } from "../extensions/domain/store.js";
+import { parseMarkdownArtifact } from "../domain/frontmatter.js";
+import { createDocumentationStore } from "../domain/store.js";
 
 describe("DocumentationStore durable memory", () => {
   let workspace: string;

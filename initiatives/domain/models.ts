@@ -1,7 +1,7 @@
-import type { RoadmapItemHorizon, RoadmapItemStatus } from "#constitution/extensions/domain/models.js";
-import type { SpecChangeSummary, SpecStatus } from "#specs/extensions/domain/models.js";
+import type { RoadmapItemHorizon, RoadmapItemStatus } from "#constitution/domain/models.js";
+import type { SpecChangeSummary, SpecStatus } from "#specs/domain/models.js";
 import type { LoomListSort } from "#storage/list-search.js";
-import type { TicketStatus, TicketSummary } from "#ticketing/extensions/domain/models.js";
+import type { TicketStatus, TicketSummary } from "#ticketing/domain/models.js";
 
 export interface InitiativeRoadmapLink {
   id: string;

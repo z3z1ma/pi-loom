@@ -1,12 +1,12 @@
 import { resolve } from "node:path";
-import type { ConstitutionalRecord } from "#constitution/extensions/domain/models.js";
-import type { CritiqueReadResult } from "#critique/extensions/domain/models.js";
-import { createCritiqueStore } from "#critique/extensions/domain/store.js";
-import type { DocumentationReadResult } from "#docs/extensions/domain/models.js";
-import { createDocumentationStore } from "#docs/extensions/domain/store.js";
-import type { InitiativeRecord } from "#initiatives/extensions/domain/models.js";
-import type { ResearchRecord } from "#research/extensions/domain/models.js";
-import type { SpecChangeRecord } from "#specs/extensions/domain/models.js";
+import type { ConstitutionalRecord } from "#constitution/domain/models.js";
+import type { CritiqueReadResult } from "#critique/domain/models.js";
+import { createCritiqueStore } from "#critique/domain/store.js";
+import type { DocumentationReadResult } from "#docs/domain/models.js";
+import { createDocumentationStore } from "#docs/domain/store.js";
+import type { InitiativeRecord } from "#initiatives/domain/models.js";
+import type { ResearchRecord } from "#research/domain/models.js";
+import type { SpecChangeRecord } from "#specs/domain/models.js";
 import type { LoomCanonicalStorage } from "#storage/contract.js";
 import { findEntityByDisplayId, upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js";
 import type { ProjectedEntityLinkInput } from "#storage/links.js";
@@ -19,8 +19,8 @@ import {
   openRepositoryWorkspaceStorage,
   openScopedWorkspaceStorage,
 } from "#storage/workspace.js";
-import type { TicketReadResult } from "#ticketing/extensions/domain/models.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import type { TicketReadResult } from "#ticketing/domain/models.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import { buildPlanDashboard, getPlanTicketRef, summarizePlan } from "./dashboard.js";
 import type {
   CreatePlanInput,

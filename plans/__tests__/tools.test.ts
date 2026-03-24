@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -62,7 +62,7 @@ function createContext(cwd: string): ExtensionContext {
 describe("plan tools", () => {
   it("registers tool definitions with prompt snippets and guidelines", async () => {
     const mockPi = createMockPi();
-    const { registerPlanTools } = await import("../extensions/tools/plan.js");
+    const { registerPlanTools } = await import("../tools/plan.js");
     registerPlanTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
@@ -127,7 +127,7 @@ describe("plan tools", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { registerPlanTools } = await import("../extensions/tools/plan.js");
+      const { registerPlanTools } = await import("../tools/plan.js");
       registerPlanTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
       const ticketStore = createTicketStore(cwd);
@@ -266,7 +266,7 @@ describe("plan tools", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { registerPlanTools } = await import("../extensions/tools/plan.js");
+      const { registerPlanTools } = await import("../tools/plan.js");
       registerPlanTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 

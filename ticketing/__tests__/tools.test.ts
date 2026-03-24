@@ -72,7 +72,7 @@ function firstText(value: unknown): string {
 describe("ticket tools", () => {
   it("register tool definitions with prompt snippets, prompt guidelines, and reopen support", async () => {
     const mockPi = createMockPi();
-    const { registerTicketTools } = await import("../extensions/tools/ticket.js");
+    const { registerTicketTools } = await import("../tools/ticket.js");
     registerTicketTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
@@ -173,7 +173,7 @@ describe("ticket tools", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { registerTicketTools } = await import("../extensions/tools/ticket.js");
+      const { registerTicketTools } = await import("../tools/ticket.js");
       registerTicketTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
 
@@ -343,7 +343,7 @@ describe("ticket tools", () => {
     try {
       writeFileSync(join(cwd, "evidence.txt"), "captured evidence\n", "utf-8");
       const mockPi = createMockPi();
-      const { registerTicketTools } = await import("../extensions/tools/ticket.js");
+      const { registerTicketTools } = await import("../tools/ticket.js");
       registerTicketTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
       const ticketWrite = getTool(mockPi, "ticket_write");
@@ -513,7 +513,7 @@ describe("ticket tools", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { registerTicketTools } = await import("../extensions/tools/ticket.js");
+      const { registerTicketTools } = await import("../tools/ticket.js");
       registerTicketTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(cwd);
       const ticketWrite = getTool(mockPi, "ticket_write");

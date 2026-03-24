@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCritiqueSystemPrompt, getBaseCritiqueGuidance } from "../extensions/prompts/guidance.js";
+import { buildCritiqueSystemPrompt, getBaseCritiqueGuidance } from "../prompts/guidance.js";
 
 describe("critique prompt guidance", () => {
   it("loads durable critique doctrine from the packaged guidance file", () => {

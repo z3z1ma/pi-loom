@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AsyncJobManager } from "../extensions/domain/async-job-manager.js";
+import { AsyncJobManager } from "../domain/async-job-manager.js";
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

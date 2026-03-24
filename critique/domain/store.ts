@@ -1,11 +1,11 @@
 import { resolve } from "node:path";
-import type { ConstitutionalRecord } from "#constitution/extensions/domain/models.js";
-import { createConstitutionalStore } from "#constitution/extensions/domain/store.js";
-import type { InitiativeRecord } from "#initiatives/extensions/domain/models.js";
-import { createInitiativeStore } from "#initiatives/extensions/domain/store.js";
-import type { ResearchRecord } from "#research/extensions/domain/models.js";
-import { createResearchStore } from "#research/extensions/domain/store.js";
-import type { SpecChangeRecord } from "#specs/extensions/domain/models.js";
+import type { ConstitutionalRecord } from "#constitution/domain/models.js";
+import { createConstitutionalStore } from "#constitution/domain/store.js";
+import type { InitiativeRecord } from "#initiatives/domain/models.js";
+import { createInitiativeStore } from "#initiatives/domain/store.js";
+import type { ResearchRecord } from "#research/domain/models.js";
+import { createResearchStore } from "#research/domain/store.js";
+import type { SpecChangeRecord } from "#specs/domain/models.js";
 import { hasProjectedArtifactAttributes, syncProjectedArtifacts } from "#storage/artifacts.js";
 import type { LoomEntityKind, LoomEntityRecord } from "#storage/contract.js";
 import {
@@ -20,8 +20,8 @@ import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
 import { requireResolvedRepositoryIdentity, resolveWorkspaceIdentity } from "#storage/repository.js";
 import { openRepositoryWorkspaceStorage, openWorkspaceStorage, openWorkspaceStorageSync } from "#storage/workspace.js";
-import type { CreateTicketInput, TicketReadResult } from "#ticketing/extensions/domain/models.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import type { CreateTicketInput, TicketReadResult } from "#ticketing/domain/models.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import { buildCritiqueDashboard, summarizeCritique } from "./dashboard.js";
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {

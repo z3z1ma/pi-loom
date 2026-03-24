@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSpecSystemPrompt, getBaseSpecGuidance } from "../extensions/prompts/guidance.js";
+import { buildSpecSystemPrompt, getBaseSpecGuidance } from "../prompts/guidance.js";
 
 describe("spec prompt guidance", () => {
   it("loads durable spec doctrine from the packaged guidance file", () => {

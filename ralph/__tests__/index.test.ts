@@ -7,7 +7,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { handleRalphCommand } from "../extensions/commands/ralph.js";
+import { handleRalphCommand } from "../commands/ralph.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -28,11 +28,11 @@ vi.mock("@sinclair/typebox", () => ({
   },
 }));
 
-vi.mock("../extensions/commands/ralph.js", () => ({
+vi.mock("../commands/ralph.js", () => ({
   handleRalphCommand: vi.fn(),
 }));
 
-vi.mock("../extensions/domain/runtime.js", () => ({
+vi.mock("../domain/runtime.js", () => ({
   buildParentSessionRuntimeEnv: vi.fn(async () => ({})),
   runRalphLaunch: vi.fn(async () => ({
     command: "pi",
@@ -140,7 +140,7 @@ describe("pi-ralph extension", () => {
 
   it("registers the human /ralph command, Ralph tools, and lifecycle hooks", async () => {
     const mockPi = createMockPi();
-    const { default: piRalph } = await import("../extensions/index.js");
+    const { default: piRalph } = await import("../index.js");
 
     piRalph(mockPi as unknown as ExtensionAPI);
 
@@ -166,7 +166,7 @@ describe("pi-ralph extension", () => {
 
   it("intercepts interactive /ralph input before normal prompt submission", async () => {
     const mockPi = createMockPi();
-    const { default: piRalph } = await import("../extensions/index.js");
+    const { default: piRalph } = await import("../index.js");
     piRalph(mockPi as unknown as ExtensionAPI);
 
     vi.mocked(handleRalphCommand).mockResolvedValueOnce({
@@ -211,7 +211,7 @@ describe("pi-ralph extension", () => {
 
   it("routes /ralph through the command handler and appends the final result to conversation state", async () => {
     const mockPi = createMockPi();
-    const { default: piRalph } = await import("../extensions/index.js");
+    const { default: piRalph } = await import("../index.js");
     piRalph(mockPi as unknown as ExtensionAPI);
 
     vi.mocked(handleRalphCommand).mockResolvedValueOnce({
@@ -246,7 +246,7 @@ describe("pi-ralph extension", () => {
 
   it("reports /ralph command failures through the human UI instead of throwing", async () => {
     const mockPi = createMockPi();
-    const { default: piRalph } = await import("../extensions/index.js");
+    const { default: piRalph } = await import("../index.js");
     piRalph(mockPi as unknown as ExtensionAPI);
 
     vi.mocked(handleRalphCommand).mockRejectedValueOnce(new Error("Usage: /ralph [xN] <prompt>"));
@@ -269,7 +269,7 @@ describe("pi-ralph extension", () => {
 
   it("augments the system prompt with Ralph doctrine before agent start", async () => {
     const mockPi = createMockPi();
-    const { default: piRalph } = await import("../extensions/index.js");
+    const { default: piRalph } = await import("../index.js");
     piRalph(mockPi as unknown as ExtensionAPI);
     const beforeAgentStart = getHandler(mockPi, "before_agent_start");
 

@@ -1,13 +1,13 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExecuteRalphLoopResult } from "../extensions/domain/loop.js";
+import type { ExecuteRalphLoopResult } from "../domain/loop.js";
 import type {
   RalphContinuationDecision,
   RalphDecisionReason,
   RalphReadResult,
   RalphRunPhase,
   RalphRunStatus,
-} from "../extensions/domain/models.js";
+} from "../domain/models.js";
 
 const mockStore = {
   listRunsAsync: vi.fn(async () => [{ id: "run-1", status: "active", phase: "executing", title: "Run One" }]),
@@ -77,11 +77,11 @@ vi.mock("@sinclair/typebox", () => ({
   },
 }));
 
-vi.mock("../extensions/domain/store.js", () => ({
+vi.mock("../domain/store.js", () => ({
   createRalphStore: vi.fn(() => mockStore),
 }));
 
-vi.mock("../extensions/domain/loop.js", () => ({
+vi.mock("../domain/loop.js", () => ({
   ensureRalphRun: vi.fn(async (_ctx, input) => ({
     created: !input.ref,
     run: createReadResult(input.ref ?? `${input.planRef ?? "plan"}-${input.ticketRef ?? "ticket"}`, {
@@ -116,7 +116,7 @@ vi.mock("../extensions/domain/loop.js", () => ({
   renderLoopResult: vi.fn(() => "Rendered Ralph summary"),
 }));
 
-vi.mock("../extensions/domain/loop-worker.js", () => ({
+vi.mock("../domain/loop-worker.js", () => ({
   runRalphLoopInWorker: vi.fn(async (input) => ({
     created: false,
     steps: [
@@ -420,7 +420,7 @@ describe("ralph tools", () => {
 
   it("registers the managed Ralph tool set with run, steer, and stop commands", async () => {
     const mockPi = createMockPi();
-    const { registerRalphTools } = await import("../extensions/tools/ralph.js");
+    const { registerRalphTools } = await import("../tools/ralph.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
 
     const runTool = getTool(mockPi, "ralph_run");
@@ -464,8 +464,8 @@ describe("ralph tools", () => {
 
   it("starts a managed Ralph loop from planRef by defaulting to background execution", async () => {
     const mockPi = createMockPi();
-    const { registerRalphTools } = await import("../extensions/tools/ralph.js");
-    const { ensureRalphRun } = await import("../extensions/domain/loop.js");
+    const { registerRalphTools } = await import("../tools/ralph.js");
+    const { ensureRalphRun } = await import("../domain/loop.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
     const ctx = createContext("/workspace/ralph-tools");
 
@@ -498,8 +498,8 @@ describe("ralph tools", () => {
 
   it("waits for all selected Ralph jobs when requested", async () => {
     const mockPi = createMockPi();
-    const { registerRalphTools } = await import("../extensions/tools/ralph.js");
-    const { runRalphLoopInWorker } = await import("../extensions/domain/loop-worker.js");
+    const { registerRalphTools } = await import("../tools/ralph.js");
+    const { runRalphLoopInWorker } = await import("../domain/loop-worker.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
     const ctx = createContext("/workspace/ralph-tools");
     const first = createDeferred<ExecuteRalphLoopResult>();
@@ -566,8 +566,8 @@ describe("ralph tools", () => {
 
   it("continues a bound Ralph ticket run and queues steering before foreground execution", async () => {
     const mockPi = createMockPi();
-    const { registerRalphTools } = await import("../extensions/tools/ralph.js");
-    const { ensureRalphRun, executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const { registerRalphTools } = await import("../tools/ralph.js");
+    const { ensureRalphRun, executeRalphLoop } = await import("../domain/loop.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
     const ctx = createContext("/workspace/ralph-tools");
 
@@ -607,7 +607,7 @@ describe("ralph tools", () => {
 
   it("queues steering through the dedicated tool for a bound ticket run", async () => {
     const mockPi = createMockPi();
-    const { registerRalphTools } = await import("../extensions/tools/ralph.js");
+    const { registerRalphTools } = await import("../tools/ralph.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
     const ctx = createContext("/workspace/ralph-tools");
 
@@ -629,7 +629,7 @@ describe("ralph tools", () => {
 
   it("describes steering as additive ticket-scoped guidance", async () => {
     const mockPi = createMockPi();
-    const { registerRalphTools } = await import("../extensions/tools/ralph.js");
+    const { registerRalphTools } = await import("../tools/ralph.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
 
     const steerTool = getTool(mockPi, "ralph_steer");
@@ -646,7 +646,7 @@ describe("ralph tools", () => {
 
   it("requests a stop through the dedicated tool and persists the halted state when no job is running", async () => {
     const mockPi = createMockPi();
-    const { registerRalphTools } = await import("../extensions/tools/ralph.js");
+    const { registerRalphTools } = await import("../tools/ralph.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
     const ctx = createContext("/workspace/ralph-tools");
 
@@ -678,7 +678,7 @@ describe("ralph tools", () => {
 
   it("reads durable Ralph state through list and read tools", async () => {
     const mockPi = createMockPi();
-    const { registerRalphTools } = await import("../extensions/tools/ralph.js");
+    const { registerRalphTools } = await import("../tools/ralph.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
     const ctx = createContext("/workspace/ralph-tools");
 

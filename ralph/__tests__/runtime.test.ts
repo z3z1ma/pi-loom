@@ -185,15 +185,15 @@ vi.mock("@mariozechner/pi-coding-agent", async (importOriginal) => {
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createPlanStore } from "#plans/extensions/domain/store.js";
+import { createPlanStore } from "#plans/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { createEntityId } from "#storage/ids.js";
 import { openWorkspaceStorage, openWorkspaceStorageSync } from "#storage/workspace.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
-import { buildRalphDashboard } from "../extensions/domain/dashboard.js";
-import { hasTrustedPostIteration } from "../extensions/domain/loop.js";
-import type { RalphLaunchDescriptor, RalphRunState } from "../extensions/domain/models.js";
-import { renderLaunchDescriptor, renderLaunchPrompt } from "../extensions/domain/render.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
+import { buildRalphDashboard } from "../domain/dashboard.js";
+import { hasTrustedPostIteration } from "../domain/loop.js";
+import type { RalphLaunchDescriptor, RalphRunState } from "../domain/models.js";
+import { renderLaunchDescriptor, renderLaunchPrompt } from "../domain/render.js";
 import {
   buildParentSessionRuntimeEnv,
   captureParentHarnessSpawnEnv,
@@ -208,8 +208,8 @@ import {
   PI_PARENT_SESSION_MODEL_PROVIDER_ENV,
   resolveRalphExtensionRoot,
   runRalphLaunch,
-} from "../extensions/domain/runtime.js";
-import { createRalphStore } from "../extensions/domain/store.js";
+} from "../domain/runtime.js";
+import { createRalphStore } from "../domain/store.js";
 import { clearFakeHarnessState, createFakeHarnessPackage, resetFakeHarnessState } from "./helpers/fake-harness.js";
 
 function createTicketBoundScope(ticketId = "rt-0456", planId = "plan-123", specChangeId = "spec-789") {
@@ -1355,7 +1355,7 @@ describe("ralph loop policy enforcement", () => {
       },
     });
 
-    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
     runtimeSpy.mockImplementationOnce(async (_cwd, launch) => {
       expect(launch.instructions).toEqual([
         "Primary objective for the next bounded iteration: tighten verifier freshness",
@@ -1380,7 +1380,7 @@ describe("ralph loop policy enforcement", () => {
       };
     });
 
-    const result = await import("../extensions/domain/loop.js").then(({ executeRalphLoop }) =>
+    const result = await import("../domain/loop.js").then(({ executeRalphLoop }) =>
       executeRalphLoop(
         {
           cwd: workspace,
@@ -1422,7 +1422,7 @@ describe("ralph loop policy enforcement", () => {
       scope: createTicketBoundScope(),
     });
 
-    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
     runtimeSpy.mockImplementationOnce(async (_cwd, _launch, signal, _onUpdate, _extraEnv, onEvent) => {
       await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
       return await new Promise((resolve) => {
@@ -1444,7 +1444,7 @@ describe("ralph loop policy enforcement", () => {
       });
     });
 
-    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const { executeRalphLoop } = await import("../domain/loop.js");
     const loopPromise = executeRalphLoop(
       {
         cwd: workspace,
@@ -1488,7 +1488,7 @@ describe("ralph loop policy enforcement", () => {
         },
       });
 
-      const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+      const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
       runtimeSpy.mockImplementationOnce(async (_cwd, _launch, signal, _onUpdate, _extraEnv, onEvent) => {
         await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
         return await new Promise((resolve) => {
@@ -1510,7 +1510,7 @@ describe("ralph loop policy enforcement", () => {
         });
       });
 
-      const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+      const { executeRalphLoop } = await import("../domain/loop.js");
       vi.useFakeTimers();
       const loopPromise = executeRalphLoop(
         {
@@ -1557,7 +1557,7 @@ describe("ralph loop policy enforcement", () => {
       scope: createTicketBoundScope(),
     });
 
-    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
     runtimeSpy
       .mockImplementationOnce(async (_cwd, _launch, signal, _onUpdate, _extraEnv, onEvent) => {
         await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
@@ -1596,7 +1596,7 @@ describe("ralph loop policy enforcement", () => {
         };
       });
 
-    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const { executeRalphLoop } = await import("../domain/loop.js");
     const firstLoop = executeRalphLoop(
       {
         cwd: workspace,
@@ -1646,7 +1646,7 @@ describe("ralph loop policy enforcement", () => {
       scope: createTicketBoundScope(),
     });
 
-    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
     runtimeSpy.mockImplementationOnce(async (_cwd, launch, signal, _onUpdate, _extraEnv, onEvent) => {
       await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
       return await new Promise((resolve) => {
@@ -1672,7 +1672,7 @@ describe("ralph loop policy enforcement", () => {
       });
     });
 
-    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const { executeRalphLoop } = await import("../domain/loop.js");
     const loopPromise = executeRalphLoop(
       {
         cwd: workspace,
@@ -1702,7 +1702,7 @@ describe("ralph loop policy enforcement", () => {
       scope: createTicketBoundScope(),
     });
 
-    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
     runtimeSpy.mockImplementationOnce(async (_cwd, launch) => {
       await recordBoundTicketActivity(workspace, launch.ticketRef, {
         status: "in_progress",
@@ -1720,7 +1720,7 @@ describe("ralph loop policy enforcement", () => {
       };
     });
 
-    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const { executeRalphLoop } = await import("../domain/loop.js");
     const result = await executeRalphLoop(
       {
         cwd: workspace,
@@ -1751,7 +1751,7 @@ describe("ralph loop policy enforcement", () => {
       scope: createTicketBoundScope(),
     });
 
-    const runtimeSpy = vi.spyOn(await import("../extensions/domain/runtime.js"), "runRalphLaunch");
+    const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
     runtimeSpy.mockImplementationOnce(async () => ({
       command: "pi",
       args: ["session-runtime"],
@@ -1763,7 +1763,7 @@ describe("ralph loop policy enforcement", () => {
       events: [{ type: "launch_state", state: "running", at: new Date().toISOString() }],
     }));
 
-    const { executeRalphLoop } = await import("../extensions/domain/loop.js");
+    const { executeRalphLoop } = await import("../domain/loop.js");
     const result = await executeRalphLoop(
       {
         cwd: workspace,

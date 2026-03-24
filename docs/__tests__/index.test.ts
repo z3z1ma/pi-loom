@@ -10,7 +10,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js";
 import { openRepositoryWorkspaceStorage } from "#storage/workspace.js";
-import { createDocumentationStore } from "../extensions/domain/store.js";
+import { createDocumentationStore } from "../domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -166,7 +166,7 @@ async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> 
 describe("pi-docs extension", () => {
   it("registers docs tools and lifecycle hooks without any slash commands", async () => {
     const mockPi = createMockPi();
-    const { default: piDocs } = await import("../extensions/index.js");
+    const { default: piDocs } = await import("../index.js");
 
     piDocs(mockPi as unknown as ExtensionAPI);
 
@@ -188,7 +188,7 @@ describe("pi-docs extension", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { default: piDocs } = await import("../extensions/index.js");
+      const { default: piDocs } = await import("../index.js");
       piDocs(mockPi as unknown as ExtensionAPI);
       const docsStore = createDocumentationStore(cwd);
 
@@ -294,7 +294,7 @@ describe("pi-docs extension", () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
-      const { default: piDocs } = await import("../extensions/index.js");
+      const { default: piDocs } = await import("../index.js");
       piDocs(mockPi as unknown as ExtensionAPI);
       const beforeAgentStart = getHandler(mockPi, "before_agent_start");
 

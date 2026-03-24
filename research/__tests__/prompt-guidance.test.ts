@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 describe("research prompt guidance", () => {
   it("emphasizes research as durable upstream memory", async () => {
-    const { getBaseResearchGuidance, buildResearchSystemPrompt } = await import("../extensions/prompts/guidance.js");
+    const { getBaseResearchGuidance, buildResearchSystemPrompt } = await import("../prompts/guidance.js");
     const guidance = getBaseResearchGuidance();
 
     expect(guidance).toContain("Research is the default upstream memory layer");

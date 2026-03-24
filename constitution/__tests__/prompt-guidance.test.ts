@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildConstitutionalSystemPrompt, getBaseConstitutionalGuidance } from "../extensions/prompts/guidance.js";
+import { buildConstitutionalSystemPrompt, getBaseConstitutionalGuidance } from "../prompts/guidance.js";
 
 describe("constitutional prompt guidance", () => {
   it("loads durable constitutional doctrine from the packaged guidance file", () => {

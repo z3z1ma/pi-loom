@@ -8,7 +8,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createSpecStore } from "../extensions/domain/store.js";
+import { createSpecStore } from "../domain/store.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -77,7 +77,7 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
 describe("pi-specs extension", () => {
   it("registers spec tools and lifecycle hooks", async () => {
     const mockPi = createMockPi();
-    const { default: piSpecs } = await import("../extensions/index.js");
+    const { default: piSpecs } = await import("../index.js");
 
     piSpecs(mockPi as unknown as ExtensionAPI);
 
@@ -91,7 +91,7 @@ describe("pi-specs extension", () => {
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { default: piSpecs } = await import("../extensions/index.js");
+      const { default: piSpecs } = await import("../index.js");
       piSpecs(mockPi as unknown as ExtensionAPI);
 
       const sessionStart = getHandler(mockPi, "session_start");
@@ -109,7 +109,7 @@ describe("pi-specs extension", () => {
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const mockPi = createMockPi();
-      const { default: piSpecs } = await import("../extensions/index.js");
+      const { default: piSpecs } = await import("../index.js");
       piSpecs(mockPi as unknown as ExtensionAPI);
       const beforeAgentStart = getHandler(mockPi, "before_agent_start");
 

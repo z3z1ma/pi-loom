@@ -1,14 +1,14 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildDocumentationDashboard } from "../extensions/domain/dashboard.js";
-import type { DocumentationState } from "../extensions/domain/models.js";
-import { renderUpdateDescriptor, renderUpdatePrompt } from "../extensions/domain/render.js";
+import { buildDocumentationDashboard } from "../domain/dashboard.js";
+import type { DocumentationState } from "../domain/models.js";
+import { renderUpdateDescriptor, renderUpdatePrompt } from "../domain/render.js";
 import {
   getDocsUpdateLaunchConfig,
   getPiSpawnCommand,
   resolveDocsPackageRoot,
   resolvePiCliScript,
-} from "../extensions/domain/runtime.js";
+} from "../domain/runtime.js";
 
 function createState(overrides: Partial<DocumentationState> = {}): DocumentationState {
   return {

@@ -1,10 +1,10 @@
-import type { InitiativeState, InitiativeSummary } from "#initiatives/extensions/domain/models.js";
-import { SPEC_STATUSES, type SpecChangeSummary } from "#specs/extensions/domain/models.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
+import type { InitiativeState, InitiativeSummary } from "#initiatives/domain/models.js";
+import { SPEC_STATUSES, type SpecChangeSummary } from "#specs/domain/models.js";
+import { createSpecStore } from "#specs/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import { TICKET_STATUSES, type TicketSummary } from "#ticketing/extensions/domain/models.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import { TICKET_STATUSES, type TicketSummary } from "#ticketing/domain/models.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import type {
   HypothesisConfidence,
   ResearchArtifactKind,

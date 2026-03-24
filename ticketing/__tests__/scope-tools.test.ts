@@ -80,7 +80,7 @@ function createParentWorkspaceWithChildren(): { cwd: string; cleanup: () => void
 describe("scope tools", () => {
   it("registers scope_read and scope_write alongside ticket tools", async () => {
     const mockPi = createMockPi();
-    const { registerScopeTools } = await import("../extensions/tools/scope.js");
+    const { registerScopeTools } = await import("../tools/scope.js");
     registerScopeTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual(["scope_read", "scope_write"]);
@@ -96,7 +96,7 @@ describe("scope tools", () => {
     process.env.PI_LOOM_ROOT = loomRoot;
     try {
       const mockPi = createMockPi();
-      const { registerScopeTools } = await import("../extensions/tools/scope.js");
+      const { registerScopeTools } = await import("../tools/scope.js");
       registerScopeTools(mockPi as unknown as ExtensionAPI);
       const ctx = createContext(workspace.cwd);
       const scopeRead = getTool(mockPi, "scope_read");

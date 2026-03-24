@@ -47,15 +47,15 @@
   ],
   "pi": {
     "extensions": [
-      "./constitution/extensions/index.ts",
-      "./research/extensions/index.ts",
-      "./initiatives/extensions/index.ts",
-      "./specs/extensions/index.ts",
-      "./plans/extensions/index.ts",
-      "./ticketing/extensions/index.ts",
-      "./critique/extensions/index.ts",
-      "./ralph/extensions/index.ts",
-      "./docs/extensions/index.ts"
+      "./constitution/index.ts",
+      "./research/index.ts",
+      "./initiatives/index.ts",
+      "./specs/index.ts",
+      "./plans/index.ts",
+      "./ticketing/index.ts",
+      "./critique/index.ts",
+      "./ralph/index.ts",
+      "./docs/index.ts"
     ]
   },
   "peerDependencies": {

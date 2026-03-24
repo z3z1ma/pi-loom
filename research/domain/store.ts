@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { createInitiativeStore } from "#initiatives/extensions/domain/store.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
+import { createInitiativeStore } from "#initiatives/domain/store.js";
+import { createSpecStore } from "#specs/domain/store.js";
 import {
   hasProjectedArtifactAttributes,
   type ProjectedArtifactInput,
@@ -18,7 +18,7 @@ import {
   openScopedWorkspaceStorage,
   type openWorkspaceStorage,
 } from "#storage/workspace.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import { buildResearchDashboard } from "./dashboard.js";
 import { buildResearchMap } from "./map.js";
 import type {

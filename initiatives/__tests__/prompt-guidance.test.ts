@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInitiativeSystemPrompt, getBaseInitiativeGuidance } from "../extensions/prompts/guidance.js";
+import { buildInitiativeSystemPrompt, getBaseInitiativeGuidance } from "../prompts/guidance.js";
 
 describe("initiative prompt guidance", () => {
   it("loads durable initiative doctrine from the packaged guidance file", () => {

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { buildRalphSystemPrompt, getBaseRalphGuidance } from "../extensions/prompts/guidance.js";
+import { buildRalphSystemPrompt, getBaseRalphGuidance } from "../prompts/guidance.js";
 
 describe("ralph prompt guidance", () => {
   it("loads durable Ralph doctrine from the packaged guidance file", () => {
@@ -44,7 +44,7 @@ describe("ralph prompt guidance", () => {
   });
 
   it("keeps Ralph tool prompt guidance aligned with the detail-first doctrine", () => {
-    const toolSource = readFileSync(new URL("../extensions/tools/ralph.ts", import.meta.url), "utf8");
+    const toolSource = readFileSync(new URL("../tools/ralph.ts", import.meta.url), "utf8");
 
     expect(toolSource).toContain(
       "one ticket under a governing plan should advance through bounded Ralph iterations while the worker keeps the bound ticket durably current",

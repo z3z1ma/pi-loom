@@ -2,14 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createConstitutionalStore } from "#constitution/extensions/domain/store.js";
-import { createInitiativeStore } from "#initiatives/extensions/domain/store.js";
-import { createResearchStore } from "#research/extensions/domain/store.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
+import { createConstitutionalStore } from "#constitution/domain/store.js";
+import { createInitiativeStore } from "#initiatives/domain/store.js";
+import { createResearchStore } from "#research/domain/store.js";
+import { createSpecStore } from "#specs/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
-import { createCritiqueStore } from "../extensions/domain/store.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
+import { createCritiqueStore } from "../domain/store.js";
 
 describe("CritiqueStore durable memory", () => {
   let workspace: string;
@@ -116,11 +116,11 @@ describe("CritiqueStore durable memory", () => {
       target: {
         kind: "ticket",
         ref: ticket.summary.id,
-        locator: "critique/extensions/domain/store.ts",
+        locator: "critique/domain/store.ts",
       },
       focusAreas: ["architecture", "tests"],
       reviewQuestion: "Does this work satisfy the constitutional requirement for durable adversarial review?",
-      scopeRefs: ["critique/extensions/domain/store.ts", "critique/extensions/tools/critique.ts"],
+      scopeRefs: ["critique/domain/store.ts", "critique/tools/critique.ts"],
       nonGoals: ["Do not redesign Ralph loop orchestration."],
       contextRefs: {
         roadmapItemIds: [roadmapId],

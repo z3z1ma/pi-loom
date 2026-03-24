@@ -2,16 +2,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createConstitutionalStore } from "#constitution/extensions/domain/store.js";
-import { createCritiqueStore } from "#critique/extensions/domain/store.js";
-import { createDocumentationStore } from "#docs/extensions/domain/store.js";
-import { createInitiativeStore } from "#initiatives/extensions/domain/store.js";
-import { createResearchStore } from "#research/extensions/domain/store.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
+import { createConstitutionalStore } from "#constitution/domain/store.js";
+import { createCritiqueStore } from "#critique/domain/store.js";
+import { createDocumentationStore } from "#docs/domain/store.js";
+import { createInitiativeStore } from "#initiatives/domain/store.js";
+import { createResearchStore } from "#research/domain/store.js";
+import { createSpecStore } from "#specs/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
-import { createPlanStore } from "../extensions/domain/store.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
+import { createPlanStore } from "../domain/store.js";
 
 describe("PlanStore durable memory", () => {
   let workspace: string;
@@ -131,7 +131,7 @@ describe("PlanStore durable memory", () => {
       target: {
         kind: "ticket",
         ref: implementationTicket.summary.id,
-        locator: "plans/extensions/domain/store.ts",
+        locator: "plans/domain/store.ts",
       },
       focusAreas: ["architecture", "process"],
       reviewQuestion:

@@ -7,10 +7,10 @@
 - Workflow guidance lives primarily in `README.md` plus the area READMEs under `<area>/README.md`; treat those as the first documentation stop before inferring behavior from checked-in `.loom` examples.
 
 ## Architecture & Data Flow
-1. A slash command or tool call enters through an area entrypoint such as `ticketing/extensions/index.ts` or `specs/extensions/index.ts`.
-2. Each area's `extensions/index.ts` registers its command/tool surface, initializes its ledger on `session_start`, and appends area-specific prompt guidance on `before_agent_start`.
-3. `extensions/commands/*.ts` handle human-facing slash commands; `extensions/tools/*.ts` expose AI-facing tool APIs.
-4. `extensions/domain/*.ts` owns the repo-materialized model: `store.ts`, `models.ts`, `paths.ts`, `normalize.ts`, `render.ts`, plus area-specific helpers like `dashboard.ts`, `frontmatter.ts`, `projection.ts`, `graph.ts`, or `runtime.ts`.
+1. A slash command or tool call enters through an area entrypoint such as `ticketing/index.ts` or `specs/index.ts`.
+2. Each area's `index.ts` registers its command/tool surface, initializes its ledger on `session_start`, and appends area-specific prompt guidance on `before_agent_start`.
+3. `commands/*.ts` handle human-facing slash commands; `tools/*.ts` expose AI-facing tool APIs.
+4. `domain/*.ts` owns the repo-materialized model: `store.ts`, `models.ts`, `paths.ts`, `normalize.ts`, `render.ts`, plus area-specific helpers like `dashboard.ts`, `frontmatter.ts`, `projection.ts`, `graph.ts`, or `runtime.ts`.
 5. Domain stores own the package-local model and canonical SQLite projection logic; when human-facing artifacts are exported, they are derived from canonical records rather than treated as primary state.
 6. Many stores sync canonical records and projections through `pi-loom/storage`; any future `.loom/` export is one-way and review-oriented rather than a second system of record.
 7. Area entrypoints also export a `_test` object so command handlers, prompt builders, and stores can be exercised directly from Vitest.
@@ -34,7 +34,7 @@
 - `ralph/` — Ralph orchestration area
 - `docs/` — documentation memory area
 - `storage/` — internal shared storage-contract area for canonical entities, projections, links, and runtime attachments; not a Pi extension entrypoint.
-- `*/extensions/` — area implementation code.
+- `*/{commands,domain,prompts,tools,ui}/` — area implementation code.
 - `*/__tests__/` — Vitest suites.
 - `.agents/resources/` — reference material; not primary runtime code.
 
@@ -68,11 +68,11 @@ The package manifest is the top-level `package.json`; contributor workflows are 
 - Area naming is consistent at the repo root: `<domain>/`.
 - Test files live under `*/__tests__/` and use `*.test.ts`.
 - Common area layout:
-  - `extensions/index.ts` — extension entrypoint
-  - `extensions/commands/*.ts` — slash command handlers
-  - `extensions/tools/*.ts` — AI tool registration
-  - `extensions/domain/*.ts` — persistence, rendering, normalization, dashboards
-  - `extensions/prompts/guidance.ts` and `extensions/prompts/base-*.md` — system prompt augmentation
+  - `index.ts` — extension entrypoint
+  - `commands/*.ts` — slash command handlers
+  - `tools/*.ts` — AI tool registration
+  - `domain/*.ts` — persistence, rendering, normalization, dashboards
+  - `prompts/guidance.ts` and `prompts/base-*.md` — system prompt augmentation
 - Entry points usually register one slash command + one tool family, initialize the store on `session_start` and `before_agent_start`, and expose a `_test` export.
 - Stores increasingly follow a projection + canonical-sync pattern: keep canonical entity/projection data in `pi-loom/storage`, and treat any exported repo artifacts as derived review surfaces rather than primary state.
 - Some areas add domain-specific helpers rather than inventing a new top-level layout: `ticketing` adds `graph/query/journal/attachments/checkpoints`, `specs` adds `analysis/checklist/projection`, and `critique`/`docs`/`ralph` include runtime subprocess helpers.
@@ -88,7 +88,7 @@ The package manifest is the top-level `package.json`; contributor workflows are 
 - `vitest.config.ts` — Node test environment and test discovery glob.
 - `storage/README.md` and `storage/` — storage migration boundary and shared canonical storage contract.
 - `README.md` plus `*/README.md` — package and area-specific behavior, layout, and local `omp -e .` usage.
-- `*/extensions/index.ts` — fastest way to understand an area’s command/tool surface.
+- `*/index.ts` — fastest way to understand an area’s command/tool surface.
 - `DATA_PLANE.md` — current-state map of the SQLite-backed canonical storage plane.
 - Package and area READMEs may describe future export layouts under `.loom/`; treat those as design intent unless the code path explicitly emits them.
 
@@ -117,10 +117,10 @@ The package manifest is the top-level `package.json`; contributor workflows are 
   - `critique`, `docs`, `ralph`: `runtime`
 - Runtime tests often assert repo-relative path rendering and CLI spawn resolution; avoid introducing absolute-path assumptions in dashboards, prompts, or launch descriptors.
 - No coverage thresholds are configured in `vitest.config.ts`; rely on symmetric test updates instead. If you change a store, tool, command, runtime adapter, or prompt builder, add or update the corresponding test file in the same package.
-- Prompt guidance is part of the product. Changes to `extensions/prompts/` should be reflected in `prompt-guidance.test.ts`.
+- Prompt guidance is part of the product. Changes to `prompts/` should be reflected in `prompt-guidance.test.ts`.
 
 ## Practical Editing Advice For AI Assistants
-- Start at `README.md` and `CONSTITUTION.md`, then read the target area README, then open that area’s `extensions/index.ts`.
+- Start at `README.md` and `CONSTITUTION.md`, then read the target area README, then open that area’s `index.ts`.
 - Follow the existing area pattern instead of introducing a new layout.
 - Treat SQLite-backed canonical state as the source of truth. Exported `.loom/` material, when present, is derived and one-way.
 - When asked what to build next or how mature a subsystem is, prefer `CONSTITUTION.md`, constitutional memory, package READMEs, shipped code, tests, and `DATA_PLANE.md` over hypothetical future `.loom/` exports.

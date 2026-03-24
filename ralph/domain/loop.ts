@@ -1,9 +1,9 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { createConstitutionalStore } from "#constitution/extensions/domain/store.js";
-import { createPlanStore } from "#plans/extensions/domain/store.js";
-import { createSpecStore } from "#specs/extensions/domain/store.js";
-import type { TicketReadResult, TicketStatus } from "#ticketing/extensions/domain/models.js";
-import { createTicketStore } from "#ticketing/extensions/domain/store.js";
+import { createConstitutionalStore } from "#constitution/domain/store.js";
+import { createPlanStore } from "#plans/domain/store.js";
+import { createSpecStore } from "#specs/domain/store.js";
+import type { TicketReadResult, TicketStatus } from "#ticketing/domain/models.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import type {
   RalphPacketContext,
   RalphReadResult,
