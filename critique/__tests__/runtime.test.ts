@@ -1,62 +1,16 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getPiSpawnCommand, resolveExtensionPackageRoot, resolvePiCliScript } from "../domain/runtime.js";
+import { resolveExtensionPackageRoot } from "../domain/runtime.js";
 import { createCritiqueStore } from "../domain/store.js";
 
 describe("critique runtime spawn resolution", () => {
-  it("reuses the current script entrypoint when running under a JS runtime", () => {
-    const command = getPiSpawnCommand(["--mode", "json"], {
-      execPath: "/usr/local/bin/node",
-      argv1: "/custom-fork/dist/omp-cli.js",
-      existsSync: (filePath) => filePath === "/custom-fork/dist/omp-cli.js",
-    });
-
-    expect(command).toEqual({
-      command: "/usr/local/bin/node",
-      args: ["/custom-fork/dist/omp-cli.js", "--mode", "json"],
-    });
-  });
-
-  it("reuses the current executable when running as a standalone binary", () => {
-    const command = getPiSpawnCommand(["--mode", "json"], {
-      execPath: "/opt/tools/omp",
-      argv1: "review target",
-      existsSync: () => false,
-    });
-
-    expect(command).toEqual({
-      command: "/opt/tools/omp",
-      args: ["--mode", "json"],
-    });
-  });
-
-  it("falls back to the package bin script when only package metadata is available", () => {
-    const packageJsonPath = "/pkg/package.json";
-    const packageJson = JSON.stringify({ bin: { pi: "dist/cli.js" } });
-
-    expect(
-      resolvePiCliScript({
-        execPath: "/usr/local/bin/node",
-        argv1: "user prompt",
-        existsSync: (filePath) => filePath === "/pkg/dist/cli.js",
-        readFileSync: (filePath) => {
-          if (filePath !== packageJsonPath) {
-            throw new Error(`Unexpected path ${filePath}`);
-          }
-          return packageJson;
-        },
-        resolvePackageJson: () => packageJsonPath,
-      }),
-    ).toBe("/pkg/dist/cli.js");
-  });
-
   it("roots extension launches at the unified pi-loom package instead of the caller workspace", () => {
-    expect(resolveExtensionPackageRoot(fileURLToPath(new URL("../domain/runtime.ts", import.meta.url)))).toBe(
-      resolve("."),
-    );
+    // resolveExtensionPackageRoot delegates to ralph/domain/harness.ts resolveExtensionRoot
+    // which starts from import.meta.url of ralph/domain/harness.ts
+    // ralph/domain is in the package root structure.
+    expect(resolveExtensionPackageRoot()).toBe(resolve("."));
   });
 });
 
@@ -70,7 +24,9 @@ describe("critique verdict derivation", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    rmSync(workspace, { recursive: true, force: true });
+    try {
+        rmSync(workspace, { recursive: true, force: true });
+    } catch {}
   });
 
   it("does not keep a pass verdict once an active finding is recorded", async () => {

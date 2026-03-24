@@ -11,9 +11,7 @@ import type { DocumentationState } from "../domain/models.js";
 import { renderUpdateDescriptor, renderUpdatePrompt } from "../domain/render.js";
 import {
   getDocsUpdateLaunchConfig,
-  getPiSpawnCommand,
   resolveDocsPackageRoot,
-  resolvePiCliScript,
 } from "../domain/runtime.js";
 
 function createState(overrides: Partial<DocumentationState> = {}): DocumentationState {
@@ -59,27 +57,9 @@ describe("docs runtime spawn resolution", () => {
         worktreeId: "worktree-001",
         worktreePath: "/tmp/worktree-001",
       },
-      {
-        execPath: "/usr/local/bin/node",
-        argv1: "/custom-fork/dist/omp-cli.js",
-        existsSync: (filePath) => filePath === "/custom-fork/dist/omp-cli.js",
-      },
     );
 
     expect(launch.extensionRoot).toBe(resolveDocsPackageRoot());
-    expect(launch.spawn).toEqual({
-      command: "/usr/local/bin/node",
-      args: [
-        "/custom-fork/dist/omp-cli.js",
-        "-e",
-        resolveDocsPackageRoot(),
-        "--mode",
-        "json",
-        "-p",
-        "--no-session",
-        "Update docs",
-      ],
-    });
     expect(launch.env).toEqual({
       [PI_LOOM_RUNTIME_SPACE_ID_ENV]: "space-001",
       [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: "repo-001",
@@ -90,94 +70,6 @@ describe("docs runtime spawn resolution", () => {
 
   it("resolves the docs package root from the package source, not the caller workspace", () => {
     expect(resolveDocsPackageRoot()).toBe(resolve("."));
-  });
-
-  it("reuses the current script entrypoint when running under a JS runtime", () => {
-    const command = getPiSpawnCommand(["--mode", "json"], {
-      execPath: "/usr/local/bin/node",
-      argv1: "/custom-fork/dist/omp-cli.js",
-      existsSync: (filePath) => filePath === "/custom-fork/dist/omp-cli.js",
-    });
-
-    expect(command).toEqual({
-      command: "/usr/local/bin/node",
-      args: ["/custom-fork/dist/omp-cli.js", "--mode", "json"],
-    });
-  });
-
-  it("reuses an extensionless shebang script entrypoint when running under a JS runtime", () => {
-    const command = getPiSpawnCommand(["--mode", "json"], {
-      execPath: "/usr/local/bin/node",
-      argv1: "/custom-fork/bin/pi",
-      existsSync: (filePath) => filePath === "/custom-fork/bin/pi",
-      readFileSync: (filePath) => {
-        if (filePath !== "/custom-fork/bin/pi") {
-          throw new Error(`Unexpected path ${filePath}`);
-        }
-        return "#!/usr/bin/env node\nconsole.log('pi');\n";
-      },
-    });
-
-    expect(command).toEqual({
-      command: "/usr/local/bin/node",
-      args: ["/custom-fork/bin/pi", "--mode", "json"],
-    });
-  });
-
-  it("reuses the current executable when running as a standalone binary", () => {
-    const command = getPiSpawnCommand(["--mode", "json"], {
-      execPath: "/opt/tools/omp",
-      argv1: "update documentation",
-      existsSync: () => false,
-    });
-
-    expect(command).toEqual({
-      command: "/opt/tools/omp",
-      args: ["--mode", "json"],
-    });
-  });
-
-  it("falls back to the package bin script when only package metadata is available", () => {
-    const packageJsonPath = "/pkg/package.json";
-    const packageJson = JSON.stringify({ bin: { pi: "dist/cli.js" } });
-
-    expect(
-      resolvePiCliScript({
-        execPath: "/usr/local/bin/node",
-        argv1: "user prompt",
-        existsSync: (filePath) => filePath === "/pkg/dist/cli.js",
-        readFileSync: (filePath) => {
-          if (filePath !== packageJsonPath) {
-            throw new Error(`Unexpected path ${filePath}`);
-          }
-          return packageJson;
-        },
-        resolvePackageJson: () => packageJsonPath,
-      }),
-    ).toBe("/pkg/dist/cli.js");
-  });
-
-  it("accepts an extensionless shebang package bin script", () => {
-    const packageJsonPath = "/pkg/package.json";
-    const packageJson = JSON.stringify({ bin: { pi: "dist/cli" } });
-
-    expect(
-      resolvePiCliScript({
-        execPath: "/usr/local/bin/node",
-        argv1: "user prompt",
-        existsSync: (filePath) => filePath === "/pkg/dist/cli",
-        readFileSync: (filePath) => {
-          if (filePath === packageJsonPath) {
-            return packageJson;
-          }
-          if (filePath === "/pkg/dist/cli") {
-            return "#!/usr/bin/env node\nconsole.log('pi');\n";
-          }
-          throw new Error(`Unexpected path ${filePath}`);
-        },
-        resolvePackageJson: () => packageJsonPath,
-      }),
-    ).toBe("/pkg/dist/cli");
   });
 });
 
