@@ -8,9 +8,9 @@ describe("plan prompt guidance", () => {
     expect(guidance).toContain("Plans are a first-class Loom memory layer.");
     expect(guidance).toContain("bounded, high-context execution-strategy artifact");
     expect(guidance).toContain(
-      "compile the relevant constitutional, research, initiative, spec, ticket, critique, and documentation context",
+      "compile the relevant constitutional, research, initiative, spec, ticket, critique, and documentation context into one bounded planning packet",
     );
-    expect(guidance).toContain("detailed `plan.md` artifact that explains sequencing, workstreams, rationale");
+    expect(guidance).toContain("detailed plan document that explains sequencing, workstreams, rationale");
     expect(guidance).toContain("a later worker can understand why this rollout is structured like this");
     expect(guidance).toContain(
       "tickets remain both the high-fidelity execution system of record and comprehensive, self-contained units of work",
@@ -19,7 +19,7 @@ describe("plan prompt guidance", () => {
       "use the ticket layer to create, refine, or link tickets explicitly. Plans wrap those tickets in broader execution context",
     );
     expect(guidance).toContain("self-contained workplan for a novice reader");
-    expect(guidance).toContain("Required `plan.md` sections are");
+    expect(guidance).toContain("Required plan sections are");
     expect(guidance).toContain("`Idempotence and Recovery`");
     expect(guidance).toContain("`Revision Notes`");
   });

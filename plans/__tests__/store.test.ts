@@ -181,10 +181,10 @@ describe("PlanStore durable memory", () => {
       idempotenceAndRecovery:
         "Re-running the targeted plan-package test suite is safe. If a packet or plan artifact is stale, rebuild it by reading or updating the plan again so the repo-materialized markdown matches canonical storage.",
       artifactsAndNotes:
-        "Capture the final plan.md section headings and the targeted test output that proves the packet and plan remain Loom-linked.",
+        "Capture the final plan section headings and the targeted test output that proves the packet and plan remain Loom-linked.",
       interfacesAndDependencies:
         "Keep createPlanStore as the entry point, renderPlanMarkdown as the markdown renderer, and the plan_* tools as the supported AI-facing interfaces.",
-      risksAndQuestions: "Avoid duplicating ticket implementation detail inside plan.md.",
+      risksAndQuestions: "Avoid duplicating ticket implementation detail inside the plan document.",
       sourceTarget: { kind: "spec", ref: spec.state.changeId },
       contextRefs: {
         roadmapItemIds: [roadmapId],

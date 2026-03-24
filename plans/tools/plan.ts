@@ -294,7 +294,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     description:
       "List durable execution plans. Leave `sort` unset for the default ordering: `updated_desc` without `text`, `relevance` with `text`. Start broad with `text` when rediscovering a plan by name, topic, or source context; add exact filters such as `exactStatus`, `exactSourceKind`, or `exactLinkedTicketId` only when you intentionally want a narrower result set.",
     promptSnippet:
-      "Inspect existing plans before creating a new one so durable execution strategy does not fork; broad text search with the default relevance ranking is the safest first pass when you do not yet know the exact source anchor or status.",
+      "You **MUST** inspect existing plans before creating a new one so durable execution strategy does not fork. Start with broad text search to find the right family.",
     promptGuidelines: [
       "Use this tool before writing a new plan so broader execution strategy stays consolidated.",
       "When rediscovering an existing plan, start with `text` and no exact filters; the default sort becomes `relevance` for text search, so leave `sort` unset unless you intentionally want a different ordering.",
@@ -359,7 +359,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     label: "plan_read",
     description: "Read plan state, packet, or rendered plan markdown from durable Loom plan memory.",
     promptSnippet:
-      "Read the plan packet or current plan markdown before inventing a new execution strategy from chat history.",
+      "You **MUST** read the plan packet or current plan markdown before inventing a new execution strategy from chat history.",
     promptGuidelines: [
       "Read packet mode when you need the bounded planning handoff from linked durable context.",
       "Read plan mode when you need the current detailed execution strategy, sequencing rationale, and linked ticket checklist.",
@@ -385,7 +385,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     label: "plan_write",
     description: "Create, update, or archive durable execution plans in local Loom memory.",
     promptSnippet:
-      "Persist substantial execution strategy durably instead of leaving multi-ticket planning trapped in scratch chat or one-off notes.",
+      "You **MUST** use this tool to persist any execution strategy. Do not leave planning in chat; if you have a plan, you **MUST** write it down.",
     promptGuidelines: [
       "Create the plan before repeatedly revising the execution strategy so ticket links and source refs accumulate on a stable durable id.",
       "Update plan content as a self-contained novice-facing workplan with explicit milestones, timestamped progress, concrete commands, validation, recovery guidance, interfaces, and revision notes without duplicating live per-ticket status, checkpoints, or journal detail; linked tickets must still stand alone as complete units of work, whether they pre-existed or were created through the ticket layer during planning.",
@@ -438,7 +438,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     label: "plan_ticket_link",
     description: "Link or unlink durable tickets from a plan while keeping tickets as the live execution record.",
     promptSnippet:
-      "Link tickets to the plan so plan.md carries detailed execution strategy without copying live execution state line-by-line.",
+      "Link tickets to the plan so the execution strategy stays detailed without copying live ticket state line-by-line.",
     promptGuidelines: [
       "Use link to attach an existing or newly created ticket to the plan and optionally record a plan-local role for that ticket inside the broader execution narrative, while keeping the ticket itself comprehensive and self-contained.",
       "Use unlink only to remove the active plan membership; ticket provenance is intentionally not scrubbed from the ticket itself.",

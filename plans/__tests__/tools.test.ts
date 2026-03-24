@@ -80,7 +80,7 @@ describe("plan tools", () => {
       expect(tool.promptGuidelines).toEqual(expect.arrayContaining([expect.any(String)]));
     }
 
-    expect(getTool(mockPi, "plan_ticket_link").promptSnippet).toContain("plan.md carries detailed execution strategy");
+    expect(getTool(mockPi, "plan_ticket_link").promptSnippet).toContain("execution strategy stays detailed");
     expect(
       (
         getTool(mockPi, "plan_read").parameters as unknown as {
