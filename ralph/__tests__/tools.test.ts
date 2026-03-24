@@ -188,6 +188,7 @@ function createReadResult(
         docIds: [],
       },
       activeTicketId: ticketId,
+      executionEnv: null,
       packetContext: {
         capturedAt: "2026-03-21T00:00:00.000Z",
         constitutionBrief: "Brief",

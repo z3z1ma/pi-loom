@@ -17,7 +17,7 @@ import type {
 import { deriveRalphRunId } from "./paths.js";
 import { type RalphExecutionResult, type RalphLaunchEvent, runRalphLaunch } from "./runtime.js";
 import { createRalphStore } from "./store.js";
-import { provisionWorktree, resolveWorktreeName } from "./worktree.js";
+import { provisionWorktree, resolveUniqueWorktreeName } from "./worktree.js";
 
 type RalphContextLike = Pick<ExtensionContext, "cwd"> | Pick<ExtensionCommandContext, "cwd">;
 
@@ -1288,7 +1288,7 @@ export async function ensureRalphRun(
       throw new Error("Cannot use worktree execution mode: not in a git repository");
     }
     const ticket = await createTicketStore(ctx.cwd).readTicketAsync(binding.ticketId);
-    const branchName = resolveWorktreeName(
+    const branchName = resolveUniqueWorktreeName(
       {
         ref: ticket.summary.ref,
         externalRefs: ticket.ticket.frontmatter["external-refs"],
@@ -1302,7 +1302,7 @@ export async function ensureRalphRun(
       worktreeRoot: worktreePath,
       branchName,
       repositoryRoot: runtimeScope.repositoryRoot,
-      ledgerRoot: process.env.PI_LOOM_ROOT,
+      ledgerRoot: process.env.PI_LOOM_ROOT ?? "",
     };
   }
   const packetContext = await buildPacketContext(ctx.cwd, scope, input.prompt, []);

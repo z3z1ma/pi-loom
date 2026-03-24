@@ -52,9 +52,8 @@ describe("Ralph Worktree Integration", () => {
     // Note: createTicket signature might vary, checking expected input
     const ticketResult = await ticketStore.createTicketAsync({
       title: "Test Worktree Ticket",
-      description: "Testing worktree integration",
+      summary: "Testing worktree integration",
       type: "task",
-      status: "open",
     });
 
     const ticketRef = ticketResult.summary.id;

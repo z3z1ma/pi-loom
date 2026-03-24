@@ -3,7 +3,7 @@ import { type HarnessExecutionResult, resolveExtensionRoot, runHarnessLaunch } f
 import {
   getWorktreeEnv,
   provisionWorktree,
-  resolveWorktreeName,
+  resolveLatestWorktreeName,
 } from "#ralph/domain/worktree.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import type { CritiqueLaunchDescriptor } from "./models.js";
@@ -42,7 +42,7 @@ export async function runCritiqueLaunch(
       }
     }
 
-    const branchName = resolveWorktreeName(
+    const branchName = resolveLatestWorktreeName(
       { ref: worktreeTicketRef, externalRefs },
       cwd,
       preferExternalRefNaming ?? false,

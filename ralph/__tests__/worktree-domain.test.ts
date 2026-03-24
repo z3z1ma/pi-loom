@@ -1,7 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { resolveWorktreeName, provisionWorktree, type WorktreeNamingContext } from '../domain/worktree';
+import { 
+  resolveUniqueWorktreeName, 
+  resolveLatestWorktreeName,
+  provisionWorktree, 
+  type WorktreeNamingContext 
+} from '../domain/worktree.js';
 
 // Mock node:child_process
 vi.mock('node:child_process', () => ({
@@ -32,12 +37,12 @@ describe('worktree domain', () => {
     (fs.existsSync as any).mockReturnValue(false);
   });
 
-  describe('resolveWorktreeName', () => {
+  describe('resolveUniqueWorktreeName', () => {
     it('should return base name if no collision', () => {
       // Mock git branch list to return empty
       (execFileSync as any).mockReturnValue('');
 
-      const result = resolveWorktreeName(mockTicket, mockRepoRoot, false);
+      const result = resolveUniqueWorktreeName(mockTicket, mockRepoRoot, false);
       expect(result).toBe('ralph/T-123');
       expect(execFileSync).toHaveBeenCalledWith(
         'git',
@@ -50,7 +55,7 @@ describe('worktree domain', () => {
       // Mock git branch list to return the base name
       (execFileSync as any).mockReturnValue('ralph/T-123\nother-branch');
 
-      const result = resolveWorktreeName(mockTicket, mockRepoRoot, false);
+      const result = resolveUniqueWorktreeName(mockTicket, mockRepoRoot, false);
       expect(result).toBe('ralph/T-123-1');
     });
 
@@ -58,27 +63,59 @@ describe('worktree domain', () => {
       // Mock git branch list to return base and -1
       (execFileSync as any).mockReturnValue('ralph/T-123\nralph/T-123-1');
 
-      const result = resolveWorktreeName(mockTicket, mockRepoRoot, false);
+      const result = resolveUniqueWorktreeName(mockTicket, mockRepoRoot, false);
       expect(result).toBe('ralph/T-123-2');
     });
 
     it('should use external ref if preferred and available', () => {
       (execFileSync as any).mockReturnValue('');
-      const result = resolveWorktreeName(mockTicket, mockRepoRoot, true);
+      const result = resolveUniqueWorktreeName(mockTicket, mockRepoRoot, true);
       expect(result).toBe('JIRA-999');
     });
 
     it('should fallback to ticket ref if external ref naming preferred but no external refs', () => {
       (execFileSync as any).mockReturnValue('');
-      const result = resolveWorktreeName({ ref: 'T-123', externalRefs: [] }, mockRepoRoot, true);
+      const result = resolveUniqueWorktreeName({ ref: 'T-123', externalRefs: [] }, mockRepoRoot, true);
       expect(result).toBe('ralph/T-123');
     });
     
     it('should sanitize external ref naming', () => {
       (execFileSync as any).mockReturnValue('');
       const badTicket: WorktreeNamingContext = { ref: 'T-123', externalRefs: ['ACME/Project:123'] };
-      const result = resolveWorktreeName(badTicket, mockRepoRoot, true);
+      const result = resolveUniqueWorktreeName(badTicket, mockRepoRoot, true);
       expect(result).toBe('ACME-Project-123');
+    });
+  });
+
+  describe('resolveLatestWorktreeName', () => {
+    it('should return base name if no branches exist', () => {
+      (execFileSync as any).mockReturnValue('');
+      const result = resolveLatestWorktreeName(mockTicket, mockRepoRoot, false);
+      expect(result).toBe('ralph/T-123');
+    });
+
+    it('should return base name if only base name exists', () => {
+      (execFileSync as any).mockReturnValue('ralph/T-123\nother');
+      const result = resolveLatestWorktreeName(mockTicket, mockRepoRoot, false);
+      expect(result).toBe('ralph/T-123');
+    });
+
+    it('should return highest suffix if multiple exist', () => {
+      (execFileSync as any).mockReturnValue('ralph/T-123\nralph/T-123-1\nralph/T-123-5');
+      const result = resolveLatestWorktreeName(mockTicket, mockRepoRoot, false);
+      expect(result).toBe('ralph/T-123-5');
+    });
+
+    it('should ignore non-numeric suffixes', () => {
+      (execFileSync as any).mockReturnValue('ralph/T-123\nralph/T-123-foo\nralph/T-123-2');
+      const result = resolveLatestWorktreeName(mockTicket, mockRepoRoot, false);
+      expect(result).toBe('ralph/T-123-2');
+    });
+
+    it('should respect external ref naming', () => {
+      (execFileSync as any).mockReturnValue('JIRA-999\nJIRA-999-3');
+      const result = resolveLatestWorktreeName(mockTicket, mockRepoRoot, true);
+      expect(result).toBe('JIRA-999-3');
     });
   });
 

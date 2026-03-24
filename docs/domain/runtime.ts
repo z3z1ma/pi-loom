@@ -8,7 +8,7 @@ import {
 import {
   getWorktreeEnv,
   provisionWorktree,
-  resolveWorktreeName,
+  resolveLatestWorktreeName,
 } from "#ralph/domain/worktree.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 
@@ -60,7 +60,7 @@ export async function runDocsUpdate(
         // Fallback if ticket lookup fails
       }
     }
-    const branchName = resolveWorktreeName(
+    const branchName = resolveLatestWorktreeName(
       { ref: worktreeTicketRef, externalRefs },
       cwd,
       preferExternalRefNaming ?? false,

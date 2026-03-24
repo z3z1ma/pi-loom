@@ -81,7 +81,7 @@ function listWorktreesDetails(repoRoot: string): WorktreeDetail[] {
  * 1. Base name is "ralph/<ticket-ref>".
  * 2. If the branch exists, append -1, -2, etc. until a unique name is found.
  */
-export function resolveWorktreeName(
+export function resolveUniqueWorktreeName(
   ticket: WorktreeNamingContext, 
   repoRoot: string, 
   preferExternalRef: boolean
@@ -112,6 +112,59 @@ export function resolveWorktreeName(
     }
     counter++;
   }
+}
+
+/**
+ * Resolves the LATEST existing branch name for a ticket.
+ * 
+ * Logic:
+ * 1. Determine base name.
+ * 2. Scan existing branches.
+ * 3. Find matches for `baseName` or `baseName-<N>`.
+ * 4. Return the one with highest N.
+ * 5. If none, return `baseName` (so provisionWorktree will create it).
+ */
+export function resolveLatestWorktreeName(
+  ticket: WorktreeNamingContext,
+  repoRoot: string,
+  preferExternalRef: boolean
+): string {
+  let baseName = `ralph/${ticket.ref.replace(/:/g, "-")}`;
+
+  if (preferExternalRef && ticket.externalRefs && ticket.externalRefs.length > 0) {
+    const firstRef = ticket.externalRefs[0];
+    if (firstRef) {
+      const sanitized = firstRef.replace(/[^a-zA-Z0-9._-]/g, "-");
+      baseName = sanitized;
+    }
+  }
+
+  const branches = listBranches(repoRoot);
+  // Matches baseName or baseName-N
+  // Need to escape baseName for regex safety
+  const escapedBase = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${escapedBase}(?:-(\\d+))?$`);
+  
+  let maxSuffix = -1;
+  let found = false;
+
+  for (const branch of branches) {
+    const match = branch.match(pattern);
+    if (match) {
+      found = true;
+      const suffixStr = match[1];
+      const suffix = suffixStr ? parseInt(suffixStr, 10) : 0;
+      if (suffix > maxSuffix) {
+        maxSuffix = suffix;
+      }
+    }
+  }
+
+  if (!found) {
+    return baseName;
+  }
+  
+  return maxSuffix === 0 ? baseName : `${baseName}-${maxSuffix}`;
 }
 
 /**
