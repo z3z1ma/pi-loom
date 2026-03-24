@@ -93,6 +93,36 @@ describe("spec tools", () => {
     expect(getTool(mockPi, "spec_analyze").promptGuidelines).toContain(
       "Analysis and checklist generation mutate stored artifacts, so they are only valid while the spec is still mutable; rerun them before finalize, not after finalize or archive.",
     );
+    expect(
+      (
+        getTool(mockPi, "spec_read").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.repositoryId,
+    ).toMatchObject({ type: "string", optional: true });
+    expect(
+      (
+        getTool(mockPi, "spec_write").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.worktreeId,
+    ).toMatchObject({ type: "string", optional: true });
+    expect(
+      (
+        getTool(mockPi, "spec_analyze").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.repositoryId,
+    ).toMatchObject({ type: "string", optional: true });
   });
 
   it("returns machine-usable shapes for list, read, write, and analyze flows", async () => {
@@ -119,7 +149,11 @@ describe("spec tools", () => {
       expect(created.details).toMatchObject({
         action: "propose",
         change: {
-          summary: { id: "dark-theme-support", status: "proposed" },
+          summary: {
+            id: "dark-theme-support",
+            status: "proposed",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
         },
       });
 
@@ -179,13 +213,21 @@ describe("spec tools", () => {
 
       const listed = await specList.execute("call-5", { includeArchived: true }, undefined, undefined, ctx);
       expect(listed.details).toMatchObject({
-        changes: [expect.objectContaining({ id: "dark-theme-support" })],
+        changes: [
+          expect.objectContaining({
+            id: "dark-theme-support",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          }),
+        ],
       });
 
       const read = await specRead.execute("call-6", { ref: "dark-theme-support" }, undefined, undefined, ctx);
       expect(read.details).toMatchObject({
         change: {
-          summary: { id: "dark-theme-support" },
+          summary: {
+            id: "dark-theme-support",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
           state: { capabilities: [expect.objectContaining({ id: "theme-toggling" })] },
         },
       });

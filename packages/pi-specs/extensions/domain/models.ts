@@ -1,4 +1,5 @@
 import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
+import type { LoomRepositoryQualifier } from "@pi-loom/pi-storage/storage/repository-qualifier.js";
 
 export const SPEC_STATUSES = ["proposed", "clarifying", "specified", "finalized", "archived", "superseded"] as const;
 export const SPEC_ARTIFACT_NAMES = ["proposal", "design", "analysis", "checklist"] as const;
@@ -68,6 +69,7 @@ export interface SpecChangeSummary {
   id: string;
   title: string;
   status: SpecStatus;
+  repository?: LoomRepositoryQualifier | null;
   requirementCount: number;
   capabilityIds: string[];
   initiativeIds: string[];
@@ -133,6 +135,7 @@ export interface SpecChecklistResult {
 
 export interface SpecListFilter {
   status?: SpecStatus;
+  repositoryId?: string;
   includeArchived?: boolean;
   sort?: LoomListSort;
   text?: string;

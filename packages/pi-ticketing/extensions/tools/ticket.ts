@@ -50,6 +50,12 @@ const TicketListParams = Type.Object({
       "Exact type filter. Leave unset for broad discovery unless you already know the ticket kind you want.",
     ),
   ),
+  exactRepositoryId: Type.Optional(
+    Type.String({
+      description:
+        "Optional exact repository id filter. Use a repository id from `scope_read` or prior machine-readable ticket results when you intentionally want one repository slice.",
+    }),
+  ),
   includeClosed: Type.Optional(
     Type.Boolean({
       description:
@@ -257,6 +263,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
           getStore(ctx).listTicketsAsync({
             status: next.exactStatus as TicketStatus | undefined,
             type: next.exactType,
+            repositoryId: next.exactRepositoryId,
             includeClosed: next.includeClosed,
             includeArchived: next.includeArchived,
             text: next.text,
@@ -274,6 +281,11 @@ export function registerTicketTools(pi: ExtensionAPI): void {
               key: "exactType",
               value: params.exactType,
               clear: (current) => ({ ...current, exactType: undefined }),
+            },
+            {
+              key: "exactRepositoryId",
+              value: params.exactRepositoryId,
+              clear: (current) => ({ ...current, exactRepositoryId: undefined }),
             },
           ],
         },

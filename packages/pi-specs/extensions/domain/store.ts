@@ -7,7 +7,13 @@ import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { resolveRepositoryQualifier } from "@pi-loom/pi-storage/storage/repository-qualifier.js";
+import {
+  openRepositoryWorkspaceStorage,
+  openScopedWorkspaceStorage,
+  openWorkspaceStorage,
+  type LoomExplicitScopeInput,
+} from "@pi-loom/pi-storage/storage/workspace.js";
 import { analyzeSpecChange } from "./analysis.js";
 import { buildSpecChecklist } from "./checklist.js";
 import { parseMarkdownArtifact } from "./frontmatter.js";
@@ -133,6 +139,7 @@ function summarizeChange(state: SpecChangeState, archived: boolean): SpecChangeS
     id: state.changeId,
     title: state.title,
     status: state.status,
+    repository: null,
     requirementCount: state.requirements.length,
     capabilityIds: state.capabilities
       .map((capability) => capability.id)
@@ -193,9 +200,22 @@ function projectedSpecCapabilityLinks(record: CanonicalCapabilityRecord): Projec
 
 export class SpecStore {
   readonly cwd: string;
+  readonly scope: Required<LoomExplicitScopeInput>;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
     this.cwd = canonicalWorkspaceRoot(cwd);
+    this.scope = {
+      repositoryId: scope.repositoryId ?? null,
+      worktreeId: scope.worktreeId ?? null,
+    };
+  }
+
+  private async openWorkspaceStorage() {
+    return openScopedWorkspaceStorage(this.cwd, this.scope);
+  }
+
+  private async openRepositoryWorkspaceStorage() {
+    return openRepositoryWorkspaceStorage(this.cwd, this.scope);
   }
 
   async initLedger(): Promise<{ initialized: true; root: string }> {
@@ -277,6 +297,8 @@ export class SpecStore {
     decisions: SpecDecisionRecord[],
     analysis: string,
     checklist: string,
+    repositoryId: string | null = null,
+    repositories: Awaited<ReturnType<typeof openWorkspaceStorage>>["identity"]["repositories"] = [],
   ): SpecChangeRecord {
     const normalized = this.normalizeState(state);
     const archived = Boolean(normalized.archivedRef);
@@ -285,9 +307,10 @@ export class SpecStore {
       normalized.designNotes.trim() || normalized.capabilities.length > 0 || normalized.requirements.length > 0
         ? renderDesignMarkdown(normalized)
         : "";
+    const repository = resolveRepositoryQualifier(repositories, repositoryId);
     return {
       state: normalized,
-      summary: summarizeChange(normalized, archived),
+      summary: { ...summarizeChange(normalized, archived), repository },
       artifacts: this.artifactStatuses(normalized, analysis, checklist),
       proposal,
       design,
@@ -299,7 +322,7 @@ export class SpecStore {
   }
 
   private async loadCanonicalChange(ref: string): Promise<SpecChangeRecord> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const changeId = parseSpecChangeId(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, changeId);
     if (!entity) {
@@ -314,6 +337,8 @@ export class SpecStore {
       attributes.decisions ?? [],
       attributes.analysis ?? "",
       attributes.checklist ?? "",
+      entity.owningRepositoryId,
+      identity.repositories,
     );
   }
 
@@ -323,10 +348,12 @@ export class SpecStore {
     analysis: string,
     checklist: string,
   ): Promise<SpecChangeRecord> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
     const existing = await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId);
     const version = (existing?.version ?? 0) + 1;
-    const record = this.materializeChangeRecord(state, decisions, analysis, checklist);
+    const record = this.materializeChangeRecord(state, decisions, analysis, checklist, identity.repository.id, [
+      identity.repository,
+    ]);
     const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
       storage,
       {
@@ -366,7 +393,7 @@ export class SpecStore {
   }
 
   private async mergeCanonicalCapability(state: SpecChangeState, capabilityId: string): Promise<void> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
     const existing = await findEntityByDisplayId(storage, identity.space.id, SPEC_CAPABILITY_ENTITY_KIND, capabilityId);
     const version = (existing?.version ?? 0) + 1;
     const current = (existing?.attributes as unknown as SpecCapabilityEntityAttributes | undefined)?.record ?? null;
@@ -415,12 +442,18 @@ export class SpecStore {
   }
 
   async listChanges(filter: SpecListFilter = {}): Promise<SpecChangeSummary[]> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const summaries: Array<{ summary: SpecChangeSummary; state: SpecChangeState }> = [];
     for (const entity of await storage.listEntities(identity.space.id, SPEC_CHANGE_ENTITY_KIND)) {
       if (hasStructuredSpecChangeAttributes(entity.attributes)) {
         const state = this.normalizeState(entity.attributes.state);
-        summaries.push({ summary: summarizeChange(state, Boolean(state.archivedRef)), state });
+        summaries.push({
+          summary: {
+            ...summarizeChange(state, Boolean(state.archivedRef)),
+            repository: resolveRepositoryQualifier(identity.repositories, entity.owningRepositoryId),
+          },
+          state,
+        });
         continue;
       }
       throw new Error(`Spec entity ${entity.displayId} is missing structured attributes`);
@@ -434,6 +467,9 @@ export class SpecStore {
           if (filter.status && summary.status !== filter.status) {
             return false;
           }
+          if (filter.repositoryId && summary.repository?.id !== filter.repositoryId) {
+            return false;
+          }
           return true;
         })
         .map(({ summary, state }) => ({
@@ -443,6 +479,9 @@ export class SpecStore {
           updatedAt: summary.updatedAt,
           fields: [
             { value: summary.id, weight: 10 },
+            { value: summary.repository?.id ?? "", weight: 7 },
+            { value: summary.repository?.slug ?? "", weight: 7 },
+            { value: summary.repository?.displayName ?? "", weight: 7 },
             { value: summary.title, weight: 10 },
             { value: state.proposalSummary, weight: 8 },
             { value: state.initiativeIds.join(" "), weight: 6 },
@@ -483,7 +522,7 @@ export class SpecStore {
   }
 
   async listCapabilities(): Promise<CanonicalCapabilityRecord[]> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     return filterAndSortListEntries(
       (await storage.listEntities(identity.space.id, SPEC_CAPABILITY_ENTITY_KIND)).map((entity) => {
         const record = (entity.attributes as unknown as SpecCapabilityEntityAttributes).record;
@@ -506,7 +545,7 @@ export class SpecStore {
   }
 
   async readCapability(ref: string): Promise<CanonicalCapabilityRecord> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const capabilityId = parseCapabilityId(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, SPEC_CAPABILITY_ENTITY_KIND, capabilityId);
     if (!entity) {
@@ -527,7 +566,7 @@ export class SpecStore {
     await this.initLedger();
     const timestamp = currentTimestamp();
     const state = this.defaultState(input, timestamp);
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     if (await findEntityByDisplayId(storage, identity.space.id, SPEC_CHANGE_ENTITY_KIND, state.changeId)) {
       throw new Error(`Spec already exists: ${state.changeId}`);
     }
@@ -560,7 +599,7 @@ export class SpecStore {
     });
     const nextDecisions = [...record.decisions, decision];
     const persisted = await this.persistCanonicalChange(nextState, nextDecisions, record.analysis, record.checklist);
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const entity = await findEntityByDisplayId(
       storage,
       identity.space.id,
@@ -714,6 +753,6 @@ export class SpecStore {
   }
 }
 
-export function createSpecStore(cwd: string): SpecStore {
-  return new SpecStore(cwd);
+export function createSpecStore(cwd: string, scope: LoomExplicitScopeInput = {}): SpecStore {
+  return new SpecStore(cwd, scope);
 }

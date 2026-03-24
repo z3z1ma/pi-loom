@@ -91,6 +91,36 @@ describe("research tools", () => {
     expect(getTool(mockPi, "research_read").promptGuidelines).toContain(
       'Use `research_write` with `action: "create"` to start new research; `research_read` only loads existing records and will fail for unknown refs.',
     );
+    expect(
+      (
+        getTool(mockPi, "research_read").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.repositoryId,
+    ).toMatchObject({ type: "string", optional: true });
+    expect(
+      (
+        getTool(mockPi, "research_write").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.worktreeId,
+    ).toMatchObject({ type: "string", optional: true });
+    expect(
+      (
+        getTool(mockPi, "research_dashboard").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.repositoryId,
+    ).toMatchObject({ type: "string", optional: true });
   });
 
   it("returns machine-usable shapes for list, read, write, hypothesis, artifact, dashboard, and map flows", async () => {
@@ -124,7 +154,13 @@ describe("research tools", () => {
       );
       expect(created.details).toMatchObject({
         action: "create",
-        research: { summary: { id: "evaluate-theme-architecture", status: "proposed" } },
+        research: {
+          summary: {
+            id: "evaluate-theme-architecture",
+            status: "proposed",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
+        },
       });
 
       const hypothesis = await researchHypothesis.execute(
@@ -166,7 +202,12 @@ describe("research tools", () => {
 
       const listed = await researchList.execute("call-4", { includeArchived: true }, undefined, undefined, ctx);
       expect(listed.details).toMatchObject({
-        research: [expect.objectContaining({ id: "evaluate-theme-architecture" })],
+        research: [
+          expect.objectContaining({
+            id: "evaluate-theme-architecture",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          }),
+        ],
       });
 
       const read = await researchRead.execute(
@@ -178,7 +219,10 @@ describe("research tools", () => {
       );
       expect(read.details).toMatchObject({
         research: {
-          summary: { id: "evaluate-theme-architecture" },
+          summary: {
+            id: "evaluate-theme-architecture",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
           hypotheses: [expect.objectContaining({ id: "hyp-001" })],
           artifacts: [expect.objectContaining({ id: "artifact-001" })],
         },
@@ -301,22 +345,24 @@ describe("research tools", () => {
       }
       expect(entity.attributes).not.toHaveProperty("artifacts");
 
-      expect(await storage.listEntities(identity.space.id, "artifact")).toEqual([
-        expect.objectContaining({
-          displayId: "research:evaluate-theme-architecture:artifact:experiment:artifact-001",
-          attributes: expect.objectContaining({
-            projectionOwner: "research-store:artifacts",
-            artifactType: "research-artifact",
-            payload: expect.objectContaining({
-              id: "artifact-001",
-              kind: "experiment",
-              summary: "Revised summary only.",
-              tags: ["updated"],
-              body: "Original prototype notes",
+      expect(await storage.listEntities(identity.space.id, "artifact")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            displayId: "research:evaluate-theme-architecture:artifact:experiment:artifact-001",
+            attributes: expect.objectContaining({
+              projectionOwner: "research-store:artifacts",
+              artifactType: "research-artifact",
+              payload: expect.objectContaining({
+                id: "artifact-001",
+                kind: "experiment",
+                summary: "Revised summary only.",
+                tags: ["updated"],
+                body: "Original prototype notes",
+              }),
             }),
           }),
-        }),
-      ]);
+        ]),
+      );
     } finally {
       cleanup();
     }

@@ -13,7 +13,7 @@ import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import {
   TICKET_STATUSES,
   type TicketReadResult,
@@ -362,7 +362,7 @@ export class InitiativeStore {
     state: InitiativeState,
     decisions: InitiativeDecisionRecord[],
   ): Promise<InitiativeRecord> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
     const record = await this.buildRecord(state, decisions);
     const previous = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.initiativeId);
     const version = (previous?.version ?? 0) + 1;

@@ -1,3 +1,4 @@
+import type { LoomRepositoryQualifier } from "@pi-loom/pi-storage/storage/repository-qualifier.js";
 import type { PlanDashboard, PlanDashboardTicket, PlanState, PlanSummary } from "./models.js";
 
 export function getPlanRef(state: PlanState): string {
@@ -16,12 +17,13 @@ export function getPlanTicketRef(ticketId: string): string {
   return `ticket:${ticketId}`;
 }
 
-export function summarizePlan(state: PlanState): PlanSummary {
+export function summarizePlan(state: PlanState, repository: LoomRepositoryQualifier | null = null): PlanSummary {
   return {
     id: state.planId,
     title: state.title,
     status: state.status,
     updatedAt: state.updatedAt,
+    repository,
     sourceKind: state.sourceTarget.kind,
     sourceRef: state.sourceTarget.ref,
     linkedTicketCount: state.linkedTickets.length,
@@ -30,7 +32,11 @@ export function summarizePlan(state: PlanState): PlanSummary {
   };
 }
 
-export function buildPlanDashboard(state: PlanState, linkedTickets: PlanDashboardTicket[]): PlanDashboard {
+export function buildPlanDashboard(
+  state: PlanState,
+  linkedTickets: PlanDashboardTicket[],
+  repository: LoomRepositoryQualifier | null = null,
+): PlanDashboard {
   const linkedTicketSnapshot = linkedTickets.map((ticket) => ({ ...ticket }));
   const byStatus = linkedTicketSnapshot.reduce<Record<string, number>>((acc, ticket) => {
     acc[ticket.status] = (acc[ticket.status] ?? 0) + 1;
@@ -38,7 +44,7 @@ export function buildPlanDashboard(state: PlanState, linkedTickets: PlanDashboar
   }, {});
   return {
     plan: {
-      ...summarizePlan(state),
+      ...summarizePlan(state, repository),
       linkedTicketCount: linkedTicketSnapshot.length,
     },
     packetRef: getPlanPacketRef(state),

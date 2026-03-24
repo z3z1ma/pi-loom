@@ -6,13 +6,14 @@ function renderList(values: string[]): string {
 
 export function renderTicketSummary(summary: TicketSummary): string {
   const lifecycle = summary.archived ? " archived" : "";
-  return `${summary.id} [${summary.status}${lifecycle}] (${summary.type}/${summary.priority}) ${summary.title}`;
+  return `${summary.id} [${summary.status}${lifecycle}]${summary.repository ? ` repo=${summary.repository.slug}` : ""} (${summary.type}/${summary.priority}) ${summary.title}`;
 }
 
 export function renderTicketDetail(result: TicketReadResult): string {
   const { ticket, summary, journal, attachments, checkpoints, children, blockers } = result;
   return [
     renderTicketSummary(summary),
+    `Repository: ${summary.repository ? `${summary.repository.displayName} [${summary.repository.id}]` : "(none)"}`,
     `Archived: ${ticket.archived ? `yes (${ticket.archivedAt ?? "timestamp unavailable"})` : "no"}`,
     `Stored status: ${ticket.frontmatter.status}`,
     `Risk: ${ticket.frontmatter.risk}`,
@@ -69,7 +70,9 @@ export function renderGraph(graph: TicketGraphResult): string {
     `Blocked: ${graph.blocked.length > 0 ? graph.blocked.join(", ") : "none"}`,
   ];
   for (const node of Object.values(graph.nodes).sort((left, right) => left.id.localeCompare(right.id))) {
-    lines.push(`${node.id} [${node.status}] deps=${renderList(node.deps)} blockedBy=${renderList(node.blockedBy)}`);
+    lines.push(
+      `${node.id} [${node.status}]${node.repository ? ` repo=${node.repository.slug}` : ""} deps=${renderList(node.deps)} blockedBy=${renderList(node.blockedBy)}`,
+    );
   }
   return lines.join("\n");
 }

@@ -7,6 +7,7 @@ export function summarizeTickets(records: TicketRecord[]): TicketSummary[] {
     id: record.frontmatter.id,
     title: record.frontmatter.title,
     status: record.frontmatter.status,
+    repository: null,
     storedStatus: record.frontmatter.status,
     priority: record.frontmatter.priority,
     type: record.frontmatter.type,
@@ -75,6 +76,9 @@ export function filterTickets(records: TicketReadResult[], filter: TicketListFil
     if (filter.type && summary.type !== filter.type) {
       return false;
     }
+    if (filter.repositoryId && summary.repository?.id !== filter.repositoryId) {
+      return false;
+    }
     if (filter.tag && !summary.tags.includes(filter.tag)) {
       return false;
     }
@@ -89,6 +93,9 @@ export function filterTickets(records: TicketReadResult[], filter: TicketListFil
       updatedAt: record.summary.updatedAt,
       fields: [
         { value: record.summary.id, weight: 12 },
+        { value: record.summary.repository?.id ?? "", weight: 8 },
+        { value: record.summary.repository?.slug ?? "", weight: 8 },
+        { value: record.summary.repository?.displayName ?? "", weight: 8 },
         { value: record.summary.title, weight: 10 },
         { value: record.ticket.body.summary, weight: 9 },
         { value: record.ticket.body.context, weight: 5 },

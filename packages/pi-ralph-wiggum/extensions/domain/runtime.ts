@@ -95,6 +95,18 @@ interface HarnessSdkModule {
   }>;
 }
 
+type ImportedHarnessSdk = {
+  entryPath: string;
+  candidate: {
+    createAgentSession?: (options: Record<string, unknown>) => Promise<{ session: HarnessSession; modelFallbackMessage?: string }>;
+    SessionManager?: { inMemory?: (cwd?: string) => unknown };
+    SettingsManager?: { create?: (cwd?: string, agentDir?: string) => unknown };
+    Settings?: { isolated?: (overrides?: Record<string, unknown>) => unknown; init?: (options?: { cwd?: string; agentDir?: string }) => Promise<unknown> };
+    settings?: { get?: (key: string) => unknown };
+    SETTINGS_SCHEMA?: Record<string, unknown>;
+  };
+};
+
 type HarnessRootSettingsApi = {
   settings?: { get?: (key: string) => unknown };
   Settings?: {
@@ -102,6 +114,15 @@ type HarnessRootSettingsApi = {
     init?: (options?: { cwd?: string; agentDir?: string }) => Promise<unknown>;
   };
   SETTINGS_SCHEMA?: Record<string, unknown>;
+};
+
+type HarnessSettingsApi = {
+  settings: { get: (key: string) => unknown };
+  Settings: {
+    isolated: (overrides?: Record<string, unknown>) => unknown;
+    init: (options?: { cwd?: string; agentDir?: string }) => Promise<unknown>;
+  };
+  SETTINGS_SCHEMA: Record<string, unknown>;
 };
 
 const REQUIRED_RALPH_WORKER_TOOL_NAMES = ["ralph_read", "ticket_read", "ticket_write"] as const;
@@ -118,7 +139,7 @@ export const PI_PARENT_SESSION_CWD_ENV = "PI_PARENT_SESSION_CWD";
 export const PI_PARENT_SESSION_ADDITIONAL_EXTENSION_PATHS_ENV = "PI_PARENT_SESSION_ADDITIONAL_EXTENSION_PATHS";
 export const PI_PARENT_SESSION_DISABLE_EXTENSION_DISCOVERY_ENV = "PI_PARENT_SESSION_DISABLE_EXTENSION_DISCOVERY";
 
-const harnessSdkCache = new Map<string, Promise<HarnessSdkModule>>();
+const harnessSdkCache = new Map<string, Promise<ImportedHarnessSdk>>();
 
 function trimToUndefined(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -341,11 +362,33 @@ function readJsonFile<T>(filePath: string, readFileSync: (filePath: string, enco
   }
 }
 
-async function loadHarnessSettingsSchema(entryPath: string, candidate: HarnessRootSettingsApi): Promise<Record<string, unknown> | null> {
-  if (candidate.SETTINGS_SCHEMA && typeof candidate.SETTINGS_SCHEMA === "object") {
-    return candidate.SETTINGS_SCHEMA;
+function resolveWorkspaceExtensionPath(
+  cwd: string | undefined,
+  existsSync: (filePath: string) => boolean,
+  readFileSync: (filePath: string, encoding: "utf-8") => string,
+): string[] | undefined {
+  const resolvedCwd = trimToUndefined(cwd);
+  if (!resolvedCwd) {
+    return undefined;
   }
 
+  const packageJsonPath = path.join(resolvedCwd, "package.json");
+  if (!existsSync(packageJsonPath)) {
+    return undefined;
+  }
+
+  const packageJson = readJsonFile<{ pi?: { extensions?: unknown[] }; omp?: { extensions?: unknown[] } }>(
+    packageJsonPath,
+    readFileSync,
+  );
+  const manifestExtensions = packageJson?.omp?.extensions ?? packageJson?.pi?.extensions;
+  return Array.isArray(manifestExtensions) && manifestExtensions.length > 0 ? [resolvedCwd] : undefined;
+}
+
+async function loadHarnessSettingsModule(
+  entryPath: string,
+  candidate: HarnessRootSettingsApi,
+): Promise<HarnessSettingsApi | null> {
   const settingsModulePaths = [
     path.join(path.dirname(entryPath), "config", "settings.ts"),
     path.join(path.dirname(entryPath), "config", "settings.js"),
@@ -356,39 +399,47 @@ async function loadHarnessSettingsSchema(entryPath: string, candidate: HarnessRo
       continue;
     }
     const module = await import(pathToFileURL(modulePath).href);
-    const schema = (module as { SETTINGS_SCHEMA?: unknown }).SETTINGS_SCHEMA;
-    if (schema && typeof schema === "object") {
-      return schema as Record<string, unknown>;
+    const typedModule = module as HarnessRootSettingsApi;
+    if (
+      typeof typedModule.Settings?.isolated === "function" &&
+      typeof typedModule.Settings?.init === "function" &&
+      "settings" in typedModule &&
+      typedModule.SETTINGS_SCHEMA &&
+      typeof typedModule.SETTINGS_SCHEMA === "object"
+    ) {
+      return typedModule as HarnessSettingsApi;
     }
+  }
+
+  if (
+    typeof candidate.Settings?.isolated === "function" &&
+    typeof candidate.Settings?.init === "function" &&
+    "settings" in candidate &&
+    candidate.SETTINGS_SCHEMA &&
+    typeof candidate.SETTINGS_SCHEMA === "object"
+  ) {
+    return candidate as HarnessSettingsApi;
   }
 
   return null;
 }
 
 async function createTaskLikeSettingsSnapshot(
-  entryPath: string,
-  candidate: HarnessRootSettingsApi,
+  settingsApi: HarnessSettingsApi,
   env: NodeJS.ProcessEnv,
   cwd: string,
 ): Promise<unknown | null> {
-  if (typeof candidate.Settings?.isolated !== "function" || typeof candidate.settings?.get !== "function") {
-    return null;
-  }
-
-  const schema = await loadHarnessSettingsSchema(entryPath, candidate);
-  if (!schema) {
-    return null;
-  }
+  await settingsApi.Settings.init({ cwd });
 
   const snapshot: Record<string, unknown> = {};
-  for (const key of Object.keys(schema)) {
-    snapshot[key] = candidate.settings.get(key);
+  for (const key of Object.keys(settingsApi.SETTINGS_SCHEMA)) {
+    snapshot[key] = settingsApi.settings.get(key);
   }
   const extensionConfig = resolveCurrentSessionExtensionConfig({ env, cwd });
   const currentExtensions = Array.isArray(snapshot.extensions) ? snapshot.extensions.filter((entry) => typeof entry === "string") : [];
   snapshot.extensions = [...new Set([...currentExtensions, ...(extensionConfig.additionalExtensionPaths ?? [])])];
   snapshot["async.enabled"] = false;
-  return candidate.Settings.isolated(snapshot);
+  return settingsApi.Settings.isolated(snapshot);
 }
 
 function extractToolExecutionEvent(event: unknown): RalphRuntimeEvent | null {
@@ -618,7 +669,7 @@ function resolveHarnessRuntimeEntryPath(deps: PiSpawnDeps = {}): string {
   return resolvedEntry;
 }
 
-async function loadHarnessSdk(deps: PiSpawnDeps = {}): Promise<HarnessSdkModule> {
+async function importHarnessSdk(deps: PiSpawnDeps = {}): Promise<ImportedHarnessSdk> {
   const entryPath = resolveHarnessRuntimeEntryPath(deps);
   const cached = harnessSdkCache.get(entryPath);
   if (cached) {
@@ -640,47 +691,55 @@ async function loadHarnessSdk(deps: PiSpawnDeps = {}): Promise<HarnessSdkModule>
         `Harness SDK entry ${entryPath} does not expose createAgentSession and SessionManager.inMemory.`,
       );
     }
+    return { entryPath, candidate } satisfies ImportedHarnessSdk;
+  });
 
-    if (typeof candidate.Settings?.init === "function") {
-      return {
-        entryPath,
-        createSession: async (cwd: string) => {
-          const settings =
-            (await createTaskLikeSettingsSnapshot(entryPath, candidate, deps.env ?? process.env, cwd)) ??
-            (await candidate.Settings!.init!({ cwd }));
-          return candidate.createAgentSession!({
-            cwd,
-            sessionManager: candidate.SessionManager!.inMemory!(cwd),
-            settings,
-          });
-        },
-      } satisfies HarnessSdkModule;
-    }
+  harnessSdkCache.set(entryPath, pending);
+  return pending;
+}
 
-    if (typeof candidate.SettingsManager?.create === "function") {
-      return {
-        entryPath,
-        createSession: async (cwd: string) =>
-          candidate.createAgentSession!({
-            cwd,
-            sessionManager: candidate.SessionManager!.inMemory!(cwd),
-            settingsManager: candidate.SettingsManager!.create!(cwd),
-          }),
-      } satisfies HarnessSdkModule;
-    }
+async function loadHarnessSdk(deps: PiSpawnDeps = {}): Promise<HarnessSdkModule> {
+  const imported = await importHarnessSdk(deps);
+  const { entryPath, candidate } = imported;
+  const settingsApiPromise = loadHarnessSettingsModule(entryPath, candidate);
 
+  if (typeof candidate.Settings?.init === "function") {
+    return {
+      entryPath,
+      createSession: async (cwd: string) => {
+        const settingsApi = await settingsApiPromise;
+        const settings = settingsApi
+          ? await createTaskLikeSettingsSnapshot(settingsApi, deps.env ?? process.env, cwd)
+          : await candidate.Settings!.init!({ cwd });
+        return candidate.createAgentSession!({
+          cwd,
+          sessionManager: candidate.SessionManager!.inMemory!(cwd),
+          settings,
+        });
+      },
+    } satisfies HarnessSdkModule;
+  }
+
+  if (typeof candidate.SettingsManager?.create === "function") {
     return {
       entryPath,
       createSession: async (cwd: string) =>
         candidate.createAgentSession!({
           cwd,
           sessionManager: candidate.SessionManager!.inMemory!(cwd),
+          settingsManager: candidate.SettingsManager!.create!(cwd),
         }),
     } satisfies HarnessSdkModule;
-  });
+  }
 
-  harnessSdkCache.set(entryPath, pending);
-  return pending;
+  return {
+    entryPath,
+    createSession: async (cwd: string) =>
+      candidate.createAgentSession!({
+        cwd,
+        sessionManager: candidate.SessionManager!.inMemory!(cwd),
+      }),
+  } satisfies HarnessSdkModule;
 }
 
 function applyEnvironmentOverrides<T>(env: NodeJS.ProcessEnv, fn: () => Promise<T>): Promise<T> {
@@ -821,15 +880,21 @@ export async function buildParentSessionRuntimeEnv(
   } = {},
 ): Promise<Record<string, string>> {
   const env = input.env ?? process.env;
+  const existsSync = fs.existsSync;
+  const readFileSync = (filePath: string, encoding: "utf-8") => fs.readFileSync(filePath, encoding);
   const forwardedEnv = captureParentHarnessSpawnEnv(env, {
     execPath: input.execPath,
     execArgv: input.execArgv,
     argv1: input.argv1,
   });
   const extensionConfig = resolveCurrentSessionExtensionConfig({ env, cwd: input.cwd, argv: input.argv });
-  if (extensionConfig.additionalExtensionPaths && extensionConfig.additionalExtensionPaths.length > 0) {
+  const additionalExtensionPaths =
+    extensionConfig.additionalExtensionPaths && extensionConfig.additionalExtensionPaths.length > 0
+      ? extensionConfig.additionalExtensionPaths
+      : resolveWorkspaceExtensionPath(input.cwd, existsSync, readFileSync);
+  if (additionalExtensionPaths && additionalExtensionPaths.length > 0) {
     forwardedEnv[PI_PARENT_SESSION_ADDITIONAL_EXTENSION_PATHS_ENV] = JSON.stringify(
-      extensionConfig.additionalExtensionPaths,
+      additionalExtensionPaths,
     );
   }
   if (extensionConfig.disableExtensionDiscovery === true) {
@@ -837,9 +902,11 @@ export async function buildParentSessionRuntimeEnv(
   }
   if (
     extensionConfig.parentCwd &&
-    (extensionConfig.additionalExtensionPaths?.length || extensionConfig.disableExtensionDiscovery === true)
+    (additionalExtensionPaths?.length || extensionConfig.disableExtensionDiscovery === true)
   ) {
     forwardedEnv[PI_PARENT_SESSION_CWD_ENV] = extensionConfig.parentCwd;
+  } else if (additionalExtensionPaths?.length && input.cwd) {
+    forwardedEnv[PI_PARENT_SESSION_CWD_ENV] = input.cwd;
   }
 
   const provider = trimToUndefined(input.model?.provider);

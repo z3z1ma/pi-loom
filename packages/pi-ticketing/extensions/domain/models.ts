@@ -1,4 +1,5 @@
 import type { LoomListSort } from "@pi-loom/pi-storage/storage/list-search.js";
+import type { LoomRepositoryQualifier } from "@pi-loom/pi-storage/storage/repository-qualifier.js";
 
 export const TICKET_STATUSES = ["open", "ready", "in_progress", "blocked", "review", "closed"] as const;
 export const MUTABLE_TICKET_STATUSES = ["open", "in_progress", "review", "closed"] as const;
@@ -83,6 +84,7 @@ export interface TicketSummary {
   id: string;
   title: string;
   status: TicketStatus;
+  repository?: LoomRepositoryQualifier | null;
   storedStatus: MutableTicketStatus;
   priority: TicketPriority;
   type: TicketType;
@@ -160,6 +162,7 @@ export interface TicketReadResult {
 export interface TicketGraphNode {
   id: string;
   status: TicketStatus;
+  repository?: LoomRepositoryQualifier | null;
   deps: string[];
   children: string[];
   links: string[];
@@ -178,6 +181,7 @@ export interface TicketGraphResult {
 export interface TicketListFilter {
   status?: TicketStatus;
   type?: TicketType;
+  repositoryId?: string;
   includeClosed?: boolean;
   includeArchived?: boolean;
   tag?: string;

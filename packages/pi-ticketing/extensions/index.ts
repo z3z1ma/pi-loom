@@ -7,6 +7,7 @@ import type {
 import { handleTicketCommand } from "./commands/ticket.js";
 import { createTicketStore } from "./domain/store.js";
 import { buildTicketingSystemPrompt, getBaseTicketingGuidance } from "./prompts/guidance.js";
+import { registerScopeTools } from "./tools/scope.js";
 import { registerTicketTools } from "./tools/ticket.js";
 import { TicketCommandEditor } from "./ui/ticket-command-editor.js";
 import { syncTicketHomeWidget } from "./ui/ticket-workspace.js";
@@ -82,6 +83,7 @@ export default function piTicketing(pi: ExtensionAPI): void {
   });
 
   registerTicketTools(pi);
+  registerScopeTools(pi);
 
   pi.on("session_start", async (_event, ctx) => {
     await createTicketStore(ctx.cwd).initLedgerAsync();

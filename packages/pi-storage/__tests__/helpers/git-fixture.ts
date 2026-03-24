@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { closeWorkspaceStorage } from "../../storage/workspace.js";
@@ -14,6 +14,23 @@ interface SeededGitWorkspaceOptions {
 
 interface SeededGitWorkspace {
   cwd: string;
+  cleanup: () => void;
+}
+
+interface SeededParentGitWorkspaceRepository {
+  name: string;
+  remoteUrl: string;
+  files?: Record<string, string>;
+}
+
+interface SeededParentGitWorkspaceOptions {
+  prefix: string;
+  repositories: SeededParentGitWorkspaceRepository[];
+}
+
+interface SeededParentGitWorkspace {
+  cwd: string;
+  repositories: string[];
   cleanup: () => void;
 }
 
@@ -78,6 +95,33 @@ export function createSeededGitWorkspace(options: SeededGitWorkspaceOptions): Se
       if (piLoomRoot) {
         delete process.env.PI_LOOM_ROOT;
       }
+      rmSync(cwd, { recursive: true, force: true });
+    },
+  };
+}
+
+export function createSeededParentGitWorkspace(options: SeededParentGitWorkspaceOptions): SeededParentGitWorkspace {
+  const cwd = mkdtempSync(path.join(tmpdir(), options.prefix));
+  const repositories = options.repositories.map((repository) => {
+    const repoRoot = path.join(cwd, repository.name);
+    mkdirSync(repoRoot, { recursive: true });
+    copyTemplate(
+      ensureTemplate({
+        prefix: `${options.prefix}${repository.name}-`,
+        packageName: repository.name,
+        remoteUrl: repository.remoteUrl,
+        files: repository.files,
+        piLoomRoot: false,
+      }),
+      repoRoot,
+    );
+    return repoRoot;
+  });
+  return {
+    cwd,
+    repositories,
+    cleanup: () => {
+      closeWorkspaceStorage(cwd);
       rmSync(cwd, { recursive: true, force: true });
     },
   };

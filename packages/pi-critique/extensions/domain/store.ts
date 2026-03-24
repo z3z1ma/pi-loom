@@ -18,8 +18,8 @@ import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
-import { openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
+import { requireResolvedRepositoryIdentity, resolveWorkspaceIdentity } from "@pi-loom/pi-storage/storage/repository.js";
+import { openRepositoryWorkspaceStorage, openWorkspaceStorage, openWorkspaceStorageSync } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { CreateTicketInput, TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildCritiqueDashboard, summarizeCritique } from "./dashboard.js";
@@ -115,7 +115,11 @@ interface StoredCritiqueEntityRow {
 }
 
 function openCritiqueCatalogSync(cwd: string) {
-  return openWorkspaceStorageSync(cwd);
+  const opened = openWorkspaceStorageSync(cwd);
+  return {
+    ...opened,
+    identity: requireResolvedRepositoryIdentity(opened.identity),
+  };
 }
 
 function parseStoredJson<T>(value: string, fallback: T): T {
@@ -610,7 +614,7 @@ export class CritiqueStore {
     const attributes = readStructuredEntityAttributesSync<{ state: ConstitutionalRecord["state"] }>(
       this.cwd,
       "constitution",
-      resolveWorkspaceIdentity(this.cwd).repository.slug,
+      requireResolvedRepositoryIdentity(resolveWorkspaceIdentity(this.cwd)).repository.slug,
     );
     return attributes ? ({ state: attributes.state, decisions: [] } as unknown as ConstitutionalRecord) : null;
   }
@@ -1694,7 +1698,7 @@ export class CritiqueStore {
       findings: record.findings,
       launch: record.launch,
     });
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
     const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
       storage,
       {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { upsertEntityByDisplayIdWithLifecycleEvents } from "@pi-loom/pi-storage/storage/entities.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openRepositoryWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { describe, expect, it, vi } from "vitest";
 
 const runDocsUpdate = vi.fn(async (cwd: string) => {
@@ -92,7 +92,7 @@ function createContext(cwd: string): ExtensionContext {
 }
 
 async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> {
-  const { storage, identity } = await openWorkspaceStorage(cwd);
+  const { storage, identity } = await openRepositoryWorkspaceStorage(cwd);
   const docId = "documentation-memory-snapshot";
   const updatedAt = "2026-03-17T00:36:40.314Z";
 

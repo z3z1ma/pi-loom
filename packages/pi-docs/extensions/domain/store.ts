@@ -20,7 +20,7 @@ import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildDocumentationDashboard, getDocumentationDocumentRef, summarizeDocumentation } from "./dashboard.js";
@@ -280,7 +280,7 @@ export class DocumentationStore {
       documentBody: this.extractDocumentBody(record.document, record.dashboard.documentRef),
     };
     const canonicalRecord = await this.buildCanonicalRecord(canonicalSnapshot);
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
     const previousSnapshot = this.readSnapshot(existing?.attributes ?? null);
     const version = (existing?.version ?? 0) + 1;

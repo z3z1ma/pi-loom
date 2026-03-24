@@ -11,6 +11,7 @@ The contract covers the core shared-storage concepts for Pi Loom state:
 - spaces / projects
 - repositories
 - worktrees
+- persisted active-scope bindings and repository enrollment snapshots
 - durable entities
 - cross-entity links
 - append-only events
@@ -53,3 +54,14 @@ The contract separates canonical shared state from clone-local runtime state:
 - canonical operational state lives in SQLite via the shared storage backend
 - generated markdown bodies and review surfaces are exports from canonical records, not alternative durable stores
 - clone-local runtime/worktree attachments stay local and must not masquerade as canonical shared truth
+
+## Multi-repository scope discovery
+
+`storage/scope.ts` owns the startup-facing multi-repository contract:
+
+- deterministic discovery of the current repository or direct child repositories under a parent directory
+- persisted active space/repository/worktree bindings stored under `$PI_LOOM_ROOT/state/scope-bindings.json`
+- canonical enrollment snapshots materialized as artifact entities per space
+- headless discovery, enrollment, selection, and revocation helpers that keep startup truthful when bindings are stale or contradictory
+
+`storage/workspace.ts` uses that scope model when opening the canonical catalog so packages read the same active scope that discovery/selection tools expose.

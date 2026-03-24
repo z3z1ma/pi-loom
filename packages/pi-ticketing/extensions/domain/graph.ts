@@ -79,6 +79,7 @@ export function buildTicketGraph(tickets: TicketSummary[]): TicketGraphResult {
     nodes[ticket.id] = {
       id: ticket.id,
       status,
+      repository: ticket.repository,
       deps: [...ticket.deps],
       children,
       links: [...ticket.links],
@@ -110,6 +111,7 @@ export function summarizeTicket(record: TicketRecord, effectiveStatus: TicketSta
     id: record.frontmatter.id,
     title: record.frontmatter.title,
     status: effectiveStatus,
+    repository: null,
     storedStatus: record.frontmatter.status,
     priority: record.frontmatter.priority,
     type: record.frontmatter.type,

@@ -39,6 +39,10 @@ function renderArtifacts(artifacts: ResearchArtifactRecord[]): string {
     .join("\n");
 }
 
+function renderRepository(summary: ResearchSummary): string {
+  return summary.repository ? ` repo=${summary.repository.slug}` : "";
+}
+
 export function renderResearchMarkdown(
   state: ResearchState,
   hypotheses: ResearchHypothesisRecord[],
@@ -103,12 +107,17 @@ export function renderResearchArtifactMarkdown(
 }
 
 export function renderResearchSummary(summary: ResearchSummary): string {
-  return `${summary.id} [${summary.status}] hypotheses=${summary.hypothesisCount} artifacts=${summary.artifactCount} ${summary.title}`;
+  return `${summary.id} [${summary.status}]${renderRepository(summary)} hypotheses=${summary.hypothesisCount} artifacts=${summary.artifactCount} ${summary.title}`;
 }
 
 export function renderResearchDetail(record: ResearchRecord): string {
   return [
     renderResearchSummary(record.summary),
+    `Repository: ${
+      record.summary.repository
+        ? `${record.summary.repository.displayName} [${record.summary.repository.id}]`
+        : "(none)"
+    }`,
     `Question: ${record.state.question || "(empty)"}`,
     `Objective: ${record.state.objective || "(empty)"}`,
     `Initiatives: ${record.state.initiativeIds.join(", ") || "none"}`,

@@ -643,6 +643,21 @@ describe("ralph runtime session execution", () => {
     });
   });
 
+  it("infers the workspace root as an extension path when the cwd package manifest declares pi extensions", async () => {
+    const forwarded = await buildParentSessionRuntimeEnv({
+      env: {
+        [PI_PARENT_HARNESS_PACKAGE_ROOT_ENV]: fakeHarnessRoot,
+      },
+      cwd: process.cwd(),
+    });
+
+    expect(forwarded).toMatchObject({
+      [PI_PARENT_HARNESS_PACKAGE_ROOT_ENV]: fakeHarnessRoot,
+      [PI_PARENT_SESSION_CWD_ENV]: process.cwd(),
+      [PI_PARENT_SESSION_ADDITIONAL_EXTENSION_PATHS_ENV]: JSON.stringify([process.cwd()]),
+    });
+  });
+
   it("executes launches through a harness session runtime with the requested model context", async () => {
     (globalThis as Record<string, unknown>).__piLoomHarnessSettingsValues = { extensions: ["."], disabledExtensions: [] };
     const launch: RalphLaunchDescriptor = {
@@ -680,6 +695,7 @@ describe("ralph runtime session execution", () => {
 
     expect(globalThis.__piLoomHarnessCalls).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ type: "settingsInit", options: { cwd: "/workspace/project" } }),
         expect.objectContaining({ type: "modelRegistryFind", provider: "anthropic", modelId: "claude-test" }),
         expect.objectContaining({
           type: "setModel",
@@ -810,6 +826,9 @@ describe("ralph runtime session execution", () => {
         }),
       },
     });
+    expect(globalThis.__piLoomHarnessCalls).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "settingsInit", options: { cwd: nestedCwd } })]),
+    );
     expect(createCall?.options).not.toHaveProperty("additionalExtensionPaths");
     expect(createCall?.options).not.toHaveProperty("disableExtensionDiscovery");
     expect(createCall?.options).not.toHaveProperty("resourceLoader");

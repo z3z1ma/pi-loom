@@ -1,15 +1,24 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import type { LoomRuntimeAttachment } from "../storage/contract.js";
 import { createEntityId, createLinkId, createRepositoryId } from "../storage/ids.js";
 import { ensureLoomCatalogDirs, getLoomCatalogPaths } from "../storage/locations.js";
-import { resolveWorkspaceIdentity } from "../storage/repository.js";
+import {
+  clearPersistedScopeBinding,
+  discoverWorkspaceScope,
+  enrollRepositoryInScope,
+  readPersistedScopeBinding,
+  resolveWorkspaceIdentity,
+  selectActiveScope,
+  unenrollRepositoryInScope,
+} from "../storage/repository.js";
 import { SqliteLoomCatalog } from "../storage/sqlite.js";
 import { exportSyncBundle, hydrateSyncBundle } from "../storage/sync.js";
-import { createSeededGitWorkspace } from "./helpers/git-fixture.js";
+import { openWorkspaceStorage } from "../storage/workspace.js";
+import { createSeededGitWorkspace, createSeededParentGitWorkspace } from "./helpers/git-fixture.js";
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   return createSeededGitWorkspace({
@@ -21,29 +30,13 @@ function createWorkspace(): { cwd: string; cleanup: () => void } {
 }
 
 function createParentWorkspaceWithChildren(): { cwd: string; repositories: string[]; cleanup: () => void } {
-  const root = mkdtempSync(path.join(tmpdir(), "pi-storage-parent-workspace-"));
-  const createRepository = (name: string, remoteUrl: string) => {
-    const repoRoot = path.join(root, name);
-    mkdirSync(repoRoot, { recursive: true });
-    execFileSync("git", ["init"], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["remote", "add", "origin", remoteUrl], { cwd: repoRoot, encoding: "utf-8" });
-    writeFileSync(path.join(repoRoot, "package.json"), `${JSON.stringify({ name })}\n`, "utf-8");
-    writeFileSync(path.join(repoRoot, "README.md"), "seed\n", "utf-8");
-    execFileSync("git", ["add", "."], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["commit", "-m", "seed"], { cwd: repoRoot, encoding: "utf-8" });
-    return repoRoot;
-  };
-  const repoA = createRepository("service-a", "git@github.com:example/service-a.git");
-  const repoB = createRepository("service-b", "git@github.com:example/service-b.git");
-  return {
-    cwd: root,
-    repositories: [repoA, repoB],
-    cleanup: () => {
-      rmSync(root, { recursive: true, force: true });
-    },
-  };
+  return createSeededParentGitWorkspace({
+    prefix: "pi-storage-parent-workspace-",
+    repositories: [
+      { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+      { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+    ],
+  });
 }
 
 async function seedCanonicalCatalog(
@@ -182,7 +175,7 @@ describe("pi-storage sqlite catalog backup flow", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 
   it("surfaces an ambiguous active scope instead of inventing a parent-directory repository when multiple child repos exist", () => {
     const { cwd, repositories, cleanup } = createParentWorkspaceWithChildren();
@@ -191,7 +184,10 @@ describe("pi-storage sqlite catalog backup flow", () => {
       expect(repositories).toHaveLength(2);
       const identity = resolveWorkspaceIdentity(cwd);
       expect(identity.space.title).toContain("pi-storage-parent-workspace-");
-      expect(identity.repositories.map((repository) => repository.displayName).sort()).toEqual(["service-a", "service-b"]);
+      expect(identity.repositories.map((repository) => repository.displayName).sort()).toEqual([
+        "service-a",
+        "service-b",
+      ]);
       expect(identity.space.repositoryIds).toHaveLength(2);
       expect(identity.activeScope.isAmbiguous).toBe(true);
       expect(identity.activeScope.repositoryId).toBeNull();
@@ -216,6 +212,96 @@ describe("pi-storage sqlite catalog backup flow", () => {
       second.cleanup();
     }
   }, 15000);
+
+  it("uses a valid persisted binding to resolve an ambiguous parent-directory startup", async () => {
+    const { cwd, cleanup } = createParentWorkspaceWithChildren();
+    cleanupPaths.push(cwd);
+    process.env.PI_LOOM_ROOT = mkdtempSync(path.join(tmpdir(), "pi-storage-scope-binding-"));
+    cleanupPaths.push(process.env.PI_LOOM_ROOT);
+    try {
+      const { storage } = await openWorkspaceStorage(cwd);
+      const initial = await discoverWorkspaceScope(cwd, storage);
+      expect(initial.identity.activeScope.isAmbiguous).toBe(true);
+      const selectedRepositoryId = initial.enrolledRepositories[0]?.repository.id;
+      expect(selectedRepositoryId).toBeTruthy();
+      const selected = await selectActiveScope(cwd, { repositoryId: selectedRepositoryId }, storage);
+      expect(selected.activeScope.isAmbiguous).toBe(false);
+      expect(selected.activeScope.bindingSource).toBe("persisted");
+      expect(selected.repository?.id).toBe(selectedRepositoryId);
+
+      const reopened = (await discoverWorkspaceScope(cwd, storage)).identity;
+      expect(reopened.activeScope.isAmbiguous).toBe(false);
+      expect(reopened.activeScope.bindingSource).toBe("persisted");
+      expect(reopened.repository?.id).toBe(selectedRepositoryId);
+    } finally {
+      clearPersistedScopeBinding(cwd);
+      cleanup();
+    }
+  }, 45000);
+
+  it("surfaces contradictory persisted bindings as diagnostics instead of silently overriding live discovery", async () => {
+    const first = createParentWorkspaceWithChildren();
+    const second = createParentWorkspaceWithChildren();
+    cleanupPaths.push(first.cwd, second.cwd);
+    process.env.PI_LOOM_ROOT = mkdtempSync(path.join(tmpdir(), "pi-storage-scope-contradiction-"));
+    cleanupPaths.push(process.env.PI_LOOM_ROOT);
+    try {
+      const { storage } = await openWorkspaceStorage(first.cwd);
+      const initial = await discoverWorkspaceScope(first.cwd, storage);
+      const selectedRepositoryId = initial.enrolledRepositories[0]?.repository.id;
+      expect(selectedRepositoryId).toBeTruthy();
+      await selectActiveScope(first.cwd, { repositoryId: selectedRepositoryId }, storage);
+      expect(readPersistedScopeBinding(first.cwd)?.spaceId).toBe(initial.identity.space.id);
+
+      const contradicted = await discoverWorkspaceScope(second.cwd, storage);
+      expect(contradicted.identity.activeScope.isAmbiguous).toBe(true);
+      expect(contradicted.identity.space.id).not.toBe(initial.identity.space.id);
+      expect(contradicted.identity.repository).toBeNull();
+      expect(contradicted.binding).toBeNull();
+    } finally {
+      clearPersistedScopeBinding(first.cwd);
+      clearPersistedScopeBinding(second.cwd);
+      first.cleanup();
+      second.cleanup();
+    }
+  }, 45000);
+
+  it("distinguishes enrolled repositories from discovered unenrolled candidates and keeps discovery bounded to direct children", async () => {
+    const { cwd, cleanup } = createParentWorkspaceWithChildren();
+    cleanupPaths.push(cwd);
+    process.env.PI_LOOM_ROOT = mkdtempSync(path.join(tmpdir(), "pi-storage-scope-enrollment-"));
+    cleanupPaths.push(process.env.PI_LOOM_ROOT);
+    try {
+      const nestedGrandchild = path.join(cwd, "service-a", "nested-grandchild");
+      mkdirSync(nestedGrandchild, { recursive: true });
+      execFileSync("git", ["init"], { cwd: nestedGrandchild, encoding: "utf-8" });
+
+      const { storage } = await openWorkspaceStorage(cwd);
+      const initial = await discoverWorkspaceScope(cwd, storage);
+      expect(initial.enrolledRepositories).toHaveLength(2);
+      expect(initial.candidateRepositories).toHaveLength(0);
+      const repositoryToUnenroll = initial.enrolledRepositories[1]?.repository.id;
+      expect(repositoryToUnenroll).toBeTruthy();
+
+      const afterUnenroll = await unenrollRepositoryInScope(cwd, repositoryToUnenroll as string, storage);
+      expect(afterUnenroll.enrolledRepositories).toHaveLength(1);
+      expect(afterUnenroll.candidateRepositories).toHaveLength(1);
+      expect(afterUnenroll.candidateRepositories[0]?.repository.id).toBe(repositoryToUnenroll);
+      expect(
+        afterUnenroll.enrolledRepositories
+          .concat(afterUnenroll.candidateRepositories)
+          .map((entry) => entry.repository.displayName)
+          .sort(),
+      ).toEqual(["service-a", "service-b"]);
+
+      const reenrolled = await enrollRepositoryInScope(cwd, repositoryToUnenroll as string, storage);
+      expect(reenrolled.enrolledRepositories).toHaveLength(2);
+      expect(reenrolled.candidateRepositories).toHaveLength(0);
+    } finally {
+      clearPersistedScopeBinding(cwd);
+      cleanup();
+    }
+  }, 45000);
 
   it("exports sqlite-backed state into an explicit backup bundle without materializing workspace files", async () => {
     const { cwd, cleanup } = createWorkspace();
@@ -245,8 +331,9 @@ describe("pi-storage sqlite catalog backup flow", () => {
         ]),
       );
       expect(JSON.parse(readFileSync(path.join(bundleDir, "bundle.json"), "utf-8"))).toMatchObject({
-        repositoryId: exported.bundle.repositoryId,
         spaceId: exported.bundle.spaceId,
+        partial: false,
+        scope: { kind: "space" },
       });
 
       const targetCatalogRoot = mkdtempSync(path.join(tmpdir(), "pi-storage-catalog-target-"));
@@ -256,6 +343,7 @@ describe("pi-storage sqlite catalog backup flow", () => {
       const targetCatalog = new SqliteLoomCatalog();
       try {
         const hydrated = await hydrateSyncBundle(targetCatalog, bundleDir);
+        expect(hydrated.bundle).toEqual(exported.bundle);
         expect(hydrated.hydratedEntityIds).toEqual(
           seeded.entityIds.slice().sort((left, right) => left.localeCompare(right)),
         );

@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +7,9 @@ import type { LoomRuntimeAttachment } from "../storage/contract.js";
 import { getLoomCatalogPaths } from "../storage/locations.js";
 import { isRuntimeLeaseActive, renewRuntimeLease, SqliteRuntimeAttachmentStore } from "../storage/runtime.js";
 import { SqliteLoomCatalog } from "../storage/sqlite.js";
+
+const require = createRequire(import.meta.url);
+const BetterSqlite3 = require("better-sqlite3") as typeof import("better-sqlite3");
 
 function createAttachment(overrides: Partial<LoomRuntimeAttachment> = {}): LoomRuntimeAttachment {
   return {
@@ -114,6 +118,41 @@ describe("sqlite runtime attachment store", () => {
       expect(await secondStore.listRuntimeAttachments("worktree-001")).toEqual([]);
     } finally {
       secondStore.close();
+    }
+  });
+
+  it("creates high-value composite indexes idempotently", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "pi-storage-runtime-root-"));
+    cleanupPaths.push(root);
+    process.env.PI_LOOM_ROOT = root;
+
+    const firstCatalog = new SqliteLoomCatalog();
+    firstCatalog.close();
+    const secondCatalog = new SqliteLoomCatalog();
+    secondCatalog.close();
+
+    const db = new BetterSqlite3(getLoomCatalogPaths().catalogPath, { readonly: true });
+    try {
+      const indexes = [
+        "repositories",
+        "worktrees",
+        "entities",
+        "runtime_attachments",
+      ].flatMap((table) =>
+        (db.prepare(`PRAGMA index_list('${table}')`).all() as Array<{ name: string }>).map((row) => row.name),
+      );
+
+      expect(indexes).toEqual(
+        expect.arrayContaining([
+          "idx_repositories_space_slug",
+          "idx_worktrees_repository_logical_key",
+          "idx_entities_space_kind_id",
+          "idx_entities_kind_id",
+          "idx_runtime_attachments_worktree_id",
+        ]),
+      );
+    } finally {
+      db.close();
     }
   });
 });

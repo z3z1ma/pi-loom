@@ -8,7 +8,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { upsertEntityByDisplayIdWithLifecycleEvents } from "@pi-loom/pi-storage/storage/entities.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { describe, expect, it, vi } from "vitest";
 import { createDocumentationStore } from "../extensions/domain/store.js";
 
@@ -78,7 +78,7 @@ function getHandler(mockPi: MockPi, eventName: string): (event: unknown, ctx: Ex
 }
 
 async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> {
-  const { storage, identity } = await openWorkspaceStorage(cwd);
+  const { storage, identity } = await openRepositoryWorkspaceStorage(cwd);
   const docId = "documentation-memory-snapshot";
   const updatedAt = "2026-03-17T00:36:40.314Z";
 
@@ -229,7 +229,7 @@ describe("pi-docs extension", () => {
   it("fails direct reads for malformed documentation snapshots", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
-      const { storage, identity } = await openWorkspaceStorage(cwd);
+      const { storage, identity } = await openRepositoryWorkspaceStorage(cwd);
       await upsertEntityByDisplayIdWithLifecycleEvents(
         storage,
         {

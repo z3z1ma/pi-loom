@@ -229,8 +229,12 @@ function migrate(db: SqliteDatabaseLike): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_repositories_space ON repositories(space_id);
+    CREATE INDEX IF NOT EXISTS idx_repositories_space_slug ON repositories(space_id, slug);
     CREATE INDEX IF NOT EXISTS idx_worktrees_repository ON worktrees(repository_id);
+    CREATE INDEX IF NOT EXISTS idx_worktrees_repository_logical_key ON worktrees(repository_id, logical_key);
     CREATE INDEX IF NOT EXISTS idx_entities_space_kind ON entities(space_id, kind);
+    CREATE INDEX IF NOT EXISTS idx_entities_space_kind_id ON entities(space_id, kind, id);
+    CREATE INDEX IF NOT EXISTS idx_entities_kind_id ON entities(kind, id);
     CREATE INDEX IF NOT EXISTS idx_entities_display_id ON entities(display_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_space_kind_display_id
       ON entities(space_id, kind, display_id)
@@ -240,6 +244,7 @@ function migrate(db: SqliteDatabaseLike): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_links_kind_endpoints ON links(kind, from_entity_id, to_entity_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_events_entity_sequence ON events(entity_id, sequence);
     CREATE INDEX IF NOT EXISTS idx_runtime_attachments_worktree ON runtime_attachments(worktree_id);
+    CREATE INDEX IF NOT EXISTS idx_runtime_attachments_worktree_id ON runtime_attachments(worktree_id, id);
   `);
 
   db.exec("DROP TABLE IF EXISTS projections");

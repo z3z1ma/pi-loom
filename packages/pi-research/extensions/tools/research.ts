@@ -56,6 +56,12 @@ const ResearchListParams = Type.Object({
   includeArchived: Type.Optional(
     Type.Boolean({ description: "Include archived research. Archived records are hidden unless this is true." }),
   ),
+  exactRepositoryId: Type.Optional(
+    Type.String({
+      description:
+        "Optional exact repository id filter. Use a repository id from `scope_read` or prior machine-readable research results when you intentionally want one repository slice.",
+    }),
+  ),
   text: Type.Optional(
     Type.String({
       description:
@@ -86,10 +92,30 @@ const ResearchReadParams = Type.Object({
   ref: Type.String({
     description: "Existing research id or `research:<id>` ref. Reads fail when the research record does not exist.",
   }),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted reads when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted reads when a specific clone/worktree matters.",
+    }),
+  ),
 });
 
 const ResearchWriteParams = Type.Object({
   action: ResearchWriteActionEnum,
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted writes when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted writes when a specific clone/worktree matters.",
+    }),
+  ),
   ref: Type.Optional(Type.String()),
   title: Type.Optional(Type.String()),
   status: Type.Optional(ResearchStatusEnum),
@@ -117,6 +143,18 @@ const ResearchWriteParams = Type.Object({
 
 const ResearchHypothesisParams = Type.Object({
   ref: Type.String(),
+  repositoryId: Type.Optional(
+    Type.String({
+      description:
+        "Optional repository id for repository-targeted hypothesis updates when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description:
+        "Optional worktree id for repository-targeted hypothesis updates when a specific clone/worktree matters.",
+    }),
+  ),
   id: Type.Optional(Type.String()),
   statement: Type.String(),
   status: Type.Optional(HypothesisStatusEnum),
@@ -127,6 +165,18 @@ const ResearchHypothesisParams = Type.Object({
 
 const ResearchArtifactParams = Type.Object({
   ref: Type.String(),
+  repositoryId: Type.Optional(
+    Type.String({
+      description:
+        "Optional repository id for repository-targeted artifact updates when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description:
+        "Optional worktree id for repository-targeted artifact updates when a specific clone/worktree matters.",
+    }),
+  ),
   id: Type.Optional(Type.String()),
   kind: ResearchArtifactKindEnum,
   title: Type.String(),
@@ -139,16 +189,44 @@ const ResearchArtifactParams = Type.Object({
 
 const ResearchDashboardParams = Type.Object({
   ref: Type.String(),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted dashboard reads when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description:
+        "Optional worktree id for repository-targeted dashboard reads when a specific clone/worktree matters.",
+    }),
+  ),
 });
 
 const ResearchMapParams = Type.Object({
   ref: Type.String(),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted map reads when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted map reads when a specific clone/worktree matters.",
+    }),
+  ),
 });
 
 type ResearchWriteParamsValue = Static<typeof ResearchWriteParams>;
 
 function getStore(ctx: ExtensionContext) {
   return createResearchStore(ctx.cwd);
+}
+
+function getScopedStore(ctx: ExtensionContext, scope?: { repositoryId?: string; worktreeId?: string }) {
+  return createResearchStore(ctx.cwd, {
+    repositoryId: scope?.repositoryId,
+    worktreeId: scope?.worktreeId,
+  });
 }
 
 function machineResult(details: Record<string, unknown>, text: string) {
@@ -238,6 +316,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
         (next) =>
           getStore(ctx).listResearch({
             status: next.exactStatus,
+            repositoryId: next.exactRepositoryId,
             includeArchived: next.includeArchived,
             text: next.text,
             sort: next.sort,
@@ -253,6 +332,11 @@ export function registerResearchTools(pi: ExtensionAPI): void {
               clear: (current) => ({ ...current, exactStatus: undefined }),
             },
             { key: "exactTag", value: params.exactTag, clear: (current) => ({ ...current, exactTag: undefined }) },
+            {
+              key: "exactRepositoryId",
+              value: params.exactRepositoryId,
+              clear: (current) => ({ ...current, exactRepositoryId: undefined }),
+            },
             {
               key: "exactKeyword",
               value: params.exactKeyword,
@@ -284,7 +368,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = await getStore(ctx).readResearch(params.ref);
+      const research = await getScopedStore(ctx, params).readResearch(params.ref);
       return machineResult({ research }, renderResearchDetail(research));
     },
   });
@@ -304,7 +388,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
+      const store = getScopedStore(ctx, params);
       switch (params.action) {
         case "init": {
           const result = await store.initLedger();
@@ -371,7 +455,10 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchHypothesisParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = await getStore(ctx).recordHypothesis(params.ref, params as ResearchHypothesisInput);
+      const research = await getScopedStore(ctx, params).recordHypothesis(
+        params.ref,
+        params as ResearchHypothesisInput,
+      );
       return machineResult({ research }, renderResearchDetail(research));
     },
   });
@@ -391,7 +478,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchArtifactParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = await getStore(ctx).recordArtifact(params.ref, params as ResearchArtifactInput);
+      const research = await getScopedStore(ctx, params).recordArtifact(params.ref, params as ResearchArtifactInput);
       return machineResult({ research }, renderResearchDetail(research));
     },
   });
@@ -407,7 +494,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchDashboardParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = await getStore(ctx).readResearch(params.ref);
+      const research = await getScopedStore(ctx, params).readResearch(params.ref);
       return machineResult({ dashboard: research.dashboard, research }, renderResearchDashboard(research.dashboard));
     },
   });
@@ -423,7 +510,7 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchMapParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = await getStore(ctx).readResearch(params.ref);
+      const research = await getScopedStore(ctx, params).readResearch(params.ref);
       return machineResult({ map: research.map, research }, renderResearchMap(research.map));
     },
   });

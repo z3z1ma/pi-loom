@@ -169,12 +169,17 @@ export function renderChecklistMarkdown(result: SpecChecklistResult): string {
 }
 
 export function renderSpecSummary(summary: SpecChangeSummary): string {
-  return `${summary.id} [${summary.status}] caps=${summary.capabilityIds.length} reqs=${summary.requirementCount} ${summary.title}`;
+  return `${summary.id} [${summary.status}]${summary.repository ? ` repo=${summary.repository.slug}` : ""} caps=${summary.capabilityIds.length} reqs=${summary.requirementCount} ${summary.title}`;
 }
 
 export function renderSpecDetail(record: SpecChangeRecord): string {
   return [
     renderSpecSummary(record.summary),
+    `Repository: ${
+      record.summary.repository
+        ? `${record.summary.repository.displayName} [${record.summary.repository.id}]`
+        : "(none)"
+    }`,
     `Artifacts: ${
       record.artifacts
         .filter((artifact) => artifact.exists)

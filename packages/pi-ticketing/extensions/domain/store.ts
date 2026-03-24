@@ -10,7 +10,8 @@ import { createLinkId } from "@pi-loom/pi-storage/storage/ids.js";
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { resolveRepositoryQualifier } from "@pi-loom/pi-storage/storage/repository-qualifier.js";
+import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { inferMediaType } from "./attachments.js";
 import { createEmptyBody } from "./frontmatter.js";
 import { buildTicketGraph, findDependencyCycle, summarizeTicket } from "./graph.js";
@@ -108,7 +109,7 @@ function expandedTicketPrefixCandidates(label: string, basePrefix: string): stri
 }
 
 function resolveRepositoryTicketPrefixLabel(identity: WorkspaceIdentity): string {
-  if (identity.repository.remoteUrls.length === 0) {
+  if (!identity.repository || identity.repository.remoteUrls.length === 0) {
     return "";
   }
   return identity.repository.displayName || identity.repository.slug;
@@ -205,6 +206,11 @@ export class TicketStore {
     record: TicketReadResult,
     options: { validateProjectedLinks?: boolean; syncProjectedLinks?: boolean } = {},
   ): Promise<TicketReadResult> {
+    if (!identity.repository) {
+      throw new Error(
+        `Active scope for ${identity.space.id} is ambiguous; select a repository before repository-bound operations.`,
+      );
+    }
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, record.summary.id);
     const version = (existing?.version ?? 0) + 1;
     const summary = summarizeTickets([record.ticket])[0];
@@ -213,7 +219,10 @@ export class TicketStore {
     }
     const canonicalRecord: TicketReadResult = {
       ...record,
-      summary,
+      summary: {
+        ...summary,
+        repository: resolveRepositoryQualifier([identity.repository], identity.repository.id),
+      },
     };
     if (options.validateProjectedLinks !== false) {
       await assertProjectedEntityLinksResolvable({
@@ -259,7 +268,7 @@ export class TicketStore {
   }
 
   private async upsertCanonicalRecord(record: TicketReadResult): Promise<TicketReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
     return storage.transact((tx) => this.upsertCanonicalRecordWithStorage(tx, identity, record));
   }
 
@@ -329,8 +338,12 @@ export class TicketStore {
     return updated;
   }
 
-  private entityRecord(entity: { attributes: unknown }): TicketReadResult {
+  private entityRecord(
+    entity: { attributes: unknown; owningRepositoryId?: string | null },
+    repositories: WorkspaceIdentity["repositories"] = [],
+  ): TicketReadResult {
     const record = (entity.attributes as TicketEntityAttributes).record;
+    const repository = resolveRepositoryQualifier(repositories, entity.owningRepositoryId ?? null);
     return {
       ...record,
       ticket: {
@@ -340,6 +353,7 @@ export class TicketStore {
       },
       summary: {
         ...record.summary,
+        repository,
         archived: record.summary.archived ?? false,
         archivedAt: record.summary.archivedAt ?? null,
       },
@@ -347,7 +361,11 @@ export class TicketStore {
   }
 
   private canonicalSummaries(records: TicketReadResult[]): TicketSummary[] {
-    return summarizeTickets(records.map((record) => record.ticket));
+    const repositoryByTicketId = new Map(records.map((record) => [record.summary.id, record.summary.repository]));
+    return summarizeTickets(records.map((record) => record.ticket)).map((summary) => ({
+      ...summary,
+      repository: repositoryByTicketId.get(summary.id) ?? null,
+    }));
   }
 
   private canonicalGraph(records: TicketReadResult[]): TicketGraphResult {
@@ -381,7 +399,7 @@ export class TicketStore {
       if (!hasStructuredTicketAttributes(entity.attributes)) {
         throw new Error(`Ticket entity ${ticketId} is missing structured attributes`);
       }
-      const record = this.entityRecord(entity);
+      const record = this.entityRecord(entity, identity.repositories);
       records.set(ticketId, record);
     }
     return [...records.values()].sort((left, right) => left.summary.id.localeCompare(right.summary.id));
@@ -395,9 +413,15 @@ export class TicketStore {
     storage: LoomCanonicalStorage,
     identity: WorkspaceIdentity,
   ): Promise<string> {
+    const repository = identity.repository;
+    if (!repository) {
+      throw new Error(
+        `Active scope for ${identity.space.id} is ambiguous; select a repository before repository-bound operations.`,
+      );
+    }
     const ticketEntities = await storage.listEntities(identity.space.id, ENTITY_KIND);
     const currentRepoPrefixes = ticketEntities
-      .filter((entity) => entity.owningRepositoryId === identity.repository.id)
+      .filter((entity) => entity.owningRepositoryId === repository.id)
       .map((entity) => inferExistingTicketPrefix(entity.displayId ?? ""))
       .filter((value): value is string => Boolean(value));
     if (currentRepoPrefixes.length > 0) {
@@ -415,7 +439,7 @@ export class TicketStore {
 
     const usedByOtherRepos = new Set(
       ticketEntities
-        .filter((entity) => entity.owningRepositoryId !== null && entity.owningRepositoryId !== identity.repository.id)
+        .filter((entity) => entity.owningRepositoryId !== null && entity.owningRepositoryId !== repository.id)
         .map((entity) => inferExistingTicketPrefix(entity.displayId ?? ""))
         .filter((value): value is string => Boolean(value)),
     );
@@ -538,7 +562,7 @@ export class TicketStore {
   async createTicketAsync(input: CreateTicketInput): Promise<TicketReadResult> {
     this.initLedger();
     const timestamp = currentTimestamp();
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
     const existing = await this.canonicalRecords();
     const ticketPrefix = await this.resolveTicketDisplayPrefix(storage, identity);
     const ticketId = this.nextTicketId(existing, ticketPrefix);
@@ -581,7 +605,10 @@ export class TicketStore {
       ...existing,
       {
         ticket: ticketRecord,
-        summary: summarizeTicket(ticketRecord, "ready"),
+        summary: {
+          ...summarizeTicket(ticketRecord, "ready"),
+          repository: resolveRepositoryQualifier([identity.repository], identity.repository.id),
+        },
         journal: [],
         attachments: [],
         checkpoints: [],
@@ -607,7 +634,10 @@ export class TicketStore {
     ];
     const result: TicketReadResult = {
       ticket: ticketRecord,
-      summary: summarizeTicket(ticketRecord, "ready"),
+      summary: {
+        ...summarizeTicket(ticketRecord, "ready"),
+        repository: resolveRepositoryQualifier([identity.repository], identity.repository.id),
+      },
       journal,
       attachments: [],
       checkpoints: [],

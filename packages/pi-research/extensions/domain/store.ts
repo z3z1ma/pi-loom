@@ -15,7 +15,13 @@ import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { resolveRepositoryQualifier } from "@pi-loom/pi-storage/storage/repository-qualifier.js";
+import {
+  openRepositoryWorkspaceStorage,
+  openScopedWorkspaceStorage,
+  openWorkspaceStorage,
+  type LoomExplicitScopeInput,
+} from "@pi-loom/pi-storage/storage/workspace.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildResearchDashboard } from "./dashboard.js";
 import { buildResearchMap } from "./map.js";
@@ -122,6 +128,7 @@ function summarizeResearch(
     id: state.researchId,
     title: state.title,
     status: state.status,
+    repository: null,
     hypothesisCount: hypotheses.length,
     artifactCount: artifacts.length,
     linkedInitiativeCount: state.initiativeIds.length,
@@ -231,9 +238,22 @@ function buildProjectedReferenceLinks(state: ResearchState): ProjectedEntityLink
 
 export class ResearchStore {
   readonly cwd: string;
+  readonly scope: Required<LoomExplicitScopeInput>;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
     this.cwd = resolve(cwd);
+    this.scope = {
+      repositoryId: scope.repositoryId ?? null,
+      worktreeId: scope.worktreeId ?? null,
+    };
+  }
+
+  private async openWorkspaceStorage() {
+    return openScopedWorkspaceStorage(this.cwd, this.scope);
+  }
+
+  private async openRepositoryWorkspaceStorage() {
+    return openRepositoryWorkspaceStorage(this.cwd, this.scope);
   }
 
   initLedger(): { initialized: true; root: string } {
@@ -272,7 +292,7 @@ export class ResearchStore {
   }
 
   private async loadArtifactPayloads(entityId: string): Promise<ResearchArtifactPayload[]> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const payloads: ResearchArtifactPayload[] = [];
     for (const entity of await storage.listEntities(identity.space.id, "artifact")) {
       if (!entity.displayId || !hasProjectedArtifactAttributes(entity.attributes)) {
@@ -297,7 +317,7 @@ export class ResearchStore {
   }
 
   private async loadArtifactPayloadsByResearchId(researchId: string): Promise<ResearchArtifactPayload[]> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const entity = await findEntityByDisplayId(
       storage,
       identity.space.id,
@@ -308,7 +328,7 @@ export class ResearchStore {
   }
 
   private async listArtifactRecordsByResearchId(): Promise<Map<string, ResearchArtifactRecord[]>> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const grouped = new Map<string, ResearchArtifactRecord[]>();
     for (const entity of await storage.listEntities(identity.space.id, "artifact")) {
       if (
@@ -336,13 +356,21 @@ export class ResearchStore {
     state: ResearchState,
     hypothesisHistory: ResearchHypothesisRecord[],
     artifacts: ResearchArtifactRecord[],
+    repositoryId: string | null = null,
+    repositories?: Awaited<ReturnType<typeof openWorkspaceStorage>>["identity"]["repositories"],
   ): Promise<ResearchRecord> {
     const hypotheses = latestHypotheses(hypothesisHistory);
     const normalizedState = stripDynamicState({
       ...state,
       artifactIds: normalizeStringList(artifacts.map((artifact) => artifact.id)),
     });
-    const summary = summarizeResearch(normalizedState, hypotheses, artifacts);
+    const summary = {
+      ...summarizeResearch(normalizedState, hypotheses, artifacts),
+      repository: resolveRepositoryQualifier(
+        repositories ?? (await this.openWorkspaceStorage()).identity.repositories,
+        repositoryId,
+      ),
+    };
     const synthesis = renderSynthesis(normalizedState, hypotheses, artifacts);
     return {
       state: normalizedState,
@@ -358,7 +386,7 @@ export class ResearchStore {
 
   private async loadRecord(ref: string): Promise<ResearchRecord> {
     this.initLedger();
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const researchId = normalizeResearchRef(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, researchId);
     if (!entity) {
@@ -372,21 +400,25 @@ export class ResearchStore {
       stripDynamicState(attributes.state),
       attributes.hypotheses ?? [],
       await this.loadArtifactRecords(entity.id),
+      entity.owningRepositoryId,
+      identity.repositories,
     );
   }
 
-  private async persistRecord(
+  private async persistCanonical(
     state: ResearchState,
     hypothesisHistory: ResearchHypothesisRecord[],
     artifacts: ResearchArtifactPayload[],
   ): Promise<ResearchRecord> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.researchId);
     const version = (existing?.version ?? 0) + 1;
     const record = await this.materializeCanonicalArtifacts(
       stripDynamicState(state),
       hypothesisHistory,
       artifacts.map(summarizeArtifactPayload),
+      identity.repository.id,
+      [identity.repository],
     );
     await storage.transact(async (tx) => {
       const entity = await upsertEntityByDisplayId(tx, {
@@ -475,6 +507,14 @@ export class ResearchStore {
     return record;
   }
 
+  private async persistRecord(
+    state: ResearchState,
+    hypothesisHistory: ResearchHypothesisRecord[],
+    artifacts: ResearchArtifactPayload[],
+  ): Promise<ResearchRecord> {
+    return this.persistCanonical(state, hypothesisHistory, artifacts);
+  }
+
   private applyListFilter(summary: ResearchSummaryWithSynthesis, filter: ResearchListFilter): boolean {
     if (!filter.includeArchived && summary.status === "archived") return false;
     if (filter.status && summary.status !== filter.status) return false;
@@ -483,12 +523,13 @@ export class ResearchStore {
       const normalizedKeyword = filter.keyword.trim().toLowerCase();
       if (!summary.state.keywords.some((keyword) => keyword.toLowerCase() === normalizedKeyword)) return false;
     }
+    if (filter.repositoryId && summary.repository?.id !== filter.repositoryId) return false;
     return true;
   }
 
   async listResearch(filter: ResearchListFilter = {}): Promise<ResearchSummary[]> {
     this.initLedger();
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const artifactsByResearchId = await this.listArtifactRecordsByResearchId();
     const summaries = new Map<string, ResearchSummaryWithSynthesis>();
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
@@ -499,6 +540,7 @@ export class ResearchStore {
         const artifacts = artifactsByResearchId.get(researchId) ?? [];
         summaries.set(researchId, {
           ...summarizeResearch(state, hypotheses, artifacts),
+          repository: resolveRepositoryQualifier(identity.repositories, entity.owningRepositoryId),
           state,
           hypotheses,
           artifacts,
@@ -519,6 +561,9 @@ export class ResearchStore {
           updatedAt: summary.updatedAt,
           fields: [
             { value: summary.id, weight: 10 },
+            { value: summary.repository?.id ?? "", weight: 7 },
+            { value: summary.repository?.slug ?? "", weight: 7 },
+            { value: summary.repository?.displayName ?? "", weight: 7 },
             { value: summary.title, weight: 10 },
             { value: summary.state.question, weight: 9 },
             { value: summary.state.objective, weight: 8 },
@@ -637,6 +682,11 @@ export class ResearchStore {
   async createResearch(input: CreateResearchInput): Promise<ResearchRecord> {
     const timestamp = currentTimestamp();
     const state = this.defaultState(input, timestamp);
+    const { storage, identity } = await this.openWorkspaceStorage();
+    const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.researchId);
+    if (existing) {
+      throw new Error(`Research already exists: ${state.researchId}`);
+    }
     const stagedState: ResearchState = {
       ...state,
       initiativeIds: [],
@@ -656,7 +706,6 @@ export class ResearchStore {
       );
       return this.persistRecord(state, [], []);
     } catch (error) {
-      const { storage, identity } = await openWorkspaceStorage(this.cwd);
       const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, staged.state.researchId);
       if (entity) {
         (storage as unknown as SqliteMutationTarget).db.prepare("DELETE FROM entities WHERE id = ?").run(entity.id);
@@ -745,7 +794,7 @@ export class ResearchStore {
       history,
       await this.loadArtifactPayloadsByResearchId(record.state.researchId),
     );
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, persisted.state.researchId);
     if (entity) {
       await appendEntityEvent(
@@ -770,7 +819,7 @@ export class ResearchStore {
   async recordArtifact(ref: string, input: ResearchArtifactInput): Promise<ResearchRecord> {
     const record = await this.loadRecord(ref);
     const timestamp = currentTimestamp();
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const researchEntity = await findEntityByDisplayId(
       storage,
       identity.space.id,
@@ -920,6 +969,6 @@ export class ResearchStore {
   }
 }
 
-export function createResearchStore(cwd: string): ResearchStore {
-  return new ResearchStore(cwd);
+export function createResearchStore(cwd: string, scope: LoomExplicitScopeInput = {}): ResearchStore {
+  return new ResearchStore(cwd, scope);
 }

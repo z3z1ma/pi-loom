@@ -36,6 +36,12 @@ const SpecListParams = Type.Object({
         "Include archived specifications. Archived specifications are hidden unless this is true; capability summaries are still listed separately.",
     }),
   ),
+  exactRepositoryId: Type.Optional(
+    Type.String({
+      description:
+        "Optional exact repository id filter. Use a repository id from `scope_read` or prior machine-readable spec results when you intentionally want one repository slice.",
+    }),
+  ),
   text: Type.Optional(
     Type.String({
       description:
@@ -52,6 +58,16 @@ const SpecListParams = Type.Object({
 
 const SpecReadParams = Type.Object({
   ref: Type.String({ description: "Specification id or canonical capability id." }),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted reads when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted reads when a specific clone/worktree matters.",
+    }),
+  ),
   kind: Type.Optional(StringEnum(["change", "capability"] as const)),
 });
 
@@ -66,6 +82,16 @@ const SpecPlanCapabilityParams = Type.Object({
 
 const SpecWriteParams = Type.Object({
   action: SpecWriteActionEnum,
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted writes when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted writes when a specific clone/worktree matters.",
+    }),
+  ),
   ref: Type.Optional(Type.String()),
   title: Type.Optional(
     Type.String({
@@ -100,6 +126,16 @@ const SpecWriteParams = Type.Object({
 
 const SpecAnalyzeParams = Type.Object({
   ref: Type.String(),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted analysis when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted analysis when a specific clone/worktree matters.",
+    }),
+  ),
   mode: Type.Optional(SpecAnalyzeModeEnum),
 });
 
@@ -107,6 +143,13 @@ type SpecWriteParamsValue = Static<typeof SpecWriteParams>;
 
 function getStore(ctx: ExtensionContext) {
   return createSpecStore(ctx.cwd);
+}
+
+function getScopedStore(ctx: ExtensionContext, scope?: { repositoryId?: string; worktreeId?: string }) {
+  return createSpecStore(ctx.cwd, {
+    repositoryId: scope?.repositoryId,
+    worktreeId: scope?.worktreeId,
+  });
 }
 
 function machineResult(details: Record<string, unknown>, text: string) {
@@ -158,6 +201,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
         (next) =>
           getStore(ctx).listChanges({
             status: next.exactStatus,
+            repositoryId: next.exactRepositoryId,
             includeArchived: next.includeArchived,
             text: next.text,
             sort: next.sort,
@@ -165,6 +209,11 @@ export function registerSpecTools(pi: ExtensionAPI): void {
         {
           text: params.text,
           exactFilters: [
+            {
+              key: "exactRepositoryId",
+              value: params.exactRepositoryId,
+              clear: (current) => ({ ...current, exactRepositoryId: undefined }),
+            },
             {
               key: "exactStatus",
               value: params.exactStatus,
@@ -208,14 +257,14 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     parameters: SpecReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       if (params.kind === "capability") {
-        const capability = await getStore(ctx).readCapability(params.ref);
+        const capability = await getScopedStore(ctx, params).readCapability(params.ref);
         return machineResult({ capability }, renderCapabilityDetail(capability));
       }
       try {
-        const change = await getStore(ctx).readChange(params.ref);
+        const change = await getScopedStore(ctx, params).readChange(params.ref);
         return machineResult({ change }, renderSpecDetail(change));
       } catch {
-        const capability = await getStore(ctx).readCapability(params.ref);
+        const capability = await getScopedStore(ctx, params).readCapability(params.ref);
         return machineResult({ capability }, renderCapabilityDetail(capability));
       }
     },
@@ -239,7 +288,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     ],
     parameters: SpecWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
+      const store = getScopedStore(ctx, params);
       switch (params.action) {
         case "init": {
           const result = await store.initLedger();
@@ -290,7 +339,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     ],
     parameters: SpecAnalyzeParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
+      const store = getScopedStore(ctx, params);
       if (params.mode === "checklist") {
         const change = await store.generateChecklist(params.ref);
         return machineResult({ mode: params.mode, change }, renderSpecDetail(change));

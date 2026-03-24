@@ -16,7 +16,13 @@ import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { filterAndSortListEntries } from "@pi-loom/pi-storage/storage/list-search.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { resolveRepositoryQualifier } from "@pi-loom/pi-storage/storage/repository-qualifier.js";
+import {
+  openRepositoryWorkspaceStorage,
+  openScopedWorkspaceStorage,
+  openWorkspaceStorage,
+  type LoomExplicitScopeInput,
+} from "@pi-loom/pi-storage/storage/workspace.js";
 import type { TicketReadResult } from "@pi-loom/pi-ticketing/extensions/domain/models.js";
 import { createTicketStore } from "@pi-loom/pi-ticketing/extensions/domain/store.js";
 import { buildPlanDashboard, getPlanTicketRef, summarizePlan } from "./dashboard.js";
@@ -265,17 +271,30 @@ interface ResolvedPlanContext {
 
 export class PlanStore {
   readonly cwd: string;
+  readonly scope: Required<LoomExplicitScopeInput>;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
     this.cwd = resolve(cwd);
+    this.scope = {
+      repositoryId: scope.repositoryId ?? null,
+      worktreeId: scope.worktreeId ?? null,
+    };
   }
 
   async initLedger(): Promise<{ initialized: true; root: string }> {
     return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
+  private async openWorkspaceStorage() {
+    return openScopedWorkspaceStorage(this.cwd, this.scope);
+  }
+
+  private async openRepositoryWorkspaceStorage() {
+    return openRepositoryWorkspaceStorage(this.cwd, this.scope);
+  }
+
   private async nextPlanId(baseTitle: string): Promise<string> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const baseId = slugifyTitle(baseTitle);
     const existing = new Set(
       (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => entity.displayId),
@@ -292,7 +311,7 @@ export class PlanStore {
 
   private async readConstitutionIfPresentAsync(): Promise<ConstitutionalRecord | null> {
     try {
-      const { storage, identity } = await openWorkspaceStorage(this.cwd);
+      const { storage, identity } = await this.openWorkspaceStorage();
       const entity = await findEntityByDisplayId(storage, identity.space.id, "constitution", "constitution");
       if (!entity) {
         return null;
@@ -305,7 +324,7 @@ export class PlanStore {
 
   private async safeReadInitiativeAsync(id: string): Promise<InitiativeRecord | null> {
     try {
-      const { storage, identity } = await openWorkspaceStorage(this.cwd);
+      const { storage, identity } = await this.openWorkspaceStorage();
       const entity = await findEntityByDisplayId(storage, identity.space.id, "initiative", id);
       if (!entity) {
         return null;
@@ -337,7 +356,7 @@ export class PlanStore {
 
   private async safeReadResearchAsync(id: string): Promise<ResearchRecord | null> {
     try {
-      const { storage, identity } = await openWorkspaceStorage(this.cwd);
+      const { storage, identity } = await this.openWorkspaceStorage();
       const entity = await findEntityByDisplayId(storage, identity.space.id, "research", id);
       if (!entity) {
         return null;
@@ -372,7 +391,7 @@ export class PlanStore {
 
   private async safeReadSpecAsync(id: string): Promise<SpecChangeRecord | null> {
     try {
-      const { storage, identity } = await openWorkspaceStorage(this.cwd);
+      const { storage, identity } = await this.openWorkspaceStorage();
       const entity = await findEntityByDisplayId(storage, identity.space.id, "spec_change", id);
       if (!entity) {
         return null;
@@ -406,7 +425,7 @@ export class PlanStore {
 
   private async safeReadTicketAsync(id: string): Promise<TicketReadResult | null> {
     try {
-      const { storage, identity } = await openWorkspaceStorage(this.cwd);
+      const { storage, identity } = await this.openWorkspaceStorage();
       const entity = await findEntityByDisplayId(storage, identity.space.id, "ticket", id);
       if (!entity) {
         return null;
@@ -635,7 +654,11 @@ export class PlanStore {
     };
   }
 
-  private async materializeCanonical(state: PlanState): Promise<PlanReadResult> {
+  private async materializeCanonical(
+    state: PlanState,
+    repositoryId: string | null = null,
+    repositories?: Awaited<ReturnType<typeof openWorkspaceStorage>>["identity"]["repositories"],
+  ): Promise<PlanReadResult> {
     const nextState = await this.deriveStateAsync(state);
     const linkedTickets = await this.resolveLinkedTicketsAsync(nextState);
     const context = await this.resolvePacketContextAsync(nextState);
@@ -696,11 +719,15 @@ export class PlanStore {
       .join("\n\n")
       .trimEnd()}\n`;
     const plan = renderPlanMarkdown(nextState, linkedTickets);
-    const dashboard = buildPlanDashboard(nextState, linkedTickets);
+    const repository = resolveRepositoryQualifier(
+      repositories ?? (await this.openWorkspaceStorage()).identity.repositories,
+      repositoryId,
+    );
+    const dashboard = buildPlanDashboard(nextState, linkedTickets, repository);
 
     return {
       state: nextState,
-      summary: summarizePlan(nextState),
+      summary: summarizePlan(nextState, repository),
       packet,
       plan,
       dashboard,
@@ -764,18 +791,18 @@ export class PlanStore {
   }
 
   private async persistCanonical(state: PlanState): Promise<PlanReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
     return storage.transact((tx) => this.persistCanonicalWithStorage(tx, identity, state));
   }
 
   private async persistCanonicalWithStorage(
     storage: LoomCanonicalStorage,
-    identity: Awaited<ReturnType<typeof openWorkspaceStorage>>["identity"],
+    identity: Awaited<ReturnType<typeof openRepositoryWorkspaceStorage>>["identity"],
     state: PlanState,
   ): Promise<PlanReadResult> {
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.planId);
     const version = (existing?.version ?? 0) + 1;
-    const record = await this.materializeCanonical(state);
+    const record = await this.materializeCanonical(state, identity.repository.id, [identity.repository]);
     await assertProjectedEntityLinksResolvable({
       storage,
       spaceId: identity.space.id,
@@ -816,7 +843,7 @@ export class PlanStore {
   }
 
   private async loadCanonical(ref: string): Promise<PlanReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const planId = normalizePlanRef(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, planId);
     if (!entity) {
@@ -825,16 +852,19 @@ export class PlanStore {
     if (!hasStructuredPlanAttributes(entity.attributes)) {
       throw new Error(`Plan entity ${planId} is missing structured attributes`);
     }
-    return this.materializeCanonical(entity.attributes.state);
+    return this.materializeCanonical(entity.attributes.state, entity.owningRepositoryId, identity.repositories);
   }
 
   async listPlans(filter: PlanListFilter = {}) {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const summaries: Array<{ summary: PlanReadResult["summary"]; state: PlanState }> = [];
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
       if (hasStructuredPlanAttributes(entity.attributes)) {
         summaries.push({
-          summary: summarizePlan(entity.attributes.state),
+          summary: summarizePlan(
+            entity.attributes.state,
+            resolveRepositoryQualifier(identity.repositories, entity.owningRepositoryId),
+          ),
           state: entity.attributes.state,
         });
         continue;
@@ -845,6 +875,9 @@ export class PlanStore {
       summaries
         .filter(({ summary, state }) => {
           if (filter.status && summary.status !== filter.status) {
+            return false;
+          }
+          if (filter.repositoryId && summary.repository?.id !== filter.repositoryId) {
             return false;
           }
           if (filter.sourceKind && summary.sourceKind !== filter.sourceKind) {
@@ -865,6 +898,9 @@ export class PlanStore {
           updatedAt: summary.updatedAt,
           fields: [
             { value: summary.id, weight: 10 },
+            { value: summary.repository?.id ?? "", weight: 7 },
+            { value: summary.repository?.slug ?? "", weight: 7 },
+            { value: summary.repository?.displayName ?? "", weight: 7 },
             { value: summary.title, weight: 10 },
             { value: summary.summary, weight: 8 },
             { value: summary.sourceRef, weight: 7 },
@@ -1013,7 +1049,7 @@ export class PlanStore {
       ),
       updatedAt: currentTimestamp(),
     };
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
     await assertProjectedEntityLinksResolvable({
       storage,
       spaceId: identity.space.id,
@@ -1052,7 +1088,7 @@ export class PlanStore {
       ),
       updatedAt: currentTimestamp(),
     };
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
     await assertProjectedEntityLinksResolvable({
       storage,
       spaceId: identity.space.id,
@@ -1088,6 +1124,6 @@ export class PlanStore {
   }
 }
 
-export function createPlanStore(cwd: string): PlanStore {
-  return new PlanStore(cwd);
+export function createPlanStore(cwd: string, scope: LoomExplicitScopeInput = {}): PlanStore {
+  return new PlanStore(cwd, scope);
 }

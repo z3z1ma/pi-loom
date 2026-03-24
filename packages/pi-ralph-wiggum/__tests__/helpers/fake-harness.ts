@@ -37,6 +37,8 @@ declare global {
   var __piLoomHarnessToolNames: string[] | undefined;
   // eslint-disable-next-line no-var
   var __piLoomHarnessSettingsValues: Record<string, unknown> | undefined;
+  // eslint-disable-next-line no-var
+  var __piLoomHarnessSettingsInitialized: boolean | undefined;
 }
 
 export function resetFakeHarnessState(): void {
@@ -45,6 +47,7 @@ export function resetFakeHarnessState(): void {
   globalThis.__piLoomHarnessHook = undefined;
   globalThis.__piLoomHarnessToolNames = undefined;
   globalThis.__piLoomHarnessSettingsValues = undefined;
+  globalThis.__piLoomHarnessSettingsInitialized = undefined;
 }
 
 export function clearFakeHarnessState(): void {
@@ -53,6 +56,7 @@ export function clearFakeHarnessState(): void {
   delete globalThis.__piLoomHarnessHook;
   delete globalThis.__piLoomHarnessToolNames;
   delete globalThis.__piLoomHarnessSettingsValues;
+  delete globalThis.__piLoomHarnessSettingsInitialized;
 }
 
 export function createFakeHarnessPackage(options: { shape?: "omp" | "pi" } = {}): { root: string; cleanup: () => void } {
@@ -232,12 +236,16 @@ export class Settings {
 
   static async init(options = {}) {
     globalThis.__piLoomHarnessCalls.push({ type: "settingsInit", options });
+    globalThis.__piLoomHarnessSettingsInitialized = true;
     return { ...options, __settings: true };
   }
 }
 
 export const settings = {
   get(key) {
+    if (!globalThis.__piLoomHarnessSettingsInitialized) {
+      throw new Error("Settings not initialized. Call Settings.init() first.");
+    }
     return (globalThis.__piLoomHarnessSettingsValues ?? {})[key];
   },
 };

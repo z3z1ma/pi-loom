@@ -8,6 +8,10 @@ function renderText(value: string, empty = "(empty)"): string {
   return value.trim() || empty;
 }
 
+function renderRepository(summary: PlanSummary): string {
+  return summary.repository ? ` repo=${summary.repository.slug}` : "";
+}
+
 function renderTicketProgress(tickets: PlanDashboardTicket[]): string {
   if (tickets.length === 0) {
     return "- [ ] No tickets linked yet.";
@@ -76,7 +80,7 @@ function renderTicketList(tickets: PlanDashboardTicket[]): string {
 }
 
 export function renderPlanSummary(summary: PlanSummary): string {
-  return `${summary.id} [${summary.status}] ${summary.title}`;
+  return `${summary.id} [${summary.status}]${renderRepository(summary)} ${summary.title}`;
 }
 
 export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanDashboardTicket[]): string {
@@ -178,6 +182,11 @@ export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanDashboar
 export function renderPlanDetail(result: PlanReadResult): string {
   return [
     renderPlanSummary(result.summary),
+    `Repository: ${
+      result.summary.repository
+        ? `${result.summary.repository.displayName} [${result.summary.repository.id}]`
+        : "(none)"
+    }`,
     `Plan ref: ${result.summary.ref}`,
     `Packet ref: ${result.dashboard.packetRef}`,
     `Plan document ref: ${result.dashboard.planRef}`,
@@ -194,6 +203,11 @@ export function renderPlanDetail(result: PlanReadResult): string {
 export function renderDashboard(dashboard: PlanDashboard): string {
   return [
     renderPlanSummary(dashboard.plan),
+    `Repository: ${
+      dashboard.plan.repository
+        ? `${dashboard.plan.repository.displayName} [${dashboard.plan.repository.id}]`
+        : "(none)"
+    }`,
     `Plan ref: ${dashboard.plan.ref}`,
     `Packet ref: ${dashboard.packetRef}`,
     `Plan document ref: ${dashboard.planRef}`,

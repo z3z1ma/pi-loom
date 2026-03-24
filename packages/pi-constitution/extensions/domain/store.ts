@@ -7,7 +7,7 @@ import {
 import type { ProjectedEntityLinkInput } from "@pi-loom/pi-storage/storage/links.js";
 import { syncProjectedEntityLinks } from "@pi-loom/pi-storage/storage/links.js";
 import { getLoomCatalogPaths } from "@pi-loom/pi-storage/storage/locations.js";
-import { openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
+import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "@pi-loom/pi-storage/storage/workspace.js";
 import { buildConstitutionalDashboard } from "./dashboard.js";
 import type {
   ConstitutionalEntry,
@@ -248,7 +248,7 @@ export class ConstitutionalStore {
     record: ConstitutionalRecord;
     storage: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"];
   }> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
     let entity = await findEntityByDisplayId(
       storage,
       identity.space.id,
@@ -308,7 +308,7 @@ export class ConstitutionalStore {
     state: ConstitutionalState,
     decisions: ConstitutionDecisionRecord[],
   ): Promise<ConstitutionalRecord> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
     const normalized = this.normalizeState(state);
     const existing = await findEntityByDisplayId(
       storage,

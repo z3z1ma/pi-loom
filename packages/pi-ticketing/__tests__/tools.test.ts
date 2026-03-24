@@ -105,6 +105,7 @@ describe("ticket tools", () => {
         getTool(mockPi, "ticket_list").parameters as unknown as {
           properties: {
             includeArchived: { type: string; optional: boolean };
+            exactRepositoryId: { type: string; optional: boolean };
             exactStatus: { enum: string[]; optional: boolean };
             exactType: { enum: string[]; optional: boolean };
           };
@@ -116,6 +117,7 @@ describe("ticket tools", () => {
         getTool(mockPi, "ticket_list").parameters as unknown as {
           properties: {
             includeArchived: { type: string; optional: boolean };
+            exactRepositoryId: { type: string; optional: boolean };
             exactStatus: { enum: string[]; optional: boolean };
             exactType: { enum: string[]; optional: boolean };
           };
@@ -127,12 +129,22 @@ describe("ticket tools", () => {
         getTool(mockPi, "ticket_list").parameters as unknown as {
           properties: {
             includeArchived: { type: string; optional: boolean };
+            exactRepositoryId: { type: string; optional: boolean };
             exactStatus: { enum: string[]; optional: boolean };
             exactType: { enum: string[]; optional: boolean };
           };
         }
       ).properties.exactType,
     ).toMatchObject({ enum: ["task", "bug", "feature", "epic", "chore", "review", "security"], optional: true });
+    expect(
+      (
+        getTool(mockPi, "ticket_list").parameters as unknown as {
+          properties: {
+            exactRepositoryId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.exactRepositoryId,
+    ).toMatchObject({ type: "string", optional: true });
     expect(getTool(mockPi, "ticket_checkpoint").promptGuidelines).toContain(
       "Use checkpoints for reusable durable handoff records, not ephemeral chat summaries.",
     );
@@ -201,7 +213,11 @@ describe("ticket tools", () => {
         details: {
           action: "create",
           ticket: {
-            summary: { id: ticketId, title: "Implement tool behavior coverage" },
+            summary: {
+              id: ticketId,
+              title: "Implement tool behavior coverage",
+              repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+            },
           },
         },
       });
@@ -225,8 +241,8 @@ describe("ticket tools", () => {
       const listResult = await ticketList.execute("call-4", { includeClosed: false }, undefined, undefined, ctx);
       expect(listResult.details).toMatchObject({
         tickets: expect.arrayContaining([
-          expect.objectContaining({ id: blockerId }),
-          expect.objectContaining({ id: ticketId }),
+          expect.objectContaining({ id: blockerId, repository: expect.objectContaining({ id: expect.any(String) }) }),
+          expect.objectContaining({ id: ticketId, repository: expect.objectContaining({ id: expect.any(String) }) }),
         ]),
       });
       expect(firstText(listResult.content)).toContain(ticketId);
@@ -234,7 +250,12 @@ describe("ticket tools", () => {
       const readResult = await ticketRead.execute("call-5", { ref: `#${ticketId}` }, undefined, undefined, ctx);
       expect(readResult.details).toMatchObject({
         ticket: {
-          summary: { id: ticketId, status: "blocked", storedStatus: "open" },
+          summary: {
+            id: ticketId,
+            status: "blocked",
+            storedStatus: "open",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
           journal: expect.arrayContaining([expect.objectContaining({ kind: "state" })]),
         },
       });
@@ -274,10 +295,17 @@ describe("ticket tools", () => {
       expect(graphResult.details).toMatchObject({
         graph: {
           nodes: expect.objectContaining({
-            [ticketId]: expect.objectContaining({ deps: [blockerId] }),
+            [ticketId]: expect.objectContaining({
+              deps: [blockerId],
+              repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+            }),
           }),
         },
-        node: expect.objectContaining({ id: ticketId, deps: [blockerId] }),
+        node: expect.objectContaining({
+          id: ticketId,
+          deps: [blockerId],
+          repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+        }),
       });
 
       const checkpointCreate = await ticketCheckpoint.execute(

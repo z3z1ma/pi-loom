@@ -103,6 +103,28 @@ export interface LoomActiveScopeRecord extends LoomAuditFields {
   candidateRepositoryIds: LoomId[];
 }
 
+export interface LoomScopeDiscoveryEntry {
+  repositoryId: LoomId;
+  displayName: string;
+  slug: string;
+  enrolled: boolean;
+  discoverySource: "cwd" | "child";
+  current: boolean;
+  worktreeIds: LoomId[];
+}
+
+export interface LoomScopeDiscoverySnapshot extends LoomAuditFields {
+  scopeRoot: string;
+  spaceId: LoomId;
+  binding: {
+    repositoryId: LoomId | null;
+    worktreeId: LoomId | null;
+    source: LoomScopeBindingSource | null;
+  };
+  repositories: LoomScopeDiscoveryEntry[];
+  diagnostics: string[];
+}
+
 export interface LoomEntityRecord extends LoomAuditFields {
   id: LoomId;
   kind: LoomEntityKind;

@@ -60,6 +60,12 @@ const PlanListParams = Type.Object({
       "Optional exact source target kind filter. This matches the plan's upstream anchor (`sourceTarget.kind`): workspace, initiative, spec, or research. Leave it unset when you know the plan name or topic but do not know its anchor kind.",
     ),
   ),
+  exactRepositoryId: Type.Optional(
+    Type.String({
+      description:
+        "Optional exact repository id filter. Use a repository id from `scope_read` or prior machine-readable plan results when you intentionally want one repository slice.",
+    }),
+  ),
   text: Type.Optional(
     Type.String({
       description:
@@ -79,11 +85,31 @@ const PlanListParams = Type.Object({
 
 const PlanReadParams = Type.Object({
   ref: Type.String({ description: "Plan id or plan artifact path." }),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted reads when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted reads when a specific clone/worktree matters.",
+    }),
+  ),
   mode: Type.Optional(PlanReadModeEnum),
 });
 
 const PlanWriteParams = Type.Object({
   action: PlanWriteActionEnum,
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted writes when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted writes when a specific clone/worktree matters.",
+    }),
+  ),
   ref: Type.Optional(Type.String()),
   title: Type.Optional(Type.String()),
   status: Type.Optional(PlanStatusEnum),
@@ -115,11 +141,33 @@ const PlanWriteParams = Type.Object({
 
 const PlanPacketParams = Type.Object({
   ref: Type.String(),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted packet reads when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted packet reads when a specific clone/worktree matters.",
+    }),
+  ),
 });
 
 const PlanTicketLinkParams = Type.Object({
   action: PlanTicketLinkActionEnum,
   ref: Type.String(),
+  repositoryId: Type.Optional(
+    Type.String({
+      description:
+        "Optional repository id for repository-targeted plan ticket linkage when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description:
+        "Optional worktree id for repository-targeted plan ticket linkage when a specific clone/worktree matters.",
+    }),
+  ),
   ticketId: Type.String(),
   role: Type.Optional(Type.String()),
   order: Type.Optional(Type.Number()),
@@ -127,12 +175,30 @@ const PlanTicketLinkParams = Type.Object({
 
 const PlanDashboardParams = Type.Object({
   ref: Type.String(),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted dashboard reads when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description:
+        "Optional worktree id for repository-targeted dashboard reads when a specific clone/worktree matters.",
+    }),
+  ),
 });
 
 type PlanWriteParamsValue = Static<typeof PlanWriteParams>;
 
 function getStore(ctx: ExtensionContext) {
   return createPlanStore(ctx.cwd);
+}
+
+function getScopedStore(ctx: ExtensionContext, scope?: { repositoryId?: string; worktreeId?: string }) {
+  return createPlanStore(ctx.cwd, {
+    repositoryId: scope?.repositoryId,
+    worktreeId: scope?.worktreeId,
+  });
 }
 
 function machineResult(details: Record<string, unknown>, text: string) {
@@ -244,6 +310,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
         (next) =>
           getStore(ctx).listPlans({
             status: next.exactStatus,
+            repositoryId: next.exactRepositoryId,
             sourceKind: next.exactSourceKind,
             text: next.text,
             sort: next.sort,
@@ -256,6 +323,11 @@ export function registerPlanTools(pi: ExtensionAPI): void {
               key: "exactStatus",
               value: params.exactStatus,
               clear: (current) => ({ ...current, exactStatus: undefined }),
+            },
+            {
+              key: "exactRepositoryId",
+              value: params.exactRepositoryId,
+              clear: (current) => ({ ...current, exactRepositoryId: undefined }),
             },
             {
               key: "exactSourceKind",
@@ -275,7 +347,8 @@ export function registerPlanTools(pi: ExtensionAPI): void {
         { plans: result.items, queryDiagnostics: result.diagnostics, broaderMatches: result.broaderMatches },
         renderAnalyzedListQuery(result, {
           emptyText: "No plans.",
-          renderItem: (plan) => `${plan.id} [${plan.status}] ${plan.title}`,
+          renderItem: (plan) =>
+            `${plan.id} [${plan.status}]${plan.repository ? ` repo=${plan.repository.slug}` : ""} ${plan.title}`,
         }),
       );
     },
@@ -293,7 +366,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     ],
     parameters: PlanReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = await getStore(ctx).readPlan(params.ref);
+      const result = await getScopedStore(ctx, params).readPlan(params.ref);
       if (params.mode === "packet") {
         return machineResult({ plan: result.summary, packet: result.packet }, result.packet);
       }
@@ -321,7 +394,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     ],
     parameters: PlanWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
+      const store = getScopedStore(ctx, params);
       switch (params.action) {
         case "init": {
           const result = await store.initLedger();
@@ -355,7 +428,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     promptGuidelines: ["Prefer the packet when synthesizing or revising a plan from linked durable context."],
     parameters: PlanPacketParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const plan = await getStore(ctx).readPlan(params.ref);
+      const plan = await getScopedStore(ctx, params).readPlan(params.ref);
       return machineResult({ plan: plan.summary, packet: plan.packet }, plan.packet);
     },
   });
@@ -372,7 +445,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     ],
     parameters: PlanTicketLinkParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
+      const store = getScopedStore(ctx, params);
       const plan =
         params.action === "link"
           ? await store.linkPlanTicket(params.ref, {
@@ -395,7 +468,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     ],
     parameters: PlanDashboardParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const plan = await getStore(ctx).readPlan(params.ref);
+      const plan = await getScopedStore(ctx, params).readPlan(params.ref);
       return machineResult({ dashboard: plan.dashboard }, renderDashboard(plan.dashboard));
     },
   });

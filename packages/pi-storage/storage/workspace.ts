@@ -1,11 +1,17 @@
 import { resolve } from "node:path";
 import type { LoomCanonicalStorage, LoomEntityKind, LoomEntityRecord } from "./contract.js";
-import { resolveWorkspaceIdentity } from "./repository.js";
+import { requireResolvedRepositoryIdentity, resolveWorkspaceIdentity } from "./repository.js";
+import { discoverWorkspaceScope } from "./scope.js";
 import { SqliteLoomCatalog } from "./sqlite.js";
 
 export interface LoomWorkspaceStorage {
   identity: ReturnType<typeof resolveWorkspaceIdentity>;
   storage: SqliteLoomCatalog;
+}
+
+export interface LoomExplicitScopeInput {
+  repositoryId?: string | null;
+  worktreeId?: string | null;
 }
 
 interface CachedWorkspaceStorage {
@@ -35,6 +41,68 @@ export function openWorkspaceStorageSync(cwd: string): LoomWorkspaceStorage {
   return getOrCreateWorkspaceStorage(cwd, workspaceStorageCacheKey(cwd)).opened;
 }
 
+function resolveExplicitScopeIdentity(
+  identity: ReturnType<typeof resolveWorkspaceIdentity>,
+  scope: LoomExplicitScopeInput | undefined,
+): ReturnType<typeof resolveWorkspaceIdentity> {
+  const repositoryId = scope?.repositoryId ?? null;
+  const worktreeId = scope?.worktreeId ?? null;
+  if (!repositoryId && !worktreeId) {
+    return identity;
+  }
+
+  const worktree = worktreeId ? (identity.worktrees.find((entry) => entry.id === worktreeId) ?? null) : null;
+  if (worktreeId && !worktree) {
+    throw new Error(`Unknown worktree ${worktreeId} for active scope ${identity.space.id}.`);
+  }
+
+  const repository = repositoryId
+    ? (identity.repositories.find((entry) => entry.id === repositoryId) ?? null)
+    : worktree
+      ? (identity.repositories.find((entry) => entry.id === worktree.repositoryId) ?? null)
+      : null;
+  if (!repository) {
+    const label = repositoryId ?? worktreeId ?? "(none)";
+    throw new Error(`Unknown repository scope ${label} for active scope ${identity.space.id}.`);
+  }
+  if (worktree && worktree.repositoryId !== repository.id) {
+    throw new Error(`Worktree ${worktree.id} does not belong to repository ${repository.id}.`);
+  }
+
+  const resolvedWorktree = worktree ?? identity.worktrees.find((entry) => entry.repositoryId === repository.id) ?? null;
+  if (!resolvedWorktree) {
+    throw new Error(`Repository ${repository.id} has no worktree in active scope ${identity.space.id}.`);
+  }
+
+  return {
+    ...identity,
+    repository,
+    worktree: resolvedWorktree,
+    activeScope: {
+      ...identity.activeScope,
+      repositoryId: repository.id,
+      worktreeId: resolvedWorktree.id,
+      bindingSource: "selection",
+      isAmbiguous: false,
+    },
+  };
+}
+
+export async function openScopedWorkspaceStorage(
+  cwd: string,
+  scope?: LoomExplicitScopeInput,
+): Promise<LoomWorkspaceStorage> {
+  const opened = await openWorkspaceStorage(cwd);
+  const scopedIdentity = resolveExplicitScopeIdentity(opened.identity, scope);
+  if (scopedIdentity === opened.identity) {
+    return opened;
+  }
+  return {
+    storage: opened.storage,
+    identity: scopedIdentity,
+  };
+}
+
 export function closeWorkspaceStorage(cwd: string): void {
   closeWorkspaceStorageByKey(workspaceStorageCacheKey(cwd));
 }
@@ -61,14 +129,18 @@ function getOrCreateWorkspaceStorage(cwd: string, cacheKey: string): CachedWorks
   }
 
   const storage = new SqliteLoomCatalog();
-  const identity = resolveWorkspaceIdentity(cwd);
-  const opened = { identity, storage };
+  const syncIdentity = resolveWorkspaceIdentity(cwd);
+  const opened = { identity: syncIdentity, storage };
   const initialized = Promise.all([
-    storage.upsertSpace(identity.space),
-    ...identity.repositories.map((repository) => storage.upsertRepository(repository)),
-    ...identity.worktrees.map((worktree) => storage.upsertWorktree(worktree)),
+    storage.upsertSpace(syncIdentity.space),
+    ...syncIdentity.repositories.map((repository) => storage.upsertRepository(repository)),
+    ...syncIdentity.worktrees.map((worktree) => storage.upsertWorktree(worktree)),
   ])
-    .then(() => opened)
+    .then(async () => {
+      const { identity } = await discoverWorkspaceScope(cwd, storage);
+      opened.identity = identity;
+      return opened;
+    })
     .catch((error) => {
       closeWorkspaceStorageByKey(cacheKey);
       throw error;
@@ -85,4 +157,18 @@ export async function findEntityByDisplayId(
   displayId: string,
 ): Promise<LoomEntityRecord | null> {
   return storage.getEntityByDisplayId(spaceId, kind, displayId);
+}
+
+export async function openRepositoryWorkspaceStorage(
+  cwd: string,
+  scope?: LoomExplicitScopeInput,
+): Promise<{
+  identity: ReturnType<typeof requireResolvedRepositoryIdentity>;
+  storage: SqliteLoomCatalog;
+}> {
+  const opened = await openScopedWorkspaceStorage(cwd, scope);
+  return {
+    ...opened,
+    identity: requireResolvedRepositoryIdentity(opened.identity),
+  };
 }

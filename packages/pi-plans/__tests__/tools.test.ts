@@ -81,6 +81,46 @@ describe("plan tools", () => {
     }
 
     expect(getTool(mockPi, "plan_ticket_link").promptSnippet).toContain("plan.md carries detailed execution strategy");
+    expect(
+      (
+        getTool(mockPi, "plan_read").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.repositoryId,
+    ).toMatchObject({ type: "string", optional: true });
+    expect(
+      (
+        getTool(mockPi, "plan_read").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.worktreeId,
+    ).toMatchObject({ type: "string", optional: true });
+    expect(
+      (
+        getTool(mockPi, "plan_write").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.repositoryId,
+    ).toMatchObject({ type: "string", optional: true });
+    expect(
+      (
+        getTool(mockPi, "plan_dashboard").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties.worktreeId,
+    ).toMatchObject({ type: "string", optional: true });
   });
 
   it("returns machine-usable shapes for create, read, packet, ticket-link, dashboard, and list flows", async () => {
@@ -127,7 +167,10 @@ describe("plan tools", () => {
       expect(created.details).toMatchObject({
         action: "create",
         plan: {
-          summary: { id: "planning-layer-rollout" },
+          summary: {
+            id: "planning-layer-rollout",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
         },
       });
 
@@ -190,7 +233,10 @@ describe("plan tools", () => {
       );
       expect(dashboard.details).toMatchObject({
         dashboard: {
-          plan: { id: "planning-layer-rollout" },
+          plan: {
+            id: "planning-layer-rollout",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
           counts: { tickets: 1 },
         },
       });
@@ -203,7 +249,13 @@ describe("plan tools", () => {
         ctx,
       );
       expect(listed.details).toMatchObject({
-        plans: [expect.objectContaining({ id: "planning-layer-rollout", linkedTicketCount: 1 })],
+        plans: [
+          expect.objectContaining({
+            id: "planning-layer-rollout",
+            linkedTicketCount: 1,
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          }),
+        ],
       });
     } finally {
       cleanup();
