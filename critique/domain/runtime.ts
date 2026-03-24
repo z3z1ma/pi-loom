@@ -167,13 +167,14 @@ export async function runCritiqueLaunch(
   const extensionRoot = resolveExtensionPackageRoot();
   const prompt = renderLaunchPrompt(cwd, launch);
   const command = getPiSpawnCommand(["-e", extensionRoot, "--mode", "json", "-p", "--no-session", prompt]);
+  const spawnCwd = scope?.worktreePath ?? cwd;
 
   let resolvePromise: ((value: CritiqueExecutionResult) => void) | null = null;
   const promise = new Promise<CritiqueExecutionResult>((resolve) => {
     resolvePromise = resolve;
   });
   const proc = spawn(command.command, command.args, {
-    cwd,
+    cwd: spawnCwd,
     env: scope ? { ...process.env, ...runtimeScopeToEnv(scope) } : process.env,
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],

@@ -1024,7 +1024,7 @@ async function executePreparedIteration(
   await flushRuntimePersistenceNow();
 
   const runtimePromise = runRalphLaunch(
-    ctx.cwd,
+    runtimeScope.worktreePath,
     run.launch,
     executionSignal.signal,
     (text) => {

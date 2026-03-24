@@ -390,10 +390,11 @@ function normalizeRuntimeScope(
   const spaceId = normalizeOptionalString(scope?.spaceId);
   const repositoryId = normalizeOptionalString(scope?.repositoryId);
   const worktreeId = normalizeOptionalString(scope?.worktreeId);
-  if (!spaceId || !repositoryId || !worktreeId) {
+  const worktreePath = normalizeOptionalString(scope?.worktreePath);
+  if (!spaceId || !repositoryId || !worktreeId || !worktreePath) {
     return null;
   }
-  return { spaceId, repositoryId, worktreeId };
+  return { spaceId, repositoryId, worktreeId, worktreePath };
 }
 
 function normalizeRuntimeRecord(record: RalphIterationRuntimeRecord): RalphIterationRuntimeRecord {

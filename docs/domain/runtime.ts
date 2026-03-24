@@ -200,13 +200,14 @@ export async function runDocsUpdate(
 ): Promise<DocsExecutionResult> {
   const launch = getDocsUpdateLaunchConfig(cwd, prompt, scope);
   const command = launch.spawn;
+  const spawnCwd = scope?.worktreePath ?? cwd;
 
   let resolvePromise: ((value: DocsExecutionResult) => void) | null = null;
   const promise = new Promise<DocsExecutionResult>((resolve) => {
     resolvePromise = resolve;
   });
   const proc = spawn(command.command, command.args, {
-    cwd,
+    cwd: spawnCwd,
     env: { ...process.env, ...launch.env },
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],

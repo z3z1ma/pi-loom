@@ -5,11 +5,13 @@ import { findEntityByDisplayId, openScopedWorkspaceStorage, openWorkspaceStorage
 export const PI_LOOM_RUNTIME_SPACE_ID_ENV = "PI_LOOM_RUNTIME_SPACE_ID";
 export const PI_LOOM_RUNTIME_REPOSITORY_ID_ENV = "PI_LOOM_RUNTIME_REPOSITORY_ID";
 export const PI_LOOM_RUNTIME_WORKTREE_ID_ENV = "PI_LOOM_RUNTIME_WORKTREE_ID";
+export const PI_LOOM_RUNTIME_WORKTREE_PATH_ENV = "PI_LOOM_RUNTIME_WORKTREE_PATH";
 
 export interface LoomRuntimeScope {
   spaceId: string;
   repositoryId: string;
   worktreeId: string;
+  worktreePath: string;
 }
 
 function normalizeEnvValue(value: string | undefined): string | undefined {
@@ -36,6 +38,7 @@ export function runtimeScopeToEnv(scope: LoomRuntimeScope): Record<string, strin
     [PI_LOOM_RUNTIME_SPACE_ID_ENV]: scope.spaceId,
     [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: scope.repositoryId,
     [PI_LOOM_RUNTIME_WORKTREE_ID_ENV]: scope.worktreeId,
+    [PI_LOOM_RUNTIME_WORKTREE_PATH_ENV]: scope.worktreePath,
   };
 }
 
@@ -46,10 +49,14 @@ export async function resolveRuntimeScope(cwd: string, scope?: LoomExplicitScope
       `Cannot resolve an explicit runtime scope for ${cwd}; select or provide a repository/worktree before launching repo-sensitive runtime work.`,
     );
   }
+  const candidate = identity.discovery.candidates.find((c) => c.worktree.id === identity.worktree!.id);
+  const worktreePath = candidate?.workspaceRoot ?? identity.discovery.scopeRoot;
+
   return {
     spaceId: identity.space.id,
     repositoryId: identity.repository.id,
     worktreeId: identity.worktree.id,
+    worktreePath,
   };
 }
 

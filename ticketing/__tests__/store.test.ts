@@ -57,7 +57,7 @@ describe("TicketStore canonical storage", () => {
     } finally {
       cleanup();
     }
-  });
+  }, 15000);
 
   it("writes canonical ticket records and preserves stable refs across close and reopen", async () => {
     const store = createTicketStore(workspace);

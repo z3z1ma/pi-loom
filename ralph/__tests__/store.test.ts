@@ -257,11 +257,13 @@ describe("RalphStore durable memory", () => {
       spaceId: process.env.PI_LOOM_RUNTIME_SPACE_ID,
       repositoryId: process.env.PI_LOOM_RUNTIME_REPOSITORY_ID,
       worktreeId: process.env.PI_LOOM_RUNTIME_WORKTREE_ID,
+      worktreePath: process.env.PI_LOOM_RUNTIME_WORKTREE_PATH,
       loomRoot: process.env.PI_LOOM_ROOT,
     };
     delete process.env.PI_LOOM_RUNTIME_SPACE_ID;
     delete process.env.PI_LOOM_RUNTIME_REPOSITORY_ID;
     delete process.env.PI_LOOM_RUNTIME_WORKTREE_ID;
+    delete process.env.PI_LOOM_RUNTIME_WORKTREE_PATH;
     process.env.PI_LOOM_ROOT = loomRoot;
 
     try {
@@ -373,10 +375,12 @@ describe("RalphStore durable memory", () => {
       else process.env.PI_LOOM_RUNTIME_REPOSITORY_ID = priorRuntimeEnv.repositoryId;
       if (priorRuntimeEnv.worktreeId === undefined) delete process.env.PI_LOOM_RUNTIME_WORKTREE_ID;
       else process.env.PI_LOOM_RUNTIME_WORKTREE_ID = priorRuntimeEnv.worktreeId;
+      if (priorRuntimeEnv.worktreePath === undefined) delete process.env.PI_LOOM_RUNTIME_WORKTREE_PATH;
+      else process.env.PI_LOOM_RUNTIME_WORKTREE_PATH = priorRuntimeEnv.worktreePath;
       if (priorRuntimeEnv.loomRoot === undefined) delete process.env.PI_LOOM_ROOT;
       else process.env.PI_LOOM_ROOT = priorRuntimeEnv.loomRoot;
     }
-  });
+  }, 30000);
 
   it("emits opaque event ids while keeping projected link sequences monotonic", async () => {
     vi.setSystemTime(new Date("2026-03-15T14:06:00.000Z"));

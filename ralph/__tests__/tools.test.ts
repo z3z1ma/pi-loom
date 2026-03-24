@@ -337,7 +337,12 @@ function createRuntimeArtifact(
     iterationId: overrides?.iterationId ?? "iter-001",
     iteration: overrides?.iteration ?? 1,
     status: overrides?.status ?? "completed",
-    runtimeScope: overrides?.runtimeScope ?? { repositoryId: "repo-1", worktreeId: "worktree-1" },
+    runtimeScope: overrides?.runtimeScope ?? {
+      spaceId: "space-1",
+      repositoryId: "repo-1",
+      worktreeId: "worktree-1",
+      worktreePath: "/tmp/worktree-1",
+    },
     startedAt: overrides?.startedAt ?? "2026-03-21T00:00:00.000Z",
     updatedAt: overrides?.updatedAt ?? "2026-03-21T00:01:00.000Z",
     completedAt: overrides?.completedAt ?? "2026-03-21T00:01:00.000Z",
@@ -421,6 +426,9 @@ function createPostIteration(
       kind: "continue",
       reason: "worker_requested_completion",
       summary: "Continue the loop.",
+      decidedAt: "2026-03-21T00:01:00.000Z",
+      decidedBy: "policy",
+      blockingRefs: [],
     },
     notes: overrides?.notes ?? [],
   };

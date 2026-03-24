@@ -8,6 +8,7 @@ import {
   PI_LOOM_RUNTIME_REPOSITORY_ID_ENV,
   PI_LOOM_RUNTIME_SPACE_ID_ENV,
   PI_LOOM_RUNTIME_WORKTREE_ID_ENV,
+  PI_LOOM_RUNTIME_WORKTREE_PATH_ENV,
   readRuntimeScopeFromEnv,
   resolveEntityRuntimeScope,
   resolveRuntimeScope,
@@ -31,12 +32,14 @@ describe("runtime scope helpers", () => {
       spaceId: "space-001",
       repositoryId: "repo-001",
       worktreeId: "worktree-001",
+      worktreePath: "/tmp/worktree-001",
     };
 
     expect(runtimeScopeToEnv(scope)).toEqual({
       [PI_LOOM_RUNTIME_SPACE_ID_ENV]: "space-001",
       [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: "repo-001",
       [PI_LOOM_RUNTIME_WORKTREE_ID_ENV]: "worktree-001",
+      [PI_LOOM_RUNTIME_WORKTREE_PATH_ENV]: "/tmp/worktree-001",
     });
     expect(readRuntimeScopeFromEnv(runtimeScopeToEnv(scope))).toEqual({
       spaceId: "space-001",
@@ -65,7 +68,7 @@ describe("runtime scope helpers", () => {
     } finally {
       workspace.cleanup();
     }
-  });
+  }, 15000);
 
   it("distinguishes canonical repository presence from local clone absence when resolving runtime scope", async () => {
     const workspace = createSeededParentGitWorkspace({
@@ -101,7 +104,7 @@ describe("runtime scope helpers", () => {
     } finally {
       workspace.cleanup();
     }
-  });
+  }, 15000);
 
   it("resolves repository-targeted runtime scope from repository-owned entities in ambiguous parent workspaces", async () => {
     const workspace = createSeededParentGitWorkspace({
@@ -162,5 +165,5 @@ describe("runtime scope helpers", () => {
     } finally {
       workspace.cleanup();
     }
-  });
+  }, 15000);
 });

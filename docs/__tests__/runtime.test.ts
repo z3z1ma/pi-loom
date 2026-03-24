@@ -4,6 +4,7 @@ import {
   PI_LOOM_RUNTIME_REPOSITORY_ID_ENV,
   PI_LOOM_RUNTIME_SPACE_ID_ENV,
   PI_LOOM_RUNTIME_WORKTREE_ID_ENV,
+  PI_LOOM_RUNTIME_WORKTREE_PATH_ENV,
 } from "#storage/runtime-scope.js";
 import { buildDocumentationDashboard } from "../domain/dashboard.js";
 import type { DocumentationState } from "../domain/models.js";
@@ -56,6 +57,7 @@ describe("docs runtime spawn resolution", () => {
         spaceId: "space-001",
         repositoryId: "repo-001",
         worktreeId: "worktree-001",
+        worktreePath: "/tmp/worktree-001",
       },
       {
         execPath: "/usr/local/bin/node",
@@ -82,6 +84,7 @@ describe("docs runtime spawn resolution", () => {
       [PI_LOOM_RUNTIME_SPACE_ID_ENV]: "space-001",
       [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: "repo-001",
       [PI_LOOM_RUNTIME_WORKTREE_ID_ENV]: "worktree-001",
+      [PI_LOOM_RUNTIME_WORKTREE_PATH_ENV]: "/tmp/worktree-001",
     });
   });
 
