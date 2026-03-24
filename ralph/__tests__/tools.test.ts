@@ -116,25 +116,6 @@ vi.mock("../domain/loop.js", () => ({
   renderLoopResult: vi.fn(() => "Rendered Ralph summary"),
 }));
 
-vi.mock("../domain/loop-worker.js", () => ({
-  runRalphLoopInWorker: vi.fn(async (input) => ({
-    created: false,
-    steps: [
-      {
-        iterationId: "iter-001",
-        iteration: 1,
-        exitCode: 0,
-        output: "iteration output",
-        stderr: "",
-        finalStatus: "completed",
-        finalDecision: "complete",
-      },
-    ],
-    run: createReadResult(input.runId, { status: "completed", phase: "completed" }),
-  })),
-  toWorkerModel: vi.fn((model) => model ?? null),
-}));
-
 function createReadResult(
   ref: string,
   overrides?: Partial<{
@@ -499,13 +480,13 @@ describe("ralph tools", () => {
   it("waits for all selected Ralph jobs when requested", async () => {
     const mockPi = createMockPi();
     const { registerRalphTools } = await import("../tools/ralph.js");
-    const { runRalphLoopInWorker } = await import("../domain/loop-worker.js");
+    const { executeRalphLoop } = await import("../domain/loop.js");
     registerRalphTools(mockPi as unknown as ExtensionAPI);
     const ctx = createContext("/workspace/ralph-tools");
     const first = createDeferred<ExecuteRalphLoopResult>();
     const second = createDeferred<ExecuteRalphLoopResult>();
 
-    vi.mocked(runRalphLoopInWorker)
+    vi.mocked(executeRalphLoop)
       .mockImplementationOnce(async () => first.promise)
       .mockImplementationOnce(async () => second.promise);
 
@@ -530,10 +511,10 @@ describe("ralph tools", () => {
     const secondJobId = (secondStart as { details: { async: { jobId: string } } }).details.async.jobId;
 
     expect(firstJobId).not.toBe(secondJobId);
-    for (let attempt = 0; attempt < 10 && vi.mocked(runRalphLoopInWorker).mock.calls.length < 2; attempt += 1) {
+    for (let attempt = 0; attempt < 10 && vi.mocked(executeRalphLoop).mock.calls.length < 2; attempt += 1) {
       await Promise.resolve();
     }
-    expect(vi.mocked(runRalphLoopInWorker)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(executeRalphLoop)).toHaveBeenCalledTimes(2);
 
     const waitPromise = waitTool.execute(
       "call-wait-all",

@@ -14,17 +14,10 @@ import type {
   UpsertRalphIterationRuntimeInput,
 } from "./models.js";
 import { deriveRalphRunId } from "./paths.js";
-import {
-  buildParentSessionRuntimeEnv,
-  type RalphExecutionResult,
-  type RalphLaunchEvent,
-  runRalphLaunch,
-} from "./runtime.js";
+import { type RalphExecutionResult, type RalphLaunchEvent, runRalphLaunch } from "./runtime.js";
 import { createRalphStore } from "./store.js";
 
-type RalphContextLike =
-  | Pick<ExtensionContext, "cwd" | "model" | "sessionManager">
-  | Pick<ExtensionCommandContext, "cwd" | "model" | "sessionManager">;
+type RalphContextLike = Pick<ExtensionContext, "cwd"> | Pick<ExtensionCommandContext, "cwd">;
 
 export interface ExecuteRalphLoopInput {
   ref?: string;
@@ -894,10 +887,6 @@ async function executePreparedIteration(
   options: ExecuteRalphLoopOptions,
 ): Promise<{ run: RalphReadResult; execution: RalphExecutionResult }> {
   const store = createRalphStore(ctx.cwd);
-  const runtimeEnv = await buildParentSessionRuntimeEnv({
-    cwd: ctx.cwd,
-    model: ctx.model,
-  });
   const timeoutMs =
     run.state.policySnapshot.maxRuntimeMinutes === null ? null : run.state.policySnapshot.maxRuntimeMinutes * 60 * 1000;
   const ticketBeforeLaunch = await readTicketLedgerSnapshot(ctx.cwd, run.launch.ticketRef);
@@ -1024,7 +1013,7 @@ async function executePreparedIteration(
         jobId: options.jobId,
       });
     },
-    runtimeEnv,
+    undefined,
     (event) => {
       if (executionSignal.signal?.aborted) {
         return;

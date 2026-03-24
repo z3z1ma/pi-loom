@@ -15,7 +15,6 @@ import {
   renderLoopResult,
   resolveRalphRunBinding,
 } from "../domain/loop.js";
-import { runRalphLoopInWorker, toWorkerModel } from "../domain/loop-worker.js";
 import type { RalphReadResult } from "../domain/models.js";
 import { renderDashboard, renderRalphDetail } from "../domain/render.js";
 import { createRalphStore } from "../domain/store.js";
@@ -382,19 +381,19 @@ export async function startRalphLoopJob(
       });
       void onProgress?.(startingUpdate);
       try {
-        return await runRalphLoopInWorker(
-          {
-            cwd: ctx.cwd,
-            runId: run.state.runId,
-            jobId: runningJobId,
-            model: toWorkerModel(ctx.model),
+        return await executeRalphLoop(ctx, { ref: run.state.runId }, jobSignal, {
+          jobId: runningJobId,
+          onUpdate: (update) => {
+            const normalized =
+              typeof update === "string" ? { text: update, kind: "assistant_output" as const } : update;
+            void reportProgress(normalized.text, {
+              jobId: runningJobId,
+              runId: run.state.runId,
+              kind: normalized.kind,
+            });
+            void onProgress?.(normalized);
           },
-          jobSignal,
-          (update) => {
-            void reportProgress(update.text, { jobId: runningJobId, runId: run.state.runId, kind: update.kind });
-            void onProgress?.(update);
-          },
-        );
+        });
       } finally {
         await syncRunSchedulerWithJobs(ctx, run.state.runId);
       }

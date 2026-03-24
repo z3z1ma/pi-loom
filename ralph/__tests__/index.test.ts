@@ -33,7 +33,6 @@ vi.mock("../commands/ralph.js", () => ({
 }));
 
 vi.mock("../domain/runtime.js", () => ({
-  buildParentSessionRuntimeEnv: vi.fn(async () => ({})),
   runRalphLaunch: vi.fn(async () => ({
     command: "pi",
     args: ["--mode", "json"],
