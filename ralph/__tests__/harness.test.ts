@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getHarnessSpawnCommand } from "../domain/harness.js";
 import type { PiSpawnDeps } from "../domain/harness.js";
+import { getHarnessSpawnCommand } from "../domain/harness.js";
 
 describe("harness spawn command resolution", () => {
   it("uses the provided command override from env", () => {
@@ -46,20 +46,20 @@ describe("harness spawn command resolution", () => {
 
   it("uses omp binary name for @oh-my-pi/pi-coding-agent", () => {
     const command = getHarnessSpawnCommand(["arg1"], {
-        execPath: "/usr/bin/node",
-        argv1: "/path/to/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js",
-        existsSync: (p) => p.includes("package.json") || p.includes("dist/cli.js"),
-        readFileSync: (p) => {
-          if (p.endsWith("package.json")) {
-            return JSON.stringify({ name: "@oh-my-pi/pi-coding-agent", bin: { omp: "dist/cli.js" } });
-          }
-          return "";
-        },
-      });
+      execPath: "/usr/bin/node",
+      argv1: "/path/to/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js",
+      existsSync: (p) => p.includes("package.json") || p.includes("dist/cli.js"),
+      readFileSync: (p) => {
+        if (p.endsWith("package.json")) {
+          return JSON.stringify({ name: "@oh-my-pi/pi-coding-agent", bin: { omp: "dist/cli.js" } });
+        }
+        return "";
+      },
+    });
 
-      // Should use omp logic if needed, but getHarnessBinaryName handles the fallback name.
-      // Here it finds the bin in package.json, so it uses the full path.
-      expect(command.command).toBe("/usr/bin/node");
-      expect(command.args[0]).toMatch(/.*\/dist\/cli\.js$/);
+    // Should use omp logic if needed, but getHarnessBinaryName handles the fallback name.
+    // Here it finds the bin in package.json, so it uses the full path.
+    expect(command.command).toBe("/usr/bin/node");
+    expect(command.args[0]).toMatch(/.*\/dist\/cli\.js$/);
   });
 });

@@ -18,8 +18,8 @@ import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { syncProjectedEntityLinks } from "#storage/links.js";
 import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
-import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
 import { requireResolvedRepositoryIdentity } from "#storage/repository.js";
+import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
 import {
   type LoomExplicitScopeInput,
   openRepositoryWorkspaceStorage,
@@ -1743,12 +1743,16 @@ export class CritiqueStore {
     mutationEvents: Array<Record<string, unknown>> = [],
   ): Promise<CritiqueReadResult> {
     const { storage, identity } = await this.openRepositoryWorkspaceStorage();
-    const canonicalRecord = await this.buildCanonicalRecord({
-      state: toCanonicalState(record.state),
-      runs: record.runs,
-      findings: record.findings,
-      launch: record.launch,
-    }, identity.repositories, identity.repository.id);
+    const canonicalRecord = await this.buildCanonicalRecord(
+      {
+        state: toCanonicalState(record.state),
+        runs: record.runs,
+        findings: record.findings,
+        launch: record.launch,
+      },
+      identity.repositories,
+      identity.repository.id,
+    );
     const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
       storage,
       {
@@ -1813,11 +1817,15 @@ export class CritiqueStore {
       throw new Error(`Critique ${critiqueId} is missing structured attributes`);
     }
     const canonicalStorage = storage ?? (await this.openWorkspaceStorage()).storage;
-    return this.buildCanonicalRecord({
-      state: entity.attributes.record.state,
-      runs: entity.attributes.record.runs,
-      findings: await this.readProjectedFindingsAsync(canonicalStorage, entity.spaceId, entity.id),
-    }, repositories, entity.owningRepositoryId);
+    return this.buildCanonicalRecord(
+      {
+        state: entity.attributes.record.state,
+        runs: entity.attributes.record.runs,
+        findings: await this.readProjectedFindingsAsync(canonicalStorage, entity.spaceId, entity.id),
+      },
+      repositories,
+      entity.owningRepositoryId,
+    );
   }
 
   async initLedgerAsync(): Promise<{ initialized: true; root: string }> {
@@ -1828,7 +1836,7 @@ export class CritiqueStore {
     const { storage, identity } = await this.openWorkspaceStorage();
     const records = await Promise.all(
       (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) =>
-        this.entityRecord(entity, storage, identity.repositories)
+        this.entityRecord(entity, storage, identity.repositories),
       ),
     );
     return filterAndSortCritiqueSummaries(records, filter);

@@ -403,18 +403,19 @@ export async function startRalphLoopJob(
           },
           jobSignal,
           {
-          jobId: runningJobId,
-          onUpdate: (update) => {
-            const normalized =
-              typeof update === "string" ? { text: update, kind: "assistant_output" as const } : update;
-            void reportProgress(normalized.text, {
-              jobId: runningJobId,
-              runId: run.state.runId,
-              kind: normalized.kind,
-            });
-            void onProgress?.(normalized);
+            jobId: runningJobId,
+            onUpdate: (update) => {
+              const normalized =
+                typeof update === "string" ? { text: update, kind: "assistant_output" as const } : update;
+              void reportProgress(normalized.text, {
+                jobId: runningJobId,
+                runId: run.state.runId,
+                kind: normalized.kind,
+              });
+              void onProgress?.(normalized);
+            },
           },
-        });
+        );
       } finally {
         await syncRunSchedulerWithJobs(ctx, run.state.runId);
       }
@@ -813,27 +814,28 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         {
           onUpdate: (update) => {
             const progress = typeof update === "string" ? { text: update, kind: "assistant_output" as const } : update;
-          progressUpdates.push(progress.text);
-          if (progressUpdates.length > 24) {
-            progressUpdates.splice(0, progressUpdates.length - 24);
-          }
-          onUpdate?.({
-            content: [{ type: "text", text: progress.text }],
-            details: {
-              runRef: run.state.runId,
-              ui: buildRalphRunRenderDetails({
-                prompt: params.steeringPrompt,
-                startedAt,
-                created: ensured.created,
-                updates: progressUpdates.slice(-8),
-                run: run.summary,
-                state: "running",
-                result: null,
-              }),
-            },
-          });
+            progressUpdates.push(progress.text);
+            if (progressUpdates.length > 24) {
+              progressUpdates.splice(0, progressUpdates.length - 24);
+            }
+            onUpdate?.({
+              content: [{ type: "text", text: progress.text }],
+              details: {
+                runRef: run.state.runId,
+                ui: buildRalphRunRenderDetails({
+                  prompt: params.steeringPrompt,
+                  startedAt,
+                  created: ensured.created,
+                  updates: progressUpdates.slice(-8),
+                  run: run.summary,
+                  state: "running",
+                  result: null,
+                }),
+              },
+            });
+          },
         },
-      });
+      );
       const normalizedResult = result;
       return machineResult(
         {

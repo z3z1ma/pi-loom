@@ -1,10 +1,6 @@
-import { type LoomRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
 import { type HarnessExecutionResult, resolveExtensionRoot, runHarnessLaunch } from "#ralph/domain/harness.js";
-import {
-  getWorktreeEnv,
-  provisionWorktree,
-  resolveLatestWorktreeName,
-} from "#ralph/domain/worktree.js";
+import { getWorktreeEnv, provisionWorktree, resolveLatestWorktreeName } from "#ralph/domain/worktree.js";
+import { type LoomRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import type { CritiqueLaunchDescriptor } from "./models.js";
 import { renderLaunchPrompt } from "./render.js";
@@ -63,6 +59,6 @@ export async function runCritiqueLaunch(
     onUpdate,
     env,
     undefined, // onEvent
-    extensionRoot
+    extensionRoot,
   );
 }

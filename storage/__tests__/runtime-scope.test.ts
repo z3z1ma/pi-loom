@@ -62,9 +62,9 @@ describe("runtime scope helpers", () => {
       const { identity } = await openWorkspaceStorage(workspace.cwd);
       const repositoryId = identity.repository?.id ?? identity.repositories[0]?.id;
       expect(repositoryId).toBeTruthy();
-      await expect(
-        resolveRuntimeScope(workspace.cwd, { spaceId: "space-wrong", repositoryId }),
-      ).rejects.toThrow(/targets space space-wrong .* active scope is/i);
+      await expect(resolveRuntimeScope(workspace.cwd, { spaceId: "space-wrong", repositoryId })).rejects.toThrow(
+        /targets space space-wrong .* active scope is/i,
+      );
     } finally {
       workspace.cleanup();
     }

@@ -1018,7 +1018,10 @@ async function executePreparedIteration(
   if (run.state.executionEnv?.mode === "worktree" && run.state.executionEnv.worktreeRoot) {
     launchCwd = run.state.executionEnv.worktreeRoot;
     const ledgerRoot =
-      run.state.executionEnv.ledgerRoot || process.env.PI_LOOM_ROOT || run.state.executionEnv.repositoryRoot || runtimeScope.repositoryRoot;
+      run.state.executionEnv.ledgerRoot ||
+      process.env.PI_LOOM_ROOT ||
+      run.state.executionEnv.repositoryRoot ||
+      runtimeScope.repositoryRoot;
     if (ledgerRoot) {
       launchEnv = { ...launchEnv, PI_LOOM_ROOT: ledgerRoot };
     }

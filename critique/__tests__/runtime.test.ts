@@ -25,7 +25,7 @@ describe("critique verdict derivation", () => {
   afterEach(() => {
     vi.useRealTimers();
     try {
-        rmSync(workspace, { recursive: true, force: true });
+      rmSync(workspace, { recursive: true, force: true });
     } catch {}
   });
 

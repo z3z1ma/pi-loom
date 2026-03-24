@@ -9,10 +9,7 @@ import {
 import { buildDocumentationDashboard } from "../domain/dashboard.js";
 import type { DocumentationState } from "../domain/models.js";
 import { renderUpdateDescriptor, renderUpdatePrompt } from "../domain/render.js";
-import {
-  getDocsUpdateLaunchConfig,
-  resolveDocsPackageRoot,
-} from "../domain/runtime.js";
+import { getDocsUpdateLaunchConfig, resolveDocsPackageRoot } from "../domain/runtime.js";
 
 function createState(overrides: Partial<DocumentationState> = {}): DocumentationState {
   return {
@@ -48,16 +45,12 @@ function createState(overrides: Partial<DocumentationState> = {}): Documentation
 
 describe("docs runtime spawn resolution", () => {
   it("roots docs update launch config at the unified pi-loom package, not the caller workspace", () => {
-    const launch = getDocsUpdateLaunchConfig(
-      "/tmp/caller-workspace/nested",
-      "Update docs",
-      {
-        spaceId: "space-001",
-        repositoryId: "repo-001",
-        worktreeId: "worktree-001",
-        worktreePath: "/tmp/worktree-001",
-      },
-    );
+    const launch = getDocsUpdateLaunchConfig("/tmp/caller-workspace/nested", "Update docs", {
+      spaceId: "space-001",
+      repositoryId: "repo-001",
+      worktreeId: "worktree-001",
+      worktreePath: "/tmp/worktree-001",
+    });
 
     expect(launch.extensionRoot).toBe(resolveDocsPackageRoot());
     expect(launch.env).toEqual({

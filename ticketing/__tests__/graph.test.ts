@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildTicketGraph, ticketGraphNodeKey, ticketGraphQualifiedId } from "../domain/graph.js";
-import { createTicketStore } from "../domain/store.js";
 import type { TicketSummary } from "../domain/models.js";
+import { createTicketStore } from "../domain/store.js";
 
 describe("ticket dependency graph", () => {
   let workspace: string;

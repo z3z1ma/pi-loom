@@ -1306,8 +1306,7 @@ function normalizeStoredRunState(state: RalphRunState): RalphRunState {
     activeTicketId: normalizeOptionalString(
       (state as RalphRunState & { activeTicketId?: string | null }).activeTicketId,
     ),
-    executionEnv:
-     (state as RalphRunState & { executionEnv?: Record<string, string> | null }).executionEnv ?? null,
+    executionEnv: (state as RalphRunState & { executionEnv?: Record<string, string> | null }).executionEnv ?? null,
     packetContext: normalizePacketContext(
       (state as RalphRunState & { packetContext?: RalphPacketContext }).packetContext,
     ),

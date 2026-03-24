@@ -1,15 +1,11 @@
-import { type LoomRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
 import {
   type HarnessExecutionResult,
   type HarnessRuntimeEvent,
   resolveExtensionRoot,
   runHarnessLaunch,
 } from "#ralph/domain/harness.js";
-import {
-  getWorktreeEnv,
-  provisionWorktree,
-  resolveLatestWorktreeName,
-} from "#ralph/domain/worktree.js";
+import { getWorktreeEnv, provisionWorktree, resolveLatestWorktreeName } from "#ralph/domain/worktree.js";
+import { type LoomRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 
 export type DocsExecutionResult = HarnessExecutionResult;
