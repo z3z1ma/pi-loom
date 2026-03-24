@@ -17,6 +17,7 @@ import type {
 import { deriveRalphRunId } from "./paths.js";
 import { type RalphExecutionResult, type RalphLaunchEvent, runRalphLaunch } from "./runtime.js";
 import { createRalphStore } from "./store.js";
+import { provisionWorktree, resolveWorktreeName } from "./worktree.js";
 
 type RalphContextLike = Pick<ExtensionContext, "cwd"> | Pick<ExtensionCommandContext, "cwd">;
 
@@ -25,6 +26,8 @@ export interface ExecuteRalphLoopInput {
   planRef?: string;
   ticketRef?: string;
   prompt?: string;
+  executionMode?: "direct" | "worktree";
+  preferExternalRefNaming?: boolean;
   iterations?: number;
   policySnapshot?: {
     mode?: "strict" | "balanced" | "expedite";
@@ -1009,6 +1012,18 @@ async function executePreparedIteration(
         })
       : null;
 
+  let launchCwd = runtimeScope.worktreePath;
+  let launchEnv = runtimeScopeToEnv(runtimeScope);
+
+  if (run.state.executionEnv?.mode === "worktree" && run.state.executionEnv.worktreeRoot) {
+    launchCwd = run.state.executionEnv.worktreeRoot;
+    const ledgerRoot =
+      run.state.executionEnv.ledgerRoot || process.env.PI_LOOM_ROOT || run.state.executionEnv.repositoryRoot || runtimeScope.repositoryRoot;
+    if (ledgerRoot) {
+      launchEnv = { ...launchEnv, PI_LOOM_ROOT: ledgerRoot };
+    }
+  }
+
   queueRuntimePersistence(
     {
       iterationId: run.launch.iterationId,
@@ -1024,7 +1039,7 @@ async function executePreparedIteration(
   await flushRuntimePersistenceNow();
 
   const runtimePromise = runRalphLaunch(
-    runtimeScope.worktreePath,
+    launchCwd,
     run.launch,
     executionSignal.signal,
     (text) => {
@@ -1043,7 +1058,7 @@ async function executePreparedIteration(
         jobId: options.jobId,
       });
     },
-    runtimeScopeToEnv(runtimeScope),
+    launchEnv,
     (event) => {
       if (executionSignal.signal?.aborted) {
         return;
@@ -1266,6 +1281,30 @@ export async function ensureRalphRun(
         .readChange(context.specChangeId)
         .catch(() => null)
     : null;
+  let executionEnv: Record<string, string> | null = null;
+  if (input.executionMode === "worktree") {
+    const runtimeScope = await resolveRuntimeScope(ctx.cwd);
+    if (!runtimeScope.repositoryRoot) {
+      throw new Error("Cannot use worktree execution mode: not in a git repository");
+    }
+    const ticket = await createTicketStore(ctx.cwd).readTicketAsync(binding.ticketId);
+    const branchName = resolveWorktreeName(
+      {
+        ref: ticket.summary.ref,
+        externalRefs: ticket.ticket.frontmatter["external-refs"],
+      },
+      runtimeScope.repositoryRoot,
+      input.preferExternalRefNaming ?? false,
+    );
+    const worktreePath = provisionWorktree(runtimeScope.repositoryRoot, branchName);
+    executionEnv = {
+      mode: "worktree",
+      worktreeRoot: worktreePath,
+      branchName,
+      repositoryRoot: runtimeScope.repositoryRoot,
+      ledgerRoot: process.env.PI_LOOM_ROOT,
+    };
+  }
   const packetContext = await buildPacketContext(ctx.cwd, scope, input.prompt, []);
   try {
     const created = await store.createRunAsync({
@@ -1274,6 +1313,7 @@ export async function ensureRalphRun(
       summary: buildSummary(scope, input.prompt),
       scope,
       activeTicketId: scope.ticketId,
+      executionEnv,
       packetContext,
       steeringQueue: input.prompt?.trim()
         ? [

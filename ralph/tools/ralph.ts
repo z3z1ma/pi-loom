@@ -54,6 +54,7 @@ const RalphDecisionKindEnum = StringEnum(["continue", "pause", "complete", "halt
 const RalphWaitingForEnum = StringEnum(["none", "verifier", "critique", "operator"] as const);
 const RalphReadModeEnum = StringEnum(["full", "state", "packet", "run", "dashboard"] as const);
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
+const RalphExecutionModeEnum = StringEnum(["direct", "worktree"] as const);
 
 const PolicySnapshotSchema = Type.Object({
   mode: Type.Optional(
@@ -157,6 +158,18 @@ const RalphReadParams = Type.Object({
 const RalphRunParams = Type.Object({
   ticketRef: Type.String({ description: "Ticket ref that the Ralph run is durably bound to." }),
   planRef: Type.Optional(Type.String({ description: "Optional governing plan ref for the ticket-bound Ralph run." })),
+  executionMode: Type.Optional(
+    withDescription(
+      RalphExecutionModeEnum,
+      "Execution environment for the Ralph loop. `direct` runs in the current workspace; `worktree` creates an isolated git worktree for the run.",
+    ),
+  ),
+  preferExternalRefNaming: Type.Optional(
+    Type.Boolean({
+      description:
+        "When true, prefer external reference naming (e.g. ticket-based branch names) over internal UUIDs for worktrees.",
+    }),
+  ),
   steeringPrompt: Type.Optional(
     Type.String({
       description:
@@ -381,7 +394,15 @@ export async function startRalphLoopJob(
       });
       void onProgress?.(startingUpdate);
       try {
-        return await executeRalphLoop(ctx, { ref: run.state.runId }, jobSignal, {
+        return await executeRalphLoop(
+          ctx,
+          {
+            ref: run.state.runId,
+            executionMode: input.executionMode,
+            preferExternalRefNaming: input.preferExternalRefNaming,
+          },
+          jobSignal,
+          {
           jobId: runningJobId,
           onUpdate: (update) => {
             const normalized =
@@ -701,6 +722,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         ticketRef: params.ticketRef,
         planRef: params.planRef,
         prompt: params.steeringPrompt,
+        executionMode: params.executionMode as ExecuteRalphLoopInput["executionMode"],
+        preferExternalRefNaming: params.preferExternalRefNaming,
         policySnapshot: params.policySnapshot as ExecuteRalphLoopInput["policySnapshot"],
       };
       const startedAt = Date.now();
@@ -779,9 +802,17 @@ export function registerRalphTools(pi: ExtensionAPI): void {
       if (!ensured.created && params.steeringPrompt?.trim()) {
         run = await getStore(ctx).queueSteeringAsync(run.state.runId, params.steeringPrompt.trim());
       }
-      const result = await executeRalphLoop(ctx, { ref: run.state.runId }, signal, {
-        onUpdate: (update) => {
-          const progress = typeof update === "string" ? { text: update, kind: "assistant_output" as const } : update;
+      const result = await executeRalphLoop(
+        ctx,
+        {
+          ref: run.state.runId,
+          executionMode: input.executionMode,
+          preferExternalRefNaming: input.preferExternalRefNaming,
+        },
+        signal,
+        {
+          onUpdate: (update) => {
+            const progress = typeof update === "string" ? { text: update, kind: "assistant_output" as const } : update;
           progressUpdates.push(progress.text);
           if (progressUpdates.length > 24) {
             progressUpdates.splice(0, progressUpdates.length - 24);

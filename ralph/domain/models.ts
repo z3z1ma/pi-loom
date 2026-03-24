@@ -290,6 +290,7 @@ export interface RalphRunState {
   linkedRefs: RalphLinkedRefs;
   scope: RalphRunScope;
   activeTicketId: string | null;
+  executionEnv: Record<string, string> | null;
   packetContext: RalphPacketContext;
   steeringQueue: RalphSteeringEntry[];
   stopRequest: RalphStopRequest | null;
@@ -389,6 +390,7 @@ export interface CreateRalphRunInput {
   scope?: RalphRunScope;
   packetContext?: RalphPacketContext;
   activeTicketId?: string | null;
+  executionEnv?: Record<string, string> | null;
   steeringQueue?: RalphSteeringEntry[];
   stopRequest?: RalphStopRequest | null;
   scheduler?: Partial<RalphSchedulerState>;
@@ -407,6 +409,7 @@ export interface UpdateRalphRunInput {
   scope?: RalphRunScope;
   packetContext?: RalphPacketContext;
   activeTicketId?: string | null;
+  executionEnv?: Record<string, string> | null;
   steeringQueue?: RalphSteeringEntry[];
   stopRequest?: RalphStopRequest | null;
   scheduler?: Partial<RalphSchedulerState>;

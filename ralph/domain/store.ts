@@ -1306,6 +1306,8 @@ function normalizeStoredRunState(state: RalphRunState): RalphRunState {
     activeTicketId: normalizeOptionalString(
       (state as RalphRunState & { activeTicketId?: string | null }).activeTicketId,
     ),
+    executionEnv:
+     (state as RalphRunState & { executionEnv?: Record<string, string> | null }).executionEnv ?? null,
     packetContext: normalizePacketContext(
       (state as RalphRunState & { packetContext?: RalphPacketContext }).packetContext,
     ),
@@ -1995,6 +1997,7 @@ export class RalphStore {
       linkedRefs,
       scope,
       activeTicketId: normalizeOptionalString(input.activeTicketId) ?? scope.ticketId,
+      executionEnv: input.executionEnv ?? null,
       packetContext: normalizePacketContext(input.packetContext),
       steeringQueue: normalizeSteeringQueue(input.steeringQueue),
       stopRequest: normalizeStopRequest(input.stopRequest),
@@ -2341,8 +2344,8 @@ export class RalphStore {
     this.initLedger();
     const timestamp = currentTimestamp();
     const scope = normalizeRunScope(input.scope, input.linkedRefs);
-    if (!scope.planId || !scope.ticketId) {
-      throw new Error("Ralph runs require both a plan ref and a ticket ref.");
+    if (!scope.ticketId) {
+      throw new Error("Ralph runs require a ticket ref.");
     }
     const runId = deriveRalphRunId(scope.planId ?? TICKET_ONLY_PLAN_KEY, scope.ticketId);
     if (findStoredRalphRow(this.cwd, runId)) {
@@ -2374,6 +2377,7 @@ export class RalphStore {
         input.activeTicketId !== undefined
           ? normalizeOptionalString(input.activeTicketId)
           : (normalizeOptionalString(scope.ticketId) ?? current.state.activeTicketId),
+      executionEnv: input.executionEnv !== undefined ? input.executionEnv : current.state.executionEnv,
       packetContext: input.packetContext ? normalizePacketContext(input.packetContext) : current.state.packetContext,
       steeringQueue: input.steeringQueue ? normalizeSteeringQueue(input.steeringQueue) : current.state.steeringQueue,
       stopRequest:

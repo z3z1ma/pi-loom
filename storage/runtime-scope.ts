@@ -12,6 +12,7 @@ export interface LoomRuntimeScope {
   repositoryId: string;
   worktreeId: string;
   worktreePath: string;
+  repositoryRoot?: string;
 }
 
 function normalizeEnvValue(value: string | undefined): string | undefined {
@@ -57,6 +58,7 @@ export async function resolveRuntimeScope(cwd: string, scope?: LoomExplicitScope
     repositoryId: identity.repository.id,
     worktreeId: identity.worktree.id,
     worktreePath,
+    repositoryRoot: identity.discovery.scopeRoot,
   };
 }
 
