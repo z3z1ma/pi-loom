@@ -1,0 +1,18 @@
+export {
+  canonicalizeScopeRoot,
+  clearPersistedScopeBinding,
+  discoverWorkspaceScope,
+  enrollRepositoryInScope,
+  type LoomPersistedScopeBindingRecord,
+  type LoomRepositoryCandidateSummary,
+  type LoomResolvedWorkspaceIdentity,
+  type LoomScopeDiscoveryResult,
+  type LoomWorkspaceDiscoveryCandidate,
+  readPersistedScopeBinding,
+  requireResolvedRepositoryIdentity,
+  resolveWorkspaceIdentity,
+  revokeActiveScopeSelection,
+  selectActiveScope,
+  unenrollRepositoryInScope,
+  writePersistedScopeBinding,
+} from "./scope.js";

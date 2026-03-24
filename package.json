@@ -1,5 +1,5 @@
 {
-  "name": "pi-loom",
+  "name": "pi-loom-workspace",
   "version": "0.1.0",
   "private": true,
   "description": "Pi extension workspace focused on durable AI-native constitutional, research, initiative, specification, planning, ticket, Ralph-wiggum orchestration, critique, and documentation memory.",
@@ -13,7 +13,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "workspaces": [
-    "packages/*"
+    "packages/pi-loom"
   ],
   "keywords": [
     "pi",
@@ -33,15 +33,15 @@
   ],
   "pi": {
     "extensions": [
-      "./packages/pi-constitution/extensions/index.ts",
-      "./packages/pi-research/extensions/index.ts",
-      "./packages/pi-initiatives/extensions/index.ts",
-      "./packages/pi-specs/extensions/index.ts",
-      "./packages/pi-plans/extensions/index.ts",
-      "./packages/pi-ticketing/extensions/index.ts",
-      "./packages/pi-critique/extensions/index.ts",
-      "./packages/pi-ralph-wiggum/extensions/index.ts",
-      "./packages/pi-docs/extensions/index.ts"
+      "./packages/pi-loom/constitution/extensions/index.ts",
+      "./packages/pi-loom/research/extensions/index.ts",
+      "./packages/pi-loom/initiatives/extensions/index.ts",
+      "./packages/pi-loom/specs/extensions/index.ts",
+      "./packages/pi-loom/plans/extensions/index.ts",
+      "./packages/pi-loom/ticketing/extensions/index.ts",
+      "./packages/pi-loom/critique/extensions/index.ts",
+      "./packages/pi-loom/ralph-wiggum/extensions/index.ts",
+      "./packages/pi-loom/docs/extensions/index.ts"
     ]
   },
   "devDependencies": {

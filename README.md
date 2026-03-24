@@ -1,23 +1,23 @@
 # pi-loom
 
-A `pi-packages`-style workspace for Loom's durable, AI-native memory and execution extensions.
+A single `pi-loom` package workspace for Loom's durable, AI-native memory and execution extensions.
 
-This repository ships extension packages including `pi-constitution`, `pi-research`, `pi-initiatives`, `pi-specs`, `pi-plans`, `pi-ticketing`, `pi-critique`, `pi-ralph-wiggum`, and `pi-docs`. Canonical state for all of them is persisted in SQLite via `pi-storage` and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` while defining its own Loom architecture.
+This repository ships a single `packages/pi-loom/` package. Its domain subdirectories cover constitution, research, initiatives, specs, plans, ticketing, critique, Ralph orchestration, docs, and storage. Canonical state for all of them is persisted in SQLite via storage helpers and rendered into packets, docs, plans, or other review surfaces only when needed. The design is guided by `CONSTITUTION.md`, informed by `.agents/resources/pi-packages/`, and selectively inspired by `.agents/resources/agent-loom/` while defining its own Loom architecture.
 
 Constitutional memory is the highest-order project context in this workspace. It captures durable vision, principles, constraints, roadmap items, and decisions that shape every lower layer. It is intentionally separate from `AGENTS.md`: constitutional state persisted in SQLite via pi-storage defines enduring project truth, while `AGENTS.md` remains operational guidance for how the harness or a directory should behave during execution.
 
-## Workspace layout
+## Package layout
 
-- `packages/pi-constitution/` — constitutional memory extension package
-- `packages/pi-research/` — research memory extension package
-- `packages/pi-initiatives/` — initiative memory extension package
-- `packages/pi-plans/` — planning memory extension package
-- `packages/pi-ticketing/` — ticketing extension package
-- `packages/pi-specs/` — specification memory extension package
-- `packages/pi-critique/` — critique memory extension package
-- `packages/pi-ralph-wiggum/` — Ralph Wiggum loop orchestration extension package
-- `packages/pi-docs/` — documentation memory extension package
-- `packages/pi-storage/` — internal storage-contract package for shared canonical state
+- `packages/pi-loom/constitution/` — constitutional memory extension area
+- `packages/pi-loom/research/` — research memory extension area
+- `packages/pi-loom/initiatives/` — initiative memory extension area
+- `packages/pi-loom/plans/` — planning memory extension area
+- `packages/pi-loom/ticketing/` — ticketing extension area
+- `packages/pi-loom/specs/` — specification memory extension area
+- `packages/pi-loom/critique/` — critique memory extension area
+- `packages/pi-loom/ralph-wiggum/` — Ralph Wiggum loop orchestration area
+- `packages/pi-loom/docs/` — documentation memory extension area
+- `packages/pi-loom/storage/` — shared storage implementation area
 - `.agents/resources/` — reference material
 
 ## Development
@@ -41,10 +41,10 @@ Run the opt-in integration lane explicitly when you need the cross-package SQLit
 npm run test:integration
 ```
 
-To try the ticketing package locally once dependencies are installed:
+To load Pi Loom locally once dependencies are installed:
 
 ```bash
-cd packages/pi-ticketing
+cd packages/pi-loom
 omp -e .
 ```
 
