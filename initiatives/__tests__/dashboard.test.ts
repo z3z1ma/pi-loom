@@ -65,7 +65,11 @@ describe("initiative dashboard", () => {
     const initiative = await initiativeStore.readInitiative("observability-program");
 
     expect(initiative.dashboard).toMatchObject({
-      initiative: { id: "observability-program", status: "proposed" },
+      initiative: {
+        id: "observability-program",
+        status: "proposed",
+        repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+      },
       linkedRoadmap: {
         total: 1,
         items: [

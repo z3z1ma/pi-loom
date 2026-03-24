@@ -10,7 +10,7 @@ import type { ResearchRecord } from "#research/domain/models.js";
 import { createResearchStore } from "#research/domain/store.js";
 import type { SpecChangeRecord } from "#specs/domain/models.js";
 import { createSpecStore } from "#specs/domain/store.js";
-import type { LoomEntityKind, LoomEntityRecord } from "#storage/contract.js";
+import type { LoomEntityKind, LoomEntityRecord, LoomRepositoryRecord } from "#storage/contract.js";
 import {
   appendEntityEvent,
   findEntityByDisplayId,
@@ -20,7 +20,18 @@ import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { syncProjectedEntityLinks } from "#storage/links.js";
 import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
-import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
+import {
+  type LoomPortableRepositoryPathFallback,
+  normalizeStoredPortableRepositoryPathList,
+  renderPortableRepositoryPathList,
+  resolvePortableRepositoryPathInputs,
+} from "#storage/repository-path.js";
+import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
+import {
+  type LoomExplicitScopeInput,
+  openRepositoryWorkspaceStorage,
+  openScopedWorkspaceStorage,
+} from "#storage/workspace.js";
 import type { TicketReadResult } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import { buildDocumentationDashboard, getDocumentationDocumentRef, summarizeDocumentation } from "./dashboard.js";
@@ -146,6 +157,10 @@ function canonicalEntityKindForDocSourceTarget(
 }
 
 function documentationSearchText(record: DocumentationReadResult): string[] {
+  const scopePaths = renderPortableRepositoryPathList(record.state.scopePaths);
+  const dashboardScopePaths = renderPortableRepositoryPathList(record.dashboard.scopePaths);
+  const linkedOutputPaths = renderPortableRepositoryPathList(record.state.linkedOutputPaths);
+  const dashboardLinkedOutputPaths = renderPortableRepositoryPathList(record.dashboard.linkedOutputPaths);
   return [
     record.summary.id,
     record.summary.title,
@@ -156,10 +171,10 @@ function documentationSearchText(record: DocumentationReadResult): string[] {
     ...record.dashboard.guideTopics,
     ...record.state.audience,
     ...record.dashboard.audience,
-    ...record.state.scopePaths,
-    ...record.dashboard.scopePaths,
-    ...record.state.linkedOutputPaths,
-    ...record.dashboard.linkedOutputPaths,
+    ...scopePaths,
+    ...dashboardScopePaths,
+    ...linkedOutputPaths,
+    ...dashboardLinkedOutputPaths,
     ...record.state.contextRefs.roadmapItemIds,
     ...record.state.contextRefs.initiativeIds,
     ...record.state.contextRefs.researchIds,
@@ -195,8 +210,8 @@ function filterAndSortDocumentationSummaries(
         { value: record.summary.summary, weight: 9 },
         { value: record.summary.sourceRef, weight: 7 },
         { value: record.state.guideTopics.join(" "), weight: 6 },
-        { value: record.state.scopePaths.join(" "), weight: 5 },
-        { value: record.state.linkedOutputPaths.join(" "), weight: 5 },
+        { value: renderPortableRepositoryPathList(record.state.scopePaths).join(" "), weight: 5 },
+        { value: renderPortableRepositoryPathList(record.state.linkedOutputPaths).join(" "), weight: 5 },
         { value: documentationSearchText(record).join(" "), weight: 3 },
       ],
     })),
@@ -264,13 +279,57 @@ interface ResolvedDocumentationContext {
 
 export class DocumentationStore {
   readonly cwd: string;
+  readonly scope: LoomExplicitScopeInput;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
     this.cwd = resolve(cwd);
+    this.scope = scope;
   }
 
   initLedger(): { initialized: true; root: string } {
     return { initialized: true, root: getLoomCatalogPaths().catalogPath };
+  }
+
+  private async openWorkspaceStorage() {
+    return openScopedWorkspaceStorage(this.cwd, this.scope);
+  }
+
+  private persistenceScopeForState(state: DocumentationState): Required<LoomExplicitScopeInput> {
+    if (this.scope.repositoryId || this.scope.worktreeId) {
+      return {
+        spaceId: this.scope.spaceId ?? null,
+        repositoryId: this.scope.repositoryId ?? null,
+        worktreeId: this.scope.worktreeId ?? null,
+      };
+    }
+
+    const scopedPaths = [...state.scopePaths, ...state.linkedOutputPaths];
+    const uniqueScopes = new Map<string, { repositoryId: string; worktreeId: string | null }>();
+    for (const entry of scopedPaths) {
+      uniqueScopes.set(`${entry.repositoryId}:${entry.worktreeId ?? "(none)"}`, {
+        repositoryId: entry.repositoryId,
+        worktreeId: entry.worktreeId,
+      });
+    }
+    if (uniqueScopes.size === 1) {
+      const inferredScope = [...uniqueScopes.values()][0];
+      return {
+        spaceId: this.scope.spaceId ?? null,
+        repositoryId: inferredScope?.repositoryId ?? null,
+        worktreeId: inferredScope?.worktreeId ?? null,
+      };
+    }
+    if (uniqueScopes.size > 1) {
+      throw new Error(
+        "Documentation scope paths span multiple repository/worktree scopes; persist the document from one explicit repository scope.",
+      );
+    }
+
+    return {
+      spaceId: this.scope.spaceId ?? null,
+      repositoryId: this.scope.repositoryId ?? null,
+      worktreeId: this.scope.worktreeId ?? null,
+    };
   }
 
   private async upsertCanonicalRecord(record: DocumentationReadResult): Promise<DocumentationReadResult> {
@@ -279,10 +338,24 @@ export class DocumentationStore {
       revisions: record.revisions,
       documentBody: this.extractDocumentBody(record.document, record.dashboard.documentRef),
     };
-    const canonicalRecord = await this.buildCanonicalRecord(canonicalSnapshot);
-    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
+    const { storage, identity } = await openRepositoryWorkspaceStorage(
+      this.cwd,
+      this.persistenceScopeForState(record.state),
+    );
+    const canonicalRecord = await this.buildCanonicalRecord(
+      canonicalSnapshot,
+      identity.repositories,
+      identity.repository.id,
+    );
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, canonicalRecord.summary.id);
-    const previousSnapshot = this.readSnapshot(existing?.attributes ?? null);
+    const previousSnapshot = this.readSnapshot(
+      existing?.attributes ?? null,
+      this.portablePathFallback(
+        identity.repositories,
+        existing?.owningRepositoryId ?? identity.repository.id,
+        identity.worktree.id,
+      ),
+    );
     const version = (existing?.version ?? 0) + 1;
     await storage.transact(async (tx) => {
       const persistedPayload: DocumentationPersistedEventPayload = {
@@ -352,16 +425,42 @@ export class DocumentationStore {
     return canonicalRecord;
   }
 
-  private async entityRecord(entity: LoomEntityRecord): Promise<DocumentationReadResult> {
-    const snapshot = this.readSnapshot(entity.attributes);
+  private async entityRecord(
+    entity: LoomEntityRecord,
+    repositories: readonly LoomRepositoryRecord[],
+  ): Promise<DocumentationReadResult> {
+    const fallback = this.portablePathFallback(repositories, entity.owningRepositoryId, null);
+    const snapshot = this.readSnapshot(entity.attributes, fallback);
     if (!snapshot) {
       const docId = entity.displayId ?? entity.id;
       throw new Error(`Documentation entity ${docId} is missing structured attributes`);
     }
-    return this.buildCanonicalRecord(snapshot);
+    return this.buildCanonicalRecord(snapshot, repositories, entity.owningRepositoryId);
   }
 
-  private normalizeStoredState(state: DocumentationState): DocumentationState {
+  private portablePathFallback(
+    repositories: readonly LoomRepositoryRecord[],
+    repositoryId: string | null,
+    worktreeId: string | null,
+  ): LoomPortableRepositoryPathFallback | null {
+    if (!repositoryId) {
+      return null;
+    }
+    const repository = repositories.find((entry) => entry.id === repositoryId);
+    if (!repository) {
+      return null;
+    }
+    return {
+      repositoryId: repository.id,
+      repositorySlug: repository.slug,
+      worktreeId,
+    };
+  }
+
+  private normalizeStoredState(
+    state: DocumentationState,
+    fallback?: LoomPortableRepositoryPathFallback | null,
+  ): DocumentationState {
     if (!state || typeof state !== "object") {
       throw new Error("Documentation state is missing");
     }
@@ -417,7 +516,7 @@ export class DocumentationStore {
       updatedAt,
       summary: typeof state.summary === "string" ? state.summary.trim() : "",
       audience: normalizeAudience(state.audience),
-      scopePaths: normalizeStringList(state.scopePaths),
+      scopePaths: normalizeStoredPortableRepositoryPathList(state.scopePaths, fallback),
       contextRefs: normalizeContextRefs(state.contextRefs),
       sourceTarget: {
         kind: normalizeSourceTargetKind(sourceKind),
@@ -425,7 +524,7 @@ export class DocumentationStore {
       },
       updateReason: typeof state.updateReason === "string" ? state.updateReason.trim() : "",
       guideTopics: normalizeStringList(state.guideTopics),
-      linkedOutputPaths: normalizeStringList(state.linkedOutputPaths),
+      linkedOutputPaths: normalizeStoredPortableRepositoryPathList(state.linkedOutputPaths, fallback),
       lastRevisionId: normalizeOptionalString(state.lastRevisionId),
     };
   }
@@ -479,7 +578,10 @@ export class DocumentationStore {
     };
   }
 
-  private materializeSnapshot(snapshot: DocumentationCanonicalSnapshot): DocumentationCanonicalSnapshot {
+  private materializeSnapshot(
+    snapshot: DocumentationCanonicalSnapshot,
+    fallback?: LoomPortableRepositoryPathFallback | null,
+  ): DocumentationCanonicalSnapshot {
     if (typeof snapshot?.documentBody !== "string") {
       throw new Error("Documentation snapshot is missing documentBody");
     }
@@ -487,7 +589,7 @@ export class DocumentationStore {
       throw new Error("Documentation snapshot has invalid revisions");
     }
 
-    const state = this.normalizeStoredState(snapshot.state);
+    const state = this.normalizeStoredState(snapshot.state, fallback);
     const revisions = snapshot.revisions.map((revision) => this.normalizeStoredRevision(revision, state.docId));
     const lastRevisionId = revisions.at(-1)?.id ?? null;
     if (state.lastRevisionId !== lastRevisionId) {
@@ -501,15 +603,18 @@ export class DocumentationStore {
     };
   }
 
-  private readSnapshot(attributes: unknown): DocumentationCanonicalSnapshot | null {
+  private readSnapshot(
+    attributes: unknown,
+    fallback?: LoomPortableRepositoryPathFallback | null,
+  ): DocumentationCanonicalSnapshot | null {
     if (hasStructuredDocumentationAttributes(attributes)) {
-      return this.materializeSnapshot(attributes.snapshot);
+      return this.materializeSnapshot(attributes.snapshot, fallback);
     }
     return null;
   }
 
   private async nextDocId(baseTitle: string): Promise<string> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const baseId = slugifyTitle(baseTitle);
     const existing = new Set(
       (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => entity.displayId),
@@ -550,7 +655,7 @@ export class DocumentationStore {
 
   private async safeReadResearchAsync(id: string): Promise<ResearchRecord | null> {
     try {
-      return await createResearchStore(this.cwd).readResearch(id);
+      return await createResearchStore(this.cwd, this.scope).readResearch(id);
     } catch {
       return null;
     }
@@ -558,7 +663,7 @@ export class DocumentationStore {
 
   private async safeReadSpecAsync(id: string): Promise<SpecChangeRecord | null> {
     try {
-      return await createSpecStore(this.cwd).readChange(id);
+      return await createSpecStore(this.cwd, this.scope).readChange(id);
     } catch {
       return null;
     }
@@ -566,7 +671,7 @@ export class DocumentationStore {
 
   private async safeReadTicketAsync(id: string): Promise<TicketReadResult | null> {
     try {
-      return await createTicketStore(this.cwd).readTicketAsync(id);
+      return await createTicketStore(this.cwd, this.scope).readTicketAsync(id);
     } catch {
       return null;
     }
@@ -574,7 +679,7 @@ export class DocumentationStore {
 
   private async safeReadCritiqueAsync(id: string): Promise<CritiqueReadResult | null> {
     try {
-      return await createCritiqueStore(this.cwd).readCritiqueAsync(id);
+      return await createCritiqueStore(this.cwd, this.scope).readCritiqueAsync(id);
     } catch {
       return null;
     }
@@ -798,7 +903,7 @@ export class DocumentationStore {
         renderSection("Update Reason", state.updateReason || "(empty)"),
         renderSection("Current Document Summary", context.currentDocumentSummary),
         renderSection("Audience", state.audience.join(", ") || "none"),
-        renderSection("Scope Paths", renderBulletList(state.scopePaths)),
+        renderSection("Scope Paths", renderBulletList(renderPortableRepositoryPathList(state.scopePaths))),
         renderSection("Guide Topics", renderBulletList(state.guideTopics)),
         renderSection(
           "Documentation Boundaries",
@@ -830,21 +935,30 @@ export class DocumentationStore {
     );
   }
 
-  private async buildCanonicalRecord(snapshot: DocumentationCanonicalSnapshot): Promise<DocumentationReadResult> {
+  private async buildCanonicalRecord(
+    snapshot: DocumentationCanonicalSnapshot,
+    repositories?: readonly LoomRepositoryRecord[],
+    repositoryId?: string | null,
+  ): Promise<DocumentationReadResult> {
     const packet = await this.buildPacketCanonical(snapshot.state, snapshot.revisions, snapshot.documentBody);
     const document = renderDocumentationMarkdown(snapshot.state, snapshot.documentBody);
+    const repository = resolveRepositoryQualifier(
+      repositories ?? (await this.openWorkspaceStorage()).identity.repositories,
+      repositoryId,
+    );
     return {
       state: snapshot.state,
-      summary: summarizeDocumentation(snapshot.state, snapshot.revisions.length),
+      summary: summarizeDocumentation(snapshot.state, snapshot.revisions.length, repository),
       packet,
       document,
       revisions: snapshot.revisions,
-      dashboard: buildDocumentationDashboard(snapshot.state, snapshot.revisions),
+      dashboard: buildDocumentationDashboard(snapshot.state, snapshot.revisions, repository),
     };
   }
 
   private defaultDocumentBody(state: DocumentationState): string {
-    const scope = state.scopePaths.length > 0 ? state.scopePaths.join(", ") : "the workspace";
+    const scope =
+      state.scopePaths.length > 0 ? renderPortableRepositoryPathList(state.scopePaths).join(", ") : "the workspace";
     switch (state.docType) {
       case "overview":
         return [
@@ -902,7 +1016,11 @@ export class DocumentationStore {
     }
   }
 
-  private createDefaultState(input: CreateDocumentationInput, docId: string, timestamp: string): DocumentationState {
+  private async createDefaultState(
+    input: CreateDocumentationInput,
+    docId: string,
+    timestamp: string,
+  ): Promise<DocumentationState> {
     const docType = normalizeDocType(input.docType);
     return {
       docId,
@@ -914,7 +1032,7 @@ export class DocumentationStore {
       updatedAt: timestamp,
       summary: input.summary?.trim() ?? "",
       audience: normalizeAudience(input.audience),
-      scopePaths: normalizeStringList(input.scopePaths),
+      scopePaths: await resolvePortableRepositoryPathInputs(this.cwd, input.scopePaths, this.scope),
       contextRefs: normalizeContextRefs(input.contextRefs),
       sourceTarget: {
         kind: normalizeSourceTargetKind(input.sourceTarget.kind),
@@ -924,7 +1042,7 @@ export class DocumentationStore {
         input.updateReason?.trim() ||
         `Keep ${input.title.trim()} truthful after completed work changes system understanding.`,
       guideTopics: normalizeStringList(input.guideTopics),
-      linkedOutputPaths: normalizeStringList(input.linkedOutputPaths),
+      linkedOutputPaths: await resolvePortableRepositoryPathInputs(this.cwd, input.linkedOutputPaths, this.scope),
       lastRevisionId: null,
     };
   }
@@ -934,27 +1052,29 @@ export class DocumentationStore {
   }
 
   async listDocs(filter: DocumentationListFilter = {}): Promise<DocumentationReadResult["summary"][]> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const records = await Promise.all(
-      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity)),
+      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) =>
+        this.entityRecord(entity, identity.repositories),
+      ),
     );
     return filterAndSortDocumentationSummaries(records, filter);
   }
 
   async readDoc(ref: string): Promise<DocumentationReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const docId = normalizeDocRef(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, docId);
     if (!entity) {
       throw new Error(`Unknown documentation: ${docId}`);
     }
-    return this.entityRecord(entity);
+    return this.entityRecord(entity, identity.repositories);
   }
 
   async createDoc(input: CreateDocumentationInput): Promise<DocumentationReadResult> {
     const timestamp = currentTimestamp();
     const docId = await this.nextDocId(input.title);
-    const state = this.createDefaultState(input, docId, timestamp);
+    const state = await this.createDefaultState(input, docId, timestamp);
     return this.upsertCanonicalRecord(
       await this.buildCanonicalRecord({
         state: {
@@ -1011,7 +1131,9 @@ export class DocumentationStore {
       updatedAt: currentTimestamp(),
       summary: input.summary?.trim() ?? (documentUpdated ? summarizeDocument(documentBody) : current.state.summary),
       audience: input.audience ? normalizeAudience(input.audience) : current.state.audience,
-      scopePaths: input.scopePaths ? normalizeStringList(input.scopePaths) : current.state.scopePaths,
+      scopePaths: input.scopePaths
+        ? await resolvePortableRepositoryPathInputs(this.cwd, input.scopePaths, this.scope)
+        : current.state.scopePaths,
       contextRefs: input.contextRefs ? normalizeContextRefs(input.contextRefs) : current.state.contextRefs,
       sourceTarget: input.sourceTarget
         ? { kind: normalizeSourceTargetKind(input.sourceTarget.kind), ref: input.sourceTarget.ref.trim() }
@@ -1019,7 +1141,7 @@ export class DocumentationStore {
       updateReason: input.updateReason?.trim() ?? current.state.updateReason,
       guideTopics: input.guideTopics ? normalizeStringList(input.guideTopics) : current.state.guideTopics,
       linkedOutputPaths: input.linkedOutputPaths
-        ? normalizeStringList(input.linkedOutputPaths)
+        ? await resolvePortableRepositoryPathInputs(this.cwd, input.linkedOutputPaths, this.scope)
         : current.state.linkedOutputPaths,
     };
     const revision = await this.buildAppendedRevision(current, nextState, documentBody, {
@@ -1059,6 +1181,6 @@ export class DocumentationStore {
   }
 }
 
-export function createDocumentationStore(cwd: string): DocumentationStore {
-  return new DocumentationStore(cwd);
+export function createDocumentationStore(cwd: string, scope: LoomExplicitScopeInput = {}): DocumentationStore {
+  return new DocumentationStore(cwd, scope);
 }

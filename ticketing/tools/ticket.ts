@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
+import { listTicketGraphNodesById, resolveTicketGraphNodeKey } from "../domain/graph.js";
 import type {
   AttachArtifactInput,
   CreateCheckpointInput,
@@ -87,10 +88,30 @@ const TicketReadParams = Type.Object({
     description:
       "Human-facing ticket ref: repo-prefixed ids such as `pl-0001`, `#pl-0001`, `@pl-0001`, `ticket:pl-0001`, a markdown filename, or a markdown path. Canonical storage entity ids stay opaque and are not accepted here.",
   }),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted reads when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted reads when a specific clone/worktree matters.",
+    }),
+  ),
 });
 
 const TicketWriteParams = Type.Object({
   action: TicketWriteActionEnum,
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted writes when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted writes when a specific clone/worktree matters.",
+    }),
+  ),
   ref: Type.Optional(
     Type.String({
       description:
@@ -140,6 +161,16 @@ const TicketGraphParams = Type.Object({
         "Optional human-facing ticket ref: repo-prefixed ids such as `pl-0001`, `#pl-0001`, `@pl-0001`, `ticket:pl-0001`, a markdown filename, or a markdown path.",
     }),
   ),
+  repositoryId: Type.Optional(
+    Type.String({
+      description: "Optional repository id for repository-targeted graph reads when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description: "Optional worktree id for repository-targeted graph reads when a specific clone/worktree matters.",
+    }),
+  ),
 });
 
 const TicketCheckpointParams = Type.Object({
@@ -148,6 +179,18 @@ const TicketCheckpointParams = Type.Object({
     description:
       "Human-facing ticket ref: repo-prefixed ids such as `pl-0001`, `#pl-0001`, `@pl-0001`, `ticket:pl-0001`, a markdown filename, or a markdown path.",
   }),
+  repositoryId: Type.Optional(
+    Type.String({
+      description:
+        "Optional repository id for repository-targeted checkpoint reads or writes when the active scope is ambiguous.",
+    }),
+  ),
+  worktreeId: Type.Optional(
+    Type.String({
+      description:
+        "Optional worktree id for repository-targeted checkpoint reads or writes when a specific clone/worktree matters.",
+    }),
+  ),
   title: Type.Optional(Type.String()),
   body: Type.Optional(Type.String()),
   supersedes: Type.Optional(Type.String()),
@@ -157,6 +200,13 @@ type TicketWriteParamsValue = Static<typeof TicketWriteParams>;
 
 function getStore(ctx: ExtensionContext) {
   return createTicketStore(ctx.cwd);
+}
+
+function getScopedStore(ctx: ExtensionContext, scope?: { repositoryId?: string; worktreeId?: string }) {
+  return createTicketStore(ctx.cwd, {
+    repositoryId: scope?.repositoryId,
+    worktreeId: scope?.worktreeId,
+  });
 }
 
 function requireRef(ref: string | undefined): string {
@@ -314,7 +364,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     ],
     parameters: TicketReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = await getStore(ctx).readTicketAsync(params.ref);
+      const result = await getScopedStore(ctx, params).readTicketAsync(params.ref);
       return machineResult({ ticket: result }, renderTicketDetail(result));
     },
   });
@@ -334,7 +384,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     ],
     parameters: TicketWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
+      const store = getScopedStore(ctx, params);
       switch (params.action) {
         case "create": {
           const result = await runMutation(ctx, () => store.createTicketAsync(toCreateInput(params)));
@@ -421,17 +471,30 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     ],
     parameters: TicketGraphParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const graph = await getStore(ctx).graphAsync();
+      const store = getScopedStore(ctx, params);
+      const graph = await store.graphAsync();
       if (params.ref) {
-        const ticketId = getStore(ctx).resolveTicketRef(params.ref);
+        const ticketId = store.resolveTicketRef(params.ref);
+        const scopedRepositoryId = params.repositoryId ?? store.scope.repositoryId;
+        const nodeKey = resolveTicketGraphNodeKey(graph, ticketId, scopedRepositoryId);
+        if (!nodeKey && graph.lookup.ambiguousIds.includes(ticketId)) {
+          const matches = listTicketGraphNodesById(graph, ticketId)
+            .map((node) => node.qualifiedId)
+            .join(", ");
+          throw new Error(
+            `Ticket graph ref ${ticketId} is ambiguous across repositories; rerun with repositoryId. Matches: ${matches}`,
+          );
+        }
+        const node = nodeKey ? (graph.nodes[nodeKey] ?? null) : null;
         return machineResult(
-          { graph, node: graph.nodes[ticketId] ?? null },
-          graph.nodes[ticketId]
+          { graph, node },
+          node
             ? renderGraph({
-                nodes: { [ticketId]: graph.nodes[ticketId] },
-                ready: graph.ready.filter((id) => id === ticketId),
-                blocked: graph.blocked.filter((id) => id === ticketId),
-                cycles: graph.cycles.filter((cycle) => cycle.includes(ticketId)),
+                nodes: { [node.key]: node },
+                ready: graph.ready.filter((ref) => ref.key === node.key),
+                blocked: graph.blocked.filter((ref) => ref.key === node.key),
+                cycles: graph.cycles.filter((cycle) => cycle.some((ref) => ref.key === node.key)),
+                lookup: graph.lookup,
               })
             : `No graph node for ${ticketId}`,
         );
@@ -451,7 +514,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
     ],
     parameters: TicketCheckpointParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const store = getStore(ctx);
+      const store = getScopedStore(ctx, params);
       if (params.action === "read") {
         const result = await store.readTicketAsync(params.ref);
         return machineResult(

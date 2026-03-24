@@ -1,5 +1,10 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  PI_LOOM_RUNTIME_REPOSITORY_ID_ENV,
+  PI_LOOM_RUNTIME_SPACE_ID_ENV,
+  PI_LOOM_RUNTIME_WORKTREE_ID_ENV,
+} from "#storage/runtime-scope.js";
 import { buildDocumentationDashboard } from "../domain/dashboard.js";
 import type { DocumentationState } from "../domain/models.js";
 import { renderUpdateDescriptor, renderUpdatePrompt } from "../domain/render.js";
@@ -44,11 +49,20 @@ function createState(overrides: Partial<DocumentationState> = {}): Documentation
 
 describe("docs runtime spawn resolution", () => {
   it("roots docs update launch config at the unified pi-loom package, not the caller workspace", () => {
-    const launch = getDocsUpdateLaunchConfig("/tmp/caller-workspace/nested", "Update docs", {
-      execPath: "/usr/local/bin/node",
-      argv1: "/custom-fork/dist/omp-cli.js",
-      existsSync: (filePath) => filePath === "/custom-fork/dist/omp-cli.js",
-    });
+    const launch = getDocsUpdateLaunchConfig(
+      "/tmp/caller-workspace/nested",
+      "Update docs",
+      {
+        spaceId: "space-001",
+        repositoryId: "repo-001",
+        worktreeId: "worktree-001",
+      },
+      {
+        execPath: "/usr/local/bin/node",
+        argv1: "/custom-fork/dist/omp-cli.js",
+        existsSync: (filePath) => filePath === "/custom-fork/dist/omp-cli.js",
+      },
+    );
 
     expect(launch.extensionRoot).toBe(resolveDocsPackageRoot());
     expect(launch.spawn).toEqual({
@@ -63,6 +77,11 @@ describe("docs runtime spawn resolution", () => {
         "--no-session",
         "Update docs",
       ],
+    });
+    expect(launch.env).toEqual({
+      [PI_LOOM_RUNTIME_SPACE_ID_ENV]: "space-001",
+      [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: "repo-001",
+      [PI_LOOM_RUNTIME_WORKTREE_ID_ENV]: "worktree-001",
     });
   });
 

@@ -77,6 +77,7 @@ function renderLinkedRefs(state: RalphRunState): string {
 function renderScope(state: RalphRunState): string {
   return [
     `- mode: ${state.scope.mode}`,
+    `- repository: ${state.scope.repositoryId ?? "(none)"}`,
     `- governing spec: ${state.scope.specChangeId ?? "(none)"}`,
     `- governing plan: ${state.scope.planId ?? "(none)"}`,
     `- active ticket: ${state.activeTicketId ?? state.scope.ticketId ?? "(none)"}`,
@@ -140,6 +141,8 @@ function renderRuntimeArtifacts(runtimeArtifacts: RalphIterationRuntimeRecord[])
         `  started: ${runtimeArtifact.startedAt}`,
         `  completed: ${runtimeArtifact.completedAt ?? "(not completed)"}`,
         `  exit code: ${runtimeArtifact.exitCode ?? "(none)"}`,
+        `  repository: ${runtimeArtifact.runtimeScope?.repositoryId ?? "(none)"}`,
+        `  worktree: ${runtimeArtifact.runtimeScope?.worktreeId ?? "(none)"}`,
         `  missing ticket activity: ${runtimeArtifact.missingTicketActivity ? "yes" : "no"}`,
         `  command: ${runtimeArtifact.command || "(none)"}`,
         `  events: ${runtimeArtifact.events.length}`,
@@ -241,7 +244,7 @@ export function renderRalphDetail(result: RalphReadResult): string {
   const latestRuntime = result.runtimeArtifacts.at(-1) ?? null;
   return [
     renderRalphSummary(result.summary),
-    `Scope: ${result.state.scope.mode} / spec=${result.state.scope.specChangeId ?? "none"} / plan=${result.state.scope.planId ?? "none"} / ticket=${result.state.activeTicketId ?? result.state.scope.ticketId ?? "none"}`,
+    `Scope: ${result.state.scope.mode} / repo=${result.state.scope.repositoryId ?? "none"} / spec=${result.state.scope.specChangeId ?? "none"} / plan=${result.state.scope.planId ?? "none"} / ticket=${result.state.activeTicketId ?? result.state.scope.ticketId ?? "none"}`,
     `Waiting for: ${result.state.waitingFor}`,
     `Scheduler: ${result.state.scheduler.status}${result.state.scheduler.jobId ? ` (${result.state.scheduler.jobId})` : ""}`,
     `Plans: ${result.state.linkedRefs.planIds.join(", ") || "none"}`,
@@ -249,7 +252,7 @@ export function renderRalphDetail(result: RalphReadResult): string {
     `Critiques: ${result.state.linkedRefs.critiqueIds.join(", ") || "none"}`,
     `Iterations: ${result.iterations.length}`,
     `Latest bounded iteration: ${result.state.postIteration ? `${result.state.postIteration.iteration} [${result.state.postIteration.status}]` : "none"}`,
-    `Latest runtime: ${latestRuntime ? `${latestRuntime.iteration} [${latestRuntime.status}]` : "none"}`,
+    `Latest runtime: ${latestRuntime ? `${latestRuntime.iteration} [${latestRuntime.status}] / repo=${latestRuntime.runtimeScope?.repositoryId ?? "none"} / worktree=${latestRuntime.runtimeScope?.worktreeId ?? "none"}` : "none"}`,
     `Next launch prepared: ${result.state.nextLaunch.preparedAt ?? "no"}`,
     `Latest decision: ${result.state.latestDecision?.kind ?? "none"}`,
     `Stop reason: ${result.state.stopReason ?? "none"}`,

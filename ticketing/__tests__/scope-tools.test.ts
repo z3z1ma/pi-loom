@@ -1,10 +1,11 @@
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { closeAllWorkspaceStorage } from "#storage/workspace.js";
+import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
+import { discoverWorkspaceScope, selectActiveScope, writePersistedScopeBinding } from "#storage/repository.js";
+import { closeAllWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -52,27 +53,23 @@ function createContext(cwd: string): ExtensionContext {
   return { cwd } as ExtensionContext;
 }
 
+function firstTextContent(result: { content?: Array<{ type: string; text?: string }> }): string {
+  return result.content?.find((entry) => entry.type === "text" && typeof entry.text === "string")?.text ?? "";
+}
+
 function createParentWorkspaceWithChildren(): { cwd: string; cleanup: () => void } {
-  const root = mkdtempSync(join(tmpdir(), "pi-ticket-scope-tools-"));
-  const createRepository = (name: string, remoteUrl: string) => {
-    const repoRoot = join(root, name);
-    mkdirSync(repoRoot, { recursive: true });
-    execFileSync("git", ["init"], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["remote", "add", "origin", remoteUrl], { cwd: repoRoot, encoding: "utf-8" });
-    writeFileSync(join(repoRoot, "package.json"), `${JSON.stringify({ name })}\n`, "utf-8");
-    writeFileSync(join(repoRoot, "README.md"), "seed\n", "utf-8");
-    execFileSync("git", ["add", "."], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["commit", "-m", "seed"], { cwd: repoRoot, encoding: "utf-8" });
-  };
-  createRepository("service-a", "git@github.com:example/service-a.git");
-  createRepository("service-b", "git@github.com:example/service-b.git");
+  const workspace = createSeededParentGitWorkspace({
+    prefix: "pi-ticket-scope-tools-",
+    repositories: [
+      { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+      { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+    ],
+  });
   return {
-    cwd: root,
+    cwd: workspace.cwd,
     cleanup: () => {
       closeAllWorkspaceStorage();
-      rmSync(root, { recursive: true, force: true });
+      workspace.cleanup();
     },
   };
 }
@@ -112,7 +109,21 @@ describe("scope tools", () => {
           ]),
           candidateRepositories: [],
         },
+        scopeSummary: {
+          activeScope: {
+            state: "ambiguous",
+            repository: null,
+            worktree: null,
+            ambiguityReason: expect.stringContaining("Multiple repositories"),
+          },
+          discovery: { startedInsideRepository: false, enrolledRepositoryCount: 2, unenrolledCandidateCount: 0 },
+          persistedBinding: { status: "none" },
+        },
       });
+      expect(firstTextContent(initial)).toContain(
+        "Discovery: startedInsideRepository=no activeRepositorySource=(none)",
+      );
+      expect(firstTextContent(initial)).toContain("Persisted binding: none");
 
       const firstRepositoryId = (
         initial.details as { scope: { enrolledRepositories: Array<{ repository: { id: string } }> } }
@@ -129,7 +140,13 @@ describe("scope tools", () => {
       expect(selected.details).toMatchObject({
         action: "select",
         identity: { activeScope: { isAmbiguous: false, bindingSource: "persisted", repositoryId: firstRepositoryId } },
+        scopeSummary: {
+          activeScope: { state: "resolved", repository: { id: firstRepositoryId } },
+          persistedBinding: { status: "active", source: "persisted", repositoryId: firstRepositoryId },
+        },
       });
+      expect(firstTextContent(selected)).toContain("Action: select");
+      expect(firstTextContent(selected)).toContain("Persisted binding: active source=persisted");
 
       const revoked = await scopeWrite.execute("call-3", { action: "revoke" }, undefined, undefined, ctx);
       expect(revoked.details).toMatchObject({
@@ -178,4 +195,91 @@ describe("scope tools", () => {
       rmSync(loomRoot, { recursive: true, force: true });
     }
   }, 20000);
+
+  it("surfaces ignored stale persisted bindings in headless scope diagnostics", async () => {
+    const workspace = createParentWorkspaceWithChildren();
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-ticket-scope-stale-binding-"));
+    process.env.PI_LOOM_ROOT = loomRoot;
+    try {
+      const mockPi = createMockPi();
+      const { registerScopeTools } = await import("../tools/scope.js");
+      registerScopeTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(workspace.cwd);
+      const scopeRead = getTool(mockPi, "scope_read");
+      const { storage } = await openWorkspaceStorage(workspace.cwd);
+      const discovered = await discoverWorkspaceScope(workspace.cwd, storage);
+
+      writePersistedScopeBinding({
+        scopeRoot: workspace.cwd,
+        spaceId: discovered.identity.space.id,
+        repositoryId: "repo-missing",
+        worktreeId: null,
+        bindingSource: "persisted",
+        selectedAt: "2026-03-24T08:30:00.000Z",
+        staleReason: null,
+      });
+
+      const result = await scopeRead.execute("call-stale", {}, undefined, undefined, ctx);
+      expect(result.details).toMatchObject({
+        scopeSummary: {
+          activeScope: { state: "ambiguous" },
+          persistedBinding: { status: "ignored", source: "persisted", repositoryId: "repo-missing" },
+        },
+      });
+      expect(
+        (result.details as { scopeSummary: { diagnostics: Array<{ kind: string }> } }).scopeSummary.diagnostics,
+      ).toContainEqual(expect.objectContaining({ kind: "stale_binding" }));
+      expect(firstTextContent(result)).toContain("Persisted binding: ignored source=persisted repository=repo-missing");
+      expect(firstTextContent(result)).toContain(
+        "[stale_binding] Persisted repository binding repo-missing is stale and was ignored.",
+      );
+    } finally {
+      delete process.env.PI_LOOM_ROOT;
+      closeAllWorkspaceStorage();
+      workspace.cleanup();
+      rmSync(loomRoot, { recursive: true, force: true });
+    }
+  }, 20000);
+
+  it("surfaces selected repository unavailability without hiding the active binding", async () => {
+    const workspace = createParentWorkspaceWithChildren();
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-ticket-scope-unavailable-binding-"));
+    process.env.PI_LOOM_ROOT = loomRoot;
+    try {
+      const mockPi = createMockPi();
+      const { registerScopeTools } = await import("../tools/scope.js");
+      registerScopeTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(workspace.cwd);
+      const scopeRead = getTool(mockPi, "scope_read");
+      const { storage } = await openWorkspaceStorage(workspace.cwd);
+      const discovered = await discoverWorkspaceScope(workspace.cwd, storage);
+      const selectedRepositoryId = discovered.enrolledRepositories.find(
+        (entry) => entry.repository.displayName === "service-b",
+      )?.repository.id;
+      expect(selectedRepositoryId).toBeTruthy();
+
+      await selectActiveScope(workspace.cwd, { repositoryId: selectedRepositoryId }, storage);
+      closeAllWorkspaceStorage();
+      rmSync(join(workspace.cwd, "service-b"), { recursive: true, force: true });
+
+      const result = await scopeRead.execute("call-unavailable", {}, undefined, undefined, ctx);
+      expect(result.details).toMatchObject({
+        scopeSummary: {
+          activeScope: { state: "resolved", repository: { id: selectedRepositoryId, locallyAvailable: false } },
+          persistedBinding: { status: "active", source: "persisted", repositoryId: selectedRepositoryId },
+        },
+      });
+      expect(
+        (result.details as { scopeSummary: { diagnostics: Array<{ kind: string }> } }).scopeSummary.diagnostics,
+      ).toContainEqual(expect.objectContaining({ kind: "repository_unavailable" }));
+      expect(firstTextContent(result)).toContain("Persisted binding: active source=persisted");
+      expect(firstTextContent(result)).toContain("availability=unavailable:");
+      expect(firstTextContent(result)).toContain("[repository_unavailable]");
+    } finally {
+      delete process.env.PI_LOOM_ROOT;
+      closeAllWorkspaceStorage();
+      workspace.cleanup();
+      rmSync(loomRoot, { recursive: true, force: true });
+    }
+  }, 30000);
 });

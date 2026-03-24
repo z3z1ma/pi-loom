@@ -5,6 +5,7 @@ import { createResearchStore } from "#research/domain/store.js";
 import { SPEC_STATUSES } from "#specs/domain/models.js";
 import { createSpecStore } from "#specs/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
+import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
 import { TICKET_STATUSES, type TicketSummary } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
@@ -136,6 +137,7 @@ function buildMilestoneDashboard(
 
 function buildDashboardFromRelatedState(
   state: InitiativeState,
+  repository: LoomRepositoryQualifier | null,
   linkedRoadmap: { items: RoadmapItem[]; missingRefs: string[] },
   allRoadmapItems: RoadmapItem[],
   linkedResearch: InitiativeDashboard["linkedResearch"]["items"],
@@ -190,6 +192,7 @@ function buildDashboardFromRelatedState(
       id: state.initiativeId,
       title: state.title,
       status: state.status,
+      repository,
       objective: state.objective,
       statusSummary: state.statusSummary,
       targetWindow: state.targetWindow,
@@ -239,7 +242,11 @@ function buildDashboardFromRelatedState(
   };
 }
 
-export async function buildInitiativeDashboard(cwd: string, state: InitiativeState): Promise<InitiativeDashboard> {
+export async function buildInitiativeDashboard(
+  cwd: string,
+  state: InitiativeState,
+  repository: LoomRepositoryQualifier | null = null,
+): Promise<InitiativeDashboard> {
   const constitutionalStore = createConstitutionalStore(cwd);
   const specStore = createSpecStore(cwd);
   const ticketStore = createTicketStore(cwd);
@@ -251,5 +258,13 @@ export async function buildInitiativeDashboard(cwd: string, state: InitiativeSta
     ticketStore.listTicketsAsync({ includeClosed: true }),
   ]);
 
-  return buildDashboardFromRelatedState(state, linkedRoadmap, allRoadmapItems, linkedResearch, allSpecs, allTickets);
+  return buildDashboardFromRelatedState(
+    state,
+    repository,
+    linkedRoadmap,
+    allRoadmapItems,
+    linkedResearch,
+    allSpecs,
+    allTickets,
+  );
 }

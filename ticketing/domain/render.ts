@@ -1,7 +1,18 @@
-import type { CheckpointRecord, JournalEntry, TicketGraphResult, TicketReadResult, TicketSummary } from "./models.js";
+import type {
+  CheckpointRecord,
+  JournalEntry,
+  TicketGraphRef,
+  TicketGraphResult,
+  TicketReadResult,
+  TicketSummary,
+} from "./models.js";
 
 function renderList(values: string[]): string {
   return values.length > 0 ? values.join(", ") : "none";
+}
+
+function renderGraphRefs(refs: TicketGraphRef[]): string {
+  return refs.length > 0 ? refs.map((ref) => ref.qualifiedId).join(", ") : "none";
 }
 
 export function renderTicketSummary(summary: TicketSummary): string {
@@ -65,13 +76,12 @@ export function renderCheckpointList(checkpoints: CheckpointRecord[]): string {
 }
 
 export function renderGraph(graph: TicketGraphResult): string {
-  const lines = [
-    `Ready: ${graph.ready.length > 0 ? graph.ready.join(", ") : "none"}`,
-    `Blocked: ${graph.blocked.length > 0 ? graph.blocked.join(", ") : "none"}`,
-  ];
-  for (const node of Object.values(graph.nodes).sort((left, right) => left.id.localeCompare(right.id))) {
+  const lines = [`Ready: ${renderGraphRefs(graph.ready)}`, `Blocked: ${renderGraphRefs(graph.blocked)}`];
+  for (const node of Object.values(graph.nodes).sort((left, right) =>
+    left.qualifiedId.localeCompare(right.qualifiedId),
+  )) {
     lines.push(
-      `${node.id} [${node.status}]${node.repository ? ` repo=${node.repository.slug}` : ""} deps=${renderList(node.deps)} blockedBy=${renderList(node.blockedBy)}`,
+      `${node.qualifiedId} [${node.status}] deps=${renderGraphRefs(node.deps)} blockedBy=${renderGraphRefs(node.blockedBy)}`,
     );
   }
   return lines.join("\n");

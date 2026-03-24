@@ -1,12 +1,31 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createSeededGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
+import { createSeededGitWorkspace, createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
-import { openWorkspaceStorage } from "#storage/workspace.js";
+import { closeAllWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
+import { ticketGraphNodeKey } from "../domain/graph.js";
 import { getCheckpointRef, getTicketRef } from "../domain/paths.js";
 import { createTicketStore } from "../domain/store.js";
+
+function createParentWorkspaceWithChildren(): { cwd: string; cleanup: () => void } {
+  const workspace = createSeededParentGitWorkspace({
+    prefix: "pi-ticketing-store-multi-",
+    repositories: [
+      { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+      { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+    ],
+  });
+
+  return {
+    cwd: workspace.cwd,
+    cleanup: () => {
+      closeAllWorkspaceStorage();
+      workspace.cleanup();
+    },
+  };
+}
 
 describe("TicketStore canonical storage", () => {
   let workspace: string;
@@ -291,6 +310,152 @@ describe("TicketStore canonical storage", () => {
     const remaining = await store.listTicketsAsync({ includeClosed: true, includeArchived: true });
     expect(remaining.map((ticket) => ticket.id)).toEqual([child.summary.id, dependent.summary.id, parent.summary.id]);
   }, 30000);
+
+  it("uses explicit repository scope for repository-bound ticket operations in ambiguous workspaces", async () => {
+    const multiRepo = createParentWorkspaceWithChildren();
+    const loomRoot = join(multiRepo.cwd, ".pi-loom-scoped-store-test");
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      const { identity } = await openWorkspaceStorage(multiRepo.cwd);
+      const repositories = [...identity.repositories].sort((left, right) =>
+        left.displayName.localeCompare(right.displayName),
+      );
+      const serviceA = repositories[0];
+      const serviceB = repositories[1];
+      if (!serviceA || !serviceB) {
+        throw new Error("Expected two repositories in the multi-repo scope.");
+      }
+
+      closeAllWorkspaceStorage();
+
+      vi.setSystemTime(new Date("2024-01-06T12:00:00.000Z"));
+      const scopedA = createTicketStore(multiRepo.cwd, { repositoryId: serviceA.id });
+      const serviceATicket = await scopedA.createTicketAsync({
+        title: "Scoped service A execution",
+        summary: "Repository-targeted write without ambient selection.",
+      });
+
+      vi.setSystemTime(new Date("2024-01-06T12:00:01.000Z"));
+      const checkpointed = await scopedA.recordCheckpointAsync(serviceATicket.summary.id, {
+        title: "service-a handoff",
+        body: "Scoped checkpoint write succeeds without ambient selection.",
+      });
+      expect(checkpointed.summary.repository).toMatchObject({ id: serviceA.id });
+      expect(checkpointed.checkpoints).toEqual([
+        expect.objectContaining({
+          title: "service-a handoff",
+          body: "Scoped checkpoint write succeeds without ambient selection.",
+        }),
+      ]);
+
+      vi.setSystemTime(new Date("2024-01-06T12:00:02.000Z"));
+      const scopedB = createTicketStore(multiRepo.cwd, { repositoryId: serviceB.id });
+      const serviceBTicket = await scopedB.createTicketAsync({
+        title: "Scoped service B execution",
+        summary: "Second repository write without ambient selection.",
+      });
+
+      closeAllWorkspaceStorage();
+
+      await expect(
+        createTicketStore(multiRepo.cwd).createTicketAsync({ title: "Ambient ambiguous write" }),
+      ).rejects.toThrow(/ambiguous; select a repository/i);
+      await expect(
+        createTicketStore(multiRepo.cwd, { repositoryId: serviceA.id }).readTicketAsync(serviceATicket.summary.id),
+      ).resolves.toMatchObject({
+        summary: { id: serviceATicket.summary.id, repository: expect.objectContaining({ id: serviceA.id }) },
+        checkpoints: [expect.objectContaining({ title: "service-a handoff" })],
+      });
+      await expect(
+        createTicketStore(multiRepo.cwd, { repositoryId: serviceB.id }).readTicketAsync(serviceBTicket.summary.id),
+      ).resolves.toMatchObject({
+        summary: { id: serviceBTicket.summary.id, repository: expect.objectContaining({ id: serviceB.id }) },
+      });
+
+      const graph = await createTicketStore(multiRepo.cwd, { repositoryId: serviceA.id }).graphAsync();
+      expect(graph.nodes[ticketGraphNodeKey(serviceATicket.summary)]).toMatchObject({
+        key: ticketGraphNodeKey(serviceATicket.summary),
+        id: serviceATicket.summary.id,
+        repository: expect.objectContaining({ id: serviceA.id }),
+      });
+    } finally {
+      delete process.env.PI_LOOM_ROOT;
+      multiRepo.cleanup();
+    }
+  }, 60000);
+
+  it("resolves relative attachment paths against the selected repository root and fails closed when ambient scope is ambiguous", async () => {
+    const multiRepo = createParentWorkspaceWithChildren();
+    const loomRoot = join(multiRepo.cwd, ".pi-loom-attachment-scope-test");
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      mkdirSync(join(multiRepo.cwd, "service-a", "artifacts"), { recursive: true });
+      mkdirSync(join(multiRepo.cwd, "service-b", "artifacts"), { recursive: true });
+      writeFileSync(join(multiRepo.cwd, "service-a", "artifacts", "evidence.txt"), "service-a evidence\n", "utf-8");
+      writeFileSync(join(multiRepo.cwd, "service-b", "artifacts", "evidence.txt"), "service-b evidence\n", "utf-8");
+
+      const { identity } = await openWorkspaceStorage(multiRepo.cwd);
+      const repositories = [...identity.repositories].sort((left, right) =>
+        left.displayName.localeCompare(right.displayName),
+      );
+      const serviceA = repositories[0];
+      const serviceB = repositories[1];
+      if (!serviceA || !serviceB) {
+        throw new Error("Expected two repositories in the multi-repo scope.");
+      }
+
+      closeAllWorkspaceStorage();
+
+      vi.setSystemTime(new Date("2024-01-06T12:10:00.000Z"));
+      const scopedA = createTicketStore(multiRepo.cwd, { repositoryId: serviceA.id });
+      const created = await scopedA.createTicketAsync({
+        title: "Scoped attachment resolution",
+        summary: "Relative attachment paths should resolve inside the selected repository.",
+      });
+
+      vi.setSystemTime(new Date("2024-01-06T12:10:01.000Z"));
+      const attached = await scopedA.attachArtifactAsync(created.summary.id, {
+        label: "repo-evidence",
+        path: "artifacts/evidence.txt",
+      });
+      expect(attached.attachments).toEqual([
+        expect.objectContaining({
+          label: "repo-evidence",
+          metadata: expect.objectContaining({
+            inlineContentBase64: Buffer.from("service-a evidence\n", "utf-8").toString("base64"),
+            sourcePath: {
+              repositoryId: serviceA.id,
+              repositorySlug: serviceA.slug,
+              worktreeId: expect.any(String),
+              relativePath: "artifacts/evidence.txt",
+              displayPath: `${serviceA.slug}:artifacts/evidence.txt`,
+            },
+          }),
+        }),
+      ]);
+
+      closeAllWorkspaceStorage();
+
+      await expect(
+        createTicketStore(multiRepo.cwd).attachArtifactAsync(created.summary.id, {
+          label: "ambiguous-repo-evidence",
+          path: "artifacts/evidence.txt",
+        }),
+      ).rejects.toThrow(/ambiguous; select a repository/i);
+
+      await expect(
+        scopedA.attachArtifactAsync(created.summary.id, {
+          label: "escaped-repo-evidence",
+          path: "../service-b/artifacts/evidence.txt",
+        }),
+      ).rejects.toThrow(/escapes repository/i);
+    } finally {
+      delete process.env.PI_LOOM_ROOT;
+      multiRepo.cleanup();
+    }
+  }, 60000);
 
   it("resolves truthful human-facing refs and freezes structural edits while closed", async () => {
     const store = createTicketStore(workspace);

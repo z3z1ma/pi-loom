@@ -46,6 +46,13 @@ describe("ticket attachments", () => {
         metadata: expect.objectContaining({
           sha256: "abc123",
           retained: true,
+          sourcePath: expect.objectContaining({
+            repositoryId: updated.summary.repository?.id,
+            repositorySlug: updated.summary.repository?.slug,
+            worktreeId: expect.any(String),
+            relativePath: "evidence.txt",
+            displayPath: `${updated.summary.repository?.slug}:evidence.txt`,
+          }),
           inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
           inlineEncoding: "base64",
           inlineSourceType: "filesystem",
@@ -75,6 +82,13 @@ describe("ticket attachments", () => {
             metadata: expect.objectContaining({
               sha256: "abc123",
               retained: true,
+              sourcePath: expect.objectContaining({
+                repositoryId: updated.summary.repository?.id,
+                repositorySlug: updated.summary.repository?.slug,
+                worktreeId: expect.any(String),
+                relativePath: "evidence.txt",
+                displayPath: `${updated.summary.repository?.slug}:evidence.txt`,
+              }),
               inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
               inlineEncoding: "base64",
               inlineSourceType: "filesystem",

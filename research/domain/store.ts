@@ -239,6 +239,7 @@ export class ResearchStore {
   constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
     this.cwd = resolve(cwd);
     this.scope = {
+      spaceId: scope.spaceId ?? null,
       repositoryId: scope.repositoryId ?? null,
       worktreeId: scope.worktreeId ?? null,
     };

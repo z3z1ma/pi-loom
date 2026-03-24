@@ -3,8 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
-import { openWorkspaceStorage } from "#storage/workspace.js";
+import { closeAllWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
+import { ticketGraphNodeKey } from "../domain/graph.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -34,6 +36,24 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   return {
     cwd,
     cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+  };
+}
+
+function createParentWorkspaceWithChildren(): { cwd: string; cleanup: () => void } {
+  const workspace = createSeededParentGitWorkspace({
+    prefix: "pi-ticketing-tools-multi-",
+    repositories: [
+      { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+      { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+    ],
+  });
+
+  return {
+    cwd: workspace.cwd,
+    cleanup: () => {
+      closeAllWorkspaceStorage();
+      workspace.cleanup();
+    },
   };
 }
 
@@ -145,6 +165,58 @@ describe("ticket tools", () => {
         }
       ).properties.exactRepositoryId,
     ).toMatchObject({ type: "string", optional: true });
+    expect(
+      (
+        getTool(mockPi, "ticket_read").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties,
+    ).toMatchObject({
+      repositoryId: { type: "string", optional: true },
+      worktreeId: { type: "string", optional: true },
+    });
+    expect(
+      (
+        getTool(mockPi, "ticket_write").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties,
+    ).toMatchObject({
+      repositoryId: { type: "string", optional: true },
+      worktreeId: { type: "string", optional: true },
+    });
+    expect(
+      (
+        getTool(mockPi, "ticket_graph").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties,
+    ).toMatchObject({
+      repositoryId: { type: "string", optional: true },
+      worktreeId: { type: "string", optional: true },
+    });
+    expect(
+      (
+        getTool(mockPi, "ticket_checkpoint").parameters as unknown as {
+          properties: {
+            repositoryId: { type: string; optional: boolean };
+            worktreeId: { type: string; optional: boolean };
+          };
+        }
+      ).properties,
+    ).toMatchObject({
+      repositoryId: { type: "string", optional: true },
+      worktreeId: { type: "string", optional: true },
+    });
     expect(getTool(mockPi, "ticket_checkpoint").promptGuidelines).toContain(
       "Use checkpoints for reusable durable handoff records, not ephemeral chat summaries.",
     );
@@ -190,7 +262,10 @@ describe("ticket tools", () => {
         undefined,
         ctx,
       );
-      const blockerId = resultDetails<{ ticket: { summary: { id: string } } }>(blockerResult.details).ticket.summary.id;
+      const blockerSummary = resultDetails<{
+        ticket: { summary: { id: string; repository: { id: string; slug: string; displayName: string } } };
+      }>(blockerResult.details).ticket.summary;
+      const blockerId = blockerSummary.id;
 
       const createResult = await ticketWrite.execute(
         "call-2",
@@ -207,7 +282,10 @@ describe("ticket tools", () => {
         undefined,
         ctx,
       );
-      const ticketId = resultDetails<{ ticket: { summary: { id: string } } }>(createResult.details).ticket.summary.id;
+      const ticketSummary = resultDetails<{
+        ticket: { summary: { id: string; repository: { id: string; slug: string; displayName: string } } };
+      }>(createResult.details).ticket.summary;
+      const ticketId = ticketSummary.id;
       expect(createResult).toMatchObject({
         content: [{ type: "text", text: expect.stringContaining(ticketId) }],
         details: {
@@ -295,15 +373,16 @@ describe("ticket tools", () => {
       expect(graphResult.details).toMatchObject({
         graph: {
           nodes: expect.objectContaining({
-            [ticketId]: expect.objectContaining({
-              deps: [blockerId],
+            [ticketGraphNodeKey(ticketSummary)]: expect.objectContaining({
+              deps: [expect.objectContaining({ id: blockerId, key: ticketGraphNodeKey(blockerSummary) })],
               repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
             }),
           }),
         },
         node: expect.objectContaining({
           id: ticketId,
-          deps: [blockerId],
+          key: ticketGraphNodeKey(ticketSummary),
+          deps: [expect.objectContaining({ id: blockerId, key: ticketGraphNodeKey(blockerSummary) })],
           repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
         }),
       });
@@ -337,6 +416,141 @@ describe("ticket tools", () => {
       cleanup();
     }
   }, 30000);
+
+  it("honors explicit repository scope for read write graph and checkpoint flows without ambient selection", async () => {
+    const workspace = createParentWorkspaceWithChildren();
+    const loomRoot = join(workspace.cwd, ".pi-loom-tools-scoped-test");
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      const mockPi = createMockPi();
+      const { registerTicketTools } = await import("../tools/ticket.js");
+      registerTicketTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(workspace.cwd);
+
+      const { identity } = await openWorkspaceStorage(workspace.cwd);
+      const repositories = [...identity.repositories].sort((left, right) =>
+        left.displayName.localeCompare(right.displayName),
+      );
+      const serviceA = repositories[0];
+      const serviceB = repositories[1];
+      if (!serviceA || !serviceB) {
+        throw new Error("Expected two repositories in the multi-repo scope.");
+      }
+
+      closeAllWorkspaceStorage();
+
+      const ticketWrite = getTool(mockPi, "ticket_write");
+      const ticketRead = getTool(mockPi, "ticket_read");
+      const ticketGraph = getTool(mockPi, "ticket_graph");
+      const ticketCheckpoint = getTool(mockPi, "ticket_checkpoint");
+
+      await expect(
+        ticketWrite.execute(
+          "call-ambient",
+          { action: "create", title: "Ambient ambiguous write" },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow(/ambiguous; select a repository/i);
+
+      const createA = await ticketWrite.execute(
+        "call-a",
+        {
+          action: "create",
+          repositoryId: serviceA.id,
+          title: "Scoped service A tool write",
+          summary: "Repository-targeted tool write without ambient selection.",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const serviceATicketId = resultDetails<{ ticket: { summary: { id: string; repository: { id: string } } } }>(
+        createA.details,
+      ).ticket.summary.id;
+      expect(createA.details).toMatchObject({
+        action: "create",
+        ticket: { summary: { id: serviceATicketId, repository: { id: serviceA.id } } },
+      });
+
+      const createB = await ticketWrite.execute(
+        "call-b",
+        {
+          action: "create",
+          repositoryId: serviceB.id,
+          title: "Scoped service B tool write",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const serviceBTicketId = resultDetails<{ ticket: { summary: { id: string } } }>(createB.details).ticket.summary
+        .id;
+
+      const checkpointed = await ticketCheckpoint.execute(
+        "call-c",
+        {
+          action: "create",
+          repositoryId: serviceA.id,
+          ref: serviceATicketId,
+          title: "tool handoff",
+          body: "Scoped checkpoint body",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(checkpointed.details).toMatchObject({
+        action: "create",
+        ticket: {
+          summary: { id: serviceATicketId, repository: { id: serviceA.id } },
+          checkpoints: [expect.objectContaining({ title: "tool handoff", body: "Scoped checkpoint body" })],
+        },
+      });
+
+      const readA = await ticketRead.execute(
+        "call-d",
+        { ref: serviceATicketId, repositoryId: serviceA.id },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(readA.details).toMatchObject({
+        ticket: { summary: { id: serviceATicketId, repository: { id: serviceA.id } } },
+      });
+
+      const graphA = await ticketGraph.execute(
+        "call-e",
+        { ref: serviceATicketId, repositoryId: serviceA.id },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(graphA.details).toMatchObject({
+        node: { key: `${serviceA.id}:${serviceATicketId}`, id: serviceATicketId, repository: { id: serviceA.id } },
+      });
+      expect(
+        resultDetails<{ graph: { nodes: Record<string, { repository: { id: string } | null }> } }>(graphA.details).graph
+          .nodes[`${serviceB.id}:${serviceBTicketId}`]?.repository,
+      ).toMatchObject({ id: serviceB.id });
+
+      const readCheckpoint = await ticketCheckpoint.execute(
+        "call-f",
+        { action: "read", ref: serviceATicketId, repositoryId: serviceA.id },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(readCheckpoint.details).toMatchObject({
+        checkpoints: [expect.objectContaining({ title: "tool handoff", body: "Scoped checkpoint body" })],
+      });
+    } finally {
+      delete process.env.PI_LOOM_ROOT;
+      workspace.cleanup();
+    }
+  }, 60000);
 
   it("returns machine-usable details for journal, attachment, close, and reopen mutations", async () => {
     const { cwd, cleanup } = createTempWorkspace();
@@ -390,6 +604,13 @@ describe("ticket tools", () => {
               sourceRef: "attachment-source:t-0001:attachment-0001:evidence.txt",
               artifactRef: null,
               metadata: expect.objectContaining({
+                sourcePath: expect.objectContaining({
+                  repositoryId: expect.any(String),
+                  repositorySlug: expect.any(String),
+                  worktreeId: expect.any(String),
+                  relativePath: "evidence.txt",
+                  displayPath: expect.stringContaining(":evidence.txt"),
+                }),
                 inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
                 inlineEncoding: "base64",
                 inlineSourceType: "filesystem",
@@ -413,6 +634,13 @@ describe("ticket tools", () => {
               sourceRef: "attachment-source:t-0001:attachment-0001:evidence.txt",
               artifactRef: null,
               metadata: {
+                sourcePath: expect.objectContaining({
+                  repositoryId: expect.any(String),
+                  repositorySlug: expect.any(String),
+                  worktreeId: expect.any(String),
+                  relativePath: "evidence.txt",
+                  displayPath: expect.stringContaining(":evidence.txt"),
+                }),
                 inlineContentBase64: Buffer.from("captured evidence\n", "utf-8").toString("base64"),
                 inlineEncoding: "base64",
                 inlineSourceType: "filesystem",

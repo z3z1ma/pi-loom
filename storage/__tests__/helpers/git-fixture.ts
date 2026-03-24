@@ -4,6 +4,37 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { closeWorkspaceStorage } from "../../workspace.js";
 
+const TEST_GIT_RUNNER = [
+  "import os",
+  "import subprocess",
+  "import sys",
+  "",
+  "cwd = sys.argv[1]",
+  "git_args = sys.argv[2:]",
+  "env = os.environ.copy()",
+  'env["GIT_TERMINAL_PROMPT"] = "0"',
+  'env["GIT_ASKPASS"] = "true"',
+  "result = subprocess.run(",
+  '    ["git", "-c", "core.hooksPath=/dev/null", *git_args],',
+  "    cwd=cwd,",
+  "    env=env,",
+  "    text=True,",
+  "    capture_output=True,",
+  ")",
+  "if result.stdout:",
+  "    sys.stdout.write(result.stdout)",
+  "if result.returncode != 0:",
+  "    if result.stderr:",
+  "        sys.stderr.write(result.stderr)",
+  "    raise SystemExit(result.returncode)",
+].join("\n");
+
+export function runTestGit(cwd: string, ...args: string[]): string {
+  return execFileSync(process.env.PYTHON ?? "python3", ["-c", TEST_GIT_RUNNER, cwd, ...args], {
+    encoding: "utf-8",
+  });
+}
+
 interface SeededGitWorkspaceOptions {
   prefix: string;
   packageName?: string;
@@ -52,11 +83,11 @@ function ensureTemplate(options: SeededGitWorkspaceOptions): string {
   }
 
   const templateDir = mkdtempSync(path.join(tmpdir(), "pi-loom-git-template-"));
-  execFileSync("git", ["init"], { cwd: templateDir, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd: templateDir, encoding: "utf-8" });
-  execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd: templateDir, encoding: "utf-8" });
+  runTestGit(templateDir, "init");
+  runTestGit(templateDir, "config", "user.name", "Pi Loom Tests");
+  runTestGit(templateDir, "config", "user.email", "tests@example.com");
   if (options.remoteUrl) {
-    execFileSync("git", ["remote", "add", "origin", options.remoteUrl], { cwd: templateDir, encoding: "utf-8" });
+    runTestGit(templateDir, "remote", "add", "origin", options.remoteUrl);
   }
 
   const baseFiles: Record<string, string> = {
@@ -69,8 +100,8 @@ function ensureTemplate(options: SeededGitWorkspaceOptions): string {
     writeFileSync(path.join(templateDir, relativePath), content, "utf-8");
   }
 
-  execFileSync("git", ["add", "."], { cwd: templateDir, encoding: "utf-8" });
-  execFileSync("git", ["commit", "-m", "seed"], { cwd: templateDir, encoding: "utf-8" });
+  runTestGit(templateDir, "add", ".");
+  runTestGit(templateDir, "commit", "-m", "seed");
   templateCache.set(key, templateDir);
   return templateDir;
 }
@@ -128,6 +159,6 @@ export function createSeededParentGitWorkspace(options: SeededParentGitWorkspace
 }
 
 export function commitWorkspaceFiles(cwd: string, message: string, ...relativePaths: string[]): void {
-  execFileSync("git", ["add", ...relativePaths], { cwd, encoding: "utf-8" });
-  execFileSync("git", ["commit", "-m", message], { cwd, encoding: "utf-8" });
+  runTestGit(cwd, "add", ...relativePaths);
+  runTestGit(cwd, "commit", "-m", message);
 }

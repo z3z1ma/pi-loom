@@ -2,7 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildTicketGraph, ticketGraphNodeKey, ticketGraphQualifiedId } from "../domain/graph.js";
 import { createTicketStore } from "../domain/store.js";
+import type { TicketSummary } from "../domain/models.js";
 
 describe("ticket dependency graph", () => {
   let workspace: string;
@@ -25,13 +27,21 @@ describe("ticket dependency graph", () => {
     vi.setSystemTime(new Date("2024-05-01T00:00:01.000Z"));
     const dependent = await store.createTicketAsync({ title: "Re-enable API", deps: [foundation.summary.id] });
     vi.setSystemTime(new Date("2024-05-01T00:00:02.000Z"));
-    await store.createTicketAsync({ title: "Update status page" });
+    const statusPage = await store.createTicketAsync({ title: "Update status page" });
 
     const initialGraph = await createTicketStore(workspace).graphAsync();
-    expect(initialGraph.ready).toEqual(["t-0001", "t-0003"]);
-    expect(initialGraph.blocked).toEqual(["t-0002"]);
-    expect(initialGraph.nodes["t-0002"]).toEqual(
-      expect.objectContaining({ status: "blocked", blockedBy: ["t-0001"], ready: false }),
+    expect(initialGraph.ready.map((ref) => ref.id)).toEqual([foundation.summary.id, statusPage.summary.id]);
+    expect(initialGraph.blocked.map((ref) => ref.id)).toEqual([dependent.summary.id]);
+    expect(initialGraph.nodes[ticketGraphNodeKey(dependent.summary)]).toEqual(
+      expect.objectContaining({
+        key: ticketGraphNodeKey(dependent.summary),
+        qualifiedId: ticketGraphQualifiedId(dependent.summary),
+        status: "blocked",
+        blockedBy: [
+          expect.objectContaining({ key: ticketGraphNodeKey(foundation.summary), id: foundation.summary.id }),
+        ],
+        ready: false,
+      }),
     );
 
     await expect(store.addDependencyAsync(foundation.summary.id, dependent.summary.id)).rejects.toThrow(
@@ -41,9 +51,9 @@ describe("ticket dependency graph", () => {
     vi.setSystemTime(new Date("2024-05-01T00:00:03.000Z"));
     await store.closeTicketAsync(foundation.summary.id, "Database healthy");
     const resolvedGraph = await createTicketStore(workspace).graphAsync();
-    expect(resolvedGraph.ready).toEqual(["t-0002", "t-0003"]);
+    expect(resolvedGraph.ready.map((ref) => ref.id)).toEqual([dependent.summary.id, statusPage.summary.id]);
     expect(resolvedGraph.blocked).toEqual([]);
-    expect(resolvedGraph.nodes["t-0002"]).toEqual(
+    expect(resolvedGraph.nodes[ticketGraphNodeKey(dependent.summary)]).toEqual(
       expect.objectContaining({ status: "ready", blockedBy: [], ready: true }),
     );
   }, 30000);
@@ -64,12 +74,67 @@ describe("ticket dependency graph", () => {
     );
 
     const graph = await createTicketStore(workspace).graphAsync();
-    expect(graph.ready).toEqual(["t-0001"]);
-    expect(graph.blocked).toEqual(["t-0002"]);
-    expect(graph.nodes["t-0002"]).toEqual(
-      expect.objectContaining({ status: "blocked", blockedBy: ["t-0001"], ready: false }),
+    expect(graph.ready.map((ref) => ref.id)).toEqual([foundation.summary.id]);
+    expect(graph.blocked.map((ref) => ref.id)).toEqual([dependent.summary.id]);
+    expect(graph.nodes[ticketGraphNodeKey(dependent.summary)]).toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        blockedBy: [expect.objectContaining({ id: foundation.summary.id })],
+        ready: false,
+      }),
     );
   }, 30000);
+
+  it("preserves repository-qualified graph identities when duplicate ids exist across repositories", () => {
+    const repoA = { id: "repo-a", slug: "service-a", displayName: "Service A" };
+    const repoB = { id: "repo-b", slug: "service-b", displayName: "Service B" };
+    const ticketA = buildSummary({ id: "pl-0001", title: "Service A work", repository: repoA });
+    const ticketB = buildSummary({
+      id: "pl-0001",
+      title: "Service B work",
+      repository: repoB,
+      createdAt: "2024-05-03T00:00:01.000Z",
+      updatedAt: "2024-05-03T00:00:01.000Z",
+    });
+
+    const graph = buildTicketGraph([ticketA, ticketB]);
+
+    expect(Object.keys(graph.nodes)).toEqual([ticketGraphNodeKey(ticketA), ticketGraphNodeKey(ticketB)]);
+    expect(graph.lookup.byTicketId).toEqual({});
+    expect(graph.lookup.ambiguousIds).toEqual(["pl-0001"]);
+    expect(graph.ready.map((ref) => ref.qualifiedId)).toEqual([
+      ticketGraphQualifiedId(ticketA),
+      ticketGraphQualifiedId(ticketB),
+    ]);
+  });
+
+  it("fails closed when duplicate ids make dependency resolution ambiguous across repositories", () => {
+    const repoA = { id: "repo-a", slug: "service-a", displayName: "Service A" };
+    const repoB = { id: "repo-b", slug: "service-b", displayName: "Service B" };
+
+    expect(() =>
+      buildTicketGraph([
+        buildSummary({ id: "pl-0001", title: "Service A blocker", repository: repoA }),
+        buildSummary({
+          id: "pl-0001",
+          title: "Service B blocker",
+          repository: repoB,
+          createdAt: "2024-05-04T00:00:01.000Z",
+          updatedAt: "2024-05-04T00:00:01.000Z",
+        }),
+        buildSummary({
+          id: "pl-0002",
+          title: "Consumer",
+          repository: repoA,
+          deps: ["pl-0001"],
+          createdAt: "2024-05-04T00:00:02.000Z",
+          updatedAt: "2024-05-04T00:00:02.000Z",
+        }),
+      ]),
+    ).toThrow(
+      "Cannot build ticket graph: service-a:pl-0002 has ambiguous dependency pl-0001; matches service-a:pl-0001, service-b:pl-0001.",
+    );
+  });
 
   it("normalizes ticket references from ids, hashes, and canonical refs", async () => {
     const store = createTicketStore(workspace);
@@ -87,3 +152,27 @@ describe("ticket dependency graph", () => {
     expect(store.resolveTicketRef(closed.ticket.ref)).toBe(id);
   }, 30000);
 });
+
+function buildSummary(overrides: Partial<TicketSummary> & Pick<TicketSummary, "id" | "title">): TicketSummary {
+  return {
+    id: overrides.id,
+    title: overrides.title,
+    status: overrides.status ?? "ready",
+    repository: overrides.repository ?? null,
+    storedStatus: overrides.storedStatus ?? "open",
+    priority: overrides.priority ?? "medium",
+    type: overrides.type ?? "task",
+    createdAt: overrides.createdAt ?? "2024-05-03T00:00:00.000Z",
+    updatedAt: overrides.updatedAt ?? "2024-05-03T00:00:00.000Z",
+    deps: overrides.deps ?? [],
+    links: overrides.links ?? [],
+    initiativeIds: overrides.initiativeIds ?? [],
+    researchIds: overrides.researchIds ?? [],
+    tags: overrides.tags ?? [],
+    parent: overrides.parent ?? null,
+    closed: overrides.closed ?? false,
+    archived: overrides.archived ?? false,
+    archivedAt: overrides.archivedAt ?? null,
+    ref: overrides.ref ?? `ticket:${overrides.id}`,
+  };
+}

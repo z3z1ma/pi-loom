@@ -1,4 +1,6 @@
 import type { LoomListSort } from "#storage/list-search.js";
+import type { LoomPortableRepositoryPath } from "#storage/repository-path.js";
+import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
 
 export const DOC_STATUSES = ["active", "archived", "superseded"] as const;
 export const DOC_TYPES = ["overview", "guide", "concept", "operations", "workflow", "faq"] as const;
@@ -36,12 +38,12 @@ export interface DocumentationState {
   updatedAt: string;
   summary: string;
   audience: DocAudience[];
-  scopePaths: string[];
+  scopePaths: LoomPortableRepositoryPath[];
   contextRefs: DocsContextRefs;
   sourceTarget: DocSourceTarget;
   updateReason: string;
   guideTopics: string[];
-  linkedOutputPaths: string[];
+  linkedOutputPaths: LoomPortableRepositoryPath[];
   lastRevisionId: string | null;
 }
 
@@ -52,6 +54,7 @@ export interface DocumentationSummary {
   docType: DocType;
   sectionGroup: DocSectionGroup;
   updatedAt: string;
+  repository: LoomRepositoryQualifier | null;
   sourceKind: DocSourceTargetKind;
   sourceRef: string;
   summary: string;
@@ -79,9 +82,9 @@ export interface DocumentationDashboard {
   lastRevision: DocumentationRevisionRecord | null;
   audience: DocAudience[];
   guideTopics: string[];
-  linkedOutputPaths: string[];
+  linkedOutputPaths: LoomPortableRepositoryPath[];
   contextRefs: DocsContextRefs;
-  scopePaths: string[];
+  scopePaths: LoomPortableRepositoryPath[];
 }
 
 export interface DocumentationCanonicalSnapshot {

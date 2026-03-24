@@ -1,6 +1,7 @@
 import type { RoadmapItemHorizon, RoadmapItemStatus } from "#constitution/domain/models.js";
 import type { SpecChangeSummary, SpecStatus } from "#specs/domain/models.js";
 import type { LoomListSort } from "#storage/list-search.js";
+import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
 import type { TicketStatus, TicketSummary } from "#ticketing/domain/models.js";
 
 export interface InitiativeRoadmapLink {
@@ -75,6 +76,7 @@ export interface InitiativeSummary {
   specChangeCount: number;
   ticketCount: number;
   updatedAt: string;
+  repository: LoomRepositoryQualifier | null;
   tags: string[];
   ref: string;
 }
@@ -96,6 +98,7 @@ export interface InitiativeDashboard {
     id: string;
     title: string;
     status: InitiativeStatus;
+    repository: LoomRepositoryQualifier | null;
     objective: string;
     statusSummary: string;
     targetWindow: string | null;

@@ -159,23 +159,34 @@ export interface TicketReadResult {
   blockers: string[];
 }
 
-export interface TicketGraphNode {
+export interface TicketGraphRef {
+  key: string;
   id: string;
-  status: TicketStatus;
+  qualifiedId: string;
   repository?: LoomRepositoryQualifier | null;
-  deps: string[];
-  children: string[];
+}
+
+export interface TicketGraphNode extends TicketGraphRef {
+  status: TicketStatus;
+  deps: TicketGraphRef[];
+  children: TicketGraphRef[];
   links: string[];
-  parent: string | null;
-  blockedBy: string[];
+  parent: TicketGraphRef | null;
+  blockedBy: TicketGraphRef[];
   ready: boolean;
+}
+
+export interface TicketGraphLookup {
+  byTicketId: Record<string, string>;
+  ambiguousIds: string[];
 }
 
 export interface TicketGraphResult {
   nodes: Record<string, TicketGraphNode>;
-  ready: string[];
-  blocked: string[];
-  cycles: string[][];
+  ready: TicketGraphRef[];
+  blocked: TicketGraphRef[];
+  cycles: TicketGraphRef[][];
+  lookup: TicketGraphLookup;
 }
 
 export interface TicketListFilter {

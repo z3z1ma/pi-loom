@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
+import { readRuntimeScopeFromEnv, resolveEntityRuntimeScope } from "#storage/runtime-scope.js";
 import { renderDashboard, renderDocumentationDetail, renderUpdatePrompt } from "../domain/render.js";
 import { runDocsUpdate } from "../domain/runtime.js";
 import { createDocumentationStore } from "../domain/store.js";
@@ -139,7 +140,7 @@ const DocsDashboardParams = Type.Object({
 type DocsWriteParamsValue = Static<typeof DocsWriteParams>;
 
 function getStore(ctx: ExtensionContext) {
-  return createDocumentationStore(ctx.cwd);
+  return createDocumentationStore(ctx.cwd, readRuntimeScopeFromEnv());
 }
 
 function machineResult(details: Record<string, unknown>, text: string) {
@@ -366,21 +367,33 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     ],
     parameters: DocsUpdateParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const store = getStore(ctx);
-      const prepared = params.updateReason
-        ? await store.updateDoc(params.ref, { updateReason: params.updateReason })
-        : await store.readDoc(params.ref);
-      const previousRevisionId = prepared.state.lastRevisionId;
-      const execution = await runDocsUpdate(ctx.cwd, renderUpdatePrompt(ctx.cwd, prepared.state), signal, (text) => {
-        onUpdate?.({
-          content: [{ type: "text", text }],
-          details: {
-            documentation: prepared.summary,
-            execution: { status: "running" },
-          },
-        });
+      const ambientStore = getStore(ctx);
+      const existing = await ambientStore.readDoc(params.ref);
+      const runtimeScope = await resolveEntityRuntimeScope(ctx.cwd, "documentation", existing.state.docId);
+      const store = createDocumentationStore(ctx.cwd, {
+        repositoryId: runtimeScope.repositoryId,
+        worktreeId: runtimeScope.worktreeId,
       });
-      const refreshed = await store.readDoc(params.ref);
+      const prepared = params.updateReason
+        ? await store.updateDoc(existing.state.docId, { updateReason: params.updateReason })
+        : existing;
+      const previousRevisionId = prepared.state.lastRevisionId;
+      const execution = await runDocsUpdate(
+        ctx.cwd,
+        renderUpdatePrompt(ctx.cwd, prepared.state),
+        signal,
+        (text) => {
+          onUpdate?.({
+            content: [{ type: "text", text }],
+            details: {
+              documentation: prepared.summary,
+              execution: { status: "running" },
+            },
+          });
+        },
+        runtimeScope,
+      );
+      const refreshed = await store.readDoc(existing.state.docId);
       if (execution.exitCode !== 0) {
         throw new Error(
           [

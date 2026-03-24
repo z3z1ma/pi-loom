@@ -48,6 +48,10 @@ function renderDecisions(decisions: InitiativeDecisionRecord[]): string {
     .join("\n");
 }
 
+function renderRepository(repository: InitiativeSummary["repository"]): string {
+  return repository ? ` repo=${repository.slug}` : "";
+}
+
 export function renderInitiativeMarkdown(
   state: InitiativeState,
   decisions: InitiativeDecisionRecord[],
@@ -84,7 +88,7 @@ export function renderInitiativeMarkdown(
 }
 
 export function renderInitiativeSummary(summary: InitiativeSummary): string {
-  return `${summary.id} [${summary.status}] milestones=${summary.milestoneCount} specs=${summary.specChangeCount} tickets=${summary.ticketCount} ${summary.title}`;
+  return `${summary.id} [${summary.status}]${renderRepository(summary.repository)} milestones=${summary.milestoneCount} specs=${summary.specChangeCount} tickets=${summary.ticketCount} ${summary.title}`;
 }
 
 export function renderInitiativeDetail(record: InitiativeRecord): string {
@@ -116,7 +120,7 @@ export function renderInitiativeDashboard(dashboard: InitiativeDashboard): strin
           .join("\n")
       : "(none)";
   return [
-    `${dashboard.initiative.id} [${dashboard.initiative.status}] ${dashboard.initiative.title}`,
+    `${dashboard.initiative.id} [${dashboard.initiative.status}]${renderRepository(dashboard.initiative.repository)} ${dashboard.initiative.title}`,
     `Research: ${dashboard.linkedResearch.total}`,
     `Specs: ${dashboard.linkedSpecs.total}`,
     `Tickets: ${dashboard.linkedTickets.total}`,

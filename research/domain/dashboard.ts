@@ -2,6 +2,7 @@ import type { InitiativeState, InitiativeSummary } from "#initiatives/domain/mod
 import { SPEC_STATUSES, type SpecChangeSummary } from "#specs/domain/models.js";
 import { createSpecStore } from "#specs/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
+import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
 import { TICKET_STATUSES, type TicketSummary } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
@@ -63,6 +64,7 @@ async function resolveInitiativeSummary(cwd: string, initiativeId: string): Prom
       specChangeCount: state.specChangeIds.length,
       ticketCount: state.ticketIds.length,
       updatedAt: state.updatedAt,
+      repository: resolveRepositoryQualifier(identity.repositories, entity.owningRepositoryId),
       tags: [...state.tags],
       ref: `initiative:${state.initiativeId}`,
     };
@@ -77,6 +79,7 @@ async function resolveInitiativeSummary(cwd: string, initiativeId: string): Prom
       specChangeCount: 0,
       ticketCount: 0,
       updatedAt: entity.updatedAt,
+      repository: resolveRepositoryQualifier(identity.repositories, entity.owningRepositoryId),
       tags: entity.tags,
       ref: `initiative:${initiativeId}`,
     };

@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import path, { basename, resolve } from "node:path";
 import type { PlanState } from "#plans/domain/models.js";
 import type { LoomCanonicalStorage } from "#storage/contract.js";
 import { findEntityByDisplayId, upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js";
@@ -7,11 +7,16 @@ import { createLinkId } from "#storage/ids.js";
 import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "#storage/links.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
+import { createPortableRepositoryPath, normalizePortableRelativePath } from "#storage/repository-path.js";
 import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
-import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
+import {
+  type LoomExplicitScopeInput,
+  openRepositoryWorkspaceStorage,
+  openScopedWorkspaceStorage,
+} from "#storage/workspace.js";
 import { inferMediaType } from "./attachments.js";
 import { createEmptyBody } from "./frontmatter.js";
-import { buildTicketGraph, findDependencyCycle, summarizeTicket } from "./graph.js";
+import { buildTicketGraph, findDependencyCycle, getTicketGraphNodeForSummary, summarizeTicket } from "./graph.js";
 import { createJournalEntry } from "./journal.js";
 import type {
   AttachArtifactInput,
@@ -50,7 +55,20 @@ interface PlanEntityAttributes {
   state: PlanState;
 }
 
-type WorkspaceIdentity = Awaited<ReturnType<typeof openWorkspaceStorage>>["identity"];
+type WorkspaceIdentity = Awaited<ReturnType<typeof openScopedWorkspaceStorage>>["identity"];
+type RepositoryWorkspaceIdentity = Awaited<ReturnType<typeof openRepositoryWorkspaceStorage>>["identity"];
+
+type QualifiedRepositoryPath = ReturnType<typeof createPortableRepositoryPath>;
+
+interface ResolvedAttachmentSource {
+  absoluteSource: string;
+  sourcePath: QualifiedRepositoryPath | null;
+}
+
+function isPathInsideRoot(rootPath: string, candidatePath: string): boolean {
+  const relativePath = path.relative(rootPath, candidatePath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
 
 function hasStructuredTicketAttributes(attributes: unknown): attributes is TicketEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "record" in attributes);
@@ -188,13 +206,72 @@ function projectedLinksForTicket(record: TicketReadResult): ProjectedEntityLinkI
 
 export class TicketStore {
   readonly cwd: string;
+  readonly scope: Required<LoomExplicitScopeInput>;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
     this.cwd = resolve(cwd);
+    this.scope = {
+      spaceId: scope.spaceId ?? null,
+      repositoryId: scope.repositoryId ?? null,
+      worktreeId: scope.worktreeId ?? null,
+    };
   }
 
   initLedger(): { initialized: true; root: string } {
     return { initialized: true, root: getLoomCatalogPaths().catalogPath };
+  }
+
+  private async openWorkspaceStorage() {
+    return openScopedWorkspaceStorage(this.cwd, this.scope);
+  }
+
+  private async openRepositoryWorkspaceStorage() {
+    return openRepositoryWorkspaceStorage(this.cwd, this.scope);
+  }
+
+  private resolveLocalRepositoryRoot(identity: RepositoryWorkspaceIdentity): string {
+    const matchingCandidate =
+      identity.discovery.candidates.find(
+        (candidate) =>
+          candidate.repository.id === identity.repository.id && candidate.worktree.id === identity.worktree.id,
+      ) ?? identity.discovery.candidates.find((candidate) => candidate.repository.id === identity.repository.id);
+    if (!matchingCandidate) {
+      throw new Error(
+        `Repository ${identity.repository.displayName} [${identity.repository.id}] has no locally available worktree root under ${identity.discovery.scopeRoot}.`,
+      );
+    }
+    return resolve(matchingCandidate.workspaceRoot);
+  }
+
+  private async resolveAttachmentSource(pathInput: string): Promise<ResolvedAttachmentSource> {
+    const { identity } = await this.openRepositoryWorkspaceStorage();
+    const repositoryRoot = this.resolveLocalRepositoryRoot(identity);
+    const requestedPath = pathInput.trim().startsWith("@") ? pathInput.trim().slice(1) : pathInput.trim();
+    const absoluteCandidate = path.isAbsolute(requestedPath)
+      ? path.resolve(requestedPath)
+      : path.resolve(repositoryRoot, requestedPath);
+    if (!existsSync(absoluteCandidate)) {
+      throw new Error(`Attachment source does not exist: ${pathInput}`);
+    }
+
+    const resolvedRepositoryRoot = realpathSync.native(repositoryRoot);
+    const absoluteSource = realpathSync.native(absoluteCandidate);
+    const sourcePath = isPathInsideRoot(resolvedRepositoryRoot, absoluteSource)
+      ? createPortableRepositoryPath({
+          repositoryId: identity.repository.id,
+          repositorySlug: identity.repository.slug,
+          worktreeId: identity.worktree.id,
+          relativePath: normalizePortableRelativePath(path.relative(resolvedRepositoryRoot, absoluteSource)),
+        })
+      : null;
+
+    if (!path.isAbsolute(requestedPath) && !sourcePath) {
+      throw new Error(
+        `Attachment path ${pathInput} escapes repository ${identity.repository.displayName} [${identity.repository.id}]; use an absolute path for non-repository files.`,
+      );
+    }
+
+    return { absoluteSource, sourcePath };
   }
 
   private async upsertCanonicalRecordWithStorage(
@@ -265,7 +342,7 @@ export class TicketStore {
   }
 
   private async upsertCanonicalRecord(record: TicketReadResult): Promise<TicketReadResult> {
-    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
     return storage.transact((tx) => this.upsertCanonicalRecordWithStorage(tx, identity, record));
   }
 
@@ -378,18 +455,19 @@ export class TicketStore {
     if (!summary) {
       throw new Error(`Unknown ticket: ${record.summary.id}`);
     }
+    const node = getTicketGraphNodeForSummary(graph, summary);
     return {
       ...record,
       summary,
       ticket: record.ticket,
       checkpoints: record.checkpoints,
-      children: graph.nodes[record.summary.id]?.children ?? [],
-      blockers: graph.nodes[record.summary.id]?.blockedBy ?? [],
+      children: node?.children.map((child) => child.qualifiedId) ?? [],
+      blockers: node?.blockedBy.map((blocker) => blocker.qualifiedId) ?? [],
     };
   }
 
   private async canonicalRecords(): Promise<TicketReadResult[]> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const records = new Map<string, TicketReadResult>();
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
       const ticketId = this.resolveTicketRef(entity.displayId ?? entity.id);
@@ -559,7 +637,7 @@ export class TicketStore {
   async createTicketAsync(input: CreateTicketInput): Promise<TicketReadResult> {
     this.initLedger();
     const timestamp = currentTimestamp();
-    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
     const existing = await this.canonicalRecords();
     const ticketPrefix = await this.resolveTicketDisplayPrefix(storage, identity);
     const ticketId = this.nextTicketId(existing, ticketPrefix);
@@ -804,7 +882,7 @@ export class TicketStore {
       this.toCanonicalReadResult(record, summaries, graph),
     );
 
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     await storage.transact(async (tx) => {
       const targetEntity = await findEntityByDisplayId(tx, identity.space.id, ENTITY_KIND, ticketId);
       if (!targetEntity) {
@@ -961,7 +1039,7 @@ export class TicketStore {
     text: string,
     metadata: Record<string, unknown> = {},
   ): Promise<TicketReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     return storage.transact((tx) => this.addJournalEntryWithStorage(tx, identity, ref, kind, text, metadata));
   }
 
@@ -1050,12 +1128,11 @@ export class TicketStore {
     let inlineContentBase64: string | null = null;
     const attachmentId = `attachment-${String(current.attachments.length + 1).padStart(4, "0")}`;
     let sourceRef: string | null = null;
+    let sourcePath: QualifiedRepositoryPath | null = null;
     if (input.path?.trim()) {
-      const normalizedPath = input.path.trim().startsWith("@") ? input.path.trim().slice(1) : input.path.trim();
-      const absoluteSource = resolve(this.cwd, normalizedPath);
-      if (!existsSync(absoluteSource)) {
-        throw new Error(`Attachment source does not exist: ${input.path}`);
-      }
+      const resolvedSource = await this.resolveAttachmentSource(input.path);
+      const absoluteSource = resolvedSource.absoluteSource;
+      sourcePath = resolvedSource.sourcePath;
       sourceRef = getAttachmentSourceRef(current.summary.id, attachmentId, basename(absoluteSource));
       inlineContentBase64 = readFileSync(absoluteSource).toString("base64");
     } else if (input.content !== undefined) {
@@ -1073,6 +1150,7 @@ export class TicketStore {
       description: input.description?.trim() ?? "",
       metadata: {
         ...(input.metadata ?? {}),
+        sourcePath,
         inlineContentBase64,
         inlineEncoding: inlineContentBase64 ? "base64" : null,
         inlineSourceType: input.content !== undefined ? "text" : sourceRef ? "filesystem" : null,
@@ -1201,7 +1279,7 @@ export class TicketStore {
     externalRef: string,
     options: { allowClosed?: boolean } = {},
   ): Promise<TicketReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const updated = await storage.transact((tx) =>
       this.syncExternalRefWithStorage(tx, identity, ref, externalRef, true, options),
     );
@@ -1213,7 +1291,7 @@ export class TicketStore {
     externalRef: string,
     options: { allowClosed?: boolean } = {},
   ): Promise<TicketReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const updated = await storage.transact((tx) =>
       this.syncExternalRefWithStorage(tx, identity, ref, externalRef, false, options),
     );
@@ -1221,6 +1299,6 @@ export class TicketStore {
   }
 }
 
-export function createTicketStore(cwd: string): TicketStore {
-  return new TicketStore(cwd);
+export function createTicketStore(cwd: string, scope: LoomExplicitScopeInput = {}): TicketStore {
+  return new TicketStore(cwd, scope);
 }

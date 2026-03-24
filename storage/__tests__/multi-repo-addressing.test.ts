@@ -1,38 +1,31 @@
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createDocumentationStore } from "#docs/domain/store.js";
 import { createPlanStore } from "#plans/domain/store.js";
 import { createResearchStore } from "#research/domain/store.js";
 import { createSpecStore } from "#specs/domain/store.js";
+import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
+import { resolvePortableRepositoryPathToAbsolute } from "#storage/repository-path.js";
+import { ticketGraphNodeKey } from "#ticketing/domain/graph.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import { discoverWorkspaceScope, revokeActiveScopeSelection, selectActiveScope } from "../repository.js";
 import { closeAllWorkspaceStorage, openRepositoryWorkspaceStorage, openWorkspaceStorage } from "../workspace.js";
 
 function createParentWorkspaceWithChildren(): { cwd: string; cleanup: () => void } {
-  const root = mkdtempSync(join(tmpdir(), "pi-loom-multi-repo-addressing-"));
-  const createRepository = (name: string, remoteUrl: string) => {
-    const repoRoot = join(root, name);
-    mkdirSync(repoRoot, { recursive: true });
-    execFileSync("git", ["init"], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["config", "user.name", "Pi Loom Tests"], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["remote", "add", "origin", remoteUrl], { cwd: repoRoot, encoding: "utf-8" });
-    writeFileSync(join(repoRoot, "package.json"), JSON.stringify({ name }, null, 2));
-    writeFileSync(join(repoRoot, "README.md"), `# ${name}\n`);
-    execFileSync("git", ["add", "."], { cwd: repoRoot, encoding: "utf-8" });
-    execFileSync("git", ["commit", "-m", "seed"], { cwd: repoRoot, encoding: "utf-8" });
-  };
-
-  createRepository("service-a", "git@github.com:example/service-a.git");
-  createRepository("service-b", "git@github.com:example/service-b.git");
-
+  const workspace = createSeededParentGitWorkspace({
+    prefix: "pi-loom-multi-repo-addressing-",
+    repositories: [
+      { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+      { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+    ],
+  });
   return {
-    cwd: root,
+    cwd: workspace.cwd,
     cleanup: () => {
       closeAllWorkspaceStorage();
-      rmSync(root, { recursive: true, force: true });
+      workspace.cleanup();
     },
   };
 }
@@ -193,7 +186,7 @@ describe("multi-repository addressing integration", () => {
     }
   }, 60000);
 
-  it("allows repository-targeted plan, research, and spec reads and writes without an active repository selection", async () => {
+  it("allows repository-targeted ticket, plan, research, and spec reads and writes without an active repository selection", async () => {
     const workspace = createParentWorkspaceWithChildren();
     const loomRoot = mkdtempSync(join(tmpdir(), "pi-loom-multi-repo-scoped-state-"));
     process.env.PI_LOOM_ROOT = loomRoot;
@@ -213,9 +206,14 @@ describe("multi-repository addressing integration", () => {
       closeAllWorkspaceStorage();
 
       const scopedPlanStore = createPlanStore(workspace.cwd, { repositoryId: serviceA.id });
+      const scopedTicketStore = createTicketStore(workspace.cwd, { repositoryId: serviceA.id });
       const scopedResearchStore = createResearchStore(workspace.cwd, { repositoryId: serviceB.id });
       const scopedSpecStore = createSpecStore(workspace.cwd, { repositoryId: serviceA.id });
 
+      const ticket = await scopedTicketStore.createTicketAsync({
+        title: "Scoped service A execution",
+        summary: "Repository-targeted ticket write without active selection.",
+      });
       const plan = await scopedPlanStore.createPlan({
         title: "Scoped service A rollout",
         summary: "Repository-targeted plan write without active selection.",
@@ -233,12 +231,22 @@ describe("multi-repository addressing integration", () => {
       closeAllWorkspaceStorage();
 
       await expect(
+        createTicketStore(workspace.cwd).createTicketAsync({
+          title: "Ambient ambiguous ticket",
+        }),
+      ).rejects.toThrow(/ambiguous; select a repository/i);
+      await expect(
         createPlanStore(workspace.cwd).createPlan({
           title: "Ambient ambiguous rollout",
           sourceTarget: { kind: "workspace", ref: "ambiguous" },
         }),
       ).rejects.toThrow(/ambiguous; select a repository/i);
 
+      await expect(
+        createTicketStore(workspace.cwd, { repositoryId: serviceA.id }).readTicketAsync(ticket.summary.id),
+      ).resolves.toMatchObject({
+        summary: { id: ticket.summary.id, repository: expect.objectContaining({ id: serviceA.id }) },
+      });
       await expect(
         createPlanStore(workspace.cwd, { repositoryId: serviceA.id }).readPlan(plan.summary.id),
       ).resolves.toMatchObject({
@@ -256,11 +264,139 @@ describe("multi-repository addressing integration", () => {
       });
 
       await expect(
+        createTicketStore(workspace.cwd, { repositoryId: serviceA.id }).recordCheckpointAsync(ticket.summary.id, {
+          title: "scoped handoff",
+          body: "Scoped checkpoint write without active selection.",
+        }),
+      ).resolves.toMatchObject({
+        checkpoints: [
+          expect.objectContaining({
+            title: "scoped handoff",
+            body: "Scoped checkpoint write without active selection.",
+          }),
+        ],
+      });
+      await expect(createTicketStore(workspace.cwd, { repositoryId: serviceA.id }).graphAsync()).resolves.toMatchObject(
+        {
+          nodes: expect.objectContaining({
+            [ticketGraphNodeKey(ticket.summary)]: expect.objectContaining({
+              key: ticketGraphNodeKey(ticket.summary),
+              repository: expect.objectContaining({ id: serviceA.id }),
+            }),
+          }),
+        },
+      );
+
+      await expect(
         createResearchStore(workspace.cwd, { repositoryId: serviceA.id }).createResearch({
           researchId: research.summary.id,
           title: research.state.title,
         }),
       ).rejects.toThrow(`Research already exists: ${research.summary.id}`);
+
+      await expect(
+        createTicketStore(workspace.cwd, { repositoryId: "repo-missing" }).createTicketAsync({
+          title: "Invalid repository scope",
+        }),
+      ).rejects.toThrow(/Unknown repository scope repo-missing/i);
+    } finally {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
+    }
+  }, 60000);
+
+  it("fails closed for ambiguous bare paths and keeps qualified plan/doc paths portable", async () => {
+    const workspace = createParentWorkspaceWithChildren();
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-loom-multi-repo-path-state-"));
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      const { identity } = await openWorkspaceStorage(workspace.cwd);
+      const repositories = [...identity.repositories].sort((left, right) =>
+        left.displayName.localeCompare(right.displayName),
+      );
+      const serviceA = repositories[0];
+      const serviceB = repositories[1];
+      if (!serviceA || !serviceB) {
+        throw new Error("Expected two repositories in the multi-repo scope.");
+      }
+
+      revokeActiveScopeSelection(workspace.cwd);
+      closeAllWorkspaceStorage();
+
+      await expect(
+        createPlanStore(workspace.cwd).createPlan({
+          title: "Ambiguous bare path plan",
+          sourceTarget: { kind: "workspace", ref: "ambiguous" },
+          scopePaths: ["README.md"],
+        }),
+      ).rejects.toThrow(/ambiguous/i);
+
+      await expect(
+        createDocumentationStore(workspace.cwd).createDoc({
+          title: "Ambiguous bare path doc",
+          docType: "overview",
+          sourceTarget: { kind: "workspace", ref: "ambiguous" },
+          scopePaths: ["README.md"],
+          linkedOutputPaths: ["docs/loom.md"],
+        }),
+      ).rejects.toThrow(/ambiguous/i);
+
+      const plan = await createPlanStore(workspace.cwd).createPlan({
+        title: "Qualified multi-repo plan",
+        sourceTarget: { kind: "workspace", ref: "service-a" },
+        scopePaths: [`${serviceA.slug}:README.md`],
+      });
+      const doc = await createDocumentationStore(workspace.cwd).createDoc({
+        title: "Qualified multi-repo doc",
+        docType: "overview",
+        sourceTarget: { kind: "workspace", ref: "service-a" },
+        scopePaths: [`${serviceA.slug}:README.md`],
+        linkedOutputPaths: [`${serviceA.slug}:docs/loom.md`],
+      });
+
+      expect(plan.state.scopePaths).toEqual([
+        expect.objectContaining({
+          repositoryId: serviceA.id,
+          repositorySlug: serviceA.slug,
+          relativePath: "README.md",
+          displayPath: `${serviceA.slug}:README.md`,
+        }),
+      ]);
+      expect(doc.state.scopePaths).toEqual([
+        expect.objectContaining({
+          repositoryId: serviceA.id,
+          repositorySlug: serviceA.slug,
+          relativePath: "README.md",
+          displayPath: `${serviceA.slug}:README.md`,
+        }),
+      ]);
+      expect(doc.state.linkedOutputPaths).toEqual([
+        expect.objectContaining({
+          repositoryId: serviceA.id,
+          repositorySlug: serviceA.slug,
+          relativePath: "docs/loom.md",
+          displayPath: `${serviceA.slug}:docs/loom.md`,
+        }),
+      ]);
+      expect(JSON.stringify(plan.state.scopePaths)).not.toContain(workspace.cwd);
+      expect(JSON.stringify(doc.state.linkedOutputPaths)).not.toContain(workspace.cwd);
+      const firstPlanPath = plan.state.scopePaths[0];
+      const firstDocOutputPath = doc.state.linkedOutputPaths[0];
+      expect(firstPlanPath).toBeDefined();
+      expect(firstDocOutputPath).toBeDefined();
+      if (!firstPlanPath || !firstDocOutputPath) {
+        throw new Error("Expected qualified plan and documentation paths.");
+      }
+      const canonicalWorkspaceRoot = realpathSync.native(workspace.cwd);
+      await expect(resolvePortableRepositoryPathToAbsolute(workspace.cwd, firstPlanPath)).resolves.toBe(
+        join(canonicalWorkspaceRoot, "service-a", "README.md"),
+      );
+      await expect(resolvePortableRepositoryPathToAbsolute(workspace.cwd, firstDocOutputPath)).resolves.toBe(
+        join(canonicalWorkspaceRoot, "service-a", "docs", "loom.md"),
+      );
+      expect(serviceB.slug).not.toBe(serviceA.slug);
     } finally {
       delete process.env.PI_LOOM_ROOT;
       rmSync(loomRoot, { recursive: true, force: true });

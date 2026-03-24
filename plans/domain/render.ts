@@ -1,6 +1,7 @@
+import { renderPortableRepositoryPathList } from "#storage/repository-path.js";
 import type { PlanDashboard, PlanDashboardTicket, PlanReadResult, PlanState, PlanSummary } from "./models.js";
 
-function renderList(values: string[]): string {
+function renderList(values: readonly string[]): string {
   return values.length > 0 ? values.join(", ") : "none";
 }
 
@@ -85,7 +86,8 @@ export function renderPlanSummary(summary: PlanSummary): string {
 
 export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanDashboardTicket[]): string {
   const sourceTarget = `${state.sourceTarget.kind}:${state.sourceTarget.ref}`;
-  const scopePaths = state.scopePaths.length > 0 ? `\n\nScope paths: ${state.scopePaths.join(", ")}` : "";
+  const renderedScopePaths = renderPortableRepositoryPathList(state.scopePaths);
+  const scopePaths = renderedScopePaths.length > 0 ? `\n\nScope paths: ${renderedScopePaths.join(", ")}` : "";
   const contextRefs = [
     state.contextRefs.roadmapItemIds.length > 0 ? `Roadmap: ${state.contextRefs.roadmapItemIds.join(", ")}` : null,
     state.contextRefs.initiativeIds.length > 0 ? `Initiatives: ${state.contextRefs.initiativeIds.join(", ")}` : null,
@@ -180,6 +182,7 @@ export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanDashboar
 }
 
 export function renderPlanDetail(result: PlanReadResult): string {
+  const scopePaths = renderPortableRepositoryPathList(result.state.scopePaths);
   return [
     renderPlanSummary(result.summary),
     `Repository: ${
@@ -192,7 +195,7 @@ export function renderPlanDetail(result: PlanReadResult): string {
     `Plan document ref: ${result.dashboard.planRef}`,
     `Source target: ${result.state.sourceTarget.kind}:${result.state.sourceTarget.ref}`,
     `Linked tickets: ${result.state.linkedTickets.length}`,
-    `Scope paths: ${renderList(result.state.scopePaths)}`,
+    `Scope paths: ${renderList(scopePaths)}`,
     `Packet summary: ${result.state.packetSummary || "(empty)"}`,
     "",
     "Summary:",
@@ -201,6 +204,7 @@ export function renderPlanDetail(result: PlanReadResult): string {
 }
 
 export function renderDashboard(dashboard: PlanDashboard): string {
+  const scopePaths = renderPortableRepositoryPathList(dashboard.scopePaths);
   return [
     renderPlanSummary(dashboard.plan),
     `Repository: ${
@@ -218,6 +222,6 @@ export function renderDashboard(dashboard: PlanDashboard): string {
         .map(([status, count]) => `${status}=${count}`)
         .join(", ") || "none"
     }`,
-    `Scope paths: ${renderList(dashboard.scopePaths)}`,
+    `Scope paths: ${renderList(scopePaths)}`,
   ].join("\n");
 }

@@ -6,6 +6,7 @@ import { createCritiqueStore } from "#critique/domain/store.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { createEntityId, createStableLoomId } from "#storage/ids.js";
 import { closeWorkspaceStorage, openWorkspaceStorage, openWorkspaceStorageSync } from "#storage/workspace.js";
+import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import type { CreateRalphRunInput } from "../domain/models.js";
 import { deriveRalphRunId } from "../domain/paths.js";
 import { createRalphStore } from "../domain/store.js";
@@ -44,6 +45,7 @@ function seedLinkedEntity(
   kind: "plan" | "ticket" | "spec_change",
   displayId: string,
   title: string,
+  owningRepositoryId: string | null = null,
 ) {
   const { storage, identity } = openWorkspaceStorageSync(workspace);
   const timestamp = new Date().toISOString();
@@ -85,7 +87,7 @@ function seedLinkedEntity(
       createEntityId(kind, identity.space.id, displayId, `${kind}:${displayId}`),
       kind,
       identity.space.id,
-      null,
+      owningRepositoryId,
       displayId,
       title,
       `${title} summary`,
@@ -240,6 +242,140 @@ describe("RalphStore durable memory", () => {
         },
       }),
     ).toThrow("Ralph projected link sync cannot resolve: plan:plan-missing");
+  });
+
+  it("creates, reads, and lists Ralph runs from an ambiguous parent workspace without runtime scope env", async () => {
+    const parent = createSeededParentGitWorkspace({
+      prefix: "pi-ralph-store-parent-",
+      repositories: [
+        { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+        { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+      ],
+    });
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-ralph-store-parent-state-"));
+    const priorRuntimeEnv = {
+      spaceId: process.env.PI_LOOM_RUNTIME_SPACE_ID,
+      repositoryId: process.env.PI_LOOM_RUNTIME_REPOSITORY_ID,
+      worktreeId: process.env.PI_LOOM_RUNTIME_WORKTREE_ID,
+      loomRoot: process.env.PI_LOOM_ROOT,
+    };
+    delete process.env.PI_LOOM_RUNTIME_SPACE_ID;
+    delete process.env.PI_LOOM_RUNTIME_REPOSITORY_ID;
+    delete process.env.PI_LOOM_RUNTIME_WORKTREE_ID;
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      const { identity } = await openWorkspaceStorage(parent.cwd);
+      expect(identity.activeScope.isAmbiguous).toBe(true);
+      expect(identity.repository).toBeNull();
+      expect(identity.worktree).toBeNull();
+
+      const serviceA = identity.repositories.find(
+        (repository) =>
+          repository.displayName === "service-a" || repository.remoteUrls.some((url) => url.includes("service-a")),
+      );
+      expect(serviceA).toBeDefined();
+      if (!serviceA) {
+        throw new Error("Missing service-a repository identity");
+      }
+
+      seedLinkedEntity(parent.cwd, "plan", "plan-123", "Scoped plan", serviceA.id);
+      seedLinkedEntity(parent.cwd, "ticket", "ticket-456", "Scoped ticket", serviceA.id);
+      seedLinkedEntity(parent.cwd, "spec_change", "spec-789", "Scoped spec", serviceA.id);
+      seedLinkedEntity(parent.cwd, "plan", "plan-124", "Unscoped plan", null);
+      seedLinkedEntity(parent.cwd, "ticket", "ticket-457", "Unscoped ticket", null);
+      seedLinkedEntity(parent.cwd, "spec_change", "spec-790", "Unscoped spec", null);
+
+      const store = createRalphStore(parent.cwd);
+      const scoped = store.createRun({
+        title: "Scoped Ralph Run",
+        objective: "Preserve repository ownership without an active repository selection.",
+        linkedRefs: {
+          planIds: ["plan-123"],
+          ticketIds: ["ticket-456"],
+          specChangeIds: ["spec-789"],
+        },
+        scope: {
+          mode: "execute",
+          repositoryId: serviceA.id,
+          planId: "plan-123",
+          ticketId: "ticket-456",
+          specChangeId: "spec-789",
+          roadmapItemIds: [],
+          initiativeIds: [],
+          researchIds: [],
+          critiqueIds: [],
+          docIds: [],
+        },
+        packetContext: {
+          capturedAt: new Date().toISOString(),
+          constitutionBrief: "Brief constitutional guidance.",
+          specContext: "Scoped spec context.",
+          planContext: "Scoped plan context.",
+          ticketContext: "Scoped ticket context.",
+          priorIterationLearnings: [],
+          operatorNotes: null,
+        },
+      });
+      const unscoped = store.createRun({
+        title: "Unscoped Ralph Run",
+        objective: "Keep repository attribution null when the bound scope does not provide one.",
+        linkedRefs: {
+          planIds: ["plan-124"],
+          ticketIds: ["ticket-457"],
+          specChangeIds: ["spec-790"],
+        },
+        scope: {
+          mode: "execute",
+          planId: "plan-124",
+          ticketId: "ticket-457",
+          specChangeId: "spec-790",
+          roadmapItemIds: [],
+          initiativeIds: [],
+          researchIds: [],
+          critiqueIds: [],
+          docIds: [],
+        },
+        packetContext: {
+          capturedAt: new Date().toISOString(),
+          constitutionBrief: "Brief constitutional guidance.",
+          specContext: "Unscoped spec context.",
+          planContext: "Unscoped plan context.",
+          ticketContext: "Unscoped ticket context.",
+          priorIterationLearnings: [],
+          operatorNotes: null,
+        },
+      });
+
+      expect(scoped.state.scope.repositoryId).toBe(serviceA.id);
+      expect(unscoped.state.scope.repositoryId).toBeNull();
+
+      const { storage, identity: persistedIdentity } = await openWorkspaceStorage(parent.cwd);
+      expect(
+        await findEntityByDisplayId(storage, persistedIdentity.space.id, "ralph_run", scoped.state.runId),
+      ).toMatchObject({ owningRepositoryId: serviceA.id });
+      expect(
+        await findEntityByDisplayId(storage, persistedIdentity.space.id, "ralph_run", unscoped.state.runId),
+      ).toMatchObject({ owningRepositoryId: null });
+
+      expect(store.readRun(scoped.state.runId).state.scope.repositoryId).toBe(serviceA.id);
+      expect(store.readRun(unscoped.state.runId).state.scope.repositoryId).toBeNull();
+      expect(store.listRuns().map((run) => run.id)).toEqual(
+        expect.arrayContaining([scoped.state.runId, unscoped.state.runId]),
+      );
+    } finally {
+      closeWorkspaceStorage(parent.cwd);
+      parent.cleanup();
+      rmSync(loomRoot, { recursive: true, force: true });
+      if (priorRuntimeEnv.spaceId === undefined) delete process.env.PI_LOOM_RUNTIME_SPACE_ID;
+      else process.env.PI_LOOM_RUNTIME_SPACE_ID = priorRuntimeEnv.spaceId;
+      if (priorRuntimeEnv.repositoryId === undefined) delete process.env.PI_LOOM_RUNTIME_REPOSITORY_ID;
+      else process.env.PI_LOOM_RUNTIME_REPOSITORY_ID = priorRuntimeEnv.repositoryId;
+      if (priorRuntimeEnv.worktreeId === undefined) delete process.env.PI_LOOM_RUNTIME_WORKTREE_ID;
+      else process.env.PI_LOOM_RUNTIME_WORKTREE_ID = priorRuntimeEnv.worktreeId;
+      if (priorRuntimeEnv.loomRoot === undefined) delete process.env.PI_LOOM_ROOT;
+      else process.env.PI_LOOM_ROOT = priorRuntimeEnv.loomRoot;
+    }
   });
 
   it("emits opaque event ids while keeping projected link sequences monotonic", async () => {

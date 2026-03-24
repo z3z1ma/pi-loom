@@ -4,6 +4,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import {
   discoverWorkspaceScope,
   enrollRepositoryInScope,
+  readPersistedScopeBinding,
   revokeActiveScopeSelection,
   selectActiveScope,
   unenrollRepositoryInScope,
@@ -29,6 +30,55 @@ const ScopeManageParams = Type.Object({
 });
 
 type ScopeManageParamsValue = Static<typeof ScopeManageParams>;
+type DiscoveredScope = Awaited<ReturnType<typeof discoverWorkspaceScope>>;
+type ScopeDiagnosticKind =
+  | "persisted_space_conflict"
+  | "persisted_scope_conflict"
+  | "stale_binding"
+  | "persisted_disambiguation"
+  | "repository_unavailable"
+  | "unknown";
+
+type ScopeRepositoryEntry = DiscoveredScope["enrolledRepositories"][number];
+
+interface ScopeDiagnosticView {
+  kind: ScopeDiagnosticKind;
+  message: string;
+}
+
+interface ScopeToolSummary {
+  scopeRoot: string;
+  space: { id: string; title: string };
+  activeScope: {
+    state: "ambiguous" | "resolved";
+    ambiguityReason: string | null;
+    bindingSource: string;
+    repository: {
+      id: string;
+      displayName: string;
+      slug: string;
+      discoverySource: "cwd" | "child" | null;
+      locallyAvailable: boolean;
+    } | null;
+    worktree: { id: string; branch: string } | null;
+  };
+  discovery: {
+    startedInsideRepository: boolean;
+    enrolledRepositoryCount: number;
+    unenrolledCandidateCount: number;
+  };
+  persistedBinding:
+    | {
+        status: "active" | "ignored";
+        source: "selection" | "persisted";
+        repositoryId: string | null;
+        worktreeId: string | null;
+        selectedAt: string;
+        staleReason: string | null;
+      }
+    | { status: "none"; source: null; repositoryId: null; worktreeId: null; selectedAt: null; staleReason: null };
+  diagnostics: ScopeDiagnosticView[];
+}
 
 function machineResult(details: Record<string, unknown>, text: string) {
   return {
@@ -37,20 +87,120 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
-function renderScopeRead(scope: Awaited<ReturnType<typeof discoverWorkspaceScope>>): string {
+function classifyScopeDiagnostic(message: string): ScopeDiagnosticKind {
+  if (message.startsWith("Persisted space binding ")) {
+    return "persisted_space_conflict";
+  }
+  if (message.startsWith("Persisted binding for space ")) {
+    return "persisted_scope_conflict";
+  }
+  if (message.startsWith("Persisted repository binding ")) {
+    return "stale_binding";
+  }
+  if (message.startsWith("Using persisted repository binding ")) {
+    return "persisted_disambiguation";
+  }
+  if (message.includes("has no locally available worktree")) {
+    return "repository_unavailable";
+  }
+  return "unknown";
+}
+
+function resolveRepositoryEntry(scope: DiscoveredScope, repositoryId: string | null): ScopeRepositoryEntry | null {
+  if (!repositoryId) {
+    return null;
+  }
+  return (
+    scope.enrolledRepositories
+      .concat(scope.candidateRepositories)
+      .find((entry) => entry.repository.id === repositoryId) ?? null
+  );
+}
+
+function resolveAmbiguityReason(scope: DiscoveredScope): string | null {
+  if (!scope.identity.activeScope.isAmbiguous) {
+    return null;
+  }
+  if (!scope.identity.discovery.startedInsideRepository && scope.identity.repositories.length > 1) {
+    return `Multiple repositories are available under ${scope.identity.discovery.scopeRoot}; select one before repository-bound operations.`;
+  }
+  return "Repository-sensitive operations require an explicit repository selection.";
+}
+
+function buildScopeSummary(scope: DiscoveredScope): ScopeToolSummary {
   const selectedRepository = scope.identity.repository;
   const selectedWorktree = scope.identity.worktree;
-  const bindingSummary = scope.binding
-    ? `${scope.binding.bindingSource} repository=${scope.binding.repositoryId ?? "(none)"} worktree=${scope.binding.worktreeId ?? "(none)"}`
-    : "(none)";
+  const selectedEntry = resolveRepositoryEntry(scope, selectedRepository?.id ?? null);
+  const persistedBinding = readPersistedScopeBinding(scope.identity.discovery.scopeRoot);
+  return {
+    scopeRoot: scope.identity.discovery.scopeRoot,
+    space: { id: scope.identity.space.id, title: scope.identity.space.title },
+    activeScope: {
+      state: scope.identity.activeScope.isAmbiguous ? "ambiguous" : "resolved",
+      ambiguityReason: resolveAmbiguityReason(scope),
+      bindingSource: scope.identity.activeScope.bindingSource,
+      repository: selectedRepository
+        ? {
+            id: selectedRepository.id,
+            displayName: selectedRepository.displayName,
+            slug: selectedRepository.slug,
+            discoverySource: selectedEntry?.discoverySource ?? null,
+            locallyAvailable: selectedEntry?.locallyAvailable ?? true,
+          }
+        : null,
+      worktree: selectedWorktree ? { id: selectedWorktree.id, branch: selectedWorktree.branch } : null,
+    },
+    discovery: {
+      startedInsideRepository: scope.identity.discovery.startedInsideRepository,
+      enrolledRepositoryCount: scope.enrolledRepositories.length,
+      unenrolledCandidateCount: scope.candidateRepositories.length,
+    },
+    persistedBinding: persistedBinding
+      ? (() => {
+          const status: "active" | "ignored" =
+            !scope.identity.activeScope.isAmbiguous &&
+            scope.identity.activeScope.repositoryId === persistedBinding.repositoryId
+              ? "active"
+              : "ignored";
+          return {
+            status,
+            source: persistedBinding.bindingSource,
+            repositoryId: persistedBinding.repositoryId,
+            worktreeId: persistedBinding.worktreeId,
+            selectedAt: persistedBinding.selectedAt,
+            staleReason: persistedBinding.staleReason,
+          };
+        })()
+      : {
+          status: "none",
+          source: null,
+          repositoryId: null,
+          worktreeId: null,
+          selectedAt: null,
+          staleReason: null,
+        },
+    diagnostics: scope.diagnostics.map((message) => ({ kind: classifyScopeDiagnostic(message), message })),
+  };
+}
+
+function renderPersistedBinding(summary: ScopeToolSummary): string {
+  if (summary.persistedBinding.status === "none") {
+    return "none";
+  }
+  return `${summary.persistedBinding.status} source=${summary.persistedBinding.source} repository=${summary.persistedBinding.repositoryId ?? "(none)"} worktree=${summary.persistedBinding.worktreeId ?? "(none)"}`;
+}
+
+function renderScopeRead(scope: DiscoveredScope): string {
+  const summary = buildScopeSummary(scope);
   const diagnostics =
-    scope.diagnostics.length > 0
-      ? `Diagnostics:\n${scope.diagnostics.map((entry) => `- ${entry}`).join("\n")}`
+    summary.diagnostics.length > 0
+      ? `Diagnostics:\n${summary.diagnostics.map((entry) => `- [${entry.kind}] ${entry.message}`).join("\n")}`
       : "Diagnostics: none";
   const renderRepository = (
     entry: {
       repository: { id: string; displayName: string; slug: string };
       current: boolean;
+      discoverySource: "cwd" | "child";
       worktrees: { id: string; branch: string }[];
       locallyAvailable: boolean;
       unavailableReason: string | null;
@@ -61,16 +211,18 @@ function renderScopeRead(scope: Awaited<ReturnType<typeof discoverWorkspaceScope
     const availability = entry.locallyAvailable
       ? "available"
       : `unavailable: ${entry.unavailableReason ?? "no local worktree"}`;
-    return `${prefix}${entry.current ? "*" : "-"} ${entry.repository.displayName} [${entry.repository.id}] slug=${entry.repository.slug} availability=${availability} worktrees=${worktrees}`;
+    return `${prefix}${entry.current ? "*" : "-"} ${entry.repository.displayName} [${entry.repository.id}] slug=${entry.repository.slug} source=${entry.discoverySource} availability=${availability} worktrees=${worktrees}`;
   };
 
   return [
-    `Scope root: ${scope.identity.discovery.scopeRoot}`,
-    `Space: ${scope.identity.space.title} [${scope.identity.space.id}]`,
-    `Active scope: ${scope.identity.activeScope.isAmbiguous ? "ambiguous" : "resolved"}`,
-    `Selected repository: ${selectedRepository ? `${selectedRepository.displayName} [${selectedRepository.id}]` : "(none)"}`,
-    `Selected worktree: ${selectedWorktree ? `${selectedWorktree.id} (${selectedWorktree.branch})` : "(none)"}`,
-    `Binding: ${bindingSummary}`,
+    `Scope root: ${summary.scopeRoot}`,
+    `Space: ${summary.space.title} [${summary.space.id}]`,
+    `Active scope: ${summary.activeScope.state} (bindingSource=${summary.activeScope.bindingSource})`,
+    ...(summary.activeScope.ambiguityReason ? [`Ambiguity: ${summary.activeScope.ambiguityReason}`] : []),
+    `Selected repository: ${summary.activeScope.repository ? `${summary.activeScope.repository.displayName} [${summary.activeScope.repository.id}]` : "(none)"}`,
+    `Selected worktree: ${summary.activeScope.worktree ? `${summary.activeScope.worktree.id} (${summary.activeScope.worktree.branch})` : "(none)"}`,
+    `Discovery: startedInsideRepository=${summary.discovery.startedInsideRepository ? "yes" : "no"} activeRepositorySource=${summary.activeScope.repository?.discoverySource ?? "(none)"}`,
+    `Persisted binding: ${renderPersistedBinding(summary)}`,
     `Enrolled repositories (${scope.enrolledRepositories.length}):`,
     ...(scope.enrolledRepositories.length > 0
       ? scope.enrolledRepositories.map((entry) => renderRepository(entry, "  "))
@@ -88,28 +240,39 @@ async function getScope(ctx: ExtensionContext) {
   return discoverWorkspaceScope(ctx.cwd, storage);
 }
 
-async function manageScope(ctx: ExtensionContext, params: ScopeManageParamsValue) {
+async function manageScope(
+  ctx: ExtensionContext,
+  params: ScopeManageParamsValue,
+): Promise<{
+  action: ScopeManageParamsValue["action"];
+  scope: DiscoveredScope;
+  identity?: Awaited<ReturnType<typeof selectActiveScope>>;
+}> {
   const { storage } = await openWorkspaceStorage(ctx.cwd);
   switch (params.action) {
     case "select":
-      return selectActiveScope(
-        ctx.cwd,
-        { repositoryId: params.repositoryId ?? null, worktreeId: params.worktreeId ?? null, persist: params.persist },
-        storage,
-      );
+      return {
+        action: params.action,
+        identity: await selectActiveScope(
+          ctx.cwd,
+          { repositoryId: params.repositoryId ?? null, worktreeId: params.worktreeId ?? null, persist: params.persist },
+          storage,
+        ),
+        scope: await discoverWorkspaceScope(ctx.cwd, storage),
+      };
     case "revoke":
       revokeActiveScopeSelection(ctx.cwd);
-      return discoverWorkspaceScope(ctx.cwd, storage);
+      return { action: params.action, scope: await discoverWorkspaceScope(ctx.cwd, storage) };
     case "enroll":
       if (!params.repositoryId) {
         throw new Error("repositoryId is required for enroll");
       }
-      return enrollRepositoryInScope(ctx.cwd, params.repositoryId, storage);
+      return { action: params.action, scope: await enrollRepositoryInScope(ctx.cwd, params.repositoryId, storage) };
     case "unenroll":
       if (!params.repositoryId) {
         throw new Error("repositoryId is required for unenroll");
       }
-      return unenrollRepositoryInScope(ctx.cwd, params.repositoryId, storage);
+      return { action: params.action, scope: await unenrollRepositoryInScope(ctx.cwd, params.repositoryId, storage) };
   }
 }
 
@@ -128,7 +291,7 @@ export function registerScopeTools(pi: ExtensionAPI): void {
     parameters: ScopeReadParams,
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const scope = await getScope(ctx);
-      return machineResult({ scope }, renderScopeRead(scope));
+      return machineResult({ scope, scopeSummary: buildScopeSummary(scope) }, renderScopeRead(scope));
     },
   });
 
@@ -146,21 +309,15 @@ export function registerScopeTools(pi: ExtensionAPI): void {
     parameters: ScopeManageParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const result = await manageScope(ctx, params);
-      if (params.action === "select" && "space" in result) {
-        return machineResult(
-          { action: params.action, identity: result },
-          [
-            `Selected repository: ${result.repository ? `${result.repository.displayName} [${result.repository.id}]` : "(none)"}`,
-            `Selected worktree: ${result.worktree ? `${result.worktree.id} (${result.worktree.branch})` : "(none)"}`,
-            `Binding source: ${result.activeScope.bindingSource}`,
-            ...(result.discovery.diagnostics.length > 0
-              ? [`Diagnostics: ${result.discovery.diagnostics.join(" | ")}`]
-              : []),
-          ].join("\n"),
-        );
-      }
-      const scope = result as Awaited<ReturnType<typeof discoverWorkspaceScope>>;
-      return machineResult({ action: params.action, scope }, renderScopeRead(scope));
+      return machineResult(
+        {
+          action: result.action,
+          ...(result.identity ? { identity: result.identity } : {}),
+          scope: result.scope,
+          scopeSummary: buildScopeSummary(result.scope),
+        },
+        [`Action: ${result.action}`, renderScopeRead(result.scope)].join("\n"),
+      );
     },
   });
 }

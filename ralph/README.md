@@ -32,7 +32,7 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 ## Artifact policy
 
 - `launch.json` is a runtime-only handoff descriptor for a specific fresh-session or session-runtime launch; it is not durable canonical state
-- runtime artifacts are durable per-iteration execution records: they are not the source of loop truth, but they are the primary observability surface for what the worker actually did
+- runtime artifacts are durable per-iteration execution records: they are not the source of loop truth, but they are the primary observability surface for what the worker actually did while storing a portable invocation summary instead of machine-local spawn paths
 - Ralph synthesizes each latest bounded iteration from the bound ticket before/after a worker launch; iteration and runtime records remain revisable observability keyed by iteration id rather than an immutable append-only history API
 - rendered run records and dashboards are derived views computed on demand from the SQLite store
 
@@ -56,6 +56,15 @@ AI tool usage:
 - use `ralph_job_read`, `ralph_job_wait`, and `ralph_job_cancel` for explicit background-job inspection, waiting, and cancellation
 
 `ralph_run` is the primary loop tool. It creates or resumes the system-owned Ralph run for one exact `ticketRef` plus its effective plan binding, inherits the governing spec from the plan when one is present, and runs fresh-context bounded iterations against that ticket until the run pauses, halts, or completes. The bound ticket is the authoritative execution ledger: the worker is expected to keep ticket status, body, journal, verification, and blockers truthful during the iteration, and Ralph synthesizes the latest bounded iteration from those ticket changes after the worker exits. Parallelism is therefore explicit: different tickets may run in parallel, but the same ticket must not have two Ralph runs executing at once.
+
+## Multi-repository runtime targeting
+
+Ralph follows the storage scope model rather than inferring execution from one ambient cwd.
+
+- when Pi starts from a parent directory above multiple repositories, `ralph_run` stays pinned to the repository/worktree selected in active scope or implied by the bound repository-owned ticket and plan context
+- fresh-process runtime launches receive explicit space/repository/worktree scope so the child session executes against the same repository identity the ticket ledger expects
+- durable runtime artifacts record that runtime scope for each iteration so postmortems can tell which repository and worktree actually executed
+- if the requested scope points at a different Loom space or at a canonically enrolled repository with no locally available worktree, the launch fails closed instead of silently hopping to another repository
 
 `ralph_steer` is intentionally narrow. Steering is additive context for the next iteration boundary, not a second source of truth. It can clarify priorities or carry a newly discovered constraint, but it must not replace the governing ticket or be used to micromanage Ralph's base operating discipline.
 

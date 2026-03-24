@@ -1,4 +1,5 @@
 import type { LoomListSort } from "#storage/list-search.js";
+import type { LoomRuntimeScope } from "#storage/runtime-scope.js";
 import type { RalphArtifactPaths } from "./paths.js";
 
 export const RALPH_RUN_STATUSES = [
@@ -76,6 +77,7 @@ export interface RalphLinkedRefs {
 
 export interface RalphRunScope {
   mode: RalphScopeMode;
+  repositoryId?: string | null;
   specChangeId: string | null;
   planId: string | null;
   ticketId: string | null;
@@ -252,6 +254,7 @@ export interface RalphIterationRuntimeRecord {
   iterationId: string;
   iteration: number;
   status: RalphRuntimeArtifactStatus;
+  runtimeScope?: LoomRuntimeScope | null;
   startedAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -331,6 +334,8 @@ export interface RalphDashboardLatestRuntime {
   iterationId: string;
   iteration: number;
   status: RalphRuntimeArtifactStatus;
+  repositoryId: string | null;
+  worktreeId: string | null;
   updatedAt: string;
   completedAt: string | null;
   exitCode: number | null;
@@ -436,6 +441,7 @@ export interface UpsertRalphIterationRuntimeInput {
   iterationId: string;
   iteration?: number;
   status?: RalphRuntimeArtifactStatus;
+  runtimeScope?: LoomRuntimeScope | null;
   startedAt?: string;
   completedAt?: string | null;
   command?: string;

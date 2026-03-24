@@ -2,6 +2,7 @@ import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi
 import { createConstitutionalStore } from "#constitution/domain/store.js";
 import { createPlanStore } from "#plans/domain/store.js";
 import { createSpecStore } from "#specs/domain/store.js";
+import { resolveRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
 import type { TicketReadResult, TicketStatus } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import type {
@@ -68,6 +69,7 @@ export interface ExecuteRalphLoopOptions {
 interface BoundRunContext {
   planId: string | null;
   planTitle: string | null;
+  repositoryId: string | null;
   ticketId: string;
   ticketTitle: string | null;
   specChangeId: string | null;
@@ -139,8 +141,15 @@ function snapshotTicketLedger(ticket: TicketReadResult): TicketLedgerSnapshot {
   };
 }
 
-async function readTicketLedgerSnapshot(cwd: string, ticketRef: string): Promise<TicketLedgerSnapshot | null> {
-  return createTicketStore(cwd)
+async function readTicketLedgerSnapshot(
+  cwd: string,
+  ticketRef: string,
+  scope?: { repositoryId?: string | null; worktreeId?: string | null },
+): Promise<TicketLedgerSnapshot | null> {
+  return createTicketStore(cwd, {
+    repositoryId: scope?.repositoryId ?? null,
+    worktreeId: scope?.worktreeId ?? null,
+  })
     .readTicketAsync(ticketRef)
     .then((ticket) => snapshotTicketLedger(ticket))
     .catch(() => null);
@@ -454,6 +463,7 @@ async function readBoundRunContext(cwd: string, planRef: string | null, ticketRe
     return {
       planId: null,
       planTitle: null,
+      repositoryId: ticket.summary.repository?.id ?? null,
       ticketId: ticket.summary.id,
       ticketTitle: ticket.summary.title,
       specChangeId: null,
@@ -476,6 +486,7 @@ async function readBoundRunContext(cwd: string, planRef: string | null, ticketRe
   return {
     planId: plan.state.planId,
     planTitle: plan.state.title,
+    repositoryId: ticket.summary.repository?.id ?? null,
     ticketId: ticket.summary.id,
     ticketTitle: ticket.summary.title,
     specChangeId,
@@ -490,6 +501,7 @@ async function readBoundRunContext(cwd: string, planRef: string | null, ticketRe
 function toBoundRunScope(context: BoundRunContext): RalphRunScope {
   return {
     mode: "execute",
+    repositoryId: context.repositoryId,
     specChangeId: context.specChangeId,
     planId: context.planId,
     ticketId: context.ticketId,
@@ -712,12 +724,13 @@ async function persistRuntimeFailure(
       : budgetExceeded
         ? "The Ralph run exceeded its configured token budget during the bounded iteration."
         : execution.stderr || execution.output || noTicketActivitySummary;
+  const runtimeInvocation = buildPortableRuntimeInvocation((await store.readRunAsync(ref)).launch);
   await store.upsertIterationRuntimeAsync(ref, {
     iterationId,
     status: execution.status === "cancelled" ? "cancelled" : "failed",
     completedAt: execution.completedAt,
-    command: execution.command,
-    args: execution.args,
+    command: runtimeInvocation.command,
+    args: runtimeInvocation.args,
     exitCode: execution.exitCode,
     output: execution.output,
     stderr: execution.stderr,
@@ -788,10 +801,20 @@ function totalRuntimeTokens(run: RalphReadResult): number | null {
   return total;
 }
 
-function buildTimeoutExecutionResult(run: RalphReadResult, timeoutMs: number): RalphExecutionResult {
+function buildPortableRuntimeInvocation(launch: RalphReadResult["launch"]): { command: string; args: string[] } {
   return {
+    // Runtime artifacts stay durable across machines, so persist a canonical invocation summary
+    // instead of the machine-local spawn command, package root, or temp session directory.
     command: "session-runtime",
-    args: [run.launch.runId, run.launch.iterationId, run.launch.resume ? "resume" : "launch"],
+    args: [`run=${launch.runId}`, `iteration=${launch.iterationId}`, `mode=${launch.resume ? "resume" : "launch"}`],
+  };
+}
+
+function buildTimeoutExecutionResult(run: RalphReadResult, timeoutMs: number): RalphExecutionResult {
+  const runtimeInvocation = buildPortableRuntimeInvocation(run.launch);
+  return {
+    command: runtimeInvocation.command,
+    args: runtimeInvocation.args,
     exitCode: 1,
     output: "",
     stderr: `Timed out after ${timeoutMs}ms`,
@@ -804,9 +827,10 @@ function buildTimeoutExecutionResult(run: RalphReadResult, timeoutMs: number): R
 }
 
 function buildQueuedTimeoutExecutionResult(run: RalphReadResult, timeoutMs: number): RalphExecutionResult {
+  const runtimeInvocation = buildPortableRuntimeInvocation(run.launch);
   return {
-    command: "session-runtime",
-    args: [run.launch.runId, run.launch.iterationId, run.launch.resume ? "resume" : "launch"],
+    command: runtimeInvocation.command,
+    args: runtimeInvocation.args,
     exitCode: 1,
     output: "",
     stderr: `Timed out waiting ${timeoutMs}ms for the Ralph session runtime queue`,
@@ -889,7 +913,11 @@ async function executePreparedIteration(
   const store = createRalphStore(ctx.cwd);
   const timeoutMs =
     run.state.policySnapshot.maxRuntimeMinutes === null ? null : run.state.policySnapshot.maxRuntimeMinutes * 60 * 1000;
-  const ticketBeforeLaunch = await readTicketLedgerSnapshot(ctx.cwd, run.launch.ticketRef);
+  const runtimeScope = await resolveRuntimeScope(
+    ctx.cwd,
+    run.state.scope.repositoryId ? { repositoryId: run.state.scope.repositoryId } : undefined,
+  );
+  const ticketBeforeLaunch = await readTicketLedgerSnapshot(ctx.cwd, run.launch.ticketRef, runtimeScope);
   const executionSignal = createExecutionSignal(signal);
   let queueTimeoutExceeded = false;
   let queueTimeoutTimer: NodeJS.Timeout | null = null;
@@ -986,6 +1014,7 @@ async function executePreparedIteration(
       iterationId: run.launch.iterationId,
       iteration: run.launch.iteration,
       status: "queued",
+      runtimeScope,
       startedAt: new Date().toISOString(),
       launch: run.launch,
       jobId: options.jobId,
@@ -1008,12 +1037,13 @@ async function executePreparedIteration(
         iterationId: run.launch.iterationId,
         iteration: run.launch.iteration,
         status: latestRuntimeStatus,
+        runtimeScope,
         output: streamedOutput,
         launch: run.launch,
         jobId: options.jobId,
       });
     },
-    undefined,
+    runtimeScopeToEnv(runtimeScope),
     (event) => {
       if (executionSignal.signal?.aborted) {
         return;
@@ -1039,6 +1069,7 @@ async function executePreparedIteration(
         iterationId: run.launch.iterationId,
         iteration: run.launch.iteration,
         status: event.type === "launch_state" ? event.state : latestRuntimeStatus,
+        runtimeScope,
         output: streamedOutput,
         events: [event],
         launch: run.launch,
@@ -1065,6 +1096,7 @@ async function executePreparedIteration(
           stderr: execution.stderr === "Aborted" ? "Timed out" : execution.stderr || "Timed out",
         }
       : execution;
+  const runtimeInvocation = buildPortableRuntimeInvocation(run.launch);
 
   queueRuntimePersistence(
     {
@@ -1076,9 +1108,10 @@ async function executePreparedIteration(
           : normalizedExecution.status === "cancelled"
             ? "cancelled"
             : "failed",
+      runtimeScope,
       completedAt: normalizedExecution.completedAt,
-      command: normalizedExecution.command,
-      args: normalizedExecution.args,
+      command: runtimeInvocation.command,
+      args: runtimeInvocation.args,
       exitCode: normalizedExecution.exitCode,
       output: normalizedExecution.output || streamedOutput,
       stderr: normalizedExecution.stderr,
@@ -1096,11 +1129,12 @@ async function executePreparedIteration(
   }
 
   let updated = await store.readRunAsync(ref);
-  const ticketAfterLaunch = await readTicketLedgerSnapshot(ctx.cwd, run.launch.ticketRef);
+  const ticketAfterLaunch = await readTicketLedgerSnapshot(ctx.cwd, run.launch.ticketRef, runtimeScope);
   const hasDurableTicketActivity = ticketLedgerChanged(ticketBeforeLaunch, ticketAfterLaunch);
   updated = await store.upsertIterationRuntimeAsync(ref, {
     iterationId: run.launch.iterationId,
     iteration: run.launch.iteration,
+    runtimeScope,
     missingTicketActivity: !hasDurableTicketActivity,
     jobId: options.jobId,
   });
@@ -1298,6 +1332,7 @@ async function syncBoundRunScope(
   const context = await readBoundRunContext(ctx.cwd, planId, ticketId).catch(() => ({
     planId,
     planTitle: run.state.title,
+    repositoryId: run.state.scope.repositoryId ?? null,
     ticketId,
     ticketTitle: run.state.activeTicketId ?? ticketId,
     specChangeId: run.state.scope.specChangeId,

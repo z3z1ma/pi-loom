@@ -8,8 +8,8 @@ import { createEntityId, createLinkId, createRandomLoomId } from "#storage/ids.j
 import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
-import { requireResolvedRepositoryIdentity, resolveWorkspaceIdentity } from "#storage/repository.js";
-import { openWorkspaceStorageSync } from "#storage/workspace.js";
+import { readRuntimeScopeFromEnv } from "#storage/runtime-scope.js";
+import { openScopedWorkspaceStorageSync } from "#storage/workspace.js";
 import { buildRalphDashboard, summarizeRalphRun } from "./dashboard.js";
 import { renderBulletList, renderSection } from "./frontmatter.js";
 import type {
@@ -137,11 +137,7 @@ interface StoredRalphEntityRow {
 }
 
 function openRalphCatalogSync(cwd: string) {
-  const opened = openWorkspaceStorageSync(cwd);
-  return {
-    ...opened,
-    identity: requireResolvedRepositoryIdentity(opened.identity),
-  };
+  return openScopedWorkspaceStorageSync(cwd, readRuntimeScopeFromEnv());
 }
 
 interface RalphArtifactRow {
@@ -384,6 +380,22 @@ function normalizeRuntimeEvents(events: readonly RalphRuntimeEvent[] | undefined
   return (events ?? []).map((event) => normalizeRuntimeEvent(event));
 }
 
+function normalizeRuntimeScope(
+  scope:
+    | RalphIterationRuntimeRecord["runtimeScope"]
+    | UpsertRalphIterationRuntimeInput["runtimeScope"]
+    | null
+    | undefined,
+): RalphIterationRuntimeRecord["runtimeScope"] {
+  const spaceId = normalizeOptionalString(scope?.spaceId);
+  const repositoryId = normalizeOptionalString(scope?.repositoryId);
+  const worktreeId = normalizeOptionalString(scope?.worktreeId);
+  if (!spaceId || !repositoryId || !worktreeId) {
+    return null;
+  }
+  return { spaceId, repositoryId, worktreeId };
+}
+
 function normalizeRuntimeRecord(record: RalphIterationRuntimeRecord): RalphIterationRuntimeRecord {
   const legacyRecord = record as RalphIterationRuntimeRecord & { missingCheckpoint?: boolean };
   return {
@@ -392,6 +404,7 @@ function normalizeRuntimeRecord(record: RalphIterationRuntimeRecord): RalphItera
     iterationId: record.iterationId.trim(),
     iteration: Math.max(1, Math.floor(record.iteration)),
     status: normalizeRuntimeArtifactStatus(record.status),
+    runtimeScope: normalizeRuntimeScope(record.runtimeScope),
     startedAt: record.startedAt,
     updatedAt: record.updatedAt,
     completedAt: normalizeOptionalString(record.completedAt),
@@ -440,9 +453,12 @@ function buildRuntimeArtifactTitle(runTitle: string, runtime: RalphIterationRunt
 }
 
 function buildRuntimeArtifactSummary(runtime: RalphIterationRuntimeRecord): string {
+  const scopeSummary = runtime.runtimeScope
+    ? ` repository=${runtime.runtimeScope.repositoryId} worktree=${runtime.runtimeScope.worktreeId}`
+    : "";
   return summarizeText(
-    `${runtime.status} ${runtime.stderr} ${runtime.output}`,
-    `Ralph runtime ${runtime.iteration} for ${runtime.runId}.`,
+    `${runtime.status}${scopeSummary} ${runtime.stderr} ${runtime.output}`,
+    `Ralph runtime ${runtime.iteration} for ${runtime.runId}.${scopeSummary}`,
   );
 }
 
@@ -763,6 +779,7 @@ function normalizeRunScope(
   const mode = input?.mode === "execute" || (input?.mode !== "plan" && inferredTicketId !== null) ? "execute" : "plan";
   return {
     mode,
+    repositoryId: normalizeOptionalString(input?.repositoryId),
     specChangeId: inferredSpecId,
     planId: mode === "execute" ? inferredPlanId : inferredPlanId,
     ticketId: mode === "execute" ? inferredTicketId : null,
@@ -1465,11 +1482,7 @@ export class RalphStore {
       roadmap: this.buildContextSummary(state.linkedRefs.roadmapItemIds, (ref) => {
         const constitution = readStructuredEntityAttributesSync<{
           state: { roadmapItems: Array<{ id: string; status: string; title: string }> };
-        }>(
-          this.cwd,
-          "constitution",
-          requireResolvedRepositoryIdentity(resolveWorkspaceIdentity(this.cwd)).repository.slug,
-        );
+        }>(this.cwd, "constitution", "constitution");
         const item = constitution?.state.roadmapItems.find((entry) => entry.id === ref);
         if (!item) throw new Error(`Unknown roadmap item: ${ref}`);
         return `${item.id} [${item.status}] ${item.title}`;
@@ -1573,6 +1586,8 @@ export class RalphStore {
           `- id: ${latestRuntime.id}`,
           `- iteration: ${latestRuntime.iteration}`,
           `- status: ${latestRuntime.status}`,
+          `- repository: ${latestRuntime.runtimeScope?.repositoryId ?? "(none)"}`,
+          `- worktree: ${latestRuntime.runtimeScope?.worktreeId ?? "(none)"}`,
           `- job: ${latestRuntime.jobId ?? "(none)"}`,
           `- started at: ${latestRuntime.startedAt}`,
           `- completed at: ${latestRuntime.completedAt ?? "(not completed)"}`,
@@ -1901,7 +1916,10 @@ export class RalphStore {
     const { storage, identity } = openRalphCatalogSync(this.cwd);
     const desiredProjectedLinks = buildProjectedRalphLinks(record.state);
     assertProjectedRalphLinksResolvable(this.cwd, identity.space.id, desiredProjectedLinks);
-    const owningRepositoryId = resolveOwningRepositoryId(storage, identity.repository.id);
+    const owningRepositoryId = resolveOwningRepositoryId(
+      storage,
+      record.state.scope.repositoryId ?? identity.repository?.id ?? null,
+    );
     const existing = findStoredRalphRow(this.cwd, record.summary.id);
     const entityId =
       existing?.id ??
@@ -2568,6 +2586,7 @@ export class RalphStore {
       iterationId: input.iterationId.trim(),
       iteration: input.iteration ?? linkedIteration?.iteration ?? existing?.iteration ?? launch.iteration,
       status: input.status ?? existing?.status ?? "queued",
+      runtimeScope: input.runtimeScope ?? existing?.runtimeScope ?? null,
       startedAt: input.startedAt ?? existing?.startedAt ?? now,
       updatedAt: now,
       completedAt: input.completedAt ?? existing?.completedAt ?? null,
@@ -2597,6 +2616,8 @@ export class RalphStore {
         change: "runtime_artifact_updated",
         iterationId: record.iterationId,
         status: record.status,
+        repositoryId: record.runtimeScope?.repositoryId ?? null,
+        worktreeId: record.runtimeScope?.worktreeId ?? null,
         exitCode: record.exitCode,
         missingTicketActivity: record.missingTicketActivity,
         jobId: record.jobId,

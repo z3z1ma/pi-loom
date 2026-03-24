@@ -15,6 +15,7 @@ describe("ralph prompt guidance", () => {
     );
     expect(guidance).toContain("assumptions, scope boundaries, risks, dependencies, edge cases, and open questions");
     expect(guidance).toContain("durable steering, stop requests, and packet context");
+    expect(guidance).toContain("without persisting machine-local spawn paths into durable state");
     expect(guidance).toContain("long transcripts as a liability");
     expect(guidance).toContain("run one bounded iteration at a time");
     expect(guidance).toContain("bound ticket as the authoritative execution ledger");

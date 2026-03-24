@@ -10,6 +10,7 @@ export interface LoomWorkspaceStorage {
 }
 
 export interface LoomExplicitScopeInput {
+  spaceId?: string | null;
   repositoryId?: string | null;
   worktreeId?: string | null;
 }
@@ -41,15 +42,36 @@ export function openWorkspaceStorageSync(cwd: string): LoomWorkspaceStorage {
   return getOrCreateWorkspaceStorage(cwd, workspaceStorageCacheKey(cwd)).opened;
 }
 
+export function openScopedWorkspaceStorageSync(cwd: string, scope?: LoomExplicitScopeInput): LoomWorkspaceStorage {
+  const opened = openWorkspaceStorageSync(cwd);
+  const scopedIdentity = resolveExplicitScopeIdentity(opened.identity, scope);
+  if (scopedIdentity === opened.identity) {
+    return opened;
+  }
+  return {
+    storage: opened.storage,
+    identity: scopedIdentity,
+  };
+}
+
 function resolveExplicitScopeIdentity(
   identity: ReturnType<typeof resolveWorkspaceIdentity>,
   scope: LoomExplicitScopeInput | undefined,
 ): ReturnType<typeof resolveWorkspaceIdentity> {
+  const spaceId = scope?.spaceId ?? null;
   const repositoryId = scope?.repositoryId ?? null;
   const worktreeId = scope?.worktreeId ?? null;
-  if (!repositoryId && !worktreeId) {
+  if (!spaceId && !repositoryId && !worktreeId) {
     return identity;
   }
+
+  if (spaceId && spaceId !== identity.space.id) {
+    throw new Error(
+      `Runtime scope targets space ${spaceId} but active scope is ${identity.space.id}; switch to the correct Loom space before continuing.`,
+    );
+  }
+
+  const locallyAvailableWorktreeIds = new Set(identity.discovery.candidates.map((candidate) => candidate.worktree.id));
 
   const worktree = worktreeId ? (identity.worktrees.find((entry) => entry.id === worktreeId) ?? null) : null;
   if (worktreeId && !worktree) {
@@ -68,10 +90,28 @@ function resolveExplicitScopeIdentity(
   if (worktree && worktree.repositoryId !== repository.id) {
     throw new Error(`Worktree ${worktree.id} does not belong to repository ${repository.id}.`);
   }
+  if (worktree && !locallyAvailableWorktreeIds.has(worktree.id)) {
+    throw new Error(
+      `Worktree ${worktree.id} for repository ${worktree.repositoryId} is canonically present in space ${identity.space.id} but not locally available under ${identity.discovery.scopeRoot}. Reattach the local clone/worktree or select an available repository before repository-bound operations.`,
+    );
+  }
 
-  const resolvedWorktree = worktree ?? identity.worktrees.find((entry) => entry.repositoryId === repository.id) ?? null;
+  const selectedWorktree =
+    !identity.activeScope.isAmbiguous && identity.repository?.id === repository.id ? identity.worktree : null;
+  const locallyAvailableWorktrees = identity.worktrees.filter(
+    (entry) => entry.repositoryId === repository.id && locallyAvailableWorktreeIds.has(entry.id),
+  );
+  const resolvedWorktree =
+    worktree ?? selectedWorktree ?? (locallyAvailableWorktrees.length === 1 ? locallyAvailableWorktrees[0] : null);
   if (!resolvedWorktree) {
-    throw new Error(`Repository ${repository.id} has no worktree in active scope ${identity.space.id}.`);
+    if (locallyAvailableWorktrees.length > 1) {
+      throw new Error(
+        `Repository ${repository.displayName} [${repository.id}] has multiple locally available worktrees under ${identity.discovery.scopeRoot}; provide an explicit worktreeId or select a worktree before repository-bound operations.`,
+      );
+    }
+    throw new Error(
+      `Repository ${repository.displayName} [${repository.id}] is canonically present in space ${identity.space.id} but has no locally available worktree under ${identity.discovery.scopeRoot}. Reattach a local clone/worktree or select an available repository before repository-bound operations.`,
+    );
   }
 
   return {

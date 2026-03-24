@@ -1,3 +1,4 @@
+import { getTicketGraphNodeForSummary } from "../domain/graph.js";
 import type { TicketGraphResult, TicketStatus, TicketSummary } from "../domain/models.js";
 
 export type TicketWorkbenchTabId = "overview" | "inbox" | "list" | "board" | "timeline" | "detail";
@@ -115,7 +116,7 @@ export function createTicketWorkbenchModel(tickets: TicketSummary[], graph: Tick
     actionable: [...byStatus.ready, ...byStatus.in_progress, ...byStatus.review, ...byStatus.blocked, ...byStatus.open],
     blocked: byStatus.blocked.map((ticket) => ({
       ticket,
-      blockers: graph.nodes[ticket.id]?.blockedBy ?? [],
+      blockers: getTicketGraphNodeForSummary(graph, ticket)?.blockedBy.map((blocker) => blocker.qualifiedId) ?? [],
     })),
     recent: timeline.slice(0, 6),
     recentClosed: timeline.filter((ticket) => ticket.status === "closed").slice(0, 6),

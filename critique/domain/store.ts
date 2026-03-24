@@ -7,7 +7,7 @@ import type { ResearchRecord } from "#research/domain/models.js";
 import { createResearchStore } from "#research/domain/store.js";
 import type { SpecChangeRecord } from "#specs/domain/models.js";
 import { hasProjectedArtifactAttributes, syncProjectedArtifacts } from "#storage/artifacts.js";
-import type { LoomEntityKind, LoomEntityRecord } from "#storage/contract.js";
+import type { LoomEntityKind, LoomEntityRecord, LoomRepositoryRecord } from "#storage/contract.js";
 import {
   appendEntityEvent,
   findEntityByDisplayId,
@@ -18,8 +18,14 @@ import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { syncProjectedEntityLinks } from "#storage/links.js";
 import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
-import { requireResolvedRepositoryIdentity, resolveWorkspaceIdentity } from "#storage/repository.js";
-import { openRepositoryWorkspaceStorage, openWorkspaceStorage, openWorkspaceStorageSync } from "#storage/workspace.js";
+import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
+import { requireResolvedRepositoryIdentity } from "#storage/repository.js";
+import {
+  type LoomExplicitScopeInput,
+  openRepositoryWorkspaceStorage,
+  openScopedWorkspaceStorage,
+  openScopedWorkspaceStorageSync,
+} from "#storage/workspace.js";
 import type { CreateTicketInput, TicketReadResult } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import { buildCritiqueDashboard, summarizeCritique } from "./dashboard.js";
@@ -114,8 +120,8 @@ interface StoredCritiqueEntityRow {
   attributes_json: string;
 }
 
-function openCritiqueCatalogSync(cwd: string) {
-  const opened = openWorkspaceStorageSync(cwd);
+function openCritiqueCatalogSync(cwd: string, scope: LoomExplicitScopeInput = {}) {
+  const opened = openScopedWorkspaceStorageSync(cwd, scope);
   return {
     ...opened,
     identity: requireResolvedRepositoryIdentity(opened.identity),
@@ -129,8 +135,12 @@ function parseStoredJson<T>(value: string, fallback: T): T {
   return JSON.parse(value) as T;
 }
 
-function findStoredCritiqueRow(cwd: string, critiqueId: string): StoredCritiqueEntityRow | null {
-  const { storage, identity } = openCritiqueCatalogSync(cwd);
+function findStoredCritiqueRow(
+  cwd: string,
+  critiqueId: string,
+  scope: LoomExplicitScopeInput = {},
+): StoredCritiqueEntityRow | null {
+  const { storage, identity } = openCritiqueCatalogSync(cwd, scope);
   return (storage.db
     .prepare(
       "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1",
@@ -138,8 +148,8 @@ function findStoredCritiqueRow(cwd: string, critiqueId: string): StoredCritiqueE
     .get(identity.space.id, ENTITY_KIND, critiqueId) ?? null) as StoredCritiqueEntityRow | null;
 }
 
-function listStoredCritiqueRows(cwd: string): StoredCritiqueEntityRow[] {
-  const { storage, identity } = openCritiqueCatalogSync(cwd);
+function listStoredCritiqueRows(cwd: string, scope: LoomExplicitScopeInput = {}): StoredCritiqueEntityRow[] {
+  const { storage, identity } = openCritiqueCatalogSync(cwd, scope);
   return storage.db
     .prepare(
       "SELECT id, display_id, version, created_at, attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id",
@@ -337,8 +347,13 @@ function buildLaunchDescriptor(state: CritiqueState): CritiqueLaunchDescriptor |
   };
 }
 
-function readStructuredEntityAttributesSync<T>(cwd: string, kind: string, displayId: string): T | null {
-  const { storage, identity } = openCritiqueCatalogSync(cwd);
+function readStructuredEntityAttributesSync<T>(
+  cwd: string,
+  kind: string,
+  displayId: string,
+  scope: LoomExplicitScopeInput = {},
+): T | null {
+  const { storage, identity } = openCritiqueCatalogSync(cwd, scope);
   const row = storage.db
     .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ? AND display_id = ? LIMIT 1")
     .get(identity.space.id, kind, displayId) as { attributes_json: string } | undefined;
@@ -538,17 +553,31 @@ interface ResolvedCritiqueContext {
 
 export class CritiqueStore {
   readonly cwd: string;
+  readonly scope: LoomExplicitScopeInput;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
     this.cwd = resolve(cwd);
+    this.scope = scope;
   }
 
   initLedger(): { initialized: true; root: string } {
     return { initialized: true, root: getLoomCatalogPaths().catalogPath };
   }
 
+  private async openWorkspaceStorage() {
+    return openScopedWorkspaceStorage(this.cwd, this.scope);
+  }
+
+  private openWorkspaceStorageSync() {
+    return openCritiqueCatalogSync(this.cwd, this.scope);
+  }
+
+  private async openRepositoryWorkspaceStorage() {
+    return openRepositoryWorkspaceStorage(this.cwd, this.scope);
+  }
+
   private critiqueDirectories(): string[] {
-    return listStoredCritiqueRows(this.cwd)
+    return listStoredCritiqueRows(this.cwd, this.scope)
       .map((row) => row.display_id)
       .filter((displayId): displayId is string => Boolean(displayId))
       .map((displayId) => getCritiqueDir(this.cwd, displayId));
@@ -569,7 +598,7 @@ export class CritiqueStore {
 
   private resolveCritiqueDirectory(ref: string): string {
     const normalizedRef = normalizeCritiqueRef(ref);
-    if (findStoredCritiqueRow(this.cwd, normalizedRef)) {
+    if (findStoredCritiqueRow(this.cwd, normalizedRef, this.scope)) {
       return getCritiqueDir(this.cwd, normalizedRef);
     }
     throw new Error(`Unknown critique: ${ref}`);
@@ -577,7 +606,7 @@ export class CritiqueStore {
 
   private readStoredSnapshot(critiqueDir: string): CritiqueSnapshot {
     const critiqueId = normalizeCritiqueRef(critiqueDir);
-    const row = findStoredCritiqueRow(this.cwd, critiqueId);
+    const row = findStoredCritiqueRow(this.cwd, critiqueId, this.scope);
     if (!row) {
       throw new Error(`Unknown critique: ${critiqueId}`);
     }
@@ -593,7 +622,7 @@ export class CritiqueStore {
   }
 
   private readStoredFindings(row: StoredCritiqueEntityRow): CritiqueFindingRecord[] {
-    const { storage, identity } = openCritiqueCatalogSync(this.cwd);
+    const { storage, identity } = openCritiqueCatalogSync(this.cwd, this.scope);
     const artifacts = storage.db
       .prepare("SELECT attributes_json FROM entities WHERE space_id = ? AND kind = ? ORDER BY display_id")
       .all(identity.space.id, "artifact") as Array<{ attributes_json: string }>;
@@ -611,10 +640,12 @@ export class CritiqueStore {
   }
 
   private readConstitutionIfPresent(): ConstitutionalRecord | null {
+    const { identity } = this.openWorkspaceStorageSync();
     const attributes = readStructuredEntityAttributesSync<{ state: ConstitutionalRecord["state"] }>(
       this.cwd,
       "constitution",
-      requireResolvedRepositoryIdentity(resolveWorkspaceIdentity(this.cwd)).repository.slug,
+      identity.repository.slug,
+      this.scope,
     );
     return attributes ? ({ state: attributes.state, decisions: [] } as unknown as ConstitutionalRecord) : null;
   }
@@ -632,6 +663,7 @@ export class CritiqueStore {
       this.cwd,
       "initiative",
       id,
+      this.scope,
     );
     return attributes
       ? ({
@@ -667,7 +699,7 @@ export class CritiqueStore {
       state: ResearchRecord["state"];
       hypotheses?: ResearchRecord["hypothesisHistory"];
       artifacts?: ResearchRecord["artifacts"];
-    }>(this.cwd, "research", id);
+    }>(this.cwd, "research", id, this.scope);
     return attributes
       ? ({
           state: attributes.state,
@@ -703,13 +735,18 @@ export class CritiqueStore {
   }
 
   private safeReadSpec(id: string): SpecChangeRecord | null {
-    const attributes = readStructuredEntityAttributesSync<{ record: SpecChangeRecord }>(this.cwd, "spec_change", id);
+    const attributes = readStructuredEntityAttributesSync<{ record: SpecChangeRecord }>(
+      this.cwd,
+      "spec_change",
+      id,
+      this.scope,
+    );
     return attributes?.record ?? null;
   }
 
   private async safeReadSpecAsync(id: string): Promise<SpecChangeRecord | null> {
     try {
-      const { storage, identity } = await openWorkspaceStorage(this.cwd);
+      const { storage, identity } = await this.openWorkspaceStorage();
       const entity = await findEntityByDisplayId(storage, identity.space.id, "spec_change", id);
       if (!entity) {
         return null;
@@ -742,7 +779,12 @@ export class CritiqueStore {
   }
 
   private safeReadTicket(id: string): TicketReadResult | null {
-    const attributes = readStructuredEntityAttributesSync<{ record: TicketReadResult }>(this.cwd, "ticket", id);
+    const attributes = readStructuredEntityAttributesSync<{ record: TicketReadResult }>(
+      this.cwd,
+      "ticket",
+      id,
+      this.scope,
+    );
     return attributes?.record ?? null;
   }
 
@@ -1286,7 +1328,11 @@ export class CritiqueStore {
     };
   }
 
-  private async buildCanonicalRecord(snapshot: CritiqueSnapshot): Promise<CritiqueReadResult> {
+  private async buildCanonicalRecord(
+    snapshot: CritiqueSnapshot,
+    repositories?: readonly LoomRepositoryRecord[],
+    repositoryId?: string | null,
+  ): Promise<CritiqueReadResult> {
     const nextState = await this.deriveStateCanonical(
       materializeState(snapshot.state),
       snapshot.runs,
@@ -1295,11 +1341,15 @@ export class CritiqueStore {
     const packet = await this.buildPacketCanonical(nextState, snapshot.runs, snapshot.findings);
     const critique = renderCritiqueMarkdown(nextState, snapshot.runs, snapshot.findings);
     const launch = snapshot.launch ?? buildLaunchDescriptor(nextState);
-    const dashboard = buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, launch);
+    const repository = resolveRepositoryQualifier(
+      repositories ?? (await this.openWorkspaceStorage()).identity.repositories,
+      repositoryId,
+    );
+    const dashboard = buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, launch, repository);
 
     return {
       state: nextState,
-      summary: summarizeCritique(nextState),
+      summary: summarizeCritique(nextState, repository),
       packet,
       critique,
       runs: snapshot.runs,
@@ -1321,11 +1371,11 @@ export class CritiqueStore {
     const launch = launchOverride ?? buildLaunchDescriptor(nextState);
     const packet = this.buildPacket(nextState, runs, findings);
     const critique = renderCritiqueMarkdown(nextState, runs, findings);
-    const dashboard = buildCritiqueDashboard(nextState, runs, findings, launch);
+    const dashboard = buildCritiqueDashboard(nextState, runs, findings, launch, null);
 
     const record: CritiqueReadResult = {
       state: nextState,
-      summary: summarizeCritique(nextState),
+      summary: summarizeCritique(nextState, null),
       packet,
       critique,
       runs,
@@ -1334,8 +1384,8 @@ export class CritiqueStore {
       launch,
     };
     if (persist) {
-      const { storage, identity } = openCritiqueCatalogSync(this.cwd);
-      const existing = findStoredCritiqueRow(this.cwd, critiqueId);
+      const { storage, identity } = openCritiqueCatalogSync(this.cwd, this.scope);
+      const existing = findStoredCritiqueRow(this.cwd, critiqueId, this.scope);
       void storage.upsertEntity({
         id:
           existing?.id ??
@@ -1408,7 +1458,7 @@ export class CritiqueStore {
   listCritiques(filter: CritiqueListFilter = {}): CritiqueSummary[] {
     this.initLedger();
     return filterAndSortCritiqueSummaries(
-      listStoredCritiqueRows(this.cwd).map((row) => this.readCritique(row.display_id ?? row.id)),
+      listStoredCritiqueRows(this.cwd, this.scope).map((row) => this.readCritique(row.display_id ?? row.id)),
       filter,
     );
   }
@@ -1421,12 +1471,12 @@ export class CritiqueStore {
     const launch = buildLaunchDescriptor(nextState);
     return {
       state: nextState,
-      summary: summarizeCritique(nextState),
+      summary: summarizeCritique(nextState, null),
       packet: this.buildPacket(nextState, snapshot.runs, snapshot.findings),
       critique: renderCritiqueMarkdown(nextState, snapshot.runs, snapshot.findings),
       runs: snapshot.runs,
       findings: snapshot.findings,
-      dashboard: buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, launch),
+      dashboard: buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, launch, null),
       launch,
     };
   }
@@ -1633,7 +1683,7 @@ export class CritiqueStore {
   }
 
   private async syncFindingArtifactsAsync(
-    storage: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"],
+    storage: Awaited<ReturnType<typeof openScopedWorkspaceStorage>>["storage"],
     spaceId: string,
     owningRepositoryId: string,
     critiqueEntityId: string,
@@ -1672,7 +1722,7 @@ export class CritiqueStore {
   }
 
   private async readProjectedFindingsAsync(
-    storage: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"],
+    storage: Awaited<ReturnType<typeof openScopedWorkspaceStorage>>["storage"],
     spaceId: string,
     critiqueEntityId: string,
   ): Promise<CritiqueFindingRecord[]> {
@@ -1692,13 +1742,13 @@ export class CritiqueStore {
     record: CritiqueReadResult,
     mutationEvents: Array<Record<string, unknown>> = [],
   ): Promise<CritiqueReadResult> {
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
     const canonicalRecord = await this.buildCanonicalRecord({
       state: toCanonicalState(record.state),
       runs: record.runs,
       findings: record.findings,
       launch: record.launch,
-    });
-    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
+    }, identity.repositories, identity.repository.id);
     const { entity } = await upsertEntityByDisplayIdWithLifecycleEvents(
       storage,
       {
@@ -1755,18 +1805,19 @@ export class CritiqueStore {
 
   private async entityRecord(
     entity: LoomEntityRecord,
-    storage?: Awaited<ReturnType<typeof openWorkspaceStorage>>["storage"],
+    storage?: Awaited<ReturnType<CritiqueStore["openWorkspaceStorage"]>>["storage"],
+    repositories?: readonly LoomRepositoryRecord[],
   ): Promise<CritiqueReadResult> {
     if (!hasStructuredCritiqueAttributes(entity.attributes)) {
       const critiqueId = entity.displayId ?? entity.id;
       throw new Error(`Critique ${critiqueId} is missing structured attributes`);
     }
-    const canonicalStorage = storage ?? (await openWorkspaceStorage(this.cwd)).storage;
+    const canonicalStorage = storage ?? (await this.openWorkspaceStorage()).storage;
     return this.buildCanonicalRecord({
       state: entity.attributes.record.state,
       runs: entity.attributes.record.runs,
       findings: await this.readProjectedFindingsAsync(canonicalStorage, entity.spaceId, entity.id),
-    });
+    }, repositories, entity.owningRepositoryId);
   }
 
   async initLedgerAsync(): Promise<{ initialized: true; root: string }> {
@@ -1774,21 +1825,23 @@ export class CritiqueStore {
   }
 
   async listCritiquesAsync(filter: CritiqueListFilter = {}): Promise<CritiqueSummary[]> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const records = await Promise.all(
-      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) => this.entityRecord(entity, storage)),
+      (await storage.listEntities(identity.space.id, ENTITY_KIND)).map((entity) =>
+        this.entityRecord(entity, storage, identity.repositories)
+      ),
     );
     return filterAndSortCritiqueSummaries(records, filter);
   }
 
   async readCritiqueAsync(ref: string): Promise<CritiqueReadResult> {
-    const { storage, identity } = await openWorkspaceStorage(this.cwd);
+    const { storage, identity } = await this.openWorkspaceStorage();
     const critiqueId = normalizeCritiqueRef(ref);
     const entity = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, critiqueId);
     if (!entity) {
       throw new Error(`Unknown critique: ${critiqueId}`);
     }
-    return this.entityRecord(entity, storage);
+    return this.entityRecord(entity, storage, identity.repositories);
   }
 
   async createCritiqueAsync(input: CreateCritiqueInput): Promise<CritiqueReadResult> {
@@ -1953,6 +2006,6 @@ export class CritiqueStore {
   }
 }
 
-export function createCritiqueStore(cwd: string): CritiqueStore {
-  return new CritiqueStore(cwd);
+export function createCritiqueStore(cwd: string, scope: LoomExplicitScopeInput = {}): CritiqueStore {
+  return new CritiqueStore(cwd, scope);
 }

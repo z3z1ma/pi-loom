@@ -149,7 +149,7 @@ const RalphReadParams = Type.Object({
   mode: Type.Optional(
     withDescription(
       RalphReadModeEnum,
-      "Read shape for the response. `packet` is ideal for fresh iteration context, `dashboard` for operator triage, `run` for the rendered markdown view, `state` for structured state, and `full` for the complete durable record.",
+      "Read shape for the response. `state` returns a compact triage snapshot without inline packet bodies or runtime transcripts, `packet` is ideal for fresh iteration context, `dashboard` for operator triage, `run` for the rendered markdown view, and `full` for the complete durable record.",
     ),
   ),
 });
@@ -479,6 +479,72 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
+function compactRalphJobs(jobs: AsyncJob<RalphJobType, RalphJobMetadata, ExecuteRalphLoopResult>[]) {
+  return jobs.map((job) => ({
+    id: job.id,
+    type: job.type,
+    label: job.label,
+    status: job.status,
+    startTime: job.startTime,
+    endTime: job.endTime ?? null,
+    metadata: job.metadata ?? null,
+    progress: job.progress
+      ? {
+          text: job.progress.text,
+          timestamp: job.progress.timestamp,
+          sequence: job.progress.sequence,
+        }
+      : null,
+    errorText: job.errorText ?? null,
+  }));
+}
+
+function compactSteeringQueue(steeringQueue: RalphReadResult["state"]["steeringQueue"]) {
+  const pending = steeringQueue.filter((entry) => entry.consumedAt === null);
+  return {
+    totalCount: steeringQueue.length,
+    pendingCount: pending.length,
+    pending: pending.map((entry) => ({
+      id: entry.id,
+      text: entry.text,
+      createdAt: entry.createdAt,
+      source: entry.source,
+    })),
+  };
+}
+
+function compactPostIteration(postIteration: RalphReadResult["state"]["postIteration"]) {
+  if (!postIteration) {
+    return null;
+  }
+  const { packetContext: _packetContext, ...compact } = postIteration;
+  return compact;
+}
+
+function buildCompactRalphStateSnapshot(
+  result: RalphReadResult,
+  jobs: AsyncJob<RalphJobType, RalphJobMetadata, ExecuteRalphLoopResult>[],
+) {
+  const { packetContext: _packetContext, steeringQueue, postIteration, title: _title, ...state } = result.state;
+  return {
+    summary: result.summary,
+    state: {
+      ...state,
+      postIteration: compactPostIteration(postIteration),
+      pendingSteering: compactSteeringQueue(steeringQueue),
+    },
+    runtime: {
+      latest: result.dashboard.latestRuntime,
+      latestBoundedIteration: result.dashboard.latestBoundedIteration,
+      counts: result.dashboard.counts,
+      artifactRef: result.artifacts.runtime,
+    },
+    launch: result.launch,
+    artifacts: result.artifacts,
+    jobs: compactRalphJobs(jobs),
+  };
+}
+
 function buildRalphRunRenderDetails(input: {
   prompt?: string;
   startedAt: number;
@@ -580,9 +646,11 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     name: "ralph_read",
     label: "ralph_read",
     description:
-      "Read Ralph loop state, packet, dashboard, or rendered run artifacts from durable Loom orchestration memory.",
-    promptSnippet: "Read the Ralph packet or run state before deciding whether to launch another bounded iteration.",
+      "Read a compact Ralph loop state snapshot, packet, dashboard, or rendered run artifacts from durable Loom orchestration memory.",
+    promptSnippet:
+      "Read compact Ralph state or the packet before deciding whether to launch another bounded iteration.",
     promptGuidelines: [
+      "Read state mode when you need a machine-usable triage snapshot without inline runtime transcripts or packet-body context.",
       "Read packet mode when preparing the next fresh worker iteration for a ticket-bound Ralph run.",
       "Read dashboard mode when triaging loop progress, review gates, or the current scheduler state.",
       "Read full mode when you need the loop state, iterations, runtime artifacts, launch descriptor, and dashboard together.",
@@ -600,10 +668,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         return machineResult({ run: result.summary, markdown: result.run, jobs }, result.run);
       }
       if (params.mode === "state") {
-        return machineResult(
-          { state: result.state, summary: result.summary, runtimeArtifacts: result.runtimeArtifacts, jobs },
-          JSON.stringify({ state: result.state, runtimeArtifacts: result.runtimeArtifacts, jobs }, null, 2),
-        );
+        const snapshot = buildCompactRalphStateSnapshot(result, jobs);
+        return machineResult(snapshot, JSON.stringify(snapshot, null, 2));
       }
       if (params.mode === "dashboard") {
         return machineResult({ dashboard: result.dashboard, jobs }, renderDashboard(result.dashboard));

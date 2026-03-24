@@ -13,6 +13,7 @@ import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "#storage/links.js";
 import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
+import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
 import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
 import { TICKET_STATUSES, type TicketReadResult, type TicketSummary } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
@@ -113,7 +114,12 @@ function buildMilestoneDashboard(
   };
 }
 
-function summarizeInitiative(_cwd: string, state: InitiativeState, ref: string): InitiativeSummary {
+function summarizeInitiative(
+  _cwd: string,
+  state: InitiativeState,
+  ref: string,
+  repository: InitiativeSummary["repository"] = null,
+): InitiativeSummary {
   return {
     id: state.initiativeId,
     title: state.title,
@@ -122,6 +128,7 @@ function summarizeInitiative(_cwd: string, state: InitiativeState, ref: string):
     specChangeCount: state.specChangeIds.length,
     ticketCount: state.ticketIds.length,
     updatedAt: state.updatedAt,
+    repository,
     tags: [...state.tags],
     ref,
   };
@@ -212,7 +219,10 @@ export class InitiativeStore {
     };
   }
 
-  private async buildDashboardWithoutRoadmaps(state: InitiativeState): Promise<InitiativeDashboard> {
+  private async buildDashboardWithoutRoadmaps(
+    state: InitiativeState,
+    repository: InitiativeSummary["repository"] = null,
+  ): Promise<InitiativeDashboard> {
     const specStore = createSpecStore(this.cwd);
     const ticketStore = createTicketStore(this.cwd);
     const researchStore = createResearchStore(this.cwd);
@@ -272,6 +282,7 @@ export class InitiativeStore {
         id: state.initiativeId,
         title: state.title,
         status: state.status,
+        repository,
         objective: state.objective,
         statusSummary: state.statusSummary,
         targetWindow: state.targetWindow,
@@ -326,15 +337,19 @@ export class InitiativeStore {
     };
   }
 
-  private async buildRecord(state: InitiativeState, decisions: InitiativeDecisionRecord[]): Promise<InitiativeRecord> {
+  private async buildRecord(
+    state: InitiativeState,
+    decisions: InitiativeDecisionRecord[],
+    repository: InitiativeSummary["repository"] = null,
+  ): Promise<InitiativeRecord> {
     const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
     const dashboard =
       state.roadmapRefs.length === 0
-        ? await this.buildDashboardWithoutRoadmaps(state)
-        : await buildInitiativeDashboard(this.cwd, state);
+        ? await this.buildDashboardWithoutRoadmaps(state, repository)
+        : await buildInitiativeDashboard(this.cwd, state, repository);
     return {
       state,
-      summary: summarizeInitiative(this.cwd, state, initiativeDir),
+      summary: summarizeInitiative(this.cwd, state, initiativeDir, repository),
       brief: renderInitiativeMarkdown(state, decisions, dashboard),
       decisions,
       dashboard,
@@ -351,7 +366,11 @@ export class InitiativeStore {
       throw new Error(`Initiative entity ${initiativeId} is missing structured attributes`);
     }
     const attributes = entity.attributes;
-    return this.buildRecord(attributes.state, attributes.decisions ?? []);
+    return this.buildRecord(
+      attributes.state,
+      attributes.decisions ?? [],
+      resolveRepositoryQualifier(identity.repositories, entity.owningRepositoryId),
+    );
   }
 
   private async persistRecord(
@@ -359,7 +378,11 @@ export class InitiativeStore {
     decisions: InitiativeDecisionRecord[],
   ): Promise<InitiativeRecord> {
     const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd);
-    const record = await this.buildRecord(state, decisions);
+    const record = await this.buildRecord(
+      state,
+      decisions,
+      resolveRepositoryQualifier(identity.repositories, identity.repository.id),
+    );
     const previous = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, state.initiativeId);
     const version = (previous?.version ?? 0) + 1;
     await assertProjectedEntityLinksResolvable({
@@ -587,6 +610,7 @@ export class InitiativeStore {
             this.cwd,
             entity.attributes.state,
             getInitiativeDir(this.cwd, entity.attributes.state.initiativeId),
+            resolveRepositoryQualifier(identity.repositories, entity.owningRepositoryId),
           ),
           state: entity.attributes.state,
         });

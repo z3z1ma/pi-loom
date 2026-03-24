@@ -3,31 +3,45 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import { upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js";
-import { openRepositoryWorkspaceStorage } from "#storage/workspace.js";
+import { createPortableRepositoryPath } from "#storage/repository-path.js";
+import type { LoomRuntimeScope } from "#storage/runtime-scope.js";
+import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
 
-const runDocsUpdate = vi.fn(async (cwd: string) => {
-  const { createDocumentationStore } = await import("../domain/store.js");
-  await createDocumentationStore(cwd).updateDoc("documentation-memory-system", {
-    updateReason: "Persist fresh maintainer revision.",
-    summary: "Updated through a fresh subprocess handoff.",
-    changedSections: ["Summary", "Fresh Updater"],
-    document: [
-      "## Summary",
-      "The documentation memory layer keeps high-level docs durable after completed changes.",
-      "",
-      "## Fresh Updater",
-      "docs_update compiles a packet and launches a fresh pi process that persists the revision through docs_write.",
-    ].join("\n"),
-  });
-  return {
-    command: "pi",
-    args: ["--mode", "json"],
-    exitCode: 0,
-    output: "Fresh documentation maintainer persisted rev-001.",
-    stderr: "",
-  };
-});
+const runDocsUpdate = vi.fn(
+  async (
+    cwd: string,
+    _prompt: string,
+    _signal: AbortSignal | undefined,
+    _onUpdate: unknown,
+    scope?: LoomRuntimeScope,
+  ) => {
+    const { createDocumentationStore } = await import("../domain/store.js");
+    await createDocumentationStore(cwd, {
+      repositoryId: scope?.repositoryId,
+      worktreeId: scope?.worktreeId,
+    }).updateDoc("documentation-memory-system", {
+      updateReason: "Persist fresh maintainer revision.",
+      summary: "Updated through a fresh subprocess handoff.",
+      changedSections: ["Summary", "Fresh Updater"],
+      document: [
+        "## Summary",
+        "The documentation memory layer keeps high-level docs durable after completed changes.",
+        "",
+        "## Fresh Updater",
+        "docs_update compiles a packet and launches a fresh pi process that persists the revision through docs_write.",
+      ].join("\n"),
+    });
+    return {
+      command: "pi",
+      args: ["--mode", "json"],
+      exitCode: 0,
+      output: "Fresh documentation maintainer persisted rev-001.",
+      stderr: "",
+    };
+  },
+);
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -120,7 +134,14 @@ async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> 
             updatedAt,
             summary: "Canonical docs are stored in snapshot form.",
             audience: ["ai", "human"],
-            scopePaths: ["docs"],
+            scopePaths: [
+              createPortableRepositoryPath({
+                repositoryId: identity.repository.id,
+                repositorySlug: identity.repository.slug,
+                worktreeId: identity.worktree.id,
+                relativePath: "docs",
+              }),
+            ],
             contextRefs: {
               roadmapItemIds: [],
               initiativeIds: [],
@@ -132,7 +153,14 @@ async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> 
             sourceTarget: { kind: "workspace", ref: "repo" },
             updateReason: "Persist canonical documentation snapshots.",
             guideTopics: ["documentation-memory"],
-            linkedOutputPaths: ["docs/loom.md"],
+            linkedOutputPaths: [
+              createPortableRepositoryPath({
+                repositoryId: identity.repository.id,
+                repositorySlug: identity.repository.slug,
+                worktreeId: identity.worktree.id,
+                relativePath: "docs/loom.md",
+              }),
+            ],
             lastRevisionId: "rev-001",
           },
           revisions: [
@@ -250,7 +278,11 @@ describe("docs tools", () => {
       expect(created.details).toMatchObject({
         action: "create",
         documentation: {
-          summary: { id: "documentation-memory-system", docType: "overview" },
+          summary: {
+            id: "documentation-memory-system",
+            docType: "overview",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
         },
       });
 
@@ -307,7 +339,10 @@ describe("docs tools", () => {
       );
       expect(dashboard.details).toMatchObject({
         dashboard: {
-          doc: { id: "documentation-memory-system" },
+          doc: {
+            id: "documentation-memory-system",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
           revisionCount: 2,
           lastRevision: { id: "rev-002" },
         },
@@ -342,7 +377,12 @@ describe("docs tools", () => {
         ctx,
       );
       expect(read.details).toMatchObject({
-        documentation: { id: docId, ref: `documentation:${docId}`, revisionCount: 1 },
+        documentation: {
+          id: docId,
+          ref: `documentation:${docId}`,
+          revisionCount: 1,
+          repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+        },
       });
       expect(read.content).toEqual([
         {
@@ -359,7 +399,14 @@ describe("docs tools", () => {
         ctx,
       );
       expect(listed.details).toMatchObject({
-        docs: [expect.objectContaining({ id: docId, ref: `documentation:${docId}`, revisionCount: 1 })],
+        docs: [
+          expect.objectContaining({
+            id: docId,
+            ref: `documentation:${docId}`,
+            revisionCount: 1,
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          }),
+        ],
       });
     } finally {
       cleanup();
@@ -499,4 +546,66 @@ describe("docs tools", () => {
       cleanup();
     }
   });
+
+  it("passes repository-targeted runtime scope into docs_update for ambiguous parent workspaces", async () => {
+    runDocsUpdate.mockClear();
+    const workspace = createSeededParentGitWorkspace({
+      prefix: "pi-docs-tools-multi-",
+      repositories: [
+        { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+        { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+      ],
+    });
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-docs-tools-multi-state-"));
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      const { identity } = await openWorkspaceStorage(workspace.cwd);
+      const serviceA = identity.repositories.find(
+        (repository) =>
+          repository.displayName === "service-a" || repository.remoteUrls.some((url) => url.includes("service-a")),
+      );
+      expect(serviceA).toBeDefined();
+      if (!serviceA) {
+        throw new Error("Missing service-a repository identity");
+      }
+
+      const { createDocumentationStore } = await import("../domain/store.js");
+      await createDocumentationStore(workspace.cwd, { repositoryId: serviceA.id }).createDoc({
+        title: "Documentation Memory System",
+        docType: "overview",
+        summary: "Scoped doc for service-a.",
+        audience: ["ai"],
+        sourceTarget: { kind: "workspace", ref: "service-a" },
+      });
+
+      const mockPi = createMockPi();
+      const { registerDocsTools } = await import("../tools/docs.js");
+      registerDocsTools(mockPi as unknown as ExtensionAPI);
+
+      await getTool(mockPi, "docs_update").execute(
+        "call-scoped-update",
+        { ref: "documentation-memory-system" },
+        undefined,
+        undefined,
+        createContext(workspace.cwd),
+      );
+
+      expect(runDocsUpdate).toHaveBeenCalledWith(
+        workspace.cwd,
+        expect.any(String),
+        undefined,
+        expect.any(Function),
+        expect.objectContaining({
+          spaceId: identity.space.id,
+          repositoryId: serviceA.id,
+          worktreeId: expect.any(String),
+        }),
+      );
+    } finally {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
+    }
+  }, 15000);
 });

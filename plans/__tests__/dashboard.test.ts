@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { createPortableRepositoryPath } from "#storage/repository-path.js";
 import { buildPlanDashboard } from "../domain/dashboard.js";
 import type { PlanState } from "../domain/models.js";
+
+function portablePath(relativePath: string) {
+  return createPortableRepositoryPath({
+    repositoryId: "repo-001",
+    repositorySlug: "repo",
+    worktreeId: "worktree-001",
+    relativePath,
+  });
+}
 
 describe("plan dashboard", () => {
   it("keeps canonical refs and omits volatile timestamps", () => {
@@ -22,7 +32,7 @@ describe("plan dashboard", () => {
       interfacesAndDependencies: "Keep the store and renderer signatures stable.",
       risksAndQuestions: "Avoid dashboard churn.",
       outcomesAndRetrospective: "",
-      scopePaths: ["plans", "README.md"],
+      scopePaths: [portablePath("plans"), portablePath("README.md")],
       sourceTarget: { kind: "spec", ref: "spec-change-001" },
       contextRefs: {
         roadmapItemIds: ["item-001"],
@@ -91,7 +101,7 @@ describe("plan dashboard", () => {
         critiqueIds: ["critique-001"],
         docIds: ["doc-001"],
       },
-      scopePaths: ["plans", "README.md"],
+      scopePaths: [portablePath("plans"), portablePath("README.md")],
       linkedTickets: [
         {
           ticketId: "ticket-001",
@@ -140,7 +150,7 @@ describe("plan dashboard", () => {
       interfacesAndDependencies: "Keep the store and renderer signatures stable.",
       risksAndQuestions: "Avoid dashboard churn.",
       outcomesAndRetrospective: "",
-      scopePaths: ["plans"],
+      scopePaths: [portablePath("plans")],
       sourceTarget: { kind: "spec", ref: "spec-change-001" },
       contextRefs: {
         roadmapItemIds: [],

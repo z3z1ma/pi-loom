@@ -205,6 +205,7 @@ export class SpecStore {
   constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
     this.cwd = canonicalWorkspaceRoot(cwd);
     this.scope = {
+      spaceId: scope.spaceId ?? null,
       repositoryId: scope.repositoryId ?? null,
       worktreeId: scope.worktreeId ?? null,
     };

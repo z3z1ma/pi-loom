@@ -1,4 +1,5 @@
 import type { LoomListSort } from "#storage/list-search.js";
+import type { LoomPortableRepositoryPath } from "#storage/repository-path.js";
 import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
 
 export const PLAN_STATUSES = ["active", "paused", "completed", "archived", "superseded"] as const;
@@ -77,7 +78,7 @@ export interface PlanState {
   interfacesAndDependencies: string;
   risksAndQuestions: string;
   outcomesAndRetrospective: string;
-  scopePaths: string[];
+  scopePaths: LoomPortableRepositoryPath[];
   sourceTarget: PlanSourceTarget;
   contextRefs: PlanContextRefs;
   linkedTickets: PlanTicketLink[];
@@ -116,7 +117,7 @@ export interface PlanDashboard {
   planRef: string;
   sourceTarget: PlanSourceTarget;
   contextRefs: PlanContextRefs;
-  scopePaths: string[];
+  scopePaths: LoomPortableRepositoryPath[];
   linkedTickets: PlanDashboardTicket[];
   counts: {
     tickets: number;

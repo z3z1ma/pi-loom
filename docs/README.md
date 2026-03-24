@@ -23,6 +23,15 @@ This package adds a first-class documentation layer with canonical records store
 - updating `contextRefs` replaces the stored ref buckets you send, so incorrect refs can be removed by passing empty arrays for the buckets that should be cleared
 - maintained document views are rendered from the canonical record and remain accessible through queries and explicit export
 
+## Multi-repository documentation flows
+
+Documentation records participate in the same explicit scope model as the other Loom layers.
+
+- a documentation record may be repository-owned inside a shared multi-repository space while still being discoverable from space-level listings
+- in an ambiguous parent-directory session, `docs_update` resolves runtime scope from the targeted documentation record and passes explicit space/repository/worktree identity into the fresh maintainer process instead of guessing from cwd
+- path-bearing fields such as `scopePaths` and `linkedOutputPaths` must stay repository-qualified and portable when ambiguity exists; bare relative paths fail closed rather than drifting onto the wrong repository
+- linked output paths remain derived review surfaces, not canonical storage; they should describe truthful repository-relative outputs such as `<repo-slug>:docs/loom.md`
+
 ## Local use
 
 ```bash

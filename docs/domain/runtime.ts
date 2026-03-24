@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { type LoomRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
 
 const require = createRequire(import.meta.url);
 
@@ -85,17 +86,20 @@ export function resolveDocsPackageRoot(): string {
 export interface DocsUpdateLaunchConfig {
   extensionRoot: string;
   spawn: PiSpawnCommand;
+  env: Record<string, string>;
 }
 
 export function getDocsUpdateLaunchConfig(
   _cwd: string,
   prompt: string,
+  scope: LoomRuntimeScope | undefined,
   deps: PiSpawnDeps = {},
 ): DocsUpdateLaunchConfig {
   const extensionRoot = deps.docsPackageRoot ?? resolveDocsPackageRoot();
   return {
     extensionRoot,
     spawn: getPiSpawnCommand(["-e", extensionRoot, "--mode", "json", "-p", "--no-session", prompt], deps),
+    env: scope ? runtimeScopeToEnv(scope) : {},
   };
 }
 
@@ -192,8 +196,9 @@ export async function runDocsUpdate(
   prompt: string,
   signal: AbortSignal | undefined,
   onUpdate?: (text: string) => void,
+  scope?: LoomRuntimeScope,
 ): Promise<DocsExecutionResult> {
-  const launch = getDocsUpdateLaunchConfig(cwd, prompt);
+  const launch = getDocsUpdateLaunchConfig(cwd, prompt, scope);
   const command = launch.spawn;
 
   let resolvePromise: ((value: DocsExecutionResult) => void) | null = null;
@@ -202,6 +207,7 @@ export async function runDocsUpdate(
   });
   const proc = spawn(command.command, command.args, {
     cwd,
+    env: { ...process.env, ...launch.env },
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],
   });

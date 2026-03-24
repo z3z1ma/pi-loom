@@ -1,3 +1,4 @@
+import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
 import type {
   CritiqueDashboard,
   CritiqueFindingRecord,
@@ -20,7 +21,10 @@ function toCritiqueLaunchRef(critiqueId: string): string {
   return `critique:${critiqueId}:launch`;
 }
 
-export function summarizeCritique(state: CritiqueState): CritiqueSummary {
+export function summarizeCritique(
+  state: CritiqueState,
+  repository: LoomRepositoryQualifier | null = null,
+): CritiqueSummary {
   return {
     id: state.critiqueId,
     title: state.title,
@@ -30,6 +34,7 @@ export function summarizeCritique(state: CritiqueState): CritiqueSummary {
     targetRef: state.target.ref,
     focusAreas: [...state.focusAreas],
     updatedAt: state.updatedAt,
+    repository,
     openFindingCount: state.openFindingIds.length,
     followupTicketCount: state.followupTicketIds.length,
     critiqueRef: toCritiqueRef(state.critiqueId),
@@ -41,6 +46,7 @@ export function buildCritiqueDashboard(
   runs: CritiqueRunRecord[],
   findings: CritiqueFindingRecord[],
   launch: CritiqueLaunchDescriptor | null,
+  repository: LoomRepositoryQualifier | null = null,
 ): CritiqueDashboard {
   const bySeverity: CritiqueDashboard["counts"]["bySeverity"] = {
     low: 0,
@@ -70,7 +76,7 @@ export function buildCritiqueDashboard(
     byStatus[finding.status] += 1;
   }
 
-  const summary = summarizeCritique(state);
+  const summary = summarizeCritique(state, repository);
   const openFindings = findings
     .filter((finding) => isActiveFindingStatus(finding.status))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))

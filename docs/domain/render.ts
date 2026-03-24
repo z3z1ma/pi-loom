@@ -1,3 +1,4 @@
+import { renderPortableRepositoryPathList } from "#storage/repository-path.js";
 import { getDocumentationPacketRef } from "./dashboard.js";
 import { serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
@@ -12,11 +13,16 @@ function renderAudience(audience: string[]): string {
   return audience.length > 0 ? audience.join(", ") : "none";
 }
 
+function renderRepository(summary: DocumentationSummary): string {
+  return summary.repository ? ` repo=${summary.repository.slug}` : "";
+}
+
 export function renderDocumentationSummary(summary: DocumentationSummary): string {
-  return `${summary.id} [${summary.status}/${summary.docType}] ${summary.title}`;
+  return `${summary.id} [${summary.status}/${summary.docType}]${renderRepository(summary)} ${summary.title}`;
 }
 
 export function renderDocumentationMarkdown(state: DocumentationState, body: string): string {
+  const linkedOutputPaths = renderPortableRepositoryPathList(state.linkedOutputPaths);
   return serializeMarkdownArtifact(
     {
       id: state.docId,
@@ -28,20 +34,22 @@ export function renderDocumentationMarkdown(state: DocumentationState, body: str
       source: `${state.sourceTarget.kind}:${state.sourceTarget.ref}`,
       "updated-at": state.updatedAt,
       topics: state.guideTopics,
-      outputs: state.linkedOutputPaths,
+      outputs: linkedOutputPaths,
     },
     body.trim(),
   );
 }
 
 export function renderDocumentationDetail(result: DocumentationReadResult): string {
+  const scopePaths = renderPortableRepositoryPathList(result.state.scopePaths);
+  const linkedOutputPaths = renderPortableRepositoryPathList(result.state.linkedOutputPaths);
   return [
     renderDocumentationSummary(result.summary),
     `Audience: ${renderAudience(result.state.audience)}`,
     `Source target: ${result.state.sourceTarget.kind}:${result.state.sourceTarget.ref}`,
-    `Scope paths: ${result.state.scopePaths.join(", ") || "none"}`,
+    `Scope paths: ${scopePaths.join(", ") || "none"}`,
     `Guide topics: ${result.state.guideTopics.join(", ") || "none"}`,
-    `Linked outputs: ${result.state.linkedOutputPaths.join(", ") || "none"}`,
+    `Linked outputs: ${linkedOutputPaths.join(", ") || "none"}`,
     `Revisions: ${result.revisions.length}`,
     `Last revision: ${result.state.lastRevisionId ?? "none"}`,
     "",
@@ -51,12 +59,13 @@ export function renderDocumentationDetail(result: DocumentationReadResult): stri
 }
 
 export function renderDashboard(dashboard: DocumentationDashboard): string {
+  const linkedOutputPaths = renderPortableRepositoryPathList(dashboard.linkedOutputPaths);
   return [
     renderDocumentationSummary(dashboard.doc),
     `Revisions: ${dashboard.revisionCount}`,
     `Audience: ${renderAudience(dashboard.audience)}`,
     `Topics: ${dashboard.guideTopics.join(", ") || "none"}`,
-    `Linked outputs: ${dashboard.linkedOutputPaths.join(", ") || "none"}`,
+    `Linked outputs: ${linkedOutputPaths.join(", ") || "none"}`,
     `Last revision: ${dashboard.lastRevision?.id ?? "none"}`,
   ].join("\n");
 }

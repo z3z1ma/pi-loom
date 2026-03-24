@@ -131,7 +131,16 @@ describe("DocumentationStore durable memory", () => {
     });
     expect(revised.dashboard.revisionCount).toBe(1);
     expect(revised.dashboard.lastRevision?.id).toBe("rev-001");
-    expect(revised.dashboard.linkedOutputPaths).toEqual(["docs/loom.md"]);
+    expect(revised.dashboard.linkedOutputPaths.map((entry) => entry.displayPath)).toEqual([
+      `${revised.summary.repository?.slug}:docs/loom.md`,
+    ]);
+    expect(revised.state.scopePaths.map((entry) => entry.displayPath)).toEqual(
+      expect.arrayContaining([
+        `${revised.summary.repository?.slug}:docs`,
+        `${revised.summary.repository?.slug}:README.md`,
+        `${revised.summary.repository?.slug}:docs/loom.md`,
+      ]),
+    );
 
     expect(revised.revisions[0]?.packetHash).toMatch(/^[a-f0-9]{64}$/);
     expect(revised.document).toContain("type: overview");

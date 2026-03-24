@@ -7,12 +7,18 @@ import { createDocumentationStore } from "#docs/domain/store.js";
 import type { InitiativeRecord } from "#initiatives/domain/models.js";
 import type { ResearchRecord } from "#research/domain/models.js";
 import type { SpecChangeRecord } from "#specs/domain/models.js";
-import type { LoomCanonicalStorage } from "#storage/contract.js";
+import type { LoomCanonicalStorage, LoomRepositoryRecord } from "#storage/contract.js";
 import { findEntityByDisplayId, upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js";
 import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "#storage/links.js";
 import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
+import {
+  type LoomPortableRepositoryPathFallback,
+  normalizeStoredPortableRepositoryPathList,
+  renderPortableRepositoryPathList,
+  resolvePortableRepositoryPathInputs,
+} from "#storage/repository-path.js";
 import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
 import {
   type LoomExplicitScopeInput,
@@ -272,6 +278,7 @@ export class PlanStore {
   constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
     this.cwd = resolve(cwd);
     this.scope = {
+      spaceId: scope.spaceId ?? null,
       repositoryId: scope.repositoryId ?? null,
       worktreeId: scope.worktreeId ?? null,
     };
@@ -287,6 +294,43 @@ export class PlanStore {
 
   private async openRepositoryWorkspaceStorage() {
     return openRepositoryWorkspaceStorage(this.cwd, this.scope);
+  }
+
+  private persistenceScopeForState(state: PlanState): Required<LoomExplicitScopeInput> {
+    if (this.scope.repositoryId || this.scope.worktreeId) {
+      return {
+        spaceId: this.scope.spaceId ?? null,
+        repositoryId: this.scope.repositoryId ?? null,
+        worktreeId: this.scope.worktreeId ?? null,
+      };
+    }
+
+    const uniqueScopes = new Map<string, { repositoryId: string; worktreeId: string | null }>();
+    for (const entry of state.scopePaths) {
+      uniqueScopes.set(`${entry.repositoryId}:${entry.worktreeId ?? "(none)"}`, {
+        repositoryId: entry.repositoryId,
+        worktreeId: entry.worktreeId,
+      });
+    }
+    if (uniqueScopes.size === 1) {
+      const inferredScope = [...uniqueScopes.values()][0];
+      return {
+        spaceId: this.scope.spaceId ?? null,
+        repositoryId: inferredScope?.repositoryId ?? null,
+        worktreeId: inferredScope?.worktreeId ?? null,
+      };
+    }
+    if (uniqueScopes.size > 1) {
+      throw new Error(
+        "Plan scope paths span multiple repository/worktree scopes; persist the plan from one explicit repository scope.",
+      );
+    }
+
+    return {
+      spaceId: this.scope.spaceId ?? null,
+      repositoryId: this.scope.repositoryId ?? null,
+      worktreeId: this.scope.worktreeId ?? null,
+    };
   }
 
   private async nextPlanId(baseTitle: string): Promise<string> {
@@ -650,12 +694,43 @@ export class PlanStore {
     };
   }
 
+  private portablePathFallback(
+    repositories: readonly LoomRepositoryRecord[],
+    repositoryId: string | null,
+    worktreeId: string | null,
+  ): LoomPortableRepositoryPathFallback | null {
+    if (!repositoryId) {
+      return null;
+    }
+    const repository = repositories.find((entry) => entry.id === repositoryId);
+    if (!repository) {
+      return null;
+    }
+    return {
+      repositoryId: repository.id,
+      repositorySlug: repository.slug,
+      worktreeId,
+    };
+  }
+
+  private normalizeStoredState(state: PlanState, fallback?: LoomPortableRepositoryPathFallback | null): PlanState {
+    return {
+      ...state,
+      scopePaths: normalizeStoredPortableRepositoryPathList(state.scopePaths, fallback),
+    };
+  }
+
   private async materializeCanonical(
     state: PlanState,
     repositoryId: string | null = null,
     repositories?: Awaited<ReturnType<typeof openScopedWorkspaceStorage>>["identity"]["repositories"],
   ): Promise<PlanReadResult> {
-    const nextState = await this.deriveStateAsync(state);
+    const availableRepositories = repositories ?? (await this.openWorkspaceStorage()).identity.repositories;
+    const normalizedState = this.normalizeStoredState(
+      state,
+      this.portablePathFallback(availableRepositories, repositoryId, null),
+    );
+    const nextState = await this.deriveStateAsync(normalizedState);
     const linkedTickets = await this.resolveLinkedTicketsAsync(nextState);
     const context = await this.resolvePacketContextAsync(nextState);
     const constitutionSummary = context.constitution
@@ -676,8 +751,9 @@ export class PlanStore {
             .join("\n")
         : "- (none linked yet)";
     const section = (title: string, body: string) => `## ${title}\n\n${body.trim() || "(none)"}`;
-    const list = (values: string[], empty = "(none)") =>
+    const list = (values: readonly string[], empty = "(none)") =>
       values.length > 0 ? values.map((value) => `- ${value}`).join("\n") : empty;
+    const scopePaths = renderPortableRepositoryPathList(nextState.scopePaths);
     const packet = `${[
       `# ${nextState.title} Planning Packet`,
       "",
@@ -702,7 +778,7 @@ export class PlanStore {
         ]),
       ),
       section("Linked Tickets", linkedTicketSection),
-      section("Scope Paths", list(nextState.scopePaths)),
+      section("Scope Paths", list(scopePaths)),
       section("Constitutional Context", constitutionSummary),
       section("Roadmap Items", list(context.roadmapItems)),
       section("Initiatives", list(context.initiatives)),
@@ -715,10 +791,7 @@ export class PlanStore {
       .join("\n\n")
       .trimEnd()}\n`;
     const plan = renderPlanMarkdown(nextState, linkedTickets);
-    const repository = resolveRepositoryQualifier(
-      repositories ?? (await this.openWorkspaceStorage()).identity.repositories,
-      repositoryId,
-    );
+    const repository = resolveRepositoryQualifier(availableRepositories, repositoryId);
     const dashboard = buildPlanDashboard(nextState, linkedTickets, repository);
 
     return {
@@ -730,7 +803,7 @@ export class PlanStore {
     };
   }
 
-  private createDefaultState(input: CreatePlanInput, planId: string, timestamp: string): PlanState {
+  private async createDefaultState(input: CreatePlanInput, planId: string, timestamp: string): Promise<PlanState> {
     const summary = summarizeText(
       input.summary || input.purpose || input.planOfWork || "",
       `Execution strategy for ${input.title.trim()}.`,
@@ -757,7 +830,7 @@ export class PlanStore {
       interfacesAndDependencies: input.interfacesAndDependencies?.trim() ?? "",
       risksAndQuestions: input.risksAndQuestions?.trim() ?? "",
       outcomesAndRetrospective: input.outcomesAndRetrospective?.trim() ?? "",
-      scopePaths: normalizeStringList(input.scopePaths),
+      scopePaths: await resolvePortableRepositoryPathInputs(this.cwd, input.scopePaths, this.scope),
       sourceTarget,
       contextRefs: normalizeContextRefs(input.contextRefs),
       linkedTickets: [],
@@ -787,7 +860,7 @@ export class PlanStore {
   }
 
   private async persistCanonical(state: PlanState): Promise<PlanReadResult> {
-    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
+    const { storage, identity } = await openRepositoryWorkspaceStorage(this.cwd, this.persistenceScopeForState(state));
     return storage.transact((tx) => this.persistCanonicalWithStorage(tx, identity, state));
   }
 
@@ -856,12 +929,13 @@ export class PlanStore {
     const summaries: Array<{ summary: PlanReadResult["summary"]; state: PlanState }> = [];
     for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
       if (hasStructuredPlanAttributes(entity.attributes)) {
+        const state = this.normalizeStoredState(
+          entity.attributes.state,
+          this.portablePathFallback(identity.repositories, entity.owningRepositoryId, null),
+        );
         summaries.push({
-          summary: summarizePlan(
-            entity.attributes.state,
-            resolveRepositoryQualifier(identity.repositories, entity.owningRepositoryId),
-          ),
-          state: entity.attributes.state,
+          summary: summarizePlan(state, resolveRepositoryQualifier(identity.repositories, entity.owningRepositoryId)),
+          state,
         });
         continue;
       }
@@ -901,7 +975,7 @@ export class PlanStore {
             { value: summary.summary, weight: 8 },
             { value: summary.sourceRef, weight: 7 },
             { value: summary.sourceKind, weight: 6 },
-            { value: state.scopePaths.join(" "), weight: 6 },
+            { value: renderPortableRepositoryPathList(state.scopePaths).join(" "), weight: 6 },
             { value: state.linkedTickets.map((link) => `${link.ticketId} ${link.role ?? ""}`).join(" "), weight: 6 },
             { value: state.sourceTarget.ref, weight: 7 },
             { value: state.sourceTarget.kind, weight: 5 },
@@ -946,7 +1020,7 @@ export class PlanStore {
     await this.initLedger();
     const timestamp = currentTimestamp();
     const planId = await this.nextPlanId(input.title);
-    return this.persistCanonical(this.createDefaultState(input, planId, timestamp));
+    return this.persistCanonical(await this.createDefaultState(input, planId, timestamp));
   }
 
   async updatePlan(ref: string, input: UpdatePlanInput): Promise<PlanReadResult> {
@@ -1000,7 +1074,9 @@ export class PlanStore {
       interfacesAndDependencies: input.interfacesAndDependencies?.trim() ?? current.state.interfacesAndDependencies,
       risksAndQuestions: input.risksAndQuestions?.trim() ?? current.state.risksAndQuestions,
       outcomesAndRetrospective: input.outcomesAndRetrospective?.trim() ?? current.state.outcomesAndRetrospective,
-      scopePaths: input.scopePaths ? normalizeStringList(input.scopePaths) : current.state.scopePaths,
+      scopePaths: input.scopePaths
+        ? await resolvePortableRepositoryPathInputs(this.cwd, input.scopePaths, this.scope)
+        : current.state.scopePaths,
       sourceTarget: input.sourceTarget
         ? {
             kind: normalizePlanSourceTargetKind(input.sourceTarget.kind),

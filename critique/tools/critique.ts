@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
+import { readRuntimeScopeFromEnv, resolveEntityRuntimeScope } from "#storage/runtime-scope.js";
 import { renderCritiqueDetail, renderDashboard } from "../domain/render.js";
 import { runCritiqueLaunch } from "../domain/runtime.js";
 import { createCritiqueStore } from "../domain/store.js";
@@ -179,7 +180,7 @@ type CritiqueWriteParamsValue = Static<typeof CritiqueWriteParams>;
 type CritiqueFindingParamsValue = Static<typeof CritiqueFindingParams>;
 
 function getStore(ctx: ExtensionContext) {
-  return createCritiqueStore(ctx.cwd);
+  return createCritiqueStore(ctx.cwd, readRuntimeScopeFromEnv());
 }
 
 function machineResult(details: Record<string, unknown>, text: string) {
@@ -417,21 +418,33 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
     ],
     parameters: CritiqueLaunchParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const store = getStore(ctx);
-      const launched = await store.launchCritiqueAsync(params.ref);
-      const previousLastRunId = launched.critique.state.lastRunId;
-      const execution = await runCritiqueLaunch(ctx.cwd, launched.launch, signal, (text) => {
-        onUpdate?.({
-          content: [{ type: "text", text }],
-          details: {
-            launch: launched.launch,
-            execution: {
-              status: "running",
-            },
-          },
-        });
+      const ambientStore = getStore(ctx);
+      const existing = await ambientStore.readCritiqueAsync(params.ref);
+      const runtimeScope = await resolveEntityRuntimeScope(ctx.cwd, "critique", existing.state.critiqueId);
+      const store = createCritiqueStore(ctx.cwd, {
+        repositoryId: runtimeScope.repositoryId,
+        worktreeId: runtimeScope.worktreeId,
       });
-      const critique = await store.readCritiqueAsync(params.ref);
+      const launched = await store.launchCritiqueAsync(existing.state.critiqueId);
+      const previousLastRunId = launched.critique.state.lastRunId;
+      const execution = await runCritiqueLaunch(
+        ctx.cwd,
+        launched.launch,
+        signal,
+        (text) => {
+          onUpdate?.({
+            content: [{ type: "text", text }],
+            details: {
+              launch: launched.launch,
+              execution: {
+                status: "running",
+              },
+            },
+          });
+        },
+        runtimeScope,
+      );
+      const critique = await store.readCritiqueAsync(existing.state.critiqueId);
       if (execution.exitCode !== 0) {
         throw new Error(
           [

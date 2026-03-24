@@ -9,6 +9,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js";
+import { createPortableRepositoryPath } from "#storage/repository-path.js";
 import { openRepositoryWorkspaceStorage } from "#storage/workspace.js";
 import { createDocumentationStore } from "../domain/store.js";
 
@@ -106,7 +107,14 @@ async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> 
             updatedAt,
             summary: "Canonical docs are stored in snapshot form.",
             audience: ["ai", "human"],
-            scopePaths: ["docs"],
+            scopePaths: [
+              createPortableRepositoryPath({
+                repositoryId: identity.repository.id,
+                repositorySlug: identity.repository.slug,
+                worktreeId: identity.worktree.id,
+                relativePath: "docs",
+              }),
+            ],
             contextRefs: {
               roadmapItemIds: [],
               initiativeIds: [],
@@ -118,7 +126,14 @@ async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> 
             sourceTarget: { kind: "workspace", ref: "repo" },
             updateReason: "Persist canonical documentation snapshots.",
             guideTopics: ["documentation-memory"],
-            linkedOutputPaths: ["docs/loom.md"],
+            linkedOutputPaths: [
+              createPortableRepositoryPath({
+                repositoryId: identity.repository.id,
+                repositorySlug: identity.repository.slug,
+                worktreeId: identity.worktree.id,
+                relativePath: "docs/loom.md",
+              }),
+            ],
             lastRevisionId: "rev-001",
           },
           revisions: [

@@ -82,6 +82,8 @@ export function buildRalphDashboard(
           iterationId: latestRuntime.iterationId,
           iteration: latestRuntime.iteration,
           status: latestRuntime.status,
+          repositoryId: latestRuntime.runtimeScope?.repositoryId ?? null,
+          worktreeId: latestRuntime.runtimeScope?.worktreeId ?? null,
           updatedAt: latestRuntime.updatedAt,
           completedAt: latestRuntime.completedAt,
           exitCode: latestRuntime.exitCode,

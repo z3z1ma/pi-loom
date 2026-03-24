@@ -18,6 +18,10 @@ function renderFocusAreas(focusAreas: string[]): string {
   return focusAreas.length > 0 ? focusAreas.join(", ") : "none";
 }
 
+function renderRepository(summary: CritiqueSummary): string {
+  return summary.repository ? ` repo=${summary.repository.slug}` : "";
+}
+
 function renderRunList(runs: CritiqueRunRecord[]): string {
   if (runs.length === 0) {
     return "(none)";
@@ -43,7 +47,7 @@ function renderFindingList(findings: CritiqueFindingRecord[], onlyActive = false
 }
 
 export function renderCritiqueSummary(summary: CritiqueSummary): string {
-  return `${summary.id} [${summary.status}/${summary.verdict}] ${summary.targetKind}:${summary.targetRef} ${summary.title}`;
+  return `${summary.id} [${summary.status}/${summary.verdict}]${renderRepository(summary)} ${summary.targetKind}:${summary.targetRef} ${summary.title}`;
 }
 
 export function renderCritiqueMarkdown(

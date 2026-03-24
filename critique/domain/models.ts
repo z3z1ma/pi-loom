@@ -1,4 +1,5 @@
 import type { LoomListSort } from "#storage/list-search.js";
+import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
 
 export const CRITIQUE_STATUSES = ["proposed", "active", "resolved", "superseded", "archived"] as const;
 export const CRITIQUE_TARGET_KINDS = [
@@ -128,6 +129,7 @@ export interface CritiqueSummary {
   targetRef: string;
   focusAreas: CritiqueFocusArea[];
   updatedAt: string;
+  repository: LoomRepositoryQualifier | null;
   openFindingCount: number;
   followupTicketCount: number;
   critiqueRef: string;

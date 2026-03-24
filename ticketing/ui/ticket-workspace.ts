@@ -1,5 +1,6 @@
 import type { ExtensionCommandContext, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { getTicketGraphNodeForSummary } from "../domain/graph.js";
 import type {
   TicketGraphResult,
   TicketReadResult,
@@ -461,7 +462,7 @@ function previewLines(
   if (!summary) {
     return ["Pick a ticket to inspect detail."];
   }
-  const node = graph.nodes[summary.id];
+  const node = getTicketGraphNodeForSummary(graph, summary);
   const lines = [
     `${summary.id}`,
     summary.title,
@@ -469,7 +470,7 @@ function previewLines(
     `Status ${statusLabel(summary.status)} • ${summary.type}/${summary.priority}`,
     `Updated ${compactIso(summary.updatedAt)}`,
     `Deps ${summary.deps.length > 0 ? summary.deps.join(", ") : "none"}`,
-    `Blocked by ${node?.blockedBy.length ? node.blockedBy.join(", ") : "none"}`,
+    `Blocked by ${node?.blockedBy.length ? node.blockedBy.map((blocker) => blocker.qualifiedId).join(", ") : "none"}`,
   ];
   if (detail) {
     const journalEntry = detail.journal.at(-1);

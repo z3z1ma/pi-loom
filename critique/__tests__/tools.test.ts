@@ -3,27 +3,41 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
+import type { LoomRuntimeScope } from "#storage/runtime-scope.js";
+import { openWorkspaceStorage } from "#storage/workspace.js";
 
 let persistDurableRun = true;
 
-const runCritiqueLaunch = vi.fn(async (cwd: string, launch: { critiqueId: string }) => {
-  if (persistDurableRun) {
-    const { createCritiqueStore } = await import("../domain/store.js");
-    await createCritiqueStore(cwd).recordRunAsync(launch.critiqueId, {
-      kind: "adversarial",
-      verdict: "pass",
-      summary: "Fresh critic verdict: launch descriptor reviewed.",
-    });
-  }
+const runCritiqueLaunch = vi.fn(
+  async (
+    cwd: string,
+    launch: { critiqueId: string },
+    _signal: AbortSignal | undefined,
+    _onUpdate: unknown,
+    scope?: LoomRuntimeScope,
+  ) => {
+    if (persistDurableRun) {
+      const { createCritiqueStore } = await import("../domain/store.js");
+      await createCritiqueStore(cwd, {
+        repositoryId: scope?.repositoryId,
+        worktreeId: scope?.worktreeId,
+      }).recordRunAsync(launch.critiqueId, {
+        kind: "adversarial",
+        verdict: "pass",
+        summary: "Fresh critic verdict: launch descriptor reviewed.",
+      });
+    }
 
-  return {
-    command: "pi",
-    args: ["--mode", "json"],
-    exitCode: 0,
-    output: "Fresh critic verdict: launch descriptor reviewed.",
-    stderr: "",
-  };
-});
+    return {
+      command: "pi",
+      args: ["--mode", "json"],
+      exitCode: 0,
+      output: "Fresh critic verdict: launch descriptor reviewed.",
+      stderr: "",
+    };
+  },
+);
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -145,7 +159,12 @@ describe("critique tools", () => {
       expect(created.details).toMatchObject({
         action: "create",
         critique: {
-          summary: { id: "critique-workspace-plan", targetKind: "workspace", targetRef: "repo" },
+          summary: {
+            id: "critique-workspace-plan",
+            targetKind: "workspace",
+            targetRef: "repo",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
         },
       });
 
@@ -293,17 +312,85 @@ describe("critique tools", () => {
       );
       expect(dashboard.details).toMatchObject({
         dashboard: {
-          critique: { id: "critique-workspace-plan" },
+          critique: {
+            id: "critique-workspace-plan",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
           counts: { runs: 2, findings: 1, followupTickets: 1 },
         },
       });
 
       const listed = await critiqueList.execute("call-8", { exactTargetKind: "workspace" }, undefined, undefined, ctx);
       expect(listed.details).toMatchObject({
-        critiques: [expect.objectContaining({ id: "critique-workspace-plan", verdict: "needs_revision" })],
+        critiques: [
+          expect.objectContaining({
+            id: "critique-workspace-plan",
+            verdict: "needs_revision",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          }),
+        ],
       });
     } finally {
       cleanup();
+    }
+  }, 120000);
+
+  it("passes repository-targeted runtime scope into critique_launch for ambiguous parent workspaces", async () => {
+    runCritiqueLaunch.mockClear();
+    const workspace = createSeededParentGitWorkspace({
+      prefix: "pi-critique-tools-multi-",
+      repositories: [
+        { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+        { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+      ],
+    });
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-critique-tools-multi-state-"));
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      const { identity } = await openWorkspaceStorage(workspace.cwd);
+      const serviceA = identity.repositories.find(
+        (repository) =>
+          repository.displayName === "service-a" || repository.remoteUrls.some((url) => url.includes("service-a")),
+      );
+      expect(serviceA).toBeDefined();
+      if (!serviceA) {
+        throw new Error("Missing service-a repository identity");
+      }
+
+      const { createCritiqueStore } = await import("../domain/store.js");
+      await createCritiqueStore(workspace.cwd, { repositoryId: serviceA.id }).createCritiqueAsync({
+        title: "Critique workspace plan",
+        target: { kind: "workspace", ref: "service-a", locator: "service-a" },
+      });
+
+      const mockPi = createMockPi();
+      const { registerCritiqueTools } = await import("../tools/critique.js");
+      registerCritiqueTools(mockPi as unknown as ExtensionAPI);
+
+      await getTool(mockPi, "critique_launch").execute(
+        "call-scoped-launch",
+        { ref: "critique-workspace-plan" },
+        undefined,
+        undefined,
+        createContext(workspace.cwd),
+      );
+
+      expect(runCritiqueLaunch).toHaveBeenCalledWith(
+        workspace.cwd,
+        expect.objectContaining({ critiqueId: "critique-workspace-plan" }),
+        undefined,
+        expect.any(Function),
+        expect.objectContaining({
+          spaceId: identity.space.id,
+          repositoryId: serviceA.id,
+          worktreeId: expect.any(String),
+        }),
+      );
+    } finally {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
     }
   }, 120000);
 

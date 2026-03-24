@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { type LoomRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
 import type { CritiqueLaunchDescriptor } from "./models.js";
 import { renderLaunchPrompt } from "./render.js";
 
@@ -161,6 +162,7 @@ export async function runCritiqueLaunch(
   launch: CritiqueLaunchDescriptor,
   signal: AbortSignal | undefined,
   onUpdate?: (text: string) => void,
+  scope?: LoomRuntimeScope,
 ): Promise<CritiqueExecutionResult> {
   const extensionRoot = resolveExtensionPackageRoot();
   const prompt = renderLaunchPrompt(cwd, launch);
@@ -172,6 +174,7 @@ export async function runCritiqueLaunch(
   });
   const proc = spawn(command.command, command.args, {
     cwd,
+    env: scope ? { ...process.env, ...runtimeScopeToEnv(scope) } : process.env,
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],
   });

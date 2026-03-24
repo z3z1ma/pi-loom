@@ -8,7 +8,7 @@ A strong Ralph run should keep durable state for:
 - verifier evidence, critique verdicts, acceptance signals, and unresolved blockers that materially inform the next step
 - decision rationale covering why the loop continued, paused, halted, completed, or changed focus
 - durable steering, stop requests, and packet context that are detailed enough for a later caller to resume truthfully without chat residue
-- per-iteration runtime artifacts that make launch lifecycle, tool activity, streamed assistant output, stderr, and missing-ticket-activity failures observable after the worker exits
+- per-iteration runtime artifacts that make launch lifecycle, tool activity, streamed assistant output, stderr, and missing-ticket-activity failures observable after the worker exits without persisting machine-local spawn paths into durable state
 - assumptions, scope boundaries, risks, dependencies, edge cases, and open questions that still constrain the loop
 
 Ralph is distinct from the other Loom layers:

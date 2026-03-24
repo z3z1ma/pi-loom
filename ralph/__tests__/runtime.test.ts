@@ -3,9 +3,22 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createPlanStore } from "#plans/domain/store.js";
+import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { createEntityId } from "#storage/ids.js";
-import { openWorkspaceStorage, openWorkspaceStorageSync } from "#storage/workspace.js";
+import {
+  PI_LOOM_RUNTIME_REPOSITORY_ID_ENV,
+  PI_LOOM_RUNTIME_SPACE_ID_ENV,
+  PI_LOOM_RUNTIME_WORKTREE_ID_ENV,
+} from "#storage/runtime-scope.js";
+import { selectActiveScope } from "#storage/scope.js";
+import {
+  closeAllWorkspaceStorage,
+  openRepositoryWorkspaceStorage,
+  openWorkspaceStorage,
+  openWorkspaceStorageSync,
+} from "#storage/workspace.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import { hasTrustedPostIteration } from "../domain/loop.js";
 import type { RalphLaunchDescriptor } from "../domain/models.js";
@@ -13,9 +26,15 @@ import { renderLaunchDescriptor, renderLaunchPrompt } from "../domain/render.js"
 import { PI_RALPH_HARNESS_PACKAGE_ROOT_ENV, resolveRalphExtensionRoot, runRalphLaunch } from "../domain/runtime.js";
 import { createRalphStore } from "../domain/store.js";
 
-function createTicketBoundScope(ticketId = "rt-0456", planId = "plan-123", specChangeId = "spec-789") {
+function createTicketBoundScope(
+  ticketId = "rt-0456",
+  planId = "plan-123",
+  specChangeId = "spec-789",
+  repositoryId: string | null = null,
+) {
   return {
     mode: "execute" as const,
+    repositoryId,
     specChangeId,
     planId,
     ticketId,
@@ -310,13 +329,17 @@ async function recordBoundTicketActivity(
   workspace: string,
   ticketId: string,
   options: {
+    repositoryId?: string;
     status?: "open" | "in_progress" | "review";
     journalText?: string;
     verificationText?: string;
     close?: boolean;
   } = {},
 ): Promise<void> {
-  const ticketStore = createTicketStore(workspace);
+  const ticketStore = createTicketStore(
+    workspace,
+    options.repositoryId ? { repositoryId: options.repositoryId } : undefined,
+  );
   if (options.status) {
     await ticketStore.updateTicketAsync(ticketId, { status: options.status });
   }
@@ -725,6 +748,641 @@ describe("ralph loop policy enforcement", () => {
       id: "iter-002",
       decision: { kind: "continue" },
     });
+    runtimeSpy.mockRestore();
+  });
+
+  it("propagates repository-targeted runtime scope into session launches and runtime artifacts", async () => {
+    const workspace = createSeededParentGitWorkspace({
+      prefix: "pi-ralph-runtime-scope-",
+      repositories: [
+        { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+        { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+      ],
+    });
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-ralph-runtime-scope-state-"));
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      const { identity } = await openWorkspaceStorage(workspace.cwd);
+      const serviceA = identity.repositories.find(
+        (repository) =>
+          repository.displayName === "service-a" || repository.remoteUrls.some((url) => url.includes("service-a")),
+      );
+      expect(serviceA).toBeDefined();
+      if (!serviceA) {
+        throw new Error("Missing service-a repository identity");
+      }
+
+      const { identity: scopedIdentity } = await openRepositoryWorkspaceStorage(workspace.cwd, {
+        repositoryId: serviceA.id,
+      });
+      process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV] = scopedIdentity.space.id;
+      process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV] = serviceA.id;
+      process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV] = scopedIdentity.worktree.id;
+
+      const ticketStore = createTicketStore(workspace.cwd, { repositoryId: serviceA.id });
+      const ticket = await ticketStore.createTicketAsync({
+        title: "Scoped Ralph runtime ticket",
+        summary: "Keep Ralph runtime launches pinned to service-a.",
+        plan: "Run one bounded iteration with explicit runtime scope.",
+        verification: "Inspect runtime artifact scope.",
+      });
+
+      const planStore = createPlanStore(workspace.cwd, { repositoryId: serviceA.id });
+      const plan = await planStore.createPlan({
+        title: "Scoped Ralph runtime plan",
+        summary: "Exercise the Ralph runtime scope contract.",
+        sourceTarget: { kind: "workspace", ref: "service-a" },
+      });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: ticket.summary.id, role: "execution" });
+
+      const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
+      runtimeSpy.mockImplementationOnce(async (_cwd, launch, _signal, _onUpdate, extraEnv) => {
+        expect(launch.ticketRef).toBe(ticket.summary.id);
+        expect(extraEnv).toMatchObject({
+          [PI_LOOM_RUNTIME_SPACE_ID_ENV]: scopedIdentity.space.id,
+          [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: serviceA.id,
+          [PI_LOOM_RUNTIME_WORKTREE_ID_ENV]: scopedIdentity.worktree.id,
+        });
+
+        await ticketStore.updateTicketAsync(ticket.summary.id, { status: "in_progress" });
+        await ticketStore.addJournalEntryAsync(
+          ticket.summary.id,
+          "progress",
+          "Recorded iter-001 runtime scope propagation through Ralph session launch.",
+        );
+
+        return {
+          command: "pi",
+          args: ["session-runtime"],
+          exitCode: 0,
+          output: "scoped runtime ok",
+          stderr: "",
+          usage: { measured: true, input: 4, output: 6, cacheRead: 0, cacheWrite: 0, totalTokens: 10 },
+          status: "completed",
+        };
+      });
+
+      const { executeRalphLoop } = await import("../domain/loop.js");
+      const result = await executeRalphLoop(
+        {
+          cwd: workspace.cwd,
+          sessionManager: { getBranch: () => [] },
+        } as unknown as ExtensionContext,
+        { ticketRef: ticket.summary.id, planRef: plan.state.planId, iterations: 1 },
+      );
+
+      expect(result.run.state.scope).toMatchObject({ repositoryId: serviceA.id, ticketId: ticket.summary.id });
+      expect(result.run.runtimeArtifacts.at(-1)).toMatchObject({
+        runtimeScope: {
+          spaceId: scopedIdentity.space.id,
+          repositoryId: serviceA.id,
+          worktreeId: scopedIdentity.worktree.id,
+        },
+      });
+
+      const { storage, identity: readIdentity } = await openWorkspaceStorage(workspace.cwd);
+      const runEntity = await findEntityByDisplayId(
+        storage,
+        readIdentity.space.id,
+        "ralph_run",
+        result.run.state.runId,
+      );
+      expect(runEntity).toMatchObject({ owningRepositoryId: serviceA.id });
+      runtimeSpy.mockRestore();
+    } finally {
+      delete process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+      delete process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+      delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
+    }
+  }, 120000);
+
+  it("creates reads and lists a repository-bound run from a parent workspace without runtime scope env", async () => {
+    const workspace = createSeededParentGitWorkspace({
+      prefix: "pi-ralph-parent-workspace-",
+      repositories: [
+        { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+        { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+      ],
+    });
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-ralph-parent-workspace-state-"));
+    const previousRuntimeEnv = {
+      root: process.env.PI_LOOM_ROOT,
+      spaceId: process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV],
+      repositoryId: process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV],
+      worktreeId: process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV],
+    };
+    process.env.PI_LOOM_ROOT = loomRoot;
+    delete process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+    delete process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+    delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+
+    try {
+      const { identity } = await openWorkspaceStorage(workspace.cwd);
+      const serviceA = identity.repositories.find(
+        (repository) =>
+          repository.displayName === "service-a" || repository.remoteUrls.some((url) => url.includes("service-a")),
+      );
+      const serviceB = identity.repositories.find(
+        (repository) =>
+          repository.displayName === "service-b" || repository.remoteUrls.some((url) => url.includes("service-b")),
+      );
+      expect(serviceA).toBeDefined();
+      expect(serviceB).toBeDefined();
+      if (!serviceA || !serviceB) {
+        throw new Error("Missing seeded repository identities");
+      }
+
+      const ticketStore = createTicketStore(workspace.cwd, { repositoryId: serviceA.id });
+      const ticket = await ticketStore.createTicketAsync({
+        title: "Parent workspace Ralph ticket",
+        summary: "Bind Ralph to service-a without pre-scoped runtime env.",
+        plan: "Create and read the Ralph run from the ambiguous parent workspace.",
+        verification: "Inspect the run scope and owning repository attribution.",
+      });
+
+      const planStore = createPlanStore(workspace.cwd, { repositoryId: serviceA.id });
+      const plan = await planStore.createPlan({
+        title: "Parent workspace Ralph plan",
+        summary: "Exercise Ralph control-path creation from the parent workspace.",
+        sourceTarget: { kind: "workspace", ref: "service-a" },
+      });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: ticket.summary.id, role: "execution" });
+
+      const { ensureRalphRun } = await import("../domain/loop.js");
+      const created = await ensureRalphRun(
+        {
+          cwd: workspace.cwd,
+          sessionManager: { getBranch: () => [] },
+        } as unknown as ExtensionContext,
+        { ticketRef: ticket.summary.id, planRef: plan.state.planId },
+      );
+
+      expect(created.created).toBe(true);
+      expect(created.run.state.scope).toMatchObject({
+        repositoryId: serviceA.id,
+        planId: plan.state.planId,
+        ticketId: ticket.summary.id,
+      });
+      expect(created.run.state.scope.repositoryId).not.toBe(serviceB.id);
+
+      const parentStore = createRalphStore(workspace.cwd);
+      const reread = await parentStore.readRunAsync(created.run.state.runId);
+      expect(reread.state.scope.repositoryId).toBe(serviceA.id);
+
+      const listed = await parentStore.listRunsAsync();
+      expect(listed.map((run) => run.id)).toContain(created.run.summary.id);
+
+      const { storage, identity: readIdentity } = await openWorkspaceStorage(workspace.cwd);
+      const runEntity = await findEntityByDisplayId(
+        storage,
+        readIdentity.space.id,
+        "ralph_run",
+        created.run.state.runId,
+      );
+      expect(runEntity).toMatchObject({ owningRepositoryId: serviceA.id });
+      expect(created.run.runtimeArtifacts).toHaveLength(0);
+    } finally {
+      if (previousRuntimeEnv.root === undefined) {
+        delete process.env.PI_LOOM_ROOT;
+      } else {
+        process.env.PI_LOOM_ROOT = previousRuntimeEnv.root;
+      }
+      if (previousRuntimeEnv.spaceId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV] = previousRuntimeEnv.spaceId;
+      }
+      if (previousRuntimeEnv.repositoryId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV] = previousRuntimeEnv.repositoryId;
+      }
+      if (previousRuntimeEnv.worktreeId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV] = previousRuntimeEnv.worktreeId;
+      }
+      rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
+    }
+  }, 120000);
+
+  it("keeps concurrent repository-bound launches scoped per repository from an ambiguous parent workspace", async () => {
+    const workspace = createSeededParentGitWorkspace({
+      prefix: "pi-ralph-parent-concurrent-",
+      repositories: [
+        { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+        { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+      ],
+    });
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-ralph-parent-concurrent-state-"));
+    const previousRuntimeEnv = {
+      root: process.env.PI_LOOM_ROOT,
+      spaceId: process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV],
+      repositoryId: process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV],
+      worktreeId: process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV],
+    };
+    process.env.PI_LOOM_ROOT = loomRoot;
+    delete process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+    delete process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+    delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+
+    try {
+      const { identity } = await openWorkspaceStorage(workspace.cwd);
+      const serviceA = identity.repositories.find(
+        (repository) =>
+          repository.displayName === "service-a" || repository.remoteUrls.some((url) => url.includes("service-a")),
+      );
+      const serviceB = identity.repositories.find(
+        (repository) =>
+          repository.displayName === "service-b" || repository.remoteUrls.some((url) => url.includes("service-b")),
+      );
+      expect(serviceA).toBeDefined();
+      expect(serviceB).toBeDefined();
+      if (!serviceA || !serviceB) {
+        throw new Error("Missing seeded repository identities");
+      }
+
+      const { identity: scopedServiceA } = await openRepositoryWorkspaceStorage(workspace.cwd, {
+        repositoryId: serviceA.id,
+      });
+      const { identity: scopedServiceB } = await openRepositoryWorkspaceStorage(workspace.cwd, {
+        repositoryId: serviceB.id,
+      });
+
+      const ticketStoreA = createTicketStore(workspace.cwd, { repositoryId: serviceA.id });
+      const ticketA = await ticketStoreA.createTicketAsync({
+        title: "Concurrent service-a Ralph ticket",
+        summary: "Launch Ralph for service-a from the ambiguous parent workspace.",
+        plan: "Run a bounded iteration concurrently with the service-b launch.",
+        verification: "Inspect the runtime scope and persisted repository attribution.",
+      });
+      const planStoreA = createPlanStore(workspace.cwd, { repositoryId: serviceA.id });
+      const planA = await planStoreA.createPlan({
+        title: "Concurrent service-a Ralph plan",
+        summary: "Exercise repository-bound concurrent Ralph launches for service-a.",
+        sourceTarget: { kind: "workspace", ref: "service-a" },
+      });
+      await planStoreA.linkPlanTicket(planA.state.planId, { ticketId: ticketA.summary.id, role: "execution" });
+
+      const ticketStoreB = createTicketStore(workspace.cwd, { repositoryId: serviceB.id });
+      const ticketB = await ticketStoreB.createTicketAsync({
+        title: "Concurrent service-b Ralph ticket",
+        summary: "Launch Ralph for service-b from the ambiguous parent workspace.",
+        plan: "Run a bounded iteration concurrently with the service-a launch.",
+        verification: "Inspect the runtime scope and persisted repository attribution.",
+      });
+      const planStoreB = createPlanStore(workspace.cwd, { repositoryId: serviceB.id });
+      const planB = await planStoreB.createPlan({
+        title: "Concurrent service-b Ralph plan",
+        summary: "Exercise repository-bound concurrent Ralph launches for service-b.",
+        sourceTarget: { kind: "workspace", ref: "service-b" },
+      });
+      await planStoreB.linkPlanTicket(planB.state.planId, { ticketId: ticketB.summary.id, role: "execution" });
+
+      const { ensureRalphRun, executeRalphLoop } = await import("../domain/loop.js");
+      const ctx = {
+        cwd: workspace.cwd,
+        sessionManager: { getBranch: () => [] },
+      } as unknown as ExtensionContext;
+      const createdA = await ensureRalphRun(ctx, { ticketRef: ticketA.summary.id, planRef: planA.state.planId });
+      const createdB = await ensureRalphRun(ctx, { ticketRef: ticketB.summary.id, planRef: planB.state.planId });
+
+      let releaseLaunches!: () => void;
+      const launchRelease = new Promise<void>((resolve) => {
+        releaseLaunches = resolve;
+      });
+      let resolveBothStarted!: () => void;
+      const bothStarted = new Promise<void>((resolve) => {
+        resolveBothStarted = resolve;
+      });
+      let startedCount = 0;
+      const envByTicket = new Map<string, Record<string, string | undefined>>();
+
+      const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
+      runtimeSpy.mockImplementation(async (_cwd, launch, _signal, _onUpdate, extraEnv, onEvent) => {
+        envByTicket.set(launch.ticketRef, extraEnv ?? {});
+        startedCount += 1;
+        await onEvent?.({ type: "launch_state", state: "running", at: new Date().toISOString() });
+        if (startedCount === 2) {
+          resolveBothStarted();
+        }
+        await launchRelease;
+        await recordBoundTicketActivity(workspace.cwd, launch.ticketRef, {
+          repositoryId: launch.ticketRef === ticketA.summary.id ? serviceA.id : serviceB.id,
+          status: "in_progress",
+          journalText: `Recorded ${launch.iterationId} for ${launch.ticketRef}.`,
+        });
+        return {
+          command: "pi",
+          args: ["session-runtime"],
+          exitCode: 0,
+          output: `${launch.ticketRef} ok`,
+          stderr: "",
+          usage: { measured: true, input: 3, output: 4, cacheRead: 0, cacheWrite: 0, totalTokens: 7 },
+          status: "completed",
+          completedAt: new Date().toISOString(),
+        };
+      });
+
+      const launchA = executeRalphLoop(ctx, { ref: createdA.run.state.runId, iterations: 1 });
+      const launchB = executeRalphLoop(ctx, { ref: createdB.run.state.runId, iterations: 1 });
+
+      await bothStarted;
+      expect(startedCount).toBe(2);
+      releaseLaunches();
+
+      const [resultA, resultB] = await Promise.all([launchA, launchB]);
+
+      expect(envByTicket.get(ticketA.summary.id)).toMatchObject({
+        [PI_LOOM_RUNTIME_SPACE_ID_ENV]: scopedServiceA.space.id,
+        [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: serviceA.id,
+        [PI_LOOM_RUNTIME_WORKTREE_ID_ENV]: scopedServiceA.worktree.id,
+      });
+      expect(envByTicket.get(ticketB.summary.id)).toMatchObject({
+        [PI_LOOM_RUNTIME_SPACE_ID_ENV]: scopedServiceB.space.id,
+        [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: serviceB.id,
+        [PI_LOOM_RUNTIME_WORKTREE_ID_ENV]: scopedServiceB.worktree.id,
+      });
+
+      expect(resultA.run.state.scope.repositoryId).toBe(serviceA.id);
+      expect(resultB.run.state.scope.repositoryId).toBe(serviceB.id);
+      expect(resultA.run.runtimeArtifacts.at(-1)).toMatchObject({
+        runtimeScope: {
+          spaceId: scopedServiceA.space.id,
+          repositoryId: serviceA.id,
+          worktreeId: scopedServiceA.worktree.id,
+        },
+        missingTicketActivity: false,
+      });
+      expect(resultB.run.runtimeArtifacts.at(-1)).toMatchObject({
+        runtimeScope: {
+          spaceId: scopedServiceB.space.id,
+          repositoryId: serviceB.id,
+          worktreeId: scopedServiceB.worktree.id,
+        },
+        missingTicketActivity: false,
+      });
+
+      const { storage, identity: readIdentity } = await openWorkspaceStorage(workspace.cwd);
+      const runEntityA = await findEntityByDisplayId(
+        storage,
+        readIdentity.space.id,
+        "ralph_run",
+        createdA.run.state.runId,
+      );
+      const runEntityB = await findEntityByDisplayId(
+        storage,
+        readIdentity.space.id,
+        "ralph_run",
+        createdB.run.state.runId,
+      );
+      expect(runEntityA).toMatchObject({ owningRepositoryId: serviceA.id });
+      expect(runEntityB).toMatchObject({ owningRepositoryId: serviceB.id });
+
+      runtimeSpy.mockRestore();
+    } finally {
+      if (previousRuntimeEnv.root === undefined) {
+        delete process.env.PI_LOOM_ROOT;
+      } else {
+        process.env.PI_LOOM_ROOT = previousRuntimeEnv.root;
+      }
+      if (previousRuntimeEnv.spaceId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV] = previousRuntimeEnv.spaceId;
+      }
+      if (previousRuntimeEnv.repositoryId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV] = previousRuntimeEnv.repositoryId;
+      }
+      if (previousRuntimeEnv.worktreeId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV] = previousRuntimeEnv.worktreeId;
+      }
+      rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
+    }
+  }, 120000);
+
+  it("keeps Ralph runtime artifacts pinned to the selected sibling worktree from a parent workspace", async () => {
+    const workspace = createSeededParentGitWorkspace({
+      prefix: "pi-ralph-parent-sibling-worktrees-",
+      repositories: [
+        { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+        { name: "service-a-clone", remoteUrl: "git@github.com:example/service-a.git" },
+      ],
+    });
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-ralph-parent-sibling-worktrees-state-"));
+    const previousRuntimeEnv = {
+      root: process.env.PI_LOOM_ROOT,
+      spaceId: process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV],
+      repositoryId: process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV],
+      worktreeId: process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV],
+    };
+    process.env.PI_LOOM_ROOT = loomRoot;
+    delete process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+    delete process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+    delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+
+    try {
+      const { storage, identity } = await openWorkspaceStorage(workspace.cwd);
+      expect(identity.repositories).toHaveLength(1);
+      expect(identity.worktrees).toHaveLength(2);
+      const repository = identity.repositories[0];
+      if (!repository) {
+        throw new Error("Missing canonical repository identity for sibling worktrees");
+      }
+
+      const [untouchedWorktree, targetWorktree] = [...identity.worktrees].sort((left, right) =>
+        left.logicalKey.localeCompare(right.logicalKey),
+      );
+      if (!untouchedWorktree || !targetWorktree) {
+        throw new Error("Missing sibling worktree identities");
+      }
+
+      const selected = await selectActiveScope(
+        workspace.cwd,
+        { repositoryId: repository.id, worktreeId: targetWorktree.id },
+        storage,
+      );
+      expect(selected.worktree?.id).toBe(targetWorktree.id);
+      closeAllWorkspaceStorage();
+
+      const { identity: scopedIdentity } = await openRepositoryWorkspaceStorage(workspace.cwd, {
+        repositoryId: repository.id,
+      });
+      expect(scopedIdentity.worktree.id).toBe(targetWorktree.id);
+
+      const ticketStore = createTicketStore(workspace.cwd, {
+        repositoryId: repository.id,
+        worktreeId: targetWorktree.id,
+      });
+      const ticket = await ticketStore.createTicketAsync({
+        title: "Sibling worktree Ralph ticket",
+        summary: "Launch Ralph from the parent workspace without drifting onto the sibling clone.",
+        plan: "Run one bounded iteration while the target repository has two local sibling worktrees.",
+        verification: "Inspect the persisted runtime artifact scope and confirm the selected worktree is preserved.",
+      });
+
+      const planStore = createPlanStore(workspace.cwd, {
+        repositoryId: repository.id,
+        worktreeId: targetWorktree.id,
+      });
+      const plan = await planStore.createPlan({
+        title: "Sibling worktree Ralph plan",
+        summary: "Exercise parent-workspace Ralph runtime scoping when one canonical repository has two local clones.",
+        sourceTarget: { kind: "workspace", ref: repository.slug },
+      });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: ticket.summary.id, role: "execution" });
+
+      const { ensureRalphRun, executeRalphLoop } = await import("../domain/loop.js");
+      const ctx = {
+        cwd: workspace.cwd,
+        sessionManager: { getBranch: () => [] },
+      } as unknown as ExtensionContext;
+      const created = await ensureRalphRun(ctx, { ticketRef: ticket.summary.id, planRef: plan.state.planId });
+
+      let launchEnv: Record<string, string | undefined> | undefined;
+      const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
+      runtimeSpy.mockImplementationOnce(async (_cwd, launch, _signal, _onUpdate, extraEnv) => {
+        launchEnv = extraEnv ?? {};
+        await recordBoundTicketActivity(workspace.cwd, launch.ticketRef, {
+          repositoryId: repository.id,
+          status: "in_progress",
+          journalText: `Recorded ${launch.iterationId} for selected sibling worktree ${targetWorktree.id}.`,
+        });
+        return {
+          command: "pi",
+          args: ["session-runtime"],
+          exitCode: 0,
+          output: "sibling worktree scoped launch ok",
+          stderr: "",
+          usage: { measured: true, input: 5, output: 7, cacheRead: 0, cacheWrite: 0, totalTokens: 12 },
+          status: "completed",
+          completedAt: new Date().toISOString(),
+        };
+      });
+
+      const result = await executeRalphLoop(ctx, { ref: created.run.state.runId, iterations: 1 });
+
+      expect(launchEnv).toMatchObject({
+        [PI_LOOM_RUNTIME_SPACE_ID_ENV]: scopedIdentity.space.id,
+        [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: repository.id,
+        [PI_LOOM_RUNTIME_WORKTREE_ID_ENV]: targetWorktree.id,
+      });
+      expect(result.run.runtimeArtifacts.at(-1)).toMatchObject({
+        runtimeScope: {
+          spaceId: scopedIdentity.space.id,
+          repositoryId: repository.id,
+          worktreeId: targetWorktree.id,
+        },
+        missingTicketActivity: false,
+      });
+      expect(
+        result.run.runtimeArtifacts.some((artifact) => artifact.runtimeScope?.worktreeId === untouchedWorktree.id),
+      ).toBe(false);
+
+      closeAllWorkspaceStorage();
+      const reopened = await openWorkspaceStorage(workspace.cwd);
+      expect(reopened.identity.repository?.id).toBe(repository.id);
+      expect(reopened.identity.worktree?.id).toBe(targetWorktree.id);
+      expect(reopened.identity.activeScope.worktreeId).toBe(targetWorktree.id);
+
+      const runEntity = await findEntityByDisplayId(
+        reopened.storage,
+        reopened.identity.space.id,
+        "ralph_run",
+        created.run.state.runId,
+      );
+      expect(runEntity).toMatchObject({ owningRepositoryId: repository.id });
+
+      runtimeSpy.mockRestore();
+    } finally {
+      if (previousRuntimeEnv.root === undefined) {
+        delete process.env.PI_LOOM_ROOT;
+      } else {
+        process.env.PI_LOOM_ROOT = previousRuntimeEnv.root;
+      }
+      if (previousRuntimeEnv.spaceId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV] = previousRuntimeEnv.spaceId;
+      }
+      if (previousRuntimeEnv.repositoryId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV] = previousRuntimeEnv.repositoryId;
+      }
+      if (previousRuntimeEnv.worktreeId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV] = previousRuntimeEnv.worktreeId;
+      }
+      rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
+    }
+  }, 120000);
+
+  it("stores portable runtime invocation metadata instead of machine-local spawn paths", async () => {
+    const store = createRalphStore(workspace);
+    const run = store.createRun({
+      title: "Portable runtime artifact Ralph Run",
+      objective: "Keep durable runtime artifacts free of machine-local spawn paths.",
+      policySnapshot: { verifierRequired: false },
+      scope: createTicketBoundScope(),
+    });
+
+    const runtimeSpy = vi.spyOn(await import("../domain/runtime.js"), "runRalphLaunch");
+    runtimeSpy.mockImplementationOnce(async (_cwd, launch) => {
+      await recordBoundTicketActivity(workspace, launch.ticketRef, {
+        status: "in_progress",
+        journalText: "Recorded iter-001 portable runtime artifact evidence.",
+      });
+
+      return {
+        command: "/usr/local/bin/node",
+        args: [
+          "/custom-fork/dist/omp-cli.js",
+          "-e",
+          "/Users/alexanderbutler/code_projects/pi-loom",
+          "--mode=json",
+          "-p",
+          "bounded worker prompt",
+          "--session-dir",
+          "/tmp/pi-loom-ralph-12345",
+        ],
+        exitCode: 0,
+        output: "portable runtime ok",
+        stderr: "",
+        usage: { measured: true, input: 4, output: 6, cacheRead: 0, cacheWrite: 0, totalTokens: 10 },
+        status: "completed",
+      };
+    });
+
+    const { executeRalphLoop } = await import("../domain/loop.js");
+    const result = await executeRalphLoop(
+      {
+        cwd: workspace,
+        sessionManager: { getBranch: () => [] },
+      } as unknown as ExtensionContext,
+      { ref: run.state.runId, prompt: "do work", iterations: 1 },
+    );
+
+    expect(result.run.runtimeArtifacts.at(-1)).toMatchObject({
+      command: "session-runtime",
+      args: [`iteration=iter-001`, `mode=launch`, `run=${run.state.runId}`],
+      output: "portable runtime ok",
+    });
+    expect(result.run.packet).toContain("command: session-runtime");
+    expect(result.run.packet).not.toContain("/usr/local/bin/node");
+    expect(result.run.packet).not.toContain("/custom-fork/dist/omp-cli.js");
     runtimeSpy.mockRestore();
   });
 

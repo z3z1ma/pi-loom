@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,7 +17,7 @@ import {
 import { SqliteLoomCatalog } from "../sqlite.js";
 import { exportSyncBundle, hydrateSyncBundle } from "../sync.js";
 import { openWorkspaceStorage } from "../workspace.js";
-import { createSeededGitWorkspace, createSeededParentGitWorkspace } from "./helpers/git-fixture.js";
+import { createSeededGitWorkspace, createSeededParentGitWorkspace, runTestGit } from "./helpers/git-fixture.js";
 
 function createWorkspace(): { cwd: string; cleanup: () => void } {
   return createSeededGitWorkspace({
@@ -35,6 +34,16 @@ function createParentWorkspaceWithChildren(): { cwd: string; repositories: strin
     repositories: [
       { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
       { name: "service-b", remoteUrl: "git@github.com:example/service-b.git" },
+    ],
+  });
+}
+
+function createParentWorkspaceWithSiblingClones(): { cwd: string; repositories: string[]; cleanup: () => void } {
+  return createSeededParentGitWorkspace({
+    prefix: "pi-storage-parent-clones-",
+    repositories: [
+      { name: "service-a", remoteUrl: "git@github.com:example/service-a.git" },
+      { name: "service-a-clone", remoteUrl: "git@github.com:example/service-a.git" },
     ],
   });
 }
@@ -213,6 +222,32 @@ describe("pi-storage sqlite catalog backup flow", () => {
     }
   }, 15000);
 
+  it("keeps sibling clones of the same repository distinct under one parent workspace", async () => {
+    const { cwd, repositories, cleanup } = createParentWorkspaceWithSiblingClones();
+    cleanupPaths.push(cwd);
+    process.env.PI_LOOM_ROOT = mkdtempSync(path.join(tmpdir(), "pi-storage-parent-clones-state-"));
+    cleanupPaths.push(process.env.PI_LOOM_ROOT);
+    try {
+      expect(repositories).toHaveLength(2);
+      const { identity } = await openWorkspaceStorage(cwd);
+      expect(identity.space.repositoryIds).toHaveLength(1);
+      expect(identity.repositories).toHaveLength(1);
+      expect(identity.worktrees).toHaveLength(2);
+      expect(identity.repository?.id).toBe(identity.repositories[0]?.id);
+      expect(identity.worktree).toBeTruthy();
+
+      const [firstWorktree, secondWorktree] = [...identity.worktrees].sort((left, right) =>
+        left.logicalKey.localeCompare(right.logicalKey),
+      );
+      expect(firstWorktree?.repositoryId).toBe(identity.repositories[0]?.id);
+      expect(secondWorktree?.repositoryId).toBe(identity.repositories[0]?.id);
+      expect(firstWorktree?.id).not.toBe(secondWorktree?.id);
+      expect(firstWorktree?.logicalKey).not.toBe(secondWorktree?.logicalKey);
+    } finally {
+      cleanup();
+    }
+  }, 15000);
+
   it("uses a valid persisted binding to resolve an ambiguous parent-directory startup", async () => {
     const { cwd, cleanup } = createParentWorkspaceWithChildren();
     cleanupPaths.push(cwd);
@@ -274,7 +309,7 @@ describe("pi-storage sqlite catalog backup flow", () => {
     try {
       const nestedGrandchild = path.join(cwd, "service-a", "nested-grandchild");
       mkdirSync(nestedGrandchild, { recursive: true });
-      execFileSync("git", ["init"], { cwd: nestedGrandchild, encoding: "utf-8" });
+      runTestGit(nestedGrandchild, "init");
 
       const { storage } = await openWorkspaceStorage(cwd);
       const initial = await discoverWorkspaceScope(cwd, storage);

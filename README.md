@@ -20,6 +20,21 @@ Constitutional memory is the highest-order project context in this workspace. It
 - `storage/` — shared storage implementation area
 - `.agents/resources/` — reference material
 
+## Multi-repository operating model
+
+Pi Loom is no longer modeled as "one session equals one cwd-derived repository." The canonical coordination boundary is a Loom space, and one space may contain multiple enrolled repositories plus multiple local worktrees for the same repository.
+
+- startup may begin from a parent directory above several repositories or from inside one participating repository
+- `scope_read` surfaces the discovered space, enrolled repositories, current active repository/worktree binding, and any stale-binding or availability diagnostics
+- `scope_write` is the explicit operator path for selecting, revoking, enrolling, or unenrolling repository scope when discovery is ambiguous or a different repository/worktree should become active
+- broad list/search reads stay valid at space scope and return repository-qualified results; repository-sensitive writes and path-bearing operations must either run under an unambiguous active repository selection or provide explicit `repositoryId` / `worktreeId` targeting
+- runtime launches for Ralph, docs, and critique propagate explicit space/repository/worktree scope into the fresh process and record that scope in durable runtime artifacts instead of guessing from the child process cwd
+- degraded mode is explicit: a repository may remain canonically enrolled even when no local worktree is currently available; space-level reads still work, while repository-bound actions fail closed with diagnostics instead of inventing a replacement repository identity
+
+Portable path handling follows the same rule. In ambiguous parent-directory sessions, bare relative paths such as `README.md` are rejected for repository-bound records; callers must use repository-qualified display paths such as `<repo-slug>:README.md` so exported references, linked outputs, and later hydration stay truthful across clones.
+
+Export and import behavior is scope-aware. A full export represents the whole space (`scope.kind = "space"`, `partial = false`). A repository-scoped export is explicitly partial (`scope.kind = "repository"`, `partial = true`) and excludes unrelated repositories instead of pretending to be a full-space snapshot.
+
 ## Development
 
 ```bash

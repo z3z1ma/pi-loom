@@ -119,7 +119,11 @@ describe("initiative tools", () => {
       expect(created.details).toMatchObject({
         action: "create",
         initiative: {
-          summary: { id: "platform-modernization", status: "proposed" },
+          summary: {
+            id: "platform-modernization",
+            status: "proposed",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
         },
       });
 
@@ -174,14 +178,26 @@ describe("initiative tools", () => {
 
       const listed = await initiativeList.execute("call-5", { includeArchived: true }, undefined, undefined, ctx);
       expect(listed.details).toMatchObject({
-        initiatives: [expect.objectContaining({ id: "platform-modernization" })],
+        initiatives: [
+          expect.objectContaining({
+            id: "platform-modernization",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          }),
+        ],
       });
 
       const read = await initiativeRead.execute("call-6", { ref: "platform-modernization" }, undefined, undefined, ctx);
       expect(read.details).toMatchObject({
         initiative: {
-          summary: { id: "platform-modernization" },
-          dashboard: { linkedSpecs: { total: 1 }, linkedTickets: { total: 1 } },
+          summary: {
+            id: "platform-modernization",
+            repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
+          },
+          dashboard: {
+            initiative: { repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }) },
+            linkedSpecs: { total: 1 },
+            linkedTickets: { total: 1 },
+          },
         },
       });
 
@@ -194,6 +210,7 @@ describe("initiative tools", () => {
       );
       expect(dashboard.details).toMatchObject({
         dashboard: {
+          initiative: { repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }) },
           linkedSpecs: { total: 1 },
           linkedTickets: { total: 1, ready: 1 },
           milestones: [expect.objectContaining({ linkedOpenTicketCount: 1 })],

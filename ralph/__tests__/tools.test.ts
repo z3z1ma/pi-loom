@@ -126,6 +126,9 @@ function createReadResult(
     title: string;
     scheduler: Record<string, unknown>;
     latestDecision: RalphContinuationDecision | null;
+    postIteration: NonNullable<RalphReadResult["state"]["postIteration"]>;
+    runtimeArtifacts: RalphReadResult["runtimeArtifacts"];
+    steeringQueue: RalphReadResult["state"]["steeringQueue"];
     stopReason: RalphDecisionReason;
     stopRequest: {
       requestedAt: string;
@@ -138,6 +141,8 @@ function createReadResult(
 ): RalphReadResult {
   const planId = overrides?.planId ?? "plan-1";
   const ticketId = overrides?.ticketId ?? "t-1001";
+  const runtimeArtifacts = overrides?.runtimeArtifacts ?? [];
+  const latestRuntimeArtifact = runtimeArtifacts.at(-1) ?? null;
   return {
     summary: {
       id: ref,
@@ -158,7 +163,7 @@ function createReadResult(
       phase: overrides?.phase ?? "executing",
       waitingFor: "none",
       latestDecision: overrides?.latestDecision ?? null,
-      postIteration: null,
+      postIteration: overrides?.postIteration ?? null,
       nextLaunch: { runtime: null, resume: false, preparedAt: null, instructions: [] },
       nextIterationId: null,
       linkedRefs: {
@@ -192,7 +197,7 @@ function createReadResult(
         priorIterationLearnings: [],
         operatorNotes: null,
       },
-      steeringQueue: [],
+      steeringQueue: overrides?.steeringQueue ?? [],
       policySnapshot: {
         mode: "balanced",
         maxIterations: null,
@@ -236,7 +241,7 @@ function createReadResult(
       stopRequest: overrides?.stopRequest ?? null,
     },
     iterations: [],
-    runtimeArtifacts: [],
+    runtimeArtifacts,
     packet: "packet",
     run: "run markdown",
     dashboard: {
@@ -272,8 +277,30 @@ function createReadResult(
       packetRef: `ralph-run:${ref}:packet`,
       runRef: `ralph-run:${ref}:run`,
       launchRef: `ralph-run:${ref}:launch`,
-      latestBoundedIteration: null,
-      latestRuntime: null,
+      latestBoundedIteration: overrides?.postIteration
+        ? {
+            id: overrides.postIteration.iterationId,
+            iteration: overrides.postIteration.iteration,
+            status: overrides.postIteration.status,
+            summary: overrides.postIteration.summary,
+            completedAt: overrides.postIteration.completedAt,
+          }
+        : null,
+      latestRuntime: latestRuntimeArtifact
+        ? {
+            id: latestRuntimeArtifact.id,
+            iterationId: latestRuntimeArtifact.iterationId,
+            iteration: latestRuntimeArtifact.iteration,
+            status: latestRuntimeArtifact.status,
+            repositoryId: latestRuntimeArtifact.runtimeScope?.repositoryId ?? null,
+            worktreeId: latestRuntimeArtifact.runtimeScope?.worktreeId ?? null,
+            updatedAt: latestRuntimeArtifact.updatedAt,
+            completedAt: latestRuntimeArtifact.completedAt,
+            exitCode: latestRuntimeArtifact.exitCode,
+            missingTicketActivity: latestRuntimeArtifact.missingTicketActivity,
+            jobId: latestRuntimeArtifact.jobId,
+          }
+        : null,
     },
     artifacts: {
       dir: `ralph-run:${ref}`,
@@ -297,6 +324,105 @@ function createReadResult(
       resume: false,
       instructions: [],
     },
+  };
+}
+
+function createRuntimeArtifact(
+  ref: string,
+  overrides?: Partial<RalphReadResult["runtimeArtifacts"][number]>,
+): RalphReadResult["runtimeArtifacts"][number] {
+  return {
+    id: overrides?.id ?? `${ref}-runtime-1`,
+    runId: ref,
+    iterationId: overrides?.iterationId ?? "iter-001",
+    iteration: overrides?.iteration ?? 1,
+    status: overrides?.status ?? "completed",
+    runtimeScope: overrides?.runtimeScope ?? { repositoryId: "repo-1", worktreeId: "worktree-1" },
+    startedAt: overrides?.startedAt ?? "2026-03-21T00:00:00.000Z",
+    updatedAt: overrides?.updatedAt ?? "2026-03-21T00:01:00.000Z",
+    completedAt: overrides?.completedAt ?? "2026-03-21T00:01:00.000Z",
+    command: overrides?.command ?? "node",
+    args: overrides?.args ?? ["worker.js"],
+    exitCode: overrides?.exitCode ?? 0,
+    output: overrides?.output ?? "runtime output that should stay in full mode only",
+    stderr: overrides?.stderr ?? "runtime stderr that should stay in full mode only",
+    usage: overrides?.usage ?? { measured: true, input: 10, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 30 },
+    events: overrides?.events ?? [
+      { type: "launch_state", state: "running", at: "2026-03-21T00:00:10.000Z" },
+      {
+        type: "assistant_message",
+        text: "assistant transcript that should stay out of state mode",
+        at: "2026-03-21T00:00:20.000Z",
+      },
+    ],
+    launch: overrides?.launch ?? {
+      runId: ref,
+      iterationId: overrides?.iterationId ?? "iter-001",
+      iteration: overrides?.iteration ?? 1,
+      createdAt: "2026-03-21T00:00:00.000Z",
+      runtime: "session",
+      ticketRef: "t-1001",
+      planRef: "plan-1",
+      packetRef: `ralph-run:${ref}:packet`,
+      launchRef: `ralph-run:${ref}:launch`,
+      resume: false,
+      instructions: ["Read the packet before acting."],
+    },
+    missingTicketActivity: overrides?.missingTicketActivity ?? false,
+    jobId: overrides?.jobId ?? "job-runtime-1",
+  };
+}
+
+function createPostIteration(
+  overrides?: Partial<NonNullable<RalphReadResult["state"]["postIteration"]>>,
+): NonNullable<RalphReadResult["state"]["postIteration"]> {
+  return {
+    iterationId: overrides?.iterationId ?? "iter-001",
+    iteration: overrides?.iteration ?? 1,
+    status: overrides?.status ?? "accepted",
+    startedAt: overrides?.startedAt ?? "2026-03-21T00:00:00.000Z",
+    completedAt: overrides?.completedAt ?? "2026-03-21T00:01:00.000Z",
+    focus: overrides?.focus ?? "Focus area",
+    summary: overrides?.summary ?? "Post iteration summary",
+    workerSummary: overrides?.workerSummary ?? "Ticket updated",
+    scope: overrides?.scope ?? {
+      mode: "execute",
+      specChangeId: "spec-1",
+      planId: "plan-1",
+      ticketId: "t-1001",
+      roadmapItemIds: [],
+      initiativeIds: [],
+      researchIds: [],
+      critiqueIds: [],
+      docIds: [],
+    },
+    packetContext: overrides?.packetContext ?? {
+      capturedAt: "2026-03-21T00:01:00.000Z",
+      constitutionBrief: "Heavy constitution context that should stay in packet mode.",
+      specContext: "Heavy spec context that should stay in packet mode.",
+      planContext: "Heavy plan context that should stay in packet mode.",
+      ticketContext: "Heavy ticket context that should stay in packet mode.",
+      priorIterationLearnings: [],
+      operatorNotes: null,
+    },
+    verifier: overrides?.verifier ?? {
+      iterationId: "iter-001",
+      sourceKind: "test",
+      sourceRef: "vitest",
+      verdict: "pass",
+      summary: "Verifier passed.",
+      required: true,
+      blocker: false,
+      checkedAt: "2026-03-21T00:01:00.000Z",
+      evidence: ["npm test -- ralph/__tests__/tools.test.ts"],
+    },
+    critiqueLinks: overrides?.critiqueLinks ?? [],
+    decision: overrides?.decision ?? {
+      kind: "continue",
+      reason: "worker_requested_completion",
+      summary: "Continue the loop.",
+    },
+    notes: overrides?.notes ?? [],
   };
 }
 
@@ -432,6 +558,15 @@ describe("ralph tools", () => {
     expect(runTool.promptGuidelines).toContain(
       "Treat `steeringPrompt` as additive context only. It can clarify or reprioritize the next iteration, but it must not override the governing ticket or turn into step-by-step micromanagement.",
     );
+    expect(readTool.description).toContain("compact Ralph loop state snapshot");
+    expect(readTool.promptGuidelines).toContain(
+      "Read state mode when you need a machine-usable triage snapshot without inline runtime transcripts or packet-body context.",
+    );
+    expect(readProperties.mode).toMatchObject({
+      description: expect.stringContaining(
+        "`state` returns a compact triage snapshot without inline packet bodies or runtime transcripts",
+      ),
+    });
     expect(readProperties.planRef).toMatchObject({
       description: expect.stringContaining("Optional governing plan ref for the Ralph run"),
     });
@@ -655,6 +790,116 @@ describe("ralph tools", () => {
       type: "text",
       text: expect.stringContaining("Requested stop for Ralph loop"),
     });
+  });
+
+  it("returns a compact state snapshot without packet bodies or runtime transcripts", async () => {
+    const mockPi = createMockPi();
+    const { registerRalphTools } = await import("../tools/ralph.js");
+    const { executeRalphLoop } = await import("../domain/loop.js");
+    registerRalphTools(mockPi as unknown as ExtensionAPI);
+    const ctx = createContext("/workspace/ralph-tools");
+
+    const runtimeArtifact = createRuntimeArtifact("plan-1-t-1001", {
+      output: "raw assistant transcript that must not appear in state mode",
+      stderr: "raw stderr that must not appear in state mode",
+      events: [
+        {
+          type: "assistant_message",
+          text: "assistant transcript that must not appear in state mode",
+          at: "2026-03-21T00:00:20.000Z",
+        },
+      ],
+    });
+    const postIteration = createPostIteration();
+    const completedRun = createReadResult("plan-1-t-1001", {
+      runtimeArtifacts: [runtimeArtifact],
+      postIteration,
+      steeringQueue: [
+        {
+          id: "steer-1",
+          text: "Tighten verifier gating before the next launch.",
+          createdAt: "2026-03-21T00:02:00.000Z",
+          source: "operator",
+          consumedAt: null,
+          consumedIterationId: null,
+        },
+      ],
+    });
+
+    mockStore.readRunAsync.mockResolvedValue(completedRun);
+    vi.mocked(executeRalphLoop).mockResolvedValueOnce({
+      created: false,
+      steps: [],
+      run: completedRun,
+    });
+
+    const start = await getTool(mockPi, "ralph_run").execute(
+      "call-state-bg",
+      { planRef: "plan-1", ticketRef: "t-1001" },
+      undefined,
+      undefined,
+      ctx,
+    );
+    const jobId = (start as { details: { async: { jobId: string } } }).details.async.jobId;
+    await getTool(mockPi, "ralph_job_wait").execute(
+      "call-state-wait",
+      { jobIds: [jobId], mode: "all" },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    const read = await getTool(mockPi, "ralph_read").execute(
+      "call-state",
+      { planRef: "plan-1", ticketRef: "t-1001", mode: "state" },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    const details = (read as { details: Record<string, unknown> }).details;
+    const compactState = details.state as Record<string, unknown>;
+    const postIterationState = compactState.postIteration as Record<string, unknown>;
+    expect(details).not.toHaveProperty("runtimeArtifacts");
+    expect(details).toMatchObject({
+      summary: expect.objectContaining({ id: "plan-1-t-1001", status: "active", phase: "executing" }),
+      runtime: expect.objectContaining({
+        artifactRef: "ralph-run:plan-1-t-1001:runtime",
+        latest: expect.objectContaining({ iteration: 1, status: "completed", jobId: "job-runtime-1" }),
+      }),
+      artifacts: expect.objectContaining({ packet: "ralph-run:plan-1-t-1001:packet" }),
+    });
+    expect(compactState).toMatchObject({
+      runId: "plan-1-t-1001",
+      packetSummary: "summary",
+      pendingSteering: {
+        totalCount: 1,
+        pendingCount: 1,
+        pending: [expect.objectContaining({ id: "steer-1", text: "Tighten verifier gating before the next launch." })],
+      },
+      postIteration: expect.objectContaining({
+        iterationId: "iter-001",
+        summary: "Post iteration summary",
+      }),
+    });
+    expect(compactState).not.toHaveProperty("packetContext");
+    expect(compactState).not.toHaveProperty("title");
+    expect(postIterationState).not.toHaveProperty("packetContext");
+    const firstJob = (details.jobs as Array<Record<string, unknown>>)[0];
+    expect(firstJob).toMatchObject({
+      status: "completed",
+      progress: expect.objectContaining({ text: expect.any(String), sequence: expect.any(Number) }),
+      errorText: null,
+    });
+    expect(firstJob.progress).not.toHaveProperty("details");
+    expect(firstJob).not.toHaveProperty("result");
+    expect(firstJob).not.toHaveProperty("error");
+
+    const contentText = read.content[0]?.type === "text" ? (read.content[0].text ?? "") : "";
+    expect(contentText).not.toContain("raw assistant transcript that must not appear in state mode");
+    expect(contentText).not.toContain("raw stderr that must not appear in state mode");
+    expect(contentText).not.toContain("Heavy ticket context that should stay in packet mode.");
+    expect(contentText).toContain('"artifactRef": "ralph-run:plan-1-t-1001:runtime"');
   });
 
   it("reads durable Ralph state through list and read tools", async () => {
