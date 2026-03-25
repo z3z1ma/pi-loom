@@ -21,6 +21,7 @@ const TicketTypeEnum = StringEnum(["task", "bug", "feature", "epic", "chore", "r
 const TicketPriorityEnum = StringEnum(["low", "medium", "high", "critical"] as const);
 const TicketRiskEnum = StringEnum(["low", "medium", "high"] as const);
 const TicketReviewStatusEnum = StringEnum(["none", "requested", "changes_requested", "approved"] as const);
+const TicketBranchModeEnum = StringEnum(["none", "allocator", "exact"] as const);
 const JournalKindEnum = StringEnum([
   "note",
   "decision",
@@ -139,6 +140,9 @@ const TicketWriteParams = Type.Object({
   risk: Type.Optional(TicketRiskEnum),
   reviewStatus: Type.Optional(TicketReviewStatusEnum),
   externalRefs: Type.Optional(Type.Array(Type.String())),
+  branchMode: Type.Optional(TicketBranchModeEnum),
+  branchFamily: Type.Optional(Type.String()),
+  exactBranchName: Type.Optional(Type.String()),
   dependency: Type.Optional(Type.String()),
   journalKind: Type.Optional(JournalKindEnum),
   text: Type.Optional(Type.String()),
@@ -239,6 +243,9 @@ function toUpdateInput(params: TicketWriteParamsValue): UpdateTicketInput {
     risk: params.risk,
     reviewStatus: params.reviewStatus,
     externalRefs: params.externalRefs,
+    branchMode: params.branchMode,
+    branchFamily: params.branchFamily,
+    exactBranchName: params.exactBranchName,
   };
 }
 
@@ -267,6 +274,9 @@ function toCreateInput(params: TicketWriteParamsValue): CreateTicketInput {
     risk: params.risk,
     reviewStatus: params.reviewStatus,
     externalRefs: params.externalRefs,
+    branchMode: params.branchMode,
+    branchFamily: params.branchFamily,
+    exactBranchName: params.exactBranchName,
   };
 }
 
@@ -431,7 +441,9 @@ export function registerTicketTools(pi: ExtensionAPI): void {
         }
         case "add_comment": {
           if (!params.text?.trim()) throw new Error("text is required for add_comment");
-          const result = await runMutation(ctx, () => store.addNoteAsync(requireRef(params.ref), params.text as string));
+          const result = await runMutation(ctx, () =>
+            store.addNoteAsync(requireRef(params.ref), params.text as string),
+          );
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
         case "add_journal_entry": {

@@ -184,12 +184,18 @@ describe("ticket tools", () => {
           properties: {
             repositoryId: { type: string; optional: boolean };
             worktreeId: { type: string; optional: boolean };
+            branchMode: { enum: string[]; optional: boolean };
+            branchFamily: { type: string; optional: boolean };
+            exactBranchName: { type: string; optional: boolean };
           };
         }
       ).properties,
     ).toMatchObject({
       repositoryId: { type: "string", optional: true },
       worktreeId: { type: "string", optional: true },
+      branchMode: { enum: ["none", "allocator", "exact"], optional: true },
+      branchFamily: { type: "string", optional: true },
+      exactBranchName: { type: "string", optional: true },
     });
     expect(
       (
@@ -865,6 +871,84 @@ describe("ticket tools", () => {
       await expect(ticketRead.execute("call-8", { ref: deleteCandidateId }, undefined, undefined, ctx)).rejects.toThrow(
         `Unknown ticket: ${deleteCandidateId}`,
       );
+    } finally {
+      cleanup();
+    }
+  }, 15000);
+
+  it("persists branch intent through ticket_write create and update flows", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      const mockPi = createMockPi();
+      const { registerTicketTools } = await import("../tools/ticket.js");
+      registerTicketTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+      const ticketWrite = getTool(mockPi, "ticket_write");
+      const ticketRead = getTool(mockPi, "ticket_read");
+
+      const created = await ticketWrite.execute(
+        "call-branch-create",
+        {
+          action: "create",
+          title: "Branch intent via tool",
+          branchMode: "allocator",
+          branchFamily: "UDP-100",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const ticketId = resultDetails<{ ticket: { summary: { id: string } } }>(created.details).ticket.summary.id;
+      expect(created.details).toMatchObject({
+        ticket: {
+          ticket: {
+            frontmatter: {
+              "branch-mode": "allocator",
+              "branch-family": "UDP-100",
+              "exact-branch-name": null,
+            },
+          },
+        },
+      });
+
+      const updated = await ticketWrite.execute(
+        "call-branch-update",
+        {
+          action: "update",
+          ref: ticketId,
+          branchMode: "exact",
+          exactBranchName: "release/udp-100-hotfix",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(updated.details).toMatchObject({
+        ticket: {
+          ticket: {
+            frontmatter: {
+              "branch-mode": "exact",
+              "branch-family": "UDP-100",
+              "exact-branch-name": "release/udp-100-hotfix",
+            },
+          },
+        },
+      });
+
+      const readBack = await ticketRead.execute("call-branch-read", { ref: ticketId }, undefined, undefined, ctx);
+      expect(firstText(readBack.content)).toContain("Branch mode: exact");
+      expect(firstText(readBack.content)).toContain("Branch family: UDP-100");
+      expect(firstText(readBack.content)).toContain("Exact branch: release/udp-100-hotfix");
+
+      await expect(
+        ticketWrite.execute(
+          "call-invalid-branch",
+          { action: "create", title: "Invalid branch intent", branchMode: "allocator" },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("branchFamily is required when branchMode is allocator");
     } finally {
       cleanup();
     }

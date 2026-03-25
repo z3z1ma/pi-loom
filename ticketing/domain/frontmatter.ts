@@ -1,11 +1,13 @@
 import type { TicketBody, TicketFrontmatter, TicketRecord } from "./models.js";
 import {
+  normalizeBranchMode,
   normalizeOptionalString,
   normalizePriority,
   normalizeReviewStatus,
   normalizeRisk,
   normalizeStatus,
   normalizeStringList,
+  normalizeTicketBranchIntent,
   normalizeTicketId,
   normalizeType,
 } from "./normalize.js";
@@ -37,6 +39,11 @@ function serializeScalar(value: string | null): string {
 }
 
 function ensureFrontmatterDefaults(frontmatter: Partial<TicketFrontmatter>): TicketFrontmatter {
+  const branchIntent = normalizeTicketBranchIntent({
+    branchMode: frontmatter["branch-mode"],
+    branchFamily: frontmatter["branch-family"],
+    exactBranchName: frontmatter["exact-branch-name"],
+  });
   return {
     id: normalizeTicketId(frontmatter.id ?? "t-0000"),
     title: frontmatter.title?.trim() || "Untitled",
@@ -57,6 +64,9 @@ function ensureFrontmatterDefaults(frontmatter: Partial<TicketFrontmatter>): Tic
     risk: normalizeRisk(frontmatter.risk),
     "review-status": normalizeReviewStatus(frontmatter["review-status"]),
     "external-refs": normalizeStringList(frontmatter["external-refs"]),
+    "branch-mode": branchIntent.branchMode,
+    "branch-family": branchIntent.branchFamily,
+    "exact-branch-name": branchIntent.exactBranchName,
   };
 }
 
@@ -217,6 +227,18 @@ export function parseTicket(text: string, sourceLabel: string, closed: boolean):
       typeof frontmatterRaw["review-status"] === "string"
         ? (frontmatterRaw["review-status"] as TicketFrontmatter["review-status"])
         : undefined,
+    "branch-mode":
+      typeof frontmatterRaw["branch-mode"] === "string"
+        ? normalizeBranchMode(frontmatterRaw["branch-mode"] as string)
+        : undefined,
+    "branch-family":
+      typeof frontmatterRaw["branch-family"] === "string" || frontmatterRaw["branch-family"] === null
+        ? (frontmatterRaw["branch-family"] as string | null)
+        : null,
+    "exact-branch-name":
+      typeof frontmatterRaw["exact-branch-name"] === "string" || frontmatterRaw["exact-branch-name"] === null
+        ? (frontmatterRaw["exact-branch-name"] as string | null)
+        : null,
     "external-refs": Array.isArray(frontmatterRaw["external-refs"])
       ? (frontmatterRaw["external-refs"] as string[])
       : [],
