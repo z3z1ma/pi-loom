@@ -13,7 +13,6 @@ import {
   isRalphLoopExecutionInFlight,
   type RalphLoopProgressUpdate,
   renderLoopResult,
-  resolveRalphRunBinding,
 } from "../domain/loop.js";
 import type { RalphReadResult } from "../domain/models.js";
 import { renderOverview, renderRalphDetail } from "../domain/render.js";
@@ -329,8 +328,8 @@ export async function resolveTargetRalphRun(
   ticketRef: string,
   planRef?: string,
 ): Promise<RalphReadResult> {
-  const binding = await resolveRalphRunBinding(ctx.cwd, { ticketRef, planRef });
-  return binding.existingRun ?? getStore(ctx).readRunAsync(binding.runId);
+  const ensured = await ensureRalphRun(ctx, { ticketRef, planRef });
+  return ensured.run;
 }
 
 async function syncRunSchedulerWithJobs(ctx: ExtensionContext, runId: string): Promise<RalphReadResult> {
