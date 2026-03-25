@@ -67,10 +67,10 @@ describe("InitiativeStore durable memory", () => {
 
     expect(created.state.initiativeId).toBe("platform-modernization");
     expect(created.summary.ref).toBe("initiative:platform-modernization");
-    expect(created.dashboard.linkedSpecs.total).toBe(2);
-    expect(created.dashboard.linkedTickets.total).toBe(2);
-    expect(created.dashboard.linkedTickets.blocked).toBe(0);
-    expect(created.dashboard.milestones[0]).toMatchObject({ health: "pending" });
+    expect(created.overview.linkedSpecs.total).toBe(2);
+    expect(created.overview.linkedTickets.total).toBe(2);
+    expect(created.overview.linkedTickets.blocked).toBe(0);
+    expect(created.overview.milestones[0]).toMatchObject({ health: "pending" });
     expect(created.state.researchIds).toEqual([]);
     expect((await specStore.readChange("add-dark-mode")).state.initiativeIds).toEqual(["platform-modernization"]);
     expect((await ticketStore.readTicketAsync(blocker.summary.id)).summary.initiativeIds).toEqual([
@@ -97,13 +97,13 @@ describe("InitiativeStore durable memory", () => {
     const hydrated = await initiativeStore.readInitiative("platform-modernization");
     expect(hydrated.state.researchIds).toEqual(["investigate-theme-migration"]);
     expect(hydrated.summary.ref).toBe("initiative:platform-modernization");
-    expect(hydrated.dashboard.linkedResearch.items).toMatchObject([
+    expect(hydrated.overview.linkedResearch.items).toMatchObject([
       {
         id: "investigate-theme-migration",
         ref: "research:investigate-theme-migration",
       },
     ]);
-    expect(hydrated.dashboard).not.toHaveProperty("generatedAt");
+    expect(hydrated.overview).not.toHaveProperty("generatedAt");
 
     vi.setSystemTime(new Date("2026-03-15T12:10:00.000Z"));
     const updated = await initiativeStore.recordDecision(
@@ -125,8 +125,8 @@ describe("InitiativeStore durable memory", () => {
       "platform-modernization",
     ]);
 
-    expect(hydrated.dashboard.linkedResearch.items[0]?.ref).toBe("research:investigate-theme-migration");
-    expect(hydrated.dashboard).not.toHaveProperty("generatedAt");
+    expect(hydrated.overview.linkedResearch.items[0]?.ref).toBe("research:investigate-theme-migration");
+    expect(hydrated.overview).not.toHaveProperty("generatedAt");
 
     expect(archived.brief).toContain("## Objective");
     expect(archived.brief).toContain("Coordinate the long-horizon modernization program.");

@@ -34,7 +34,7 @@ import {
 } from "#storage/workspace.js";
 import type { TicketReadResult } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildDocumentationDashboard, getDocumentationDocumentRef, summarizeDocumentation } from "./dashboard.js";
+import { buildDocumentationOverview, getDocumentationDocumentRef, summarizeDocumentation } from "./overview.js";
 import { parseMarkdownArtifact, renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
   CreateDocumentationInput,
@@ -158,9 +158,9 @@ function canonicalEntityKindForDocSourceTarget(
 
 function documentationSearchText(record: DocumentationReadResult): string[] {
   const scopePaths = renderPortableRepositoryPathList(record.state.scopePaths);
-  const dashboardScopePaths = renderPortableRepositoryPathList(record.dashboard.scopePaths);
+  const overviewScopePaths = renderPortableRepositoryPathList(record.overview.scopePaths);
   const linkedOutputPaths = renderPortableRepositoryPathList(record.state.linkedOutputPaths);
-  const dashboardLinkedOutputPaths = renderPortableRepositoryPathList(record.dashboard.linkedOutputPaths);
+  const overviewLinkedOutputPaths = renderPortableRepositoryPathList(record.overview.linkedOutputPaths);
   return [
     record.summary.id,
     record.summary.title,
@@ -168,13 +168,13 @@ function documentationSearchText(record: DocumentationReadResult): string[] {
     record.summary.sourceRef,
     record.state.sourceTarget.ref,
     ...record.state.guideTopics,
-    ...record.dashboard.guideTopics,
+    ...record.overview.guideTopics,
     ...record.state.audience,
-    ...record.dashboard.audience,
+    ...record.overview.audience,
     ...scopePaths,
-    ...dashboardScopePaths,
+    ...overviewScopePaths,
     ...linkedOutputPaths,
-    ...dashboardLinkedOutputPaths,
+    ...overviewLinkedOutputPaths,
     ...record.state.contextRefs.roadmapItemIds,
     ...record.state.contextRefs.initiativeIds,
     ...record.state.contextRefs.researchIds,
@@ -337,7 +337,7 @@ export class DocumentationStore {
     const canonicalSnapshot: DocumentationCanonicalSnapshot = {
       state: record.state,
       revisions: record.revisions,
-      documentBody: this.extractDocumentBody(record.document, record.dashboard.documentRef),
+      documentBody: this.extractDocumentBody(record.document, record.overview.documentRef),
     };
     const { storage, identity } = await openRepositoryWorkspaceStorage(
       this.cwd,
@@ -954,7 +954,7 @@ export class DocumentationStore {
       packet,
       document,
       revisions: snapshot.revisions,
-      dashboard: buildDocumentationDashboard(snapshot.state, snapshot.revisions, repository),
+      overview: buildDocumentationOverview(snapshot.state, snapshot.revisions, repository),
     };
   }
 
@@ -1125,7 +1125,7 @@ export class DocumentationStore {
     }
     const documentBody =
       input.document?.trim() ||
-      this.extractDocumentBody(current.document, current.dashboard.documentRef) ||
+      this.extractDocumentBody(current.document, current.overview.documentRef) ||
       this.defaultDocumentBody(current.state);
     const documentUpdated = input.document !== undefined;
     const nextState: DocumentationState = {
@@ -1166,7 +1166,7 @@ export class DocumentationStore {
       return current;
     }
     const documentBody =
-      this.extractDocumentBody(current.document, current.dashboard.documentRef) ||
+      this.extractDocumentBody(current.document, current.overview.documentRef) ||
       this.defaultDocumentBody(current.state);
     const nextState: DocumentationState = {
       ...current.state,

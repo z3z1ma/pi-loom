@@ -625,7 +625,7 @@ Possible views of the system include:
 * ticket timelines
 * dependency graphs
 * research maps
-* initiative dashboards
+* initiative overviews
 
 Observability allows humans and workers to understand system state.
 

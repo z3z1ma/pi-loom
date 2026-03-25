@@ -83,10 +83,10 @@ describe("pi-research extension", () => {
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "research_artifact",
-      "research_dashboard",
       "research_hypothesis",
       "research_list",
       "research_map",
+      "research_overview",
       "research_read",
       "research_write",
     ]);

@@ -34,7 +34,6 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 - `launch.json` is a runtime-only handoff descriptor for a specific fresh-session or session-runtime launch; it is not durable canonical state
 - runtime artifacts are durable per-iteration execution records: they are not the source of loop truth, but they are the primary observability surface for what the worker actually did while storing a portable invocation summary instead of machine-local spawn paths
 - Ralph synthesizes each latest bounded iteration from the bound ticket before/after a worker launch; iteration and runtime records remain revisable observability keyed by iteration id rather than an immutable append-only history API
-- rendered run records and dashboards are derived views computed on demand from the SQLite store
 
 ## Current implementation status
 

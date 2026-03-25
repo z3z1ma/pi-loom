@@ -1,4 +1,4 @@
-import type { ConstitutionalDashboard, ConstitutionalState, RoadmapItemHorizon, RoadmapItemStatus } from "./models.js";
+import type { ConstitutionalOverview, ConstitutionalState, RoadmapItemHorizon, RoadmapItemStatus } from "./models.js";
 
 function zeroCounts<T extends string>(values: readonly T[]): Record<T, number> {
   return Object.fromEntries(values.map((value) => [value, 0])) as Record<T, number>;
@@ -7,7 +7,7 @@ function zeroCounts<T extends string>(values: readonly T[]): Record<T, number> {
 const ROADMAP_STATUSES: readonly RoadmapItemStatus[] = ["candidate", "active", "paused", "completed", "superseded"];
 const ROADMAP_HORIZONS: readonly RoadmapItemHorizon[] = ["now", "next", "later"];
 
-export function buildConstitutionalDashboard(state: ConstitutionalState): ConstitutionalDashboard {
+export function buildConstitutionalOverview(state: ConstitutionalState): ConstitutionalOverview {
   const byStatus = zeroCounts(ROADMAP_STATUSES);
   const byHorizon = zeroCounts(ROADMAP_HORIZONS);
   for (const item of state.roadmapItems) {

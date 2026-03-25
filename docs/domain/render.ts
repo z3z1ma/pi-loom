@@ -1,8 +1,8 @@
 import { renderPortableRepositoryPathList } from "#storage/repository-path.js";
-import { getDocumentationPacketRef } from "./dashboard.js";
+import { getDocumentationPacketRef } from "./overview.js";
 import { serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
-  DocumentationDashboard,
+  DocumentationOverview,
   DocumentationReadResult,
   DocumentationState,
   DocumentationSummary,
@@ -58,15 +58,15 @@ export function renderDocumentationDetail(result: DocumentationReadResult): stri
   ].join("\n");
 }
 
-export function renderDashboard(dashboard: DocumentationDashboard): string {
-  const linkedOutputPaths = renderPortableRepositoryPathList(dashboard.linkedOutputPaths);
+export function renderOverview(overview: DocumentationOverview): string {
+  const linkedOutputPaths = renderPortableRepositoryPathList(overview.linkedOutputPaths);
   return [
-    renderDocumentationSummary(dashboard.doc),
-    `Revisions: ${dashboard.revisionCount}`,
-    `Audience: ${renderAudience(dashboard.audience)}`,
-    `Topics: ${dashboard.guideTopics.join(", ") || "none"}`,
+    renderDocumentationSummary(overview.doc),
+    `Revisions: ${overview.revisionCount}`,
+    `Audience: ${renderAudience(overview.audience)}`,
+    `Topics: ${overview.guideTopics.join(", ") || "none"}`,
     `Linked outputs: ${linkedOutputPaths.join(", ") || "none"}`,
-    `Last revision: ${dashboard.lastRevision?.id ?? "none"}`,
+    `Last revision: ${overview.lastRevision?.id ?? "none"}`,
   ].join("\n");
 }
 

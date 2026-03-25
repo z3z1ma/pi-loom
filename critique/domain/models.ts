@@ -183,7 +183,7 @@ export interface CritiqueLaunchDescriptor {
   instructions: string[];
 }
 
-export interface CritiqueDashboard {
+export interface CritiqueOverview {
   critique: CritiqueSummary;
   packetRef: string;
   launchRef: string;
@@ -215,7 +215,7 @@ export interface CritiqueReadResult {
   critique: string;
   runs: CritiqueRunRecord[];
   findings: CritiqueFindingRecord[];
-  dashboard: CritiqueDashboard;
+  overview: CritiqueOverview;
   launch: CritiqueLaunchDescriptor | null;
 }
 

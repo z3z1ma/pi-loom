@@ -10,7 +10,7 @@ import type {
   UpdateResearchInput,
 } from "../domain/models.js";
 import {
-  renderResearchDashboard,
+  renderResearchOverview,
   renderResearchDetail,
   renderResearchMap,
   renderResearchSummary,
@@ -187,22 +187,7 @@ const ResearchArtifactParams = Type.Object({
   linkedHypothesisIds: Type.Optional(Type.Array(Type.String())),
 });
 
-const ResearchDashboardParams = Type.Object({
-  ref: Type.String(),
-  repositoryId: Type.Optional(
-    Type.String({
-      description: "Optional repository id for repository-targeted dashboard reads when the active scope is ambiguous.",
-    }),
-  ),
-  worktreeId: Type.Optional(
-    Type.String({
-      description:
-        "Optional worktree id for repository-targeted dashboard reads when a specific clone/worktree matters.",
-    }),
-  ),
-});
-
-const ResearchMapParams = Type.Object({
+const ResearchScopedRefParams = Type.Object({
   ref: Type.String(),
   repositoryId: Type.Optional(
     Type.String({
@@ -215,6 +200,9 @@ const ResearchMapParams = Type.Object({
     }),
   ),
 });
+
+const ResearchOverviewParams = ResearchScopedRefParams;
+const ResearchMapParams = ResearchScopedRefParams;
 
 type ResearchWriteParamsValue = Static<typeof ResearchWriteParams>;
 
@@ -484,18 +472,18 @@ export function registerResearchTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "research_dashboard",
-    label: "research_dashboard",
-    description: "Read the machine-usable dashboard for a durable research record.",
+    name: "research_overview",
+    label: "research_overview",
+    description: "Read the machine-usable overview for a durable research record.",
     promptSnippet:
-      "Use the dashboard to reason over current findings, evidence coverage, linked work, and open questions before deciding whether research is mature enough for downstream layers.",
+      "Use the overview to reason over current findings, evidence coverage, linked work, and open questions before deciding whether research is mature enough for downstream layers.",
     promptGuidelines: [
       "Use this tool when you need machine-usable research status across hypotheses, artifacts, and downstream work.",
     ],
-    parameters: ResearchDashboardParams,
+    parameters: ResearchOverviewParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const research = await getScopedStore(ctx, params).readResearch(params.ref);
-      return machineResult({ dashboard: research.dashboard, research }, renderResearchDashboard(research.dashboard));
+      return machineResult({ overview: research.overview, research }, renderResearchOverview(research.overview));
     },
   });
 

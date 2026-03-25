@@ -95,8 +95,8 @@ describe("DocumentationStore durable memory", () => {
 
     expect(doc.state.docId).toBe("documentation-memory-system");
     expect(doc.summary.ref).toBe(`documentation:${doc.state.docId}`);
-    expect(doc.dashboard.packetRef).toBe(`documentation:${doc.state.docId}:packet`);
-    expect(doc.dashboard.documentRef).toBe(`documentation:${doc.state.docId}:document`);
+    expect(doc.overview.packetRef).toBe(`documentation:${doc.state.docId}:packet`);
+    expect(doc.overview.documentRef).toBe(`documentation:${doc.state.docId}:document`);
     expect(doc.document).toContain("id: documentation-memory-system");
     expect(doc.document).toContain("type: overview");
     expect(doc.packet).toContain("Keep Loom memory layers truthful as the codebase evolves.");
@@ -129,9 +129,9 @@ describe("DocumentationStore durable memory", () => {
       reason: "Document the fresh-process updater and durable revision semantics.",
       changedSections: ["Boundaries", "Summary", "Update Flow"],
     });
-    expect(revised.dashboard.revisionCount).toBe(1);
-    expect(revised.dashboard.lastRevision?.id).toBe("rev-001");
-    expect(revised.dashboard.linkedOutputPaths.map((entry) => entry.displayPath)).toEqual([
+    expect(revised.overview.revisionCount).toBe(1);
+    expect(revised.overview.lastRevision?.id).toBe("rev-001");
+    expect(revised.overview.linkedOutputPaths.map((entry) => entry.displayPath)).toEqual([
       `${revised.summary.repository?.slug}:docs/loom.md`,
     ]);
     expect(revised.state.scopePaths.map((entry) => entry.displayPath)).toEqual(
@@ -176,11 +176,11 @@ describe("DocumentationStore durable memory", () => {
       correctedContextRefsRevision.state.contextRefs,
     );
     expect(
-      parseMarkdownArtifact(correctedContextRefsRevision.document, correctedContextRefsRevision.dashboard.documentRef)
+      parseMarkdownArtifact(correctedContextRefsRevision.document, correctedContextRefsRevision.overview.documentRef)
         .body,
-    ).toBe(parseMarkdownArtifact(revised.document, revised.dashboard.documentRef).body);
-    expect(correctedContextRefsRevision.dashboard.revisionCount).toBe(2);
-    expect(correctedContextRefsRevision.dashboard.lastRevision?.id).toBe("rev-002");
+    ).toBe(parseMarkdownArtifact(revised.document, revised.overview.documentRef).body);
+    expect(correctedContextRefsRevision.overview.revisionCount).toBe(2);
+    expect(correctedContextRefsRevision.overview.lastRevision?.id).toBe("rev-002");
 
     vi.setSystemTime(new Date("2026-03-15T11:30:00.000Z"));
     const archived = await docsStore.archiveDoc(doc.state.docId);
@@ -194,8 +194,8 @@ describe("DocumentationStore durable memory", () => {
       changedSections: [],
       linkedContextRefs: correctedContextRefsRevision.state.contextRefs,
     });
-    expect(archived.dashboard.revisionCount).toBe(3);
-    expect(archived.dashboard.lastRevision?.id).toBe("rev-003");
+    expect(archived.overview.revisionCount).toBe(3);
+    expect(archived.overview.lastRevision?.id).toBe("rev-003");
     await expect(
       docsStore.updateDoc(doc.state.docId, {
         summary: "Archived docs must not accept further updates.",
@@ -222,7 +222,7 @@ describe("DocumentationStore durable memory", () => {
     });
     expect(entity?.attributes).not.toEqual(expect.objectContaining({ packet: expect.anything() }));
     expect(entity?.attributes).not.toEqual(expect.objectContaining({ document: expect.anything() }));
-    expect(entity?.attributes).not.toEqual(expect.objectContaining({ dashboard: expect.anything() }));
+    expect(entity?.attributes).not.toEqual(expect.objectContaining({ overview: expect.anything() }));
 
     const events = await storage.listEvents(entity?.id ?? "missing");
     expect(events).toEqual(
@@ -274,6 +274,6 @@ describe("DocumentationStore durable memory", () => {
     expect(reread.revisions).toEqual(archived.revisions);
     expect(reread.document).toBe(archived.document);
     expect(reread.packet).toBe(archived.packet);
-    expect(reread.dashboard).toEqual(archived.dashboard);
+    expect(reread.overview).toEqual(archived.overview);
   }, 120000);
 });

@@ -1,6 +1,6 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
-  ConstitutionalDashboard,
+  ConstitutionalOverview,
   ConstitutionalEntry,
   ConstitutionalRecord,
   ConstitutionalState,
@@ -229,19 +229,19 @@ export function renderConstitutionDetail(record: ConstitutionalRecord): string {
   ].join("\n");
 }
 
-export function renderConstitutionDashboard(dashboard: ConstitutionalDashboard): string {
+export function renderConstitutionOverview(overview: ConstitutionalOverview): string {
   return [
-    `${dashboard.project.projectId} ${dashboard.project.title}`,
-    `Vision complete: ${dashboard.completeness.vision ? "yes" : "no"}`,
-    `Principles: ${dashboard.principles.length}`,
-    `Constraints: ${dashboard.constraints.length}`,
-    `Roadmap items: ${dashboard.roadmap.total}`,
-    `Active roadmap items: ${dashboard.roadmap.activeItemIds.length}`,
-    `Linked initiatives: ${dashboard.linkedWork.initiativeIds.length}`,
-    `Linked research: ${dashboard.linkedWork.researchIds.length}`,
-    `Linked specs: ${dashboard.linkedWork.specChangeIds.length}`,
+    `${overview.project.projectId} ${overview.project.title}`,
+    `Vision complete: ${overview.completeness.vision ? "yes" : "no"}`,
+    `Principles: ${overview.principles.length}`,
+    `Constraints: ${overview.constraints.length}`,
+    `Roadmap items: ${overview.roadmap.total}`,
+    `Active roadmap items: ${overview.roadmap.activeItemIds.length}`,
+    `Linked initiatives: ${overview.linkedWork.initiativeIds.length}`,
+    `Linked research: ${overview.linkedWork.researchIds.length}`,
+    `Linked specs: ${overview.linkedWork.specChangeIds.length}`,
     "",
     "Current Focus:",
-    dashboard.project.currentFocus.length > 0 ? renderBulletList(dashboard.project.currentFocus) : "(none)",
+    overview.project.currentFocus.length > 0 ? renderBulletList(overview.project.currentFocus) : "(none)",
   ].join("\n");
 }

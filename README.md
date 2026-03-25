@@ -48,7 +48,6 @@ npm run check
 
 `npm run test` is the fast default lane. It runs only the unit/helper suite.
 
-Integration-style suites are opt-in only. The default lane intentionally excludes command/store/tool/runtime/dashboard/workspace and cross-package integration coverage so standard testing stays fast.
 
 Run the opt-in integration lane explicitly when you need the cross-package SQLite-backed flows:
 
@@ -121,7 +120,7 @@ Treat repo-visible artifacts as exports or review surfaces, not as canonical sta
 
 - Store any exported path references as workspace-root-relative values, never as absolute clone-local paths.
 - Commit generated review surfaces only when a workflow explicitly needs them for review.
-- Do not commit machine-oriented metadata, state, dashboards, or cached views; these are derived from SQLite and should not be duplicated in git.
+- Do not commit machine-oriented metadata, state, overviews, or cached views; these are derived from SQLite and should not be duplicated in git.
 - Do not commit local durable runtime/control-plane artifacts whose job is to attach execution to one clone instead of defining shared state. If future one-way `.loom/` exports return, that includes paths such as `.loom/workers/`, `.loom/**/launch.json`, and `.loom/runtime/`.
 - If an artifact is not an intentional export for humans, let it live in SQLite alone.
 
@@ -182,7 +181,7 @@ The Loom coordination layer between research and specs is durable initiative mem
 - initiatives group related research threads, multiple spec changes, and multiple ticket streams around a larger objective
 - initiatives can reference constitutional roadmap items so machine and human views show which constitutional commitments they advance
 - linked specs and tickets retain explicit initiative membership for cross-layer traceability
-- dashboards summarize strategic status over linked specs, tickets, milestones, and risks
+- overviews summarize strategic status over linked specs, tickets, milestones, and risks
 
 ## Research memory layer
 

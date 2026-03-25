@@ -21,7 +21,7 @@ describe("research store", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("persists durable research state, append-only hypotheses, artifacts, dashboards, and maps", async () => {
+  it("persists durable research state, append-only hypotheses, artifacts, overviews, and maps", async () => {
     const store = createResearchStore(workspace);
 
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
@@ -97,12 +97,12 @@ describe("research store", () => {
         artifactRef: "research:evaluate-theme-architecture:artifact:experiment:artifact-001",
       }),
     ]);
-    expect(withArtifact.dashboard).toMatchObject({
+    expect(withArtifact.overview).toMatchObject({
       hypotheses: { counts: { supported: 1, rejected: 1 } },
       artifacts: { counts: { experiment: 1 } },
       openQuestions: ["How should SSR hydration work?"],
     });
-    expect(withArtifact.dashboard).not.toHaveProperty("generatedAt");
+    expect(withArtifact.overview).not.toHaveProperty("generatedAt");
     expect(withArtifact.map.edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ from: "evaluate-theme-architecture", to: "hyp-001", relation: "tracks_hypothesis" }),
@@ -179,9 +179,9 @@ describe("research store", () => {
       ]),
     );
 
-    expect(withArtifact.dashboard.hypotheses.counts.supported).toBe(1);
-    expect(withArtifact.dashboard.artifacts.counts.experiment).toBe(1);
-    expect(withArtifact.dashboard).not.toHaveProperty("generatedAt");
+    expect(withArtifact.overview.hypotheses.counts.supported).toBe(1);
+    expect(withArtifact.overview.artifacts.counts.experiment).toBe(1);
+    expect(withArtifact.overview).not.toHaveProperty("generatedAt");
   }, 30000);
 
   it("lists canonical research records without relying on repo files", async () => {
@@ -285,7 +285,7 @@ describe("research store", () => {
     const rebuilt = await store.readResearch("evaluate-cache-invalidation");
     expect(rebuilt.artifacts).toEqual([]);
     expect(rebuilt.state.artifactIds).toEqual([]);
-    expect(rebuilt.dashboard.artifacts.total).toBe(0);
+    expect(rebuilt.overview.artifacts.total).toBe(0);
     expect(Object.values(rebuilt.map.nodes).some((node) => node.kind === "artifact")).toBe(false);
   });
 });

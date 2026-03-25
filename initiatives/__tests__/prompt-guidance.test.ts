@@ -13,7 +13,7 @@ describe("initiative prompt guidance", () => {
     expect(guidance).toContain(
       "decision-driving context, sequencing constraints, milestone intent, success signals, provenance, and unresolved strategic questions",
     );
-    expect(guidance).toContain("use initiative dashboards to reason over linked spec and ticket progress");
+    expect(guidance).toContain("use initiative overviews to reason over linked spec and ticket progress");
     expect(guidance).toContain(
       "create or update a plan rather than stretching the initiative itself into a ticket-by-ticket scratchpad or execution journal",
     );

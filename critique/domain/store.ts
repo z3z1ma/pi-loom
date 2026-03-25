@@ -28,8 +28,9 @@ import {
 } from "#storage/workspace.js";
 import type { CreateTicketInput, TicketReadResult } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildCritiqueDashboard, summarizeCritique } from "./dashboard.js";
+import { buildCritiqueOverview, summarizeCritique } from "./overview.js";
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
+
 import type {
   CreateCritiqueFindingInput,
   CreateCritiqueInput,
@@ -180,7 +181,7 @@ function critiqueSearchText(record: CritiqueReadResult): string[] {
     ...record.state.contextRefs.specChangeIds,
     ...record.state.contextRefs.ticketIds,
     ...record.state.followupTicketIds,
-    ...record.dashboard.followupTicketIds,
+    ...record.overview.followupTicketIds,
   ];
 }
 
@@ -681,7 +682,7 @@ export class CritiqueStore {
           },
           brief: "",
           decisions: [],
-          dashboard: {} as InitiativeRecord["dashboard"],
+          overview: {} as InitiativeRecord["overview"],
         } as unknown as InitiativeRecord)
       : null;
   }
@@ -720,7 +721,7 @@ export class CritiqueStore {
           hypotheses: attributes.hypotheses ?? [],
           hypothesisHistory: attributes.hypotheses ?? [],
           artifacts: attributes.artifacts ?? [],
-          dashboard: {} as ResearchRecord["dashboard"],
+          overview: {} as ResearchRecord["overview"],
           map: {} as ResearchRecord["map"],
         } as unknown as ResearchRecord)
       : null;
@@ -1345,7 +1346,7 @@ export class CritiqueStore {
       repositories ?? (await this.openWorkspaceStorage()).identity.repositories,
       repositoryId,
     );
-    const dashboard = buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, launch, repository);
+    const overview = buildCritiqueOverview(nextState, snapshot.runs, snapshot.findings, launch, repository);
 
     return {
       state: nextState,
@@ -1354,7 +1355,7 @@ export class CritiqueStore {
       critique,
       runs: snapshot.runs,
       findings: snapshot.findings,
-      dashboard,
+      overview,
       launch,
     };
   }
@@ -1371,7 +1372,7 @@ export class CritiqueStore {
     const launch = launchOverride ?? buildLaunchDescriptor(nextState);
     const packet = this.buildPacket(nextState, runs, findings);
     const critique = renderCritiqueMarkdown(nextState, runs, findings);
-    const dashboard = buildCritiqueDashboard(nextState, runs, findings, launch, null);
+    const overview = buildCritiqueOverview(nextState, runs, findings, launch, null);
 
     const record: CritiqueReadResult = {
       state: nextState,
@@ -1380,7 +1381,7 @@ export class CritiqueStore {
       critique,
       runs,
       findings,
-      dashboard,
+      overview,
       launch,
     };
     if (persist) {
@@ -1476,7 +1477,7 @@ export class CritiqueStore {
       critique: renderCritiqueMarkdown(nextState, snapshot.runs, snapshot.findings),
       runs: snapshot.runs,
       findings: snapshot.findings,
-      dashboard: buildCritiqueDashboard(nextState, snapshot.runs, snapshot.findings, launch, null),
+      overview: buildCritiqueOverview(nextState, snapshot.runs, snapshot.findings, launch, null),
       launch,
     };
   }

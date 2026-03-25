@@ -4,7 +4,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS } from "#storage/list-search.js";
 import type { CreateInitiativeInput, InitiativeMilestoneInput, UpdateInitiativeInput } from "../domain/models.js";
-import { renderInitiativeDashboard, renderInitiativeDetail, renderInitiativeSummary } from "../domain/render.js";
+import { renderInitiativeOverview, renderInitiativeDetail, renderInitiativeSummary } from "../domain/render.js";
 import { createInitiativeStore } from "../domain/store.js";
 
 const InitiativeStatusEnum = StringEnum([
@@ -109,7 +109,7 @@ const InitiativeWriteParams = Type.Object({
   milestone: Type.Optional(InitiativeMilestoneParams),
 });
 
-const InitiativeDashboardParams = Type.Object({
+const InitiativeOverviewParams = Type.Object({
   ref: Type.String(),
 });
 
@@ -329,20 +329,20 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "initiative_dashboard",
-    label: "initiative_dashboard",
-    description: "Read the machine-usable dashboard for a durable initiative.",
+    name: "initiative_overview",
+    label: "initiative_overview",
+    description: "Read the machine-usable overview for a durable initiative.",
     promptSnippet:
-      "Use the dashboard together with the initiative record to reason over linked spec and ticket progress before planning strategic next steps.",
+      "Use the overview together with the initiative record to reason over linked spec and ticket progress before planning strategic next steps.",
     promptGuidelines: [
       "Use this tool when you need machine-usable linked status across strategic, spec, and ticket layers, while keeping the initiative itself as the source of detailed strategic context.",
     ],
-    parameters: InitiativeDashboardParams,
+    parameters: InitiativeOverviewParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const initiative = await getStore(ctx).readInitiative(params.ref);
       return machineResult(
-        { dashboard: initiative.dashboard, initiative },
-        renderInitiativeDashboard(initiative.dashboard),
+        { overview: initiative.overview, initiative },
+        renderInitiativeOverview(initiative.overview),
       );
     },
   });

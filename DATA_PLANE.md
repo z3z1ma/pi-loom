@@ -236,7 +236,7 @@ Pi Loom is currently:
 ### How it stores data
 
 - The actual canonical entity stores only `state`.
-- `brief`, rendered markdown sections, dashboard, and decisions array are reconstructed on read.
+- `brief`, rendered markdown sections, overview, and decisions array are reconstructed on read.
 - Decisions are not inside `attributes_json`; they are rebuilt from `events`.
 
 ### Richness
@@ -332,7 +332,7 @@ Pi Loom is currently:
 ### How it stores data
 
 - Stores broad research state plus full hypothesis history plus artifact metadata.
-- Rebuilds current hypothesis projection, dashboard, synthesis, and map on read.
+- Rebuilds current hypothesis projection, overview, synthesis, and map on read.
 - Artifact body content is notably not preserved canonically, even though write input allows `body`.
 
 ### Richness
@@ -411,7 +411,7 @@ Pi Loom is currently:
 ### How it stores data
 
 - Initiative state and decisions live inside one entity blob.
-- Dashboard joins to roadmap/spec/ticket/research data by embedded IDs.
+- Overview joins to roadmap/spec/ticket/research data by embedded IDs.
 - Cross-package consistency depends on side-effect sync into other packages.
 
 ### Richness
@@ -593,7 +593,7 @@ Pi Loom is currently:
 ### How it stores data
 
 - Stores only typed plan state.
-- Rebuilds packet, rendered `plan.md`, summary, and dashboard on read.
+- Rebuilds packet, rendered `plan.md`, summary, and overview on read.
 - This is one of the cleaner boundaries in the repo.
 
 ### Richness
@@ -805,7 +805,7 @@ Pi Loom is currently:
 ### How it stores data
 
 - Stores the full worker read model as one blob.
-- Rebuilds markdown, packet, dashboard, and artifact refs on read.
+- Rebuilds markdown, packet, overview, and artifact refs on read.
 - Persists launch/runtime descriptor canonically, including clone-local execution details.
 
 ### Richness
@@ -1105,7 +1105,7 @@ Pi Loom is currently:
 
 ### How it stores data
 
-- Stores full documentation read result, including packet, document body, revisions, dashboard.
+- Stores full documentation read result, including packet, document body, revisions, overview.
 - Rebuilds a canonical read result again from state + revisions on read.
 - Main content body is still one opaque markdown string.
 
@@ -1201,7 +1201,7 @@ That is why this is the final frontier.
    - If reciprocal sync misses once, graph truth diverges.
 
 2. **Derived fields are persisted as if canonical**
-   - examples: constitution completeness, constitution aggregate linked IDs, research `artifactIds`, critique/open finding rollups, worker packets/dashboard, docs packets/dashboard.
+   - examples: constitution completeness, constitution aggregate linked IDs, research `artifactIds`, critique/open finding rollups, worker packets/overview, docs packets/overview.
 
 3. **Rendered artifacts are stored alongside source state**
    - That widens schema churn and stale-data surface.
@@ -1242,7 +1242,7 @@ Each entity row should continue to answer:
 But `attributes_json` should stop being the dumping ground for:
 
 - rendered markdown
-- dashboards
+- overviews
 - packets
 - clone-local runtime details
 - redundant rollups that are cheaply derivable
@@ -1386,7 +1386,7 @@ This is what turns Pi Loom from durable storage into a live multi-agent coordina
 
 Remove from canonical entities:
 
-- dashboards
+- overviews
 - packets
 - rendered markdown when a typed source model already exists
 - clone-local launch details

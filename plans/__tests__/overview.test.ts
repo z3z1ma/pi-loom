@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createPortableRepositoryPath } from "#storage/repository-path.js";
-import { buildPlanDashboard } from "../domain/dashboard.js";
+import { buildPlanOverview } from "../domain/overview.js";
 import type { PlanState } from "../domain/models.js";
 
 function portablePath(relativePath: string) {
@@ -12,7 +12,7 @@ function portablePath(relativePath: string) {
   });
 }
 
-describe("plan dashboard", () => {
+describe("plan overview", () => {
   it("keeps canonical refs and omits volatile timestamps", () => {
     const state: PlanState = {
       planId: "planning-layer-rollout",
@@ -30,7 +30,7 @@ describe("plan dashboard", () => {
       idempotenceAndRecovery: "Re-running the targeted tests is safe.",
       artifactsAndNotes: "Record the most relevant test output snippets.",
       interfacesAndDependencies: "Keep the store and renderer signatures stable.",
-      risksAndQuestions: "Avoid dashboard churn.",
+      risksAndQuestions: "Avoid overview churn.",
       outcomesAndRetrospective: "",
       scopePaths: [portablePath("plans"), portablePath("README.md")],
       sourceTarget: { kind: "spec", ref: "spec-change-001" },
@@ -57,7 +57,7 @@ describe("plan dashboard", () => {
       packetSummary: "spec:spec-change-001; 1 linked ticket(s)",
     };
 
-    const dashboard = buildPlanDashboard(state, [
+    const overview = buildPlanOverview(state, [
       {
         ticketId: "ticket-001",
         role: "implementation",
@@ -76,7 +76,7 @@ describe("plan dashboard", () => {
       },
     ]);
 
-    expect(dashboard).toEqual({
+    expect(overview).toEqual({
       plan: {
         id: "planning-layer-rollout",
         title: "Planning layer rollout",
@@ -128,7 +128,7 @@ describe("plan dashboard", () => {
         },
       },
     });
-    expect(dashboard).not.toHaveProperty("generatedAt");
+    expect(overview).not.toHaveProperty("generatedAt");
   });
 
   it("uses the resolved linked-ticket snapshot instead of stale state counts or live references", () => {
@@ -148,7 +148,7 @@ describe("plan dashboard", () => {
       idempotenceAndRecovery: "Re-running the targeted tests is safe.",
       artifactsAndNotes: "Record the most relevant test output snippets.",
       interfacesAndDependencies: "Keep the store and renderer signatures stable.",
-      risksAndQuestions: "Avoid dashboard churn.",
+      risksAndQuestions: "Avoid overview churn.",
       outcomesAndRetrospective: "",
       scopePaths: [portablePath("plans")],
       sourceTarget: { kind: "spec", ref: "spec-change-001" },
@@ -193,7 +193,7 @@ describe("plan dashboard", () => {
       },
     ];
 
-    const dashboard = buildPlanDashboard(state, linkedTickets);
+    const overview = buildPlanOverview(state, linkedTickets);
 
     const firstLinkedTicket = linkedTickets[0];
     expect(firstLinkedTicket).toBeDefined();
@@ -203,18 +203,18 @@ describe("plan dashboard", () => {
     firstLinkedTicket.status = "missing";
     state.contextRefs.ticketIds.push("ticket-999");
 
-    expect(dashboard.plan.linkedTicketCount).toBe(2);
-    expect(dashboard.counts).toEqual({
+    expect(overview.plan.linkedTicketCount).toBe(2);
+    expect(overview.counts).toEqual({
       tickets: 2,
       byStatus: {
         ready: 1,
         closed: 1,
       },
     });
-    expect(dashboard.linkedTickets[0]).toMatchObject({
+    expect(overview.linkedTickets[0]).toMatchObject({
       ticketId: "ticket-001",
       status: "ready",
     });
-    expect(dashboard.contextRefs.ticketIds).toEqual(["ticket-001"]);
+    expect(overview.contextRefs.ticketIds).toEqual(["ticket-001"]);
   });
 });

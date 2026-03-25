@@ -4,7 +4,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
 import { readRuntimeScopeFromEnv, resolveEntityRuntimeScope } from "#storage/runtime-scope.js";
-import { renderDashboard, renderDocumentationDetail, renderUpdatePrompt } from "../domain/render.js";
+import { renderOverview, renderDocumentationDetail, renderUpdatePrompt } from "../domain/render.js";
 import { runDocsUpdate } from "../domain/runtime.js";
 import { createDocumentationStore } from "../domain/store.js";
 
@@ -147,7 +147,7 @@ const DocsUpdateParams = Type.Object({
   ),
 });
 
-const DocsDashboardParams = Type.Object({
+const DocsOverviewParams = Type.Object({
   ref: Type.String(),
 });
 
@@ -441,17 +441,17 @@ export function registerDocsTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "docs_dashboard",
-    label: "docs_dashboard",
-    description: "Read the machine-usable documentation dashboard rollup for observability and automation.",
-    promptSnippet: "Use the dashboard when you need doc revision counts, topics, and linked outputs at a glance.",
+    name: "docs_overview",
+    label: "docs_overview",
+    description: "Read the machine-usable documentation overview rollup for observability and automation.",
+    promptSnippet: "Use the overview when you need doc revision counts, topics, and linked outputs at a glance.",
     promptGuidelines: [
-      "Prefer the dashboard for automation and triage; prefer docs_read when you need the full document or packet.",
+      "Prefer the overview for automation and triage; prefer docs_read when you need the full document or packet.",
     ],
-    parameters: DocsDashboardParams,
+    parameters: DocsOverviewParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const documentation = await getStore(ctx).readDoc(params.ref);
-      return machineResult({ dashboard: documentation.dashboard }, renderDashboard(documentation.dashboard));
+      return machineResult({ overview: documentation.overview }, renderOverview(documentation.overview));
     },
   });
 }

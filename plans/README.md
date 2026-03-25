@@ -6,7 +6,7 @@ This package adds a first-class planning layer with canonical plan state stored 
 
 ## Capabilities
 
-- `plan_*` tools for list/read/write/packet/ticket-link/dashboard workflows
+- `plan_*` tools for list/read/write/packet/ticket-link/overview workflows
 - `plan_list` is broad-text-first; exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state
 - canonical plan records stored in SQLite, with packet and plan views rendered from those records for inspection or explicit export
 - bounded planning packets that pull linked constitution, research, initiative, spec, ticket, critique, and docs context into one fresh handoff

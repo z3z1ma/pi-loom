@@ -16,7 +16,7 @@ import {
   resolveRalphRunBinding,
 } from "../domain/loop.js";
 import type { RalphReadResult } from "../domain/models.js";
-import { renderDashboard, renderRalphDetail } from "../domain/render.js";
+import { renderOverview, renderRalphDetail } from "../domain/render.js";
 import { createRalphStore } from "../domain/store.js";
 import {
   type RalphRunRenderDetails,
@@ -52,7 +52,7 @@ const RalphRunPhaseEnum = StringEnum([
 ] as const);
 const RalphDecisionKindEnum = StringEnum(["continue", "pause", "complete", "halt", "escalate"] as const);
 const RalphWaitingForEnum = StringEnum(["none", "verifier", "critique", "operator"] as const);
-const RalphReadModeEnum = StringEnum(["full", "state", "packet", "run", "dashboard"] as const);
+const RalphReadModeEnum = StringEnum(["full", "state", "packet", "run", "overview"] as const);
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 const RalphExecutionModeEnum = StringEnum(["direct", "worktree"] as const);
 
@@ -150,7 +150,7 @@ const RalphReadParams = Type.Object({
   mode: Type.Optional(
     withDescription(
       RalphReadModeEnum,
-      "Read shape for the response. `state` returns a compact triage snapshot without inline packet bodies or runtime transcripts, `packet` is ideal for fresh iteration context, `dashboard` for operator triage, `run` for the rendered markdown view, and `full` for the complete durable record.",
+      "Read shape for the response. `state` returns a compact triage snapshot without inline packet bodies or runtime transcripts, `packet` is ideal for fresh iteration context, `overview` for operator triage, `run` for the rendered markdown view, and `full` for the complete durable record.",
     ),
   ),
 });
@@ -556,9 +556,9 @@ function buildCompactRalphStateSnapshot(
       pendingSteering: compactSteeringQueue(steeringQueue),
     },
     runtime: {
-      latest: result.dashboard.latestRuntime,
-      latestBoundedIteration: result.dashboard.latestBoundedIteration,
-      counts: result.dashboard.counts,
+      latest: result.overview.latestRuntime,
+      latestBoundedIteration: result.overview.latestBoundedIteration,
+      counts: result.overview.counts,
       artifactRef: result.artifacts.runtime,
     },
     launch: result.launch,
@@ -668,14 +668,14 @@ export function registerRalphTools(pi: ExtensionAPI): void {
     name: "ralph_read",
     label: "ralph_read",
     description:
-      "Read a compact Ralph loop state snapshot, packet, dashboard, or rendered run artifacts from durable Loom orchestration memory.",
+      "Read a compact Ralph loop state snapshot, packet, overview, or rendered run artifacts from durable Loom orchestration memory.",
     promptSnippet:
       "Read compact Ralph state or the packet before deciding whether to launch another bounded iteration.",
     promptGuidelines: [
       "Read state mode when you need a machine-usable triage snapshot without inline runtime transcripts or packet-body context.",
       "Read packet mode when preparing the next fresh worker iteration for a ticket-bound Ralph run.",
-      "Read dashboard mode when triaging loop progress, review gates, or the current scheduler state.",
-      "Read full mode when you need the loop state, iterations, runtime artifacts, launch descriptor, and dashboard together.",
+      "Read overview mode when triaging loop progress, review gates, or the current scheduler state.",
+      "Read full mode when you need the loop state, iterations, runtime artifacts, launch descriptor, and overview together.",
     ],
     parameters: RalphReadParams,
     renderCall: (args, theme) => renderRalphReadCall(args as Record<string, unknown>, theme),
@@ -693,8 +693,8 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         const snapshot = buildCompactRalphStateSnapshot(result, jobs);
         return machineResult(snapshot, JSON.stringify(snapshot, null, 2));
       }
-      if (params.mode === "dashboard") {
-        return machineResult({ dashboard: result.dashboard, jobs }, renderDashboard(result.dashboard));
+      if (params.mode === "overview") {
+        return machineResult({ overview: result.overview, jobs }, renderOverview(result.overview));
       }
       return machineResult({ run: result, jobs }, renderRalphDetail(result));
     },

@@ -88,7 +88,7 @@ export interface ResearchUnresolvedReferences {
   ticketIds: string[];
 }
 
-export interface ResearchDashboard {
+export interface ResearchOverview {
   research: {
     id: string;
     title: string;
@@ -171,7 +171,7 @@ export interface ResearchRecord {
   hypotheses: ResearchHypothesisRecord[];
   hypothesisHistory: ResearchHypothesisRecord[];
   artifacts: ResearchArtifactRecord[];
-  dashboard: ResearchDashboard;
+  overview: ResearchOverview;
   map: ResearchMap;
 }
 

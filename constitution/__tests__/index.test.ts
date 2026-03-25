@@ -86,7 +86,7 @@ describe("pi-constitution extension", () => {
 
     expect(mockPi.registerCommand).not.toHaveBeenCalled();
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "constitution_dashboard",
+      "constitution_overview",
       "constitution_read",
       "constitution_roadmap",
       "constitution_write",

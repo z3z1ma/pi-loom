@@ -72,10 +72,10 @@ describe("research tools", () => {
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
       "research_artifact",
-      "research_dashboard",
       "research_hypothesis",
       "research_list",
       "research_map",
+      "research_overview",
       "research_read",
       "research_write",
     ]);
@@ -113,7 +113,7 @@ describe("research tools", () => {
     ).toMatchObject({ type: "string", optional: true });
     expect(
       (
-        getTool(mockPi, "research_dashboard").parameters as unknown as {
+        getTool(mockPi, "research_overview").parameters as unknown as {
           properties: {
             repositoryId: { type: string; optional: boolean };
             worktreeId: { type: string; optional: boolean };
@@ -123,7 +123,7 @@ describe("research tools", () => {
     ).toMatchObject({ type: "string", optional: true });
   });
 
-  it("returns machine-usable shapes for list, read, write, hypothesis, artifact, dashboard, and map flows", async () => {
+  it("returns machine-usable shapes for list, read, write, hypothesis, artifact, overview, and map flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
@@ -137,7 +137,7 @@ describe("research tools", () => {
       const researchRead = getTool(mockPi, "research_read");
       const researchHypothesis = getTool(mockPi, "research_hypothesis");
       const researchArtifact = getTool(mockPi, "research_artifact");
-      const researchDashboard = getTool(mockPi, "research_dashboard");
+      const researchOverview = getTool(mockPi, "research_overview");
       const researchMap = getTool(mockPi, "research_map");
 
       const created = await researchWrite.execute(
@@ -228,15 +228,15 @@ describe("research tools", () => {
         },
       });
 
-      const dashboard = await researchDashboard.execute(
+      const overview = await researchOverview.execute(
         "call-6",
         { ref: "evaluate-theme-architecture" },
         undefined,
         undefined,
         ctx,
       );
-      expect(dashboard.details).toMatchObject({
-        dashboard: {
+      expect(overview.details).toMatchObject({
+        overview: {
           hypotheses: { total: 1, counts: { supported: 1 } },
           artifacts: { total: 1, counts: { experiment: 1 } },
         },
@@ -477,7 +477,7 @@ describe("research tools", () => {
       const researchWrite = getTool(mockPi, "research_write");
       const researchList = getTool(mockPi, "research_list");
       const researchRead = getTool(mockPi, "research_read");
-      const researchDashboard = getTool(mockPi, "research_dashboard");
+      const researchOverview = getTool(mockPi, "research_overview");
       const researchMap = getTool(mockPi, "research_map");
 
       await researchWrite.execute(
@@ -542,7 +542,7 @@ describe("research tools", () => {
             specChangeIds: ["manager-worker-runtime-contract"],
             ticketIds: ["ticket-404"],
           },
-          dashboard: {
+          overview: {
             linkedInitiatives: { total: 0, items: [] },
             linkedSpecs: { total: 0, items: [] },
             linkedTickets: { total: 0, items: [] },
@@ -582,15 +582,15 @@ describe("research tools", () => {
         },
       });
 
-      const dashboard = await researchDashboard.execute(
-        "call-3",
+      const overview = await researchOverview.execute(
+        "call-6",
         { ref: "evaluate-control-surfaces" },
         undefined,
         undefined,
         ctx,
       );
-      expect(dashboard.details).toMatchObject({
-        dashboard: {
+      expect(overview.details).toMatchObject({
+        overview: {
           unresolvedReferences: {
             initiativeIds: ["workspace-backed-manager-worker-coordination"],
             specChangeIds: ["manager-worker-runtime-contract"],

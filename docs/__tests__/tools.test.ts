@@ -213,8 +213,8 @@ describe("docs tools", () => {
     registerDocsTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "docs_dashboard",
       "docs_list",
+      "docs_overview",
       "docs_packet",
       "docs_read",
       "docs_update",
@@ -243,7 +243,7 @@ describe("docs tools", () => {
     expect(getTool(mockPi, "docs_read").promptSnippet).toContain("existing context, rationale, and boundaries");
   });
 
-  it("returns machine-usable shapes for create, read, packet, update, dashboard, and list flows", async () => {
+  it("returns machine-usable shapes for create, read, packet, update, overview, and list flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
@@ -255,7 +255,7 @@ describe("docs tools", () => {
       const docsRead = getTool(mockPi, "docs_read");
       const docsPacket = getTool(mockPi, "docs_packet");
       const docsUpdate = getTool(mockPi, "docs_update");
-      const docsDashboard = getTool(mockPi, "docs_dashboard");
+      const docsOverview = getTool(mockPi, "docs_overview");
       const docsList = getTool(mockPi, "docs_list");
 
       const created = await docsWrite.execute(
@@ -331,15 +331,15 @@ describe("docs tools", () => {
       expect(runDocsUpdate).toHaveBeenCalledTimes(1);
       expect(updated.content).toEqual([{ type: "text", text: "Fresh documentation maintainer persisted rev-001." }]);
 
-      const dashboard = await docsDashboard.execute(
+      const overview = await docsOverview.execute(
         "call-5",
         { ref: "documentation-memory-system" },
         undefined,
         undefined,
         ctx,
       );
-      expect(dashboard.details).toMatchObject({
-        dashboard: {
+      expect(overview.details).toMatchObject({
+        overview: {
           doc: {
             id: "documentation-memory-system",
             repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),

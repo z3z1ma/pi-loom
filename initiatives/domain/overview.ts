@@ -10,8 +10,8 @@ import { openWorkspaceStorage } from "#storage/workspace.js";
 import { TICKET_STATUSES, type TicketSummary } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import type {
-  InitiativeDashboard,
-  InitiativeDashboardMilestone,
+  InitiativeOverview,
+  InitiativeOverviewMilestone,
   InitiativeMilestone,
   InitiativeMilestoneHealth,
   InitiativeState,
@@ -115,10 +115,10 @@ function milestoneHealth(milestone: InitiativeMilestone, linkedTickets: TicketSu
   return "pending";
 }
 
-function buildMilestoneDashboard(
+function buildMilestoneOverview(
   milestone: InitiativeMilestone,
   ticketsById: Map<string, TicketSummary>,
-): InitiativeDashboardMilestone {
+): InitiativeOverviewMilestone {
   const linkedTickets = milestone.ticketIds
     .map((ticketId) => ticketsById.get(ticketId))
     .filter((ticket): ticket is TicketSummary => ticket !== undefined);
@@ -135,12 +135,12 @@ function buildMilestoneDashboard(
   };
 }
 
-function buildDashboardFromRelatedState(
+function buildOverviewFromRelatedState(
   state: InitiativeState,
   repository: LoomRepositoryQualifier | null,
   linkedRoadmap: { items: RoadmapItem[]; missingRefs: string[] },
   allRoadmapItems: RoadmapItem[],
-  linkedResearch: InitiativeDashboard["linkedResearch"]["items"],
+  linkedResearch: InitiativeOverview["linkedResearch"]["items"],
   allSpecs: InitiativeAwareSpecSummary[],
   allTickets: InitiativeAwareTicketSummary[],
   linkedSpecsInput: InitiativeAwareSpecSummary[] = allSpecs.filter((summary) =>
@@ -149,7 +149,7 @@ function buildDashboardFromRelatedState(
   linkedTicketsInput: InitiativeAwareTicketSummary[] = allTickets.filter((summary) =>
     state.ticketIds.includes(summary.id),
   ),
-): InitiativeDashboard {
+): InitiativeOverview {
   const linkedSpecs = linkedSpecsInput;
   const missingSpecIds = state.specChangeIds.filter((id) => !linkedSpecs.some((summary) => summary.id === id));
   const specCounts = zeroCounts(SPEC_STATUSES);
@@ -232,7 +232,7 @@ function buildDashboardFromRelatedState(
       closed: ticketCounts.closed,
       items: linkedTickets,
     },
-    milestones: state.milestones.map((milestone) => buildMilestoneDashboard(milestone, ticketsById)),
+    milestones: state.milestones.map((milestone) => buildMilestoneOverview(milestone, ticketsById)),
     openRisks: [...state.risks],
     unlinkedReferences: {
       roadmapRefs: unlinkedRoadmapRefs,
@@ -242,11 +242,11 @@ function buildDashboardFromRelatedState(
   };
 }
 
-export async function buildInitiativeDashboard(
+export async function buildInitiativeOverview(
   cwd: string,
   state: InitiativeState,
   repository: LoomRepositoryQualifier | null = null,
-): Promise<InitiativeDashboard> {
+): Promise<InitiativeOverview> {
   const constitutionalStore = createConstitutionalStore(cwd);
   const specStore = createSpecStore(cwd);
   const ticketStore = createTicketStore(cwd);
@@ -258,7 +258,7 @@ export async function buildInitiativeDashboard(
     ticketStore.listTicketsAsync({ includeClosed: true }),
   ]);
 
-  return buildDashboardFromRelatedState(
+  return buildOverviewFromRelatedState(
     state,
     repository,
     linkedRoadmap,

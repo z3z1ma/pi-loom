@@ -69,7 +69,7 @@ export interface ConstitutionDecisionRecord {
   affectedArtifacts: string[];
 }
 
-export interface ConstitutionalDashboard {
+export interface ConstitutionalOverview {
   project: {
     projectId: string;
     title: string;
@@ -103,7 +103,7 @@ export interface ConstitutionalRecord {
   constraints: string;
   roadmap: string;
   decisions: ConstitutionDecisionRecord[];
-  dashboard: ConstitutionalDashboard;
+  overview: ConstitutionalOverview;
 }
 
 export interface InitConstitutionInput {

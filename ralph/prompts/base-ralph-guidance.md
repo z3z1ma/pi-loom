@@ -32,7 +32,6 @@ Use Ralph tools to:
 - use `ralph_run` with required `ticketRef` and optional `planRef` to create or resume the system-owned Ralph run for that exact ticket binding
 - use `ralph_steer` to queue minor additive steering for the next iteration boundary without replacing the governing ticket contract
 - use `ralph_stop` to request a clean stop for the managed loop
-- use `ralph_read` to inspect packets, dashboards, and durable run state between iterations
 - use `ralph_job_read`, `ralph_job_wait`, and `ralph_job_cancel` when `ralph_run` is operating in background mode and you need explicit job control
 
 Ralph remains directly usable on its own. Its user-facing surfaces should stay Ralph-native even when higher-level orchestration layers choose to build on top of it.

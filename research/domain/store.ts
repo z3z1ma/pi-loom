@@ -19,7 +19,7 @@ import {
   type openWorkspaceStorage,
 } from "#storage/workspace.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildResearchDashboard } from "./dashboard.js";
+import { buildResearchOverview } from "./overview.js";
 import { buildResearchMap } from "./map.js";
 import type {
   CreateResearchInput,
@@ -376,7 +376,7 @@ export class ResearchStore {
       hypotheses,
       hypothesisHistory,
       artifacts,
-      dashboard: await buildResearchDashboard(this.cwd, normalizedState, hypotheses, artifacts),
+      overview: await buildResearchOverview(this.cwd, normalizedState, hypotheses, artifacts),
       map: await buildResearchMap(this.cwd, normalizedState, hypotheses, artifacts),
     };
   }

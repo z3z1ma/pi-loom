@@ -1,6 +1,6 @@
 import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
 import type {
-  CritiqueDashboard,
+  CritiqueOverview,
   CritiqueFindingRecord,
   CritiqueLaunchDescriptor,
   CritiqueRunRecord,
@@ -41,27 +41,27 @@ export function summarizeCritique(
   };
 }
 
-export function buildCritiqueDashboard(
+export function buildCritiqueOverview(
   state: CritiqueState,
   runs: CritiqueRunRecord[],
   findings: CritiqueFindingRecord[],
   launch: CritiqueLaunchDescriptor | null,
   repository: LoomRepositoryQualifier | null = null,
-): CritiqueDashboard {
-  const bySeverity: CritiqueDashboard["counts"]["bySeverity"] = {
+): CritiqueOverview {
+  const bySeverity: CritiqueOverview["counts"]["bySeverity"] = {
     low: 0,
     medium: 0,
     high: 0,
     critical: 0,
   };
-  const byStatus: CritiqueDashboard["counts"]["byStatus"] = {
+  const byStatus: CritiqueOverview["counts"]["byStatus"] = {
     open: 0,
     accepted: 0,
     rejected: 0,
     fixed: 0,
     superseded: 0,
   };
-  const byVerdict: CritiqueDashboard["counts"]["byVerdict"] = {
+  const byVerdict: CritiqueOverview["counts"]["byVerdict"] = {
     pass: 0,
     concerns: 0,
     blocked: 0,

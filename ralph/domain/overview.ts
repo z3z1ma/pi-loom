@@ -1,5 +1,5 @@
 import type {
-  RalphDashboard,
+  RalphOverview,
   RalphIterationRecord,
   RalphIterationRuntimeRecord,
   RalphIterationStatus,
@@ -44,7 +44,7 @@ export function summarizeRalphRun(state: RalphRunState, _runDir: string): RalphR
   };
 }
 
-export function buildRalphDashboard(
+export function buildRalphOverview(
   state: RalphRunState,
   summary: RalphRunSummary,
   iterations: RalphIterationRecord[],
@@ -52,7 +52,7 @@ export function buildRalphDashboard(
   iterationStatuses: readonly RalphIterationStatus[],
   verifierVerdicts: readonly RalphVerifierVerdict[],
   runtimeArtifacts: RalphIterationRuntimeRecord[] = [],
-): RalphDashboard {
+): RalphOverview {
   const byStatus = createCounts(iterationStatuses);
   const byVerifierVerdict = createCounts(verifierVerdicts);
   for (const iteration of iterations) {

@@ -125,8 +125,8 @@ describe("ConstitutionalStore durable memory", () => {
       ["roadmap.md", "brief.md"],
     );
     expect(withDecision.decisions).toHaveLength(1);
-    expect(withDecision.dashboard.roadmap.activeItemIds).toEqual(["item-001"]);
-    expect(withDecision.dashboard.linkedWork.initiativeIds).toEqual([
+    expect(withDecision.overview.roadmap.activeItemIds).toEqual(["item-001"]);
+    expect(withDecision.overview.linkedWork.initiativeIds).toEqual([
       "constitutional-foundation",
       "initiative-roadmap-sync",
     ]);

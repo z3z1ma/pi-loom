@@ -4,7 +4,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS } from "#storage/list-search.js";
 import type { CreatePlanInput, PlanContextRefsUpdate, UpdatePlanInput } from "../domain/models.js";
-import { renderDashboard, renderPlanDetail } from "../domain/render.js";
+import { renderOverview, renderPlanDetail } from "../domain/render.js";
 import { createPlanStore } from "../domain/store.js";
 
 const PlanStatusEnum = StringEnum(["active", "paused", "completed", "archived", "superseded"] as const);
@@ -173,17 +173,17 @@ const PlanTicketLinkParams = Type.Object({
   order: Type.Optional(Type.Number()),
 });
 
-const PlanDashboardParams = Type.Object({
+const PlanOverviewParams = Type.Object({
   ref: Type.String(),
   repositoryId: Type.Optional(
     Type.String({
-      description: "Optional repository id for repository-targeted dashboard reads when the active scope is ambiguous.",
+      description: "Optional repository id for repository-targeted overview reads when the active scope is ambiguous.",
     }),
   ),
   worktreeId: Type.Optional(
     Type.String({
       description:
-        "Optional worktree id for repository-targeted dashboard reads when a specific clone/worktree matters.",
+        "Optional worktree id for repository-targeted overview reads when a specific clone/worktree matters.",
     }),
   ),
 });
@@ -459,17 +459,17 @@ export function registerPlanTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "plan_dashboard",
-    label: "plan_dashboard",
-    description: "Read the machine-usable plan dashboard rollup for linked tickets and source refs.",
-    promptSnippet: "Use the dashboard when you need plan-linked ticket counts and statuses at a glance.",
+    name: "plan_overview",
+    label: "plan_overview",
+    description: "Read the machine-usable plan overview rollup for linked tickets and source refs.",
+    promptSnippet: "Use the overview when you need plan-linked ticket counts and statuses at a glance.",
     promptGuidelines: [
-      "Prefer the dashboard for observability and automation; prefer plan_read when you need the full packet or markdown artifact.",
+      "Prefer the overview for observability and automation; prefer plan_read when you need the full packet or markdown artifact.",
     ],
-    parameters: PlanDashboardParams,
+    parameters: PlanOverviewParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const plan = await getScopedStore(ctx, params).readPlan(params.ref);
-      return machineResult({ dashboard: plan.dashboard }, renderDashboard(plan.dashboard));
+      return machineResult({ overview: plan.overview }, renderOverview(plan.overview));
     },
   });
 }

@@ -86,7 +86,7 @@ describe("PlanStore durable memory", () => {
     vi.setSystemTime(new Date("2026-03-15T12:15:00.000Z"));
     const spec = await specStore.createChange({
       title: "Add planning layer",
-      summary: "Persist plans, packets, dashboards, and ticket links.",
+      summary: "Persist plans, packets, overviews, and ticket links.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
     });
@@ -96,7 +96,7 @@ describe("PlanStore durable memory", () => {
       capabilities: [
         {
           title: "Detailed plan container",
-          summary: "Store a packet, plan markdown, dashboard, and linked ticket metadata.",
+          summary: "Store a packet, plan markdown, overview, and linked ticket metadata.",
           requirements: [
             "Plans compile constitution, research, initiative, spec, ticket, critique, and docs context.",
             "Linked tickets remain the high-fidelity execution system of record and self-contained units of work.",
@@ -110,7 +110,7 @@ describe("PlanStore durable memory", () => {
     vi.setSystemTime(new Date("2026-03-15T12:20:00.000Z"));
     const implementationTicket = await ticketStore.createTicketAsync({
       title: "Implement plan store",
-      summary: "Persist state, packet, plan markdown, and dashboard artifacts.",
+      summary: "Persist state, packet, plan markdown, and overview artifacts.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
     });
@@ -242,7 +242,7 @@ describe("PlanStore durable memory", () => {
       role: "review",
       order: 2,
     });
-    await ticketStore.closeTicketAsync(reviewTicket.summary.id, "Critique and dashboard tests pass.");
+    await ticketStore.closeTicketAsync(reviewTicket.summary.id, "Critique and overview tests pass.");
     const linkedClosed = await planStore.readPlan(linkedPlan.state.planId);
 
     expect(linkedClosed.state.planId).toBe("planning-layer-rollout");
@@ -284,10 +284,10 @@ describe("PlanStore durable memory", () => {
     expect(linkedClosed.plan).toContain("## Revision Notes");
     expect(linkedClosed.plan).toContain("Seeded the first detailed plan draft.");
     expect(linkedClosed.summary.ref).toBe(`plan:${linkedClosed.state.planId}`);
-    expect(linkedClosed.dashboard.plan.ref).toBe(`plan:${linkedClosed.state.planId}`);
-    expect(linkedClosed.dashboard.packetRef).toBe(`plan:${linkedClosed.state.planId}:packet`);
-    expect(linkedClosed.dashboard.planRef).toBe(`plan:${linkedClosed.state.planId}:document`);
-    expect(linkedClosed.dashboard.linkedTickets).toEqual([
+    expect(linkedClosed.overview.plan.ref).toBe(`plan:${linkedClosed.state.planId}`);
+    expect(linkedClosed.overview.packetRef).toBe(`plan:${linkedClosed.state.planId}:packet`);
+    expect(linkedClosed.overview.planRef).toBe(`plan:${linkedClosed.state.planId}:document`);
+    expect(linkedClosed.overview.linkedTickets).toEqual([
       expect.objectContaining({
         ticketId: implementationTicket.summary.id,
         ref: `ticket:${implementationTicket.summary.id}`,
@@ -297,11 +297,12 @@ describe("PlanStore durable memory", () => {
         ref: `ticket:${reviewTicket.summary.id}`,
       }),
     ]);
-    expect(linkedClosed.dashboard.counts.tickets).toBe(2);
-    expect(linkedClosed.dashboard.counts.byStatus).toMatchObject({ ready: 1, closed: 1 });
+    expect(linkedClosed.overview.counts.tickets).toBe(2);
+    expect(linkedClosed.overview.counts.byStatus).toMatchObject({ ready: 1, closed: 1 });
 
     const reread = await planStore.readPlan(linkedClosed.state.planId);
-    expect(reread.dashboard).toEqual(linkedClosed.dashboard);
+
+    expect(reread.overview).toEqual(linkedClosed.overview);
 
     const implementationReadback = await ticketStore.readTicketAsync(implementationTicket.summary.id);
     const reviewReadback = await ticketStore.readTicketAsync(reviewTicket.summary.id);
@@ -320,7 +321,7 @@ describe("PlanStore durable memory", () => {
     expect(reread.plan).toContain(`Ticket ${implementationTicket.summary.id}`);
   }, 120000);
 
-  it("rebuilds linked ticket dashboard details from canonical storage after async ticket mutations", async () => {
+  it("rebuilds linked ticket overview details from canonical storage after async ticket mutations", async () => {
     const ticketStore = createTicketStore(workspace);
     const planStore = createPlanStore(workspace);
 
@@ -343,10 +344,10 @@ describe("PlanStore durable memory", () => {
 
     const linked = await planStore.readPlan(linkedExisting.state.planId);
 
-    expect(linked.dashboard.plan.ref).toBe(`plan:${created.state.planId}`);
-    expect(linked.dashboard.packetRef).toBe(`plan:${created.state.planId}:packet`);
-    expect(linked.dashboard.planRef).toBe(`plan:${created.state.planId}:document`);
-    expect(linked.dashboard.linkedTickets).toEqual([
+    expect(linked.overview.plan.ref).toBe(`plan:${created.state.planId}`);
+    expect(linked.overview.packetRef).toBe(`plan:${created.state.planId}:packet`);
+    expect(linked.overview.planRef).toBe(`plan:${created.state.planId}:document`);
+    expect(linked.overview.linkedTickets).toEqual([
       expect.objectContaining({
         ticketId: orphanedTicket.summary.id,
         status: "ready",
@@ -354,8 +355,11 @@ describe("PlanStore durable memory", () => {
         ref: `ticket:${orphanedTicket.summary.id}`,
       }),
     ]);
-    expect(linked.dashboard.counts.byStatus).toMatchObject({ ready: 1 });
+    expect(linked.overview.counts.byStatus).toMatchObject({ ready: 1 });
+
+    expect(linked.plan).toContain("Canonical follow-up");
   }, 30000);
+
 
   it("replaces and removes context refs explicitly instead of only accumulating them", async () => {
     const ticketStore = createTicketStore(workspace);
@@ -379,7 +383,7 @@ describe("PlanStore durable memory", () => {
     });
 
     expect(updated.state.contextRefs.ticketIds).toEqual([thirdTicket.summary.id]);
-    expect(updated.dashboard.contextRefs.ticketIds).toEqual([thirdTicket.summary.id]);
+    expect(updated.overview.contextRefs.ticketIds).toEqual([thirdTicket.summary.id]);
     expect(updated.packet).toContain(thirdTicket.summary.id);
     expect(updated.packet).not.toContain(firstTicket.summary.id);
     expect(updated.packet).not.toContain(secondTicket.summary.id);

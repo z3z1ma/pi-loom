@@ -2,13 +2,13 @@
 
 SQLite-backed critique memory for pi.
 
-This package adds a first-class critique layer where critique runs, findings, and follow-up ticket linkage survive beyond the current session. Critique state is stored canonically in SQLite via pi-storage, with packets, dashboards, and findings rendered from those records for inspection or export.
+This package adds a first-class critique layer where critique runs, findings, and follow-up ticket linkage survive beyond the current session. Critique state is stored canonically in SQLite via pi-storage, with packets, overviews, and findings rendered from those records for inspection or export.
 
 ## Capabilities
 
-- `critique_*` tools for list/read/write/launch/run/finding/dashboard workflows
+- `critique_*` tools for list/read/write/launch/run/finding/overview workflows
 - `critique_list` is broad-text-first; exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state
-- canonical critique records stored in SQLite with runs and findings history; packets and dashboards are rendered on demand from the SQLite store
+- canonical critique records stored in SQLite with runs and findings history; packets and overviews are rendered on demand from the SQLite store
 - packet compilation that pulls linked constitution, initiative, research, spec, and ticket context into a fresh-review handoff
 - follow-up ticket creation that marks findings as `accepted` while keeping them active until they are fixed, rejected, or superseded
 
@@ -21,7 +21,7 @@ This package adds a first-class critique layer where critique runs, findings, an
 ## Artifact policy
 
 - `launch.json` is a runtime-only handoff descriptor for launching or resuming a critique run in a fresh session or subprocess; it should not be treated as durable
-- generated packets and dashboards are derived views; the durable critique state lives in SQLite records, not in exported files
+- generated packets and overviews are derived views; the durable critique state lives in SQLite records, not in exported files
 
 ## Launch semantics
 

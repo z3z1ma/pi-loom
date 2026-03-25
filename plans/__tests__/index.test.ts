@@ -87,8 +87,8 @@ describe("pi-plans extension", () => {
 
     expect(mockPi.commands.size).toBe(0);
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "plan_dashboard",
       "plan_list",
+      "plan_overview",
       "plan_packet",
       "plan_read",
       "plan_ticket_link",

@@ -1,6 +1,6 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
-  InitiativeDashboard,
+  InitiativeOverview,
   InitiativeDecisionRecord,
   InitiativeMilestone,
   InitiativeRecord,
@@ -12,7 +12,7 @@ function joinNonEmpty(chunks: string[]): string {
   return chunks.filter(Boolean).join("\n\n");
 }
 
-function renderLinkedRoadmap(items: InitiativeDashboard["linkedRoadmap"]["items"], emptyLabel = "(none)"): string {
+function renderLinkedRoadmap(items: InitiativeOverview["linkedRoadmap"]["items"], emptyLabel = "(none)"): string {
   if (items.length === 0) {
     return emptyLabel;
   }
@@ -55,7 +55,7 @@ function renderRepository(repository: InitiativeSummary["repository"]): string {
 export function renderInitiativeMarkdown(
   state: InitiativeState,
   decisions: InitiativeDecisionRecord[],
-  dashboard: InitiativeDashboard,
+  overview: InitiativeOverview,
 ): string {
   return serializeMarkdownArtifact(
     {
@@ -80,7 +80,7 @@ export function renderInitiativeMarkdown(
       renderSection("Success Metrics", renderBulletList(state.successMetrics)),
       renderSection("Status Summary", state.statusSummary || "(empty)"),
       renderSection("Risks", renderBulletList(state.risks)),
-      renderSection("Linked Roadmap", renderLinkedRoadmap(dashboard.linkedRoadmap.items)),
+      renderSection("Linked Roadmap", renderLinkedRoadmap(overview.linkedRoadmap.items)),
       renderSection("Milestones", renderMilestones(state.milestones)),
       renderSection("Strategic Decisions", renderDecisions(decisions)),
     ]),
@@ -99,36 +99,36 @@ export function renderInitiativeDetail(record: InitiativeRecord): string {
     `Research: ${record.state.researchIds.join(", ") || "none"}`,
     `Capabilities: ${record.state.capabilityIds.join(", ") || "none"}`,
     `Roadmap refs: ${record.state.roadmapRefs.join(", ") || "none"}`,
-    `Linked roadmap: ${record.dashboard.linkedRoadmap.items.map((item) => `${item.id} [${item.horizon}/${item.status}] ${item.title}`).join(", ") || "none"}`,
+    `Linked roadmap: ${record.overview.linkedRoadmap.items.map((item) => `${item.id} [${item.horizon}/${item.status}] ${item.title}`).join(", ") || "none"}`,
     `Decisions: ${record.decisions.length}`,
-    `Dashboard research: ${record.dashboard.linkedResearch.total}`,
-    `Dashboard specs: ${record.dashboard.linkedSpecs.total}`,
-    `Dashboard tickets: ${record.dashboard.linkedTickets.total}`,
-    `Dashboard roadmap: ${record.dashboard.linkedRoadmap.total}`,
+    `Overview research: ${record.overview.linkedResearch.total}`,
+    `Overview specs: ${record.overview.linkedSpecs.total}`,
+    `Overview tickets: ${record.overview.linkedTickets.total}`,
+    `Overview roadmap: ${record.overview.linkedRoadmap.total}`,
     "",
     "Objective:",
     record.state.objective || "(empty)",
   ].join("\n");
 }
 
-export function renderInitiativeDashboard(dashboard: InitiativeDashboard): string {
-  const roadmapLines = renderLinkedRoadmap(dashboard.linkedRoadmap.items);
+export function renderInitiativeOverview(overview: InitiativeOverview): string {
+  const roadmapLines = renderLinkedRoadmap(overview.linkedRoadmap.items);
   const milestoneLines =
-    dashboard.milestones.length > 0
-      ? dashboard.milestones
+    overview.milestones.length > 0
+      ? overview.milestones
           .map((milestone) => `- ${milestone.id} [${milestone.status}/${milestone.health}] ${milestone.title}`)
           .join("\n")
       : "(none)";
   return [
-    `${dashboard.initiative.id} [${dashboard.initiative.status}]${renderRepository(dashboard.initiative.repository)} ${dashboard.initiative.title}`,
-    `Research: ${dashboard.linkedResearch.total}`,
-    `Specs: ${dashboard.linkedSpecs.total}`,
-    `Tickets: ${dashboard.linkedTickets.total}`,
-    `Roadmap: ${dashboard.linkedRoadmap.total}`,
-    `Ready tickets: ${dashboard.linkedTickets.ready}`,
-    `Blocked tickets: ${dashboard.linkedTickets.blocked}`,
-    `In-progress tickets: ${dashboard.linkedTickets.inProgress}`,
-    `Open risks: ${dashboard.openRisks.length}`,
+    `${overview.initiative.id} [${overview.initiative.status}]${renderRepository(overview.initiative.repository)} ${overview.initiative.title}`,
+    `Research: ${overview.linkedResearch.total}`,
+    `Specs: ${overview.linkedSpecs.total}`,
+    `Tickets: ${overview.linkedTickets.total}`,
+    `Roadmap: ${overview.linkedRoadmap.total}`,
+    `Ready tickets: ${overview.linkedTickets.ready}`,
+    `Blocked tickets: ${overview.linkedTickets.blocked}`,
+    `In-progress tickets: ${overview.linkedTickets.inProgress}`,
+    `Open risks: ${overview.openRisks.length}`,
     "",
     "Roadmap:",
     roadmapLines,

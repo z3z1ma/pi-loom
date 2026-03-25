@@ -94,7 +94,7 @@ describe("research integration smoke", () => {
     const refreshedSpec = await specStore.readChange("dark-theme-support");
     const refreshedTicket = await ticketStore.readTicketAsync(firstTicket.summary.id);
 
-    expect(refreshedResearch.dashboard).toMatchObject({
+    expect(refreshedResearch.overview).toMatchObject({
       linkedInitiatives: { total: 1, items: [expect.objectContaining({ id: "theme-modernization" })] },
       linkedSpecs: { total: 1, items: [expect.objectContaining({ id: "dark-theme-support" })] },
       linkedTickets: { total: 1 },

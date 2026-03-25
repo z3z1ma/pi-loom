@@ -245,7 +245,7 @@ function createReadResult(
     runtimeArtifacts,
     packet: "packet",
     run: "run markdown",
-    dashboard: {
+    overview: {
       run: {
         id: ref,
         status: overrides?.status ?? "active",
@@ -922,12 +922,20 @@ describe("ralph tools", () => {
 
     const read = await getTool(mockPi, "ralph_read").execute(
       "call-read",
-      { planRef: "plan-1", ticketRef: "t-1001", mode: "dashboard" },
+      { planRef: "plan-1", ticketRef: "t-1001", mode: "overview" },
       undefined,
       undefined,
       ctx,
     );
-    expect(mockStore.readRunAsync).toHaveBeenCalledWith(expect.any(String));
-    expect(JSON.stringify(read)).toContain("dashboard");
+    const packet = await getTool(mockPi, "ralph_read").execute(
+      "call-packet",
+      { planRef: "plan-1", ticketRef: "t-1001", mode: "packet" },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(JSON.stringify(packet)).toContain("packet");
+    expect(JSON.stringify(read)).toContain("overview");
   });
 });

@@ -6,7 +6,7 @@ import {
   PI_LOOM_RUNTIME_WORKTREE_ID_ENV,
   PI_LOOM_RUNTIME_WORKTREE_PATH_ENV,
 } from "#storage/runtime-scope.js";
-import { buildDocumentationDashboard } from "../domain/dashboard.js";
+import { buildDocumentationOverview } from "../domain/overview.js";
 import type { DocumentationState } from "../domain/models.js";
 import { renderUpdateDescriptor, renderUpdatePrompt } from "../domain/render.js";
 import { getDocsUpdateLaunchConfig, resolveDocsPackageRoot } from "../domain/runtime.js";
@@ -38,6 +38,7 @@ function createState(overrides: Partial<DocumentationState> = {}): Documentation
     updateReason: "Sync durable docs.",
     guideTopics: [],
     linkedOutputPaths: [],
+    upstreamPath: null,
     lastRevisionId: null,
     ...overrides,
   };
@@ -67,13 +68,13 @@ describe("docs runtime spawn resolution", () => {
 });
 
 describe("docs reference rendering", () => {
-  it("stores dashboard refs instead of repo-relative paths and drops generated timestamps", () => {
-    const dashboard = buildDocumentationDashboard(createState(), []);
+  it("stores overview refs instead of repo-relative paths and drops generated timestamps", () => {
+    const overview = buildDocumentationOverview(createState(), []);
 
-    expect(dashboard.doc.ref).toBe("documentation:documentation-memory-system");
-    expect(dashboard.packetRef).toBe("documentation:documentation-memory-system:packet");
-    expect(dashboard.documentRef).toBe("documentation:documentation-memory-system:document");
-    expect(dashboard).not.toHaveProperty("generatedAt");
+    expect(overview.doc.ref).toBe("documentation:documentation-memory-system");
+    expect(overview.packetRef).toBe("documentation:documentation-memory-system:packet");
+    expect(overview.documentRef).toBe("documentation:documentation-memory-system:document");
+    expect(overview).not.toHaveProperty("generatedAt");
   });
 
   it("keeps update prompts rooted at the documentation packet ref", () => {

@@ -1,6 +1,6 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
-  CritiqueDashboard,
+  CritiqueOverview,
   CritiqueFindingRecord,
   CritiqueLaunchDescriptor,
   CritiqueReadResult,
@@ -133,18 +133,18 @@ export function renderLaunchPrompt(_cwd: string, launch: CritiqueLaunchDescripto
   ].join("\n");
 }
 
-export function renderDashboard(dashboard: CritiqueDashboard): string {
+export function renderOverview(overview: CritiqueOverview): string {
   return [
-    renderCritiqueSummary(dashboard.critique),
-    `Runs: ${dashboard.counts.runs}`,
-    `Findings: ${dashboard.counts.findings}`,
-    `Open findings: ${dashboard.counts.openFindings}`,
-    `Accepted findings: ${dashboard.counts.acceptedFindings}`,
-    `Follow-up tickets: ${dashboard.followupTicketIds.join(", ") || "none"}`,
+    renderCritiqueSummary(overview.critique),
+    `Runs: ${overview.counts.runs}`,
+    `Findings: ${overview.counts.findings}`,
+    `Open findings: ${overview.counts.openFindings}`,
+    `Accepted findings: ${overview.counts.acceptedFindings}`,
+    `Follow-up tickets: ${overview.followupTicketIds.join(", ") || "none"}`,
     "",
     "Open findings:",
-    dashboard.openFindings.length > 0
-      ? dashboard.openFindings.map((finding) => `- ${finding.id} [${finding.severity}] ${finding.title}`).join("\n")
+    overview.openFindings.length > 0
+      ? overview.openFindings.map((finding) => `- ${finding.id} [${finding.severity}] ${finding.title}`).join("\n")
       : "(none)",
   ].join("\n");
 }

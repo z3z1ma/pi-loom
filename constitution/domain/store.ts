@@ -8,7 +8,7 @@ import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { syncProjectedEntityLinks } from "#storage/links.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
 import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
-import { buildConstitutionalDashboard } from "./dashboard.js";
+import { buildConstitutionalOverview } from "./overview.js";
 import type {
   ConstitutionalEntry,
   ConstitutionalEntryInput,
@@ -240,7 +240,7 @@ export class ConstitutionalStore {
       constraints,
       roadmap,
       decisions,
-      dashboard: buildConstitutionalDashboard(normalized),
+      overview: buildConstitutionalOverview(normalized),
     };
   }
 

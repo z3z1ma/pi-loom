@@ -16,7 +16,7 @@ When active, the extension teaches the model to use initiatives as first-class s
 - append-only decision history
 - AI-facing `initiative_*` tools with built-in prompt guidance
 - system-prompt augmentation via `before_agent_start`
-- computed dashboard views rendered from linked initiative state
+- computed overview views rendered from linked initiative state
 
 ## Development
 

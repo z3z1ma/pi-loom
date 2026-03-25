@@ -13,7 +13,7 @@ When active, the extension teaches the model to preserve exploratory work as fir
 - explicit links to initiatives, specs, and tickets
 - AI-facing `research_*` tools with built-in prompt guidance
 - system-prompt augmentation via `before_agent_start`
-- computed dashboard and map views over linked work (generated from SQLite, not filesystem-backed)
+- computed overview and map views over linked work (generated from SQLite, not filesystem-backed)
 
 ## Behavioral guarantees
 

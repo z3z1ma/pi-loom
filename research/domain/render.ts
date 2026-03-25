@@ -1,7 +1,7 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
   ResearchArtifactRecord,
-  ResearchDashboard,
+  ResearchOverview,
   ResearchHypothesisRecord,
   ResearchMap,
   ResearchRecord,
@@ -132,23 +132,23 @@ export function renderResearchDetail(record: ResearchRecord): string {
   ].join("\n");
 }
 
-export function renderResearchDashboard(dashboard: ResearchDashboard): string {
+export function renderResearchOverview(overview: ResearchOverview): string {
   const unresolvedTotal =
-    dashboard.unresolvedReferences.initiativeIds.length +
-    dashboard.unresolvedReferences.specChangeIds.length +
-    dashboard.unresolvedReferences.ticketIds.length;
+    overview.unresolvedReferences.initiativeIds.length +
+    overview.unresolvedReferences.specChangeIds.length +
+    overview.unresolvedReferences.ticketIds.length;
   return [
-    `${dashboard.research.id} [${dashboard.research.status}] ${dashboard.research.title}`,
-    `Hypotheses: ${dashboard.hypotheses.total}`,
-    `Artifacts: ${dashboard.artifacts.total}`,
-    `Initiatives: ${dashboard.linkedInitiatives.total}`,
-    `Specs: ${dashboard.linkedSpecs.total}`,
-    `Tickets: ${dashboard.linkedTickets.total}`,
-    `Open hypotheses: ${dashboard.hypotheses.counts.open}`,
-    `Rejected hypotheses: ${dashboard.hypotheses.counts.rejected}`,
-    `Blocked tickets: ${dashboard.linkedTickets.blocked}`,
+    `${overview.research.id} [${overview.research.status}] ${overview.research.title}`,
+    `Hypotheses: ${overview.hypotheses.total}`,
+    `Artifacts: ${overview.artifacts.total}`,
+    `Initiatives: ${overview.linkedInitiatives.total}`,
+    `Specs: ${overview.linkedSpecs.total}`,
+    `Tickets: ${overview.linkedTickets.total}`,
+    `Open hypotheses: ${overview.hypotheses.counts.open}`,
+    `Rejected hypotheses: ${overview.hypotheses.counts.rejected}`,
+    `Blocked tickets: ${overview.linkedTickets.blocked}`,
     `Unresolved links: ${unresolvedTotal}`,
-    `Open questions: ${dashboard.openQuestions.length}`,
+    `Open questions: ${overview.openQuestions.length}`,
   ].join("\n");
 }
 

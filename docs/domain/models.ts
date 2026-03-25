@@ -76,7 +76,7 @@ export interface DocumentationRevisionRecord {
   linkedContextRefs: DocsContextRefs;
 }
 
-export interface DocumentationDashboard {
+export interface DocumentationOverview {
   doc: DocumentationSummary;
   packetRef: string;
   documentRef: string;
@@ -128,7 +128,7 @@ export interface DocumentationReadResult {
   packet: string;
   document: string;
   revisions: DocumentationRevisionRecord[];
-  dashboard: DocumentationDashboard;
+  overview: DocumentationOverview;
 }
 
 export interface DocumentationListFilter {

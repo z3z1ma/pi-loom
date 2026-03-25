@@ -81,7 +81,7 @@ export interface InitiativeSummary {
   ref: string;
 }
 
-export interface InitiativeDashboardMilestone {
+export interface InitiativeOverviewMilestone {
   id: string;
   title: string;
   status: InitiativeMilestoneStatus;
@@ -93,7 +93,7 @@ export interface InitiativeDashboardMilestone {
   linkedCompletedTicketCount: number;
 }
 
-export interface InitiativeDashboard {
+export interface InitiativeOverview {
   initiative: {
     id: string;
     title: string;
@@ -137,7 +137,7 @@ export interface InitiativeDashboard {
     closed: number;
     items: TicketSummary[];
   };
-  milestones: InitiativeDashboardMilestone[];
+  milestones: InitiativeOverviewMilestone[];
   openRisks: string[];
   unlinkedReferences: {
     roadmapRefs: string[];
@@ -151,7 +151,7 @@ export interface InitiativeRecord {
   summary: InitiativeSummary;
   brief: string;
   decisions: InitiativeDecisionRecord[];
-  dashboard: InitiativeDashboard;
+  overview: InitiativeOverview;
 }
 
 export interface InitiativeListFilter {

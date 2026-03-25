@@ -70,8 +70,8 @@ describe("initiative tools", () => {
     registerInitiativeTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "initiative_dashboard",
       "initiative_list",
+      "initiative_overview",
       "initiative_read",
       "initiative_write",
     ]);
@@ -85,7 +85,7 @@ describe("initiative tools", () => {
     expect(getTool(mockPi, "initiative_write").promptSnippet).toContain("Persist a substantial strategic record");
   });
 
-  it("returns machine-usable shapes for list, read, write, and dashboard flows", async () => {
+  it("returns machine-usable shapes for list, read, write, and overview flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
@@ -102,7 +102,7 @@ describe("initiative tools", () => {
       const initiativeWrite = getTool(mockPi, "initiative_write");
       const initiativeList = getTool(mockPi, "initiative_list");
       const initiativeRead = getTool(mockPi, "initiative_read");
-      const initiativeDashboard = getTool(mockPi, "initiative_dashboard");
+      const initiativeOverview = getTool(mockPi, "initiative_overview");
 
       const created = await initiativeWrite.execute(
         "call-1",
@@ -193,7 +193,7 @@ describe("initiative tools", () => {
             id: "platform-modernization",
             repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
           },
-          dashboard: {
+          overview: {
             initiative: { repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }) },
             linkedSpecs: { total: 1 },
             linkedTickets: { total: 1 },
@@ -201,15 +201,15 @@ describe("initiative tools", () => {
         },
       });
 
-      const dashboard = await initiativeDashboard.execute(
+      const overview = await initiativeOverview.execute(
         "call-7",
         { ref: "platform-modernization" },
         undefined,
         undefined,
         ctx,
       );
-      expect(dashboard.details).toMatchObject({
-        dashboard: {
+      expect(overview.details).toMatchObject({
+        overview: {
           initiative: { repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }) },
           linkedSpecs: { total: 1 },
           linkedTickets: { total: 1, ready: 1 },

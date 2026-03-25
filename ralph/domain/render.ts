@@ -1,6 +1,6 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
-  RalphDashboard,
+  RalphOverview,
   RalphIterationRecord,
   RalphIterationRuntimeRecord,
   RalphLaunchDescriptor,
@@ -306,24 +306,24 @@ export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor):
   ].join("\n");
 }
 
-export function renderDashboard(dashboard: RalphDashboard): string {
+export function renderOverview(overview: RalphOverview): string {
   return [
-    renderRalphSummary(dashboard.run),
-    `Waiting for: ${dashboard.waitingFor}`,
-    `Iterations: ${dashboard.counts.iterations}`,
-    `Latest bounded iteration: ${dashboard.latestBoundedIteration ? `${dashboard.latestBoundedIteration.iteration} [${dashboard.latestBoundedIteration.status}]` : "none"}`,
-    `Latest runtime: ${dashboard.latestRuntime ? `${dashboard.latestRuntime.iteration} [${dashboard.latestRuntime.status}]` : "none"}`,
-    `Latest decision: ${dashboard.latestDecision?.kind ?? "none"}`,
-    `Verifier counts: ${Object.entries(dashboard.counts.verifierVerdicts)
+    renderRalphSummary(overview.run),
+    `Waiting for: ${overview.waitingFor}`,
+    `Iterations: ${overview.counts.iterations}`,
+    `Latest bounded iteration: ${overview.latestBoundedIteration ? `${overview.latestBoundedIteration.iteration} [${overview.latestBoundedIteration.status}]` : "none"}`,
+    `Latest runtime: ${overview.latestRuntime ? `${overview.latestRuntime.iteration} [${overview.latestRuntime.status}]` : "none"}`,
+    `Latest decision: ${overview.latestDecision?.kind ?? "none"}`,
+    `Verifier counts: ${Object.entries(overview.counts.verifierVerdicts)
       .map(([key, value]) => `${key}=${value}`)
       .join(", ")}`,
-    `Iteration counts: ${Object.entries(dashboard.counts.byStatus)
+    `Iteration counts: ${Object.entries(overview.counts.byStatus)
       .map(([key, value]) => `${key}=${value}`)
       .join(", ")}`,
     "",
     "Critiques:",
-    dashboard.critiqueLinks.length > 0
-      ? dashboard.critiqueLinks
+    overview.critiqueLinks.length > 0
+      ? overview.critiqueLinks
           .map((link) => `- ${link.critiqueId} [${link.verdict ?? "none"}] ${link.summary}`)
           .join("\n")
       : "(none)",

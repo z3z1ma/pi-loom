@@ -1,6 +1,6 @@
 import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
 import type {
-  DocumentationDashboard,
+  DocumentationOverview,
   DocumentationRevisionRecord,
   DocumentationState,
   DocumentationSummary,
@@ -34,16 +34,17 @@ export function summarizeDocumentation(
     sourceKind: state.sourceTarget.kind,
     sourceRef: state.sourceTarget.ref,
     summary: state.summary,
+    upstreamPath: state.upstreamPath,
     revisionCount,
     ref: getDocumentationRef(state),
   };
 }
 
-export function buildDocumentationDashboard(
+export function buildDocumentationOverview(
   state: DocumentationState,
   revisions: DocumentationRevisionRecord[],
   repository: LoomRepositoryQualifier | null = null,
-): DocumentationDashboard {
+): DocumentationOverview {
   return {
     doc: summarizeDocumentation(state, revisions.length, repository),
     packetRef: getDocumentationPacketRef(state),

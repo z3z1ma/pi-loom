@@ -10,7 +10,7 @@ import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
 import { readRuntimeScopeFromEnv } from "#storage/runtime-scope.js";
 import { openScopedWorkspaceStorageSync } from "#storage/workspace.js";
-import { buildRalphDashboard, summarizeRalphRun } from "./dashboard.js";
+import { buildRalphOverview, summarizeRalphRun } from "./overview.js";
 import { renderBulletList, renderSection } from "./frontmatter.js";
 import type {
   AppendRalphIterationInput,
@@ -251,10 +251,10 @@ function ralphSearchText(record: RalphReadResult): string[] {
     record.summary.objectiveSummary,
     record.summary.policyMode,
     record.state.waitingFor,
-    record.dashboard.waitingFor,
+    record.overview.waitingFor,
     record.state.latestDecision?.summary ?? "",
-    record.dashboard.latestDecision?.summary ?? "",
-    record.dashboard.latestBoundedIteration?.summary ?? "",
+    record.overview.latestDecision?.summary ?? "",
+    record.overview.latestBoundedIteration?.summary ?? "",
     record.state.verifierSummary.summary,
     record.state.verifierSummary.sourceRef,
     ...record.state.policySnapshot.notes,
@@ -301,7 +301,7 @@ function filterAndSortRalphSummaries(records: RalphReadResult[], filter: RalphLi
         { value: record.summary.policyMode, weight: 7 },
         { value: record.state.waitingFor, weight: 6 },
         { value: record.state.latestDecision?.summary, weight: 6 },
-        { value: record.dashboard.latestBoundedIteration?.summary, weight: 5 },
+        { value: record.overview.latestBoundedIteration?.summary, weight: 5 },
         { value: ralphSearchText(record).join(" "), weight: 3 },
       ],
     })),
@@ -1885,7 +1885,7 @@ export class RalphStore {
       launchOverride ??
       this.readLaunch(normalizedState, iterations) ??
       this.defaultLaunchDescriptor(normalizedState, iterations.at(-1) ?? null);
-    const dashboard = buildRalphDashboard(
+    const overview = buildRalphOverview(
       normalizedState,
       summary,
       iterations,
@@ -1903,7 +1903,7 @@ export class RalphStore {
       iterations,
       runtimeArtifacts,
       launch,
-      dashboard,
+      overview,
       artifacts,
     };
   }

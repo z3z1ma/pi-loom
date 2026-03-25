@@ -187,11 +187,11 @@ describe("RalphStore durable memory", () => {
     expect(created.packet).toContain("# Ralph Packet: Ralph Rollout");
     expect(created.packet).toContain("plan-123 [active] Default plan");
     expect(created.run).toContain("## Linked Refs");
-    expect(created.dashboard.counts.iterations).toBe(0);
+    expect(created.overview.counts.iterations).toBe(0);
     expect(created.summary.runRef).toBe(`ralph-run:${created.state.runId}`);
-    expect(created.dashboard.packetRef).toBe(`ralph-run:${created.state.runId}:packet`);
-    expect(created.dashboard.runRef).toBe(`ralph-run:${created.state.runId}:run`);
-    expect(created.dashboard.launchRef).toBe(`ralph-run:${created.state.runId}:launch`);
+    expect(created.overview.packetRef).toBe(`ralph-run:${created.state.runId}:packet`);
+    expect(created.overview.runRef).toBe(`ralph-run:${created.state.runId}:run`);
+    expect(created.overview.launchRef).toBe(`ralph-run:${created.state.runId}:launch`);
     expect(created.launch.packetRef).toBe(`ralph-run:${created.state.runId}:packet`);
     expect(created.launch.launchRef).toBe(`ralph-run:${created.state.runId}:launch`);
 
@@ -218,7 +218,7 @@ describe("RalphStore durable memory", () => {
       iterationCount: 0,
       waitingFor: "none",
     });
-    expect(readback.dashboard.counts.iterations).toBe(0);
+    expect(readback.overview.counts.iterations).toBe(0);
     expect(readback.launch.instructions).toEqual(
       expect.arrayContaining([
         expect.stringContaining(`ralph_read mode=packet ticketRef=ticket-456 planRef=plan-123.`),
@@ -488,7 +488,7 @@ describe("RalphStore durable memory", () => {
     expect(runEntity?.attributes).not.toHaveProperty("iterations");
     expect(runEntity?.attributes).not.toHaveProperty("launch");
     expect(runEntity?.attributes).not.toHaveProperty("packet");
-    expect(runEntity?.attributes).not.toHaveProperty("dashboard");
+    expect(runEntity?.attributes).not.toHaveProperty("overview");
 
     const artifacts = (await storage.listEntities(identity.space.id, "artifact")).filter((entity) =>
       entity.displayId?.startsWith(`ralph-run:${created.state.runId}:iteration:`),
@@ -664,8 +664,8 @@ describe("RalphStore durable memory", () => {
         sourceRef: "ralph/__tests__/runtime.test.ts",
       },
     });
-    expect(reviewed.dashboard.counts.iterations).toBe(1);
-    expect(reviewed.dashboard.counts.byStatus.reviewing).toBe(1);
+    expect(reviewed.overview.counts.iterations).toBe(1);
+    expect(reviewed.overview.counts.byStatus.reviewing).toBe(1);
     expect(reviewed.launch.packetRef).toBe(`ralph-run:${created.state.runId}:packet`);
 
     vi.setSystemTime(new Date("2026-03-15T14:13:00.000Z"));

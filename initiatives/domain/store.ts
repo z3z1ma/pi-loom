@@ -17,11 +17,11 @@ import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
 import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
 import { TICKET_STATUSES, type TicketReadResult, type TicketSummary } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildInitiativeDashboard } from "./dashboard.js";
+import { buildInitiativeOverview } from "./overview.js";
 import type {
   CreateInitiativeInput,
-  InitiativeDashboard,
-  InitiativeDashboardMilestone,
+  InitiativeOverview,
+  InitiativeOverviewMilestone,
   InitiativeDecisionKind,
   InitiativeDecisionRecord,
   InitiativeListFilter,
@@ -94,10 +94,10 @@ function milestoneHealth(milestone: InitiativeMilestone, linkedTickets: TicketSu
   return "pending";
 }
 
-function buildMilestoneDashboard(
+function buildMilestoneOverview(
   milestone: InitiativeMilestone,
   ticketsById: Map<string, TicketSummary>,
-): InitiativeDashboardMilestone {
+): InitiativeOverviewMilestone {
   const linkedTickets = milestone.ticketIds
     .map((ticketId) => ticketsById.get(ticketId))
     .filter((ticket): ticket is TicketSummary => ticket !== undefined);
@@ -219,10 +219,10 @@ export class InitiativeStore {
     };
   }
 
-  private async buildDashboardWithoutRoadmaps(
+  private async buildOverviewWithoutRoadmaps(
     state: InitiativeState,
     repository: InitiativeSummary["repository"] = null,
-  ): Promise<InitiativeDashboard> {
+  ): Promise<InitiativeOverview> {
     const specStore = createSpecStore(this.cwd);
     const ticketStore = createTicketStore(this.cwd);
     const researchStore = createResearchStore(this.cwd);
@@ -315,7 +315,7 @@ export class InitiativeStore {
         closed: ticketCounts.closed,
         items: linkedTickets,
       },
-      milestones: state.milestones.map((milestone) => buildMilestoneDashboard(milestone, ticketsById)),
+      milestones: state.milestones.map((milestone) => buildMilestoneOverview(milestone, ticketsById)),
       openRisks: [...state.risks],
       unlinkedReferences: {
         roadmapRefs: [],
@@ -343,16 +343,16 @@ export class InitiativeStore {
     repository: InitiativeSummary["repository"] = null,
   ): Promise<InitiativeRecord> {
     const initiativeDir = getInitiativeDir(this.cwd, state.initiativeId);
-    const dashboard =
+    const overview =
       state.roadmapRefs.length === 0
-        ? await this.buildDashboardWithoutRoadmaps(state, repository)
-        : await buildInitiativeDashboard(this.cwd, state, repository);
+        ? await this.buildOverviewWithoutRoadmaps(state, repository)
+        : await buildInitiativeOverview(this.cwd, state, repository);
     return {
       state,
       summary: summarizeInitiative(this.cwd, state, initiativeDir, repository),
-      brief: renderInitiativeMarkdown(state, decisions, dashboard),
+      brief: renderInitiativeMarkdown(state, decisions, overview),
       decisions,
-      dashboard,
+      overview,
     };
   }
 

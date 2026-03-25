@@ -8,11 +8,11 @@ import { createSpecStore } from "#specs/domain/store.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import { createInitiativeStore } from "../domain/store.js";
 
-describe("initiative dashboard", () => {
+describe("initiative overview", () => {
   let workspace: string;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), "pi-initiatives-dashboard-"));
+    workspace = mkdtempSync(join(tmpdir(), "pi-initiatives-overview-"));
     process.env.PI_LOOM_ROOT = join(workspace, ".pi-loom-test");
     vi.useFakeTimers();
   });
@@ -35,7 +35,7 @@ describe("initiative dashboard", () => {
       title: "Establish observability memory",
       status: "active",
       horizon: "now",
-      summary: "Make constitutional roadmap links visible inside initiative dashboards.",
+      summary: "Make constitutional roadmap links visible inside initiative overviews.",
     });
     await researchStore.createResearch({ title: "Investigate observability gaps" });
     const planned = await specStore.createChange({
@@ -43,8 +43,8 @@ describe("initiative dashboard", () => {
       summary: "Expose runtime health.",
     });
     const blocker = await ticketStore.createTicketAsync({ title: "Map legacy metrics" });
-    const closer = await ticketStore.createTicketAsync({ title: "Backfill dashboards" });
-    await ticketStore.closeTicketAsync(closer.summary.id, "Dashboard smoke checks passed.");
+    const closer = await ticketStore.createTicketAsync({ title: "Backfill overviews" });
+    await ticketStore.closeTicketAsync(closer.summary.id, "Overview smoke checks passed.");
 
     await initiativeStore.createInitiative({
       title: "Observability program",
@@ -64,7 +64,7 @@ describe("initiative dashboard", () => {
     await researchStore.linkInitiative("investigate-observability-gaps", "observability-program");
     const initiative = await initiativeStore.readInitiative("observability-program");
 
-    expect(initiative.dashboard).toMatchObject({
+    expect(initiative.overview).toMatchObject({
       initiative: {
         id: "observability-program",
         status: "proposed",
@@ -109,13 +109,13 @@ describe("initiative dashboard", () => {
     expect(initiative.state.researchIds).toEqual(["investigate-observability-gaps"]);
     expect((await constitutionalStore.readRoadmapItem("item-001")).initiativeIds).toEqual(["observability-program"]);
 
-    expect(initiative.dashboard.linkedRoadmap.total).toBe(1);
-    expect(initiative.dashboard.linkedResearch.total).toBe(1);
-    expect(initiative.dashboard.linkedTickets.ready).toBe(1);
-    expect(initiative.dashboard.linkedTickets.closed).toBe(1);
+    expect(initiative.overview.linkedRoadmap.total).toBe(1);
+    expect(initiative.overview.linkedResearch.total).toBe(1);
+    expect(initiative.overview.linkedTickets.ready).toBe(1);
+    expect(initiative.overview.linkedTickets.closed).toBe(1);
   }, 30000);
 
-  it("surfaces stale linked references instead of crashing the dashboard", async () => {
+  it("surfaces stale linked references instead of crashing the overview", async () => {
     const constitutionalStore = createConstitutionalStore(workspace);
     const specStore = createSpecStore(workspace);
     const ticketStore = createTicketStore(workspace);
@@ -132,7 +132,7 @@ describe("initiative dashboard", () => {
 
     await initiativeStore.createInitiative({
       title: "Roadmap resilience",
-      objective: "Keep dashboard reads truthful when linked artifacts disappear.",
+      objective: "Keep overview reads truthful when linked artifacts disappear.",
       specChangeIds: [spec.summary.id],
       ticketIds: [ticket.summary.id],
       roadmapRefs: ["item-001"],
@@ -203,10 +203,10 @@ describe("initiative dashboard", () => {
     expect(initiative.state.roadmapRefs).toEqual(["item-404"]);
     expect(initiative.state.specChangeIds).toEqual(["missing-spec"]);
     expect(initiative.state.ticketIds).toEqual(["missing-ticket"]);
-    expect(initiative.dashboard.linkedRoadmap).toEqual({ total: 0, items: [] });
-    expect(initiative.dashboard.linkedSpecs.total).toBe(0);
-    expect(initiative.dashboard.linkedTickets.total).toBe(0);
-    expect(initiative.dashboard.unlinkedReferences).toEqual({
+    expect(initiative.overview.linkedRoadmap).toEqual({ total: 0, items: [] });
+    expect(initiative.overview.linkedSpecs.total).toBe(0);
+    expect(initiative.overview.linkedTickets.total).toBe(0);
+    expect(initiative.overview.unlinkedReferences).toEqual({
       roadmapRefs: ["item-404"],
       specChangeIds: ["missing-spec", spec.summary.id],
       ticketIds: ["missing-ticket", ticket.summary.id],

@@ -13,7 +13,6 @@ When active, the extension teaches the model to preserve project-defining intent
 - compiled brief for AI-facing prompt grounding
 - AI-facing `constitution_*` tools with built-in prompt guidance
 - system-prompt augmentation via `before_agent_start`
-- machine-usable dashboard summaries over completeness and roadmap linkage
 
 ## Storage model
 

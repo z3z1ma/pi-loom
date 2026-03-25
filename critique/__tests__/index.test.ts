@@ -79,10 +79,10 @@ describe("pi-critique extension", () => {
     piCritique(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "critique_dashboard",
       "critique_finding",
       "critique_launch",
       "critique_list",
+      "critique_overview",
       "critique_read",
       "critique_run",
       "critique_write",

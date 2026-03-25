@@ -10,7 +10,7 @@ import type {
   HypothesisConfidence,
   ResearchArtifactKind,
   ResearchArtifactRecord,
-  ResearchDashboard,
+  ResearchOverview,
   ResearchHypothesisRecord,
   ResearchHypothesisStatus,
   ResearchState,
@@ -87,14 +87,14 @@ async function resolveInitiativeSummary(cwd: string, initiativeId: string): Prom
   throw new Error(`Unknown initiative: ${initiativeId}`);
 }
 
-function buildDashboard(
+function buildOverview(
   state: ResearchState,
   hypotheses: ResearchHypothesisRecord[],
   artifacts: ResearchArtifactRecord[],
   linkedInitiatives: { items: InitiativeSummary[]; missingIds: string[] },
   linkedSpecs: { items: SpecChangeSummary[]; missingIds: string[] },
   linkedTickets: { items: TicketSummary[]; missingIds: string[] },
-): ResearchDashboard {
+): ResearchOverview {
   const hypothesisCounts = zeroCounts<ResearchHypothesisStatus>(["open", "supported", "rejected", "superseded"]);
   const confidenceCounts = zeroCounts<HypothesisConfidence>(["low", "medium", "high"]);
   for (const hypothesis of hypotheses) {
@@ -177,16 +177,16 @@ function buildDashboard(
   };
 }
 
-export async function buildResearchDashboard(
+export async function buildResearchOverview(
   cwd: string,
   state: ResearchState,
   hypotheses: ResearchHypothesisRecord[],
   artifacts: ResearchArtifactRecord[],
-): Promise<ResearchDashboard> {
+): Promise<ResearchOverview> {
   const specStore = createSpecStore(cwd);
   const ticketStore = createTicketStore(cwd);
 
-  return buildDashboard(
+  return buildOverview(
     state,
     hypotheses,
     artifacts,

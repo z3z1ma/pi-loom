@@ -6,7 +6,7 @@ This package adds a first-class documentation layer with canonical records store
 
 ## Capabilities
 
-- `docs_*` tools for list/read/write/packet/update/dashboard workflows
+- `docs_*` tools for list/read/write/packet/update/overview workflows
 - `docs_list` is broad-text-first; exact-match narrowing parameters are prefixed with `exact*`, and zero-result overfiltered searches surface broader-match diagnostics instead of a bare empty state
 - canonical documentation records stored in SQLite with revision history, and update packets or documentation views rendered from canonical records for inspection or explicit export
 - ingestion of existing repository documentation (READMEs, architecture notes) via `upstreamPath`, creating a reasoned metadata layer (tags, topics, semantic links) over raw source files

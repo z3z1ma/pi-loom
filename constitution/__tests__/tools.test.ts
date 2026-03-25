@@ -68,7 +68,7 @@ describe("constitution tools", () => {
     registerConstitutionTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "constitution_dashboard",
+      "constitution_overview",
       "constitution_read",
       "constitution_roadmap",
       "constitution_write",
@@ -86,7 +86,7 @@ describe("constitution tools", () => {
     );
   });
 
-  it("returns machine-usable shapes for read, write, roadmap, and dashboard flows", async () => {
+  it("returns machine-usable shapes for read, write, roadmap, and overview flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       process.env.PI_LOOM_ROOT = path.join(cwd, ".pi-loom-test");
@@ -98,7 +98,7 @@ describe("constitution tools", () => {
       const constitutionWrite = getTool(mockPi, "constitution_write");
       const constitutionRead = getTool(mockPi, "constitution_read");
       const constitutionRoadmap = getTool(mockPi, "constitution_roadmap");
-      const constitutionDashboard = getTool(mockPi, "constitution_dashboard");
+      const constitutionOverview = getTool(mockPi, "constitution_overview");
 
       const initialized = await constitutionWrite.execute(
         "call-1",
@@ -297,9 +297,9 @@ describe("constitution tools", () => {
         item: { id: "item-001", title: "Launch constitutional memory" },
       });
 
-      const dashboard = await constitutionDashboard.execute("call-9", {}, undefined, undefined, ctx);
-      expect(dashboard.details).toMatchObject({
-        dashboard: {
+      const overview = await constitutionOverview.execute("call-9", {}, undefined, undefined, ctx);
+      expect(overview.details).toMatchObject({
+        overview: {
           roadmap: { total: 1, activeItemIds: ["item-001"] },
           linkedWork: { initiativeIds: ["constitutional-foundation", "strategy-sync"] },
         },

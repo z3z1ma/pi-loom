@@ -322,7 +322,7 @@ export interface RalphRunSummary {
   runRef: string;
 }
 
-export interface RalphDashboardLatestIteration {
+export interface RalphOverviewLatestIteration {
   id: string;
   iteration: number;
   status: RalphIterationStatus;
@@ -330,7 +330,7 @@ export interface RalphDashboardLatestIteration {
   completedAt: string | null;
 }
 
-export interface RalphDashboardLatestRuntime {
+export interface RalphOverviewLatestRuntime {
   id: string;
   iterationId: string;
   iteration: number;
@@ -344,13 +344,13 @@ export interface RalphDashboardLatestRuntime {
   jobId: string | null;
 }
 
-export interface RalphDashboard {
+export interface RalphOverview {
   run: RalphRunSummary;
   packetRef: string;
   runRef: string;
   launchRef: string;
-  latestBoundedIteration: RalphDashboardLatestIteration | null;
-  latestRuntime: RalphDashboardLatestRuntime | null;
+  latestBoundedIteration: RalphOverviewLatestIteration | null;
+  latestRuntime: RalphOverviewLatestRuntime | null;
   counts: {
     iterations: number;
     byStatus: Record<RalphIterationStatus, number>;
@@ -369,7 +369,7 @@ export interface RalphReadResult {
   iterations: RalphIterationRecord[];
   runtimeArtifacts: RalphIterationRuntimeRecord[];
   launch: RalphLaunchDescriptor;
-  dashboard: RalphDashboard;
+  overview: RalphOverview;
   artifacts: RalphArtifactPaths;
 }
 

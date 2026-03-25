@@ -1,5 +1,5 @@
 import { renderPortableRepositoryPathList } from "#storage/repository-path.js";
-import type { PlanDashboard, PlanDashboardTicket, PlanReadResult, PlanState, PlanSummary } from "./models.js";
+import type { PlanOverview, PlanOverviewTicket, PlanReadResult, PlanState, PlanSummary } from "./models.js";
 
 function renderList(values: readonly string[]): string {
   return values.length > 0 ? values.join(", ") : "none";
@@ -13,7 +13,7 @@ function renderRepository(summary: PlanSummary): string {
   return summary.repository ? ` repo=${summary.repository.slug}` : "";
 }
 
-function renderTicketProgress(tickets: PlanDashboardTicket[]): string {
+function renderTicketProgress(tickets: PlanOverviewTicket[]): string {
   if (tickets.length === 0) {
     return "- [ ] No tickets linked yet.";
   }
@@ -27,7 +27,7 @@ function renderTicketProgress(tickets: PlanDashboardTicket[]): string {
     .join("\n");
 }
 
-function renderProgress(state: PlanState, tickets: PlanDashboardTicket[]): string {
+function renderProgress(state: PlanState, tickets: PlanOverviewTicket[]): string {
   const progress =
     state.progress.length > 0
       ? state.progress
@@ -71,7 +71,7 @@ function renderRevisionNotes(state: PlanState): string {
     .join("\n\n");
 }
 
-function renderTicketList(tickets: PlanDashboardTicket[]): string {
+function renderTicketList(tickets: PlanOverviewTicket[]): string {
   if (tickets.length === 0) {
     return "- (none linked)";
   }
@@ -84,7 +84,7 @@ export function renderPlanSummary(summary: PlanSummary): string {
   return `${summary.id} [${summary.status}]${renderRepository(summary)} ${summary.title}`;
 }
 
-export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanDashboardTicket[]): string {
+export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanOverviewTicket[]): string {
   const sourceTarget = `${state.sourceTarget.kind}:${state.sourceTarget.ref}`;
   const renderedScopePaths = renderPortableRepositoryPathList(state.scopePaths);
   const scopePaths = renderedScopePaths.length > 0 ? `\n\nScope paths: ${renderedScopePaths.join(", ")}` : "";
@@ -191,8 +191,8 @@ export function renderPlanDetail(result: PlanReadResult): string {
         : "(none)"
     }`,
     `Plan ref: ${result.summary.ref}`,
-    `Packet ref: ${result.dashboard.packetRef}`,
-    `Plan document ref: ${result.dashboard.planRef}`,
+    `Packet ref: ${result.overview.packetRef}`,
+    `Plan document ref: ${result.overview.planRef}`,
     `Source target: ${result.state.sourceTarget.kind}:${result.state.sourceTarget.ref}`,
     `Linked tickets: ${result.state.linkedTickets.length}`,
     `Scope paths: ${renderList(scopePaths)}`,
@@ -203,22 +203,22 @@ export function renderPlanDetail(result: PlanReadResult): string {
   ].join("\n");
 }
 
-export function renderDashboard(dashboard: PlanDashboard): string {
-  const scopePaths = renderPortableRepositoryPathList(dashboard.scopePaths);
+export function renderOverview(overview: PlanOverview): string {
+  const scopePaths = renderPortableRepositoryPathList(overview.scopePaths);
   return [
-    renderPlanSummary(dashboard.plan),
+    renderPlanSummary(overview.plan),
     `Repository: ${
-      dashboard.plan.repository
-        ? `${dashboard.plan.repository.displayName} [${dashboard.plan.repository.id}]`
+      overview.plan.repository
+        ? `${overview.plan.repository.displayName} [${overview.plan.repository.id}]`
         : "(none)"
     }`,
-    `Plan ref: ${dashboard.plan.ref}`,
-    `Packet ref: ${dashboard.packetRef}`,
-    `Plan document ref: ${dashboard.planRef}`,
-    `Source target: ${dashboard.sourceTarget.kind}:${dashboard.sourceTarget.ref}`,
-    `Tickets: ${dashboard.counts.tickets}`,
+    `Plan ref: ${overview.plan.ref}`,
+    `Packet ref: ${overview.packetRef}`,
+    `Plan document ref: ${overview.planRef}`,
+    `Source target: ${overview.sourceTarget.kind}:${overview.sourceTarget.ref}`,
+    `Tickets: ${overview.counts.tickets}`,
     `Ticket statuses: ${
-      Object.entries(dashboard.counts.byStatus)
+      Object.entries(overview.counts.byStatus)
         .map(([status, count]) => `${status}=${count}`)
         .join(", ") || "none"
     }`,

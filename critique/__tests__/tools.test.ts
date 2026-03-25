@@ -104,10 +104,10 @@ describe("critique tools", () => {
     registerCritiqueTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "critique_dashboard",
       "critique_finding",
       "critique_launch",
       "critique_list",
+      "critique_overview",
       "critique_read",
       "critique_run",
       "critique_write",
@@ -125,7 +125,7 @@ describe("critique tools", () => {
     );
   });
 
-  it("returns machine-usable shapes for create, launch, run, finding, dashboard, and list flows", async () => {
+  it("returns machine-usable shapes for create, launch, run, finding, overview, and list flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
@@ -138,7 +138,7 @@ describe("critique tools", () => {
       const critiqueLaunch = getTool(mockPi, "critique_launch");
       const critiqueRun = getTool(mockPi, "critique_run");
       const critiqueFinding = getTool(mockPi, "critique_finding");
-      const critiqueDashboard = getTool(mockPi, "critique_dashboard");
+      const critiqueOverview = getTool(mockPi, "critique_overview");
       const critiqueList = getTool(mockPi, "critique_list");
 
       const created = await critiqueWrite.execute(
@@ -303,15 +303,15 @@ describe("critique tools", () => {
         },
       });
 
-      const dashboard = await critiqueDashboard.execute(
+      const overview = await critiqueOverview.execute(
         "call-7",
         { ref: "critique-workspace-plan" },
         undefined,
         undefined,
         ctx,
       );
-      expect(dashboard.details).toMatchObject({
-        dashboard: {
+      expect(overview.details).toMatchObject({
+        overview: {
           critique: {
             id: "critique-workspace-plan",
             repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
@@ -385,7 +385,11 @@ describe("critique tools", () => {
           spaceId: identity.space.id,
           repositoryId: serviceA.id,
           worktreeId: expect.any(String),
+          repositoryRoot: expect.stringContaining("pi-critique-tools-multi-"),
+          worktreePath: expect.stringContaining("service-a"),
         }),
+        undefined,
+        undefined,
       );
     } finally {
       delete process.env.PI_LOOM_ROOT;

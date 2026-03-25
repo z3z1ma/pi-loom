@@ -4,7 +4,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
 import { readRuntimeScopeFromEnv, resolveEntityRuntimeScope } from "#storage/runtime-scope.js";
-import { renderCritiqueDetail, renderDashboard } from "../domain/render.js";
+import { renderCritiqueDetail, renderOverview } from "../domain/render.js";
 import { runCritiqueLaunch } from "../domain/runtime.js";
 import { createCritiqueStore } from "../domain/store.js";
 
@@ -182,7 +182,7 @@ const CritiqueFindingParams = Type.Object({
   ticketTitle: Type.Optional(Type.String()),
 });
 
-const CritiqueDashboardParams = Type.Object({
+const CritiqueOverviewParams = Type.Object({
   ref: Type.String(),
 });
 
@@ -544,18 +544,18 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "critique_dashboard",
-    label: "critique_dashboard",
-    description: "Read the machine-usable critique dashboard rollup for observability and automation.",
+    name: "critique_overview",
+    label: "critique_overview",
+    description: "Read the machine-usable critique overview rollup for observability and automation.",
     promptSnippet:
-      "Use dashboard output when you need critique counts, open findings, and follow-up tickets at a glance.",
+      "Use overview output when you need critique counts, open findings, and follow-up tickets at a glance.",
     promptGuidelines: [
-      "Prefer the dashboard for automation and triage; prefer critique_read when you need full packet context.",
+      "Prefer the overview for automation and triage; prefer critique_read when you need full packet context.",
     ],
-    parameters: CritiqueDashboardParams,
+    parameters: CritiqueOverviewParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const critique = await getStore(ctx).readCritiqueAsync(params.ref);
-      return machineResult({ dashboard: critique.dashboard }, renderDashboard(critique.dashboard));
+      return machineResult({ overview: critique.overview }, renderOverview(critique.overview));
     },
   });
 }

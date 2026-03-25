@@ -10,7 +10,7 @@
 1. A slash command or tool call enters through an area entrypoint such as `ticketing/index.ts` or `specs/index.ts`.
 2. Each area's `index.ts` registers its command/tool surface, initializes its ledger on `session_start`, and appends area-specific prompt guidance on `before_agent_start`.
 3. `commands/*.ts` handle human-facing slash commands; `tools/*.ts` expose AI-facing tool APIs.
-4. `domain/*.ts` owns the repo-materialized model: `store.ts`, `models.ts`, `paths.ts`, `normalize.ts`, `render.ts`, plus area-specific helpers like `dashboard.ts`, `frontmatter.ts`, `projection.ts`, `graph.ts`, or `runtime.ts`.
+4. `domain/*.ts` owns the repo-materialized model: `store.ts`, `models.ts`, `paths.ts`, `normalize.ts`, `render.ts`, plus area-specific helpers like `overview.ts`, `frontmatter.ts`, `projection.ts`, `graph.ts`, or `runtime.ts`.
 5. Domain stores own the package-local model and canonical SQLite projection logic; when human-facing artifacts are exported, they are derived from canonical records rather than treated as primary state.
 6. Many stores sync canonical records and projections through `pi-loom/storage`; any future `.loom/` export is one-way and review-oriented rather than a second system of record.
 7. Area entrypoints also export a `_test` object so command handlers, prompt builders, and stores can be exercised directly from Vitest.
@@ -71,7 +71,7 @@ The package manifest is the top-level `package.json`; contributor workflows are 
   - `index.ts` — extension entrypoint
   - `commands/*.ts` — slash command handlers
   - `tools/*.ts` — AI tool registration
-  - `domain/*.ts` — persistence, rendering, normalization, dashboards
+  - `domain/*.ts` — persistence, rendering, normalization, overviews
   - `prompts/guidance.ts` and `prompts/base-*.md` — system prompt augmentation
 - Entry points usually register one slash command + one tool family, initialize the store on `session_start` and `before_agent_start`, and expose a `_test` export.
 - Stores increasingly follow a projection + canonical-sync pattern: keep canonical entity/projection data in `pi-loom/storage`, and treat any exported repo artifacts as derived review surfaces rather than primary state.
@@ -112,10 +112,10 @@ The package manifest is the top-level `package.json`; contributor workflows are 
 - Area-specific suites cover the domain-specific pieces:
   - `ticketing`: `graph`, `attachments`, `journal`, `checkpoints`
   - `specs`: `analysis`, `checklist`, `projection`
-  - `initiatives`: `dashboard`
+  - `initiatives`: `overview`
   - `research`: `integration-smoke`
   - `critique`, `docs`, `ralph`: `runtime`
-- Runtime tests often assert repo-relative path rendering and CLI spawn resolution; avoid introducing absolute-path assumptions in dashboards, prompts, or launch descriptors.
+- Runtime tests often assert repo-relative path rendering and CLI spawn resolution; avoid introducing absolute-path assumptions in overviews, prompts, or launch descriptors.
 - No coverage thresholds are configured in `vitest.config.ts`; rely on symmetric test updates instead. If you change a store, tool, command, runtime adapter, or prompt builder, add or update the corresponding test file in the same package.
 - Prompt guidance is part of the product. Changes to `prompts/` should be reflected in `prompt-guidance.test.ts`.
 

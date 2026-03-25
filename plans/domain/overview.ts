@@ -1,5 +1,5 @@
 import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
-import type { PlanDashboard, PlanDashboardTicket, PlanState, PlanSummary } from "./models.js";
+import type { PlanOverview, PlanOverviewTicket, PlanState, PlanSummary } from "./models.js";
 
 export function getPlanRef(state: PlanState): string {
   return `plan:${state.planId}`;
@@ -32,11 +32,11 @@ export function summarizePlan(state: PlanState, repository: LoomRepositoryQualif
   };
 }
 
-export function buildPlanDashboard(
+export function buildPlanOverview(
   state: PlanState,
-  linkedTickets: PlanDashboardTicket[],
+  linkedTickets: PlanOverviewTicket[],
   repository: LoomRepositoryQualifier | null = null,
-): PlanDashboard {
+): PlanOverview {
   const linkedTicketSnapshot = linkedTickets.map((ticket) => ({ ...ticket }));
   const byStatus = linkedTicketSnapshot.reduce<Record<string, number>>((acc, ticket) => {
     acc[ticket.status] = (acc[ticket.status] ?? 0) + 1;

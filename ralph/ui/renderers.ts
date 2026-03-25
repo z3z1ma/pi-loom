@@ -307,8 +307,8 @@ export function renderRalphReadResult(
   const details =
     result.details && typeof result.details === "object" ? (result.details as Record<string, unknown>) : null;
   const run = (details?.run as RalphReadResult | RalphRunSummary | undefined) ?? undefined;
-  const dashboard =
-    (details?.dashboard as
+  const overview =
+    (details?.overview as
       | { run?: RalphRunSummary; waitingFor?: string; latestDecision?: { kind?: string | null } }
       | undefined) ?? undefined;
   const text = result.content.find((entry) => entry.type === "text")?.text ?? "";
@@ -325,12 +325,12 @@ export function renderRalphReadResult(
     }
     return new Text(lines.join("\n"), 0, 0);
   }
-  if (dashboard?.run) {
+  if (overview?.run) {
     lines.push(
-      `${theme.fg("accent", theme.bold(`Ralph: ${dashboard.run.title}`))} ${theme.fg(statusColor(dashboard.run.status), `[${dashboard.run.status}/${dashboard.run.phase}]`)}`,
+      `${theme.fg("accent", theme.bold(`Ralph: ${overview.run.title}`))} ${theme.fg(statusColor(overview.run.status), `[${overview.run.status}/${overview.run.phase}]`)}`,
     );
-    lines.push(line(theme, "Decision:", theme.fg("muted", dashboard.latestDecision?.kind ?? "none")));
-    lines.push(line(theme, "Waiting:", theme.fg("muted", dashboard.waitingFor ?? "none")));
+    lines.push(line(theme, "Decision:", theme.fg("muted", overview.latestDecision?.kind ?? "none")));
+    lines.push(line(theme, "Waiting:", theme.fg("muted", overview.waitingFor ?? "none")));
     return new Text(lines.join("\n"), 0, 0);
   }
   return new Text(theme.fg("dim", truncateToWidth(text, options.expanded ? 400 : 100)), 0, 0);

@@ -81,8 +81,8 @@ describe("pi-initiatives extension", () => {
     piInitiatives(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "initiative_dashboard",
       "initiative_list",
+      "initiative_overview",
       "initiative_read",
       "initiative_write",
     ]);

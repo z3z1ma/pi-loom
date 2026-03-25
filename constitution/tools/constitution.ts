@@ -8,7 +8,7 @@ import type {
   UpdateRoadmapItemInput,
   UpdateVisionInput,
 } from "../domain/models.js";
-import { renderConstitutionDashboard, renderConstitutionDetail, renderRoadmapItemDetail } from "../domain/render.js";
+import { renderConstitutionOverview, renderConstitutionDetail, renderRoadmapItemDetail } from "../domain/render.js";
 import { createConstitutionalStore } from "../domain/store.js";
 
 const ConstitutionSectionEnum = StringEnum([
@@ -88,7 +88,7 @@ const ConstitutionRoadmapParams = Type.Object({
   initiativeId: Type.Optional(Type.String()),
 });
 
-const ConstitutionDashboardParams = Type.Object({});
+const ConstitutionOverviewParams = Type.Object({});
 
 type ConstitutionReadParamsValue = Static<typeof ConstitutionReadParams>;
 type ConstitutionWriteParamsValue = Static<typeof ConstitutionWriteParams>;
@@ -353,20 +353,20 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "constitution_dashboard",
-    label: "constitution_dashboard",
-    description: "Read a machine-usable constitutional dashboard summarizing completeness, roadmap, and linked work.",
+    name: "constitution_overview",
+    label: "constitution_overview",
+    description: "Read a machine-usable constitutional overview summarizing completeness, roadmap, and linked work.",
     promptSnippet:
-      "Use the constitutional dashboard to reason over governing completeness, roadmap load, and linked work before strategic changes.",
+      "Use the constitutional overview to reason over governing completeness, roadmap load, and linked work before strategic changes.",
     promptGuidelines: [
       "Use this tool to decide whether constitutional grounding is complete enough before planning downstream work.",
     ],
-    parameters: ConstitutionDashboardParams,
+    parameters: ConstitutionOverviewParams,
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const constitution = await getStore(ctx).readConstitution();
       return machineResult(
-        { dashboard: constitution.dashboard, constitution },
-        renderConstitutionDashboard(constitution.dashboard),
+        { overview: constitution.overview, constitution },
+        renderConstitutionOverview(constitution.overview),
       );
     },
   });

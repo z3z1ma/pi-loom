@@ -66,8 +66,8 @@ describe("plan tools", () => {
     registerPlanTools(mockPi as unknown as ExtensionAPI);
 
     expect([...mockPi.tools.keys()].sort()).toEqual([
-      "plan_dashboard",
       "plan_list",
+      "plan_overview",
       "plan_packet",
       "plan_read",
       "plan_ticket_link",
@@ -113,7 +113,7 @@ describe("plan tools", () => {
     ).toMatchObject({ type: "string", optional: true });
     expect(
       (
-        getTool(mockPi, "plan_dashboard").parameters as unknown as {
+        getTool(mockPi, "plan_overview").parameters as unknown as {
           properties: {
             repositoryId: { type: string; optional: boolean };
             worktreeId: { type: string; optional: boolean };
@@ -123,7 +123,7 @@ describe("plan tools", () => {
     ).toMatchObject({ type: "string", optional: true });
   });
 
-  it("returns machine-usable shapes for create, read, packet, ticket-link, dashboard, and list flows", async () => {
+  it("returns machine-usable shapes for create, read, packet, ticket-link, overview, and list flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
@@ -136,7 +136,7 @@ describe("plan tools", () => {
       const planRead = getTool(mockPi, "plan_read");
       const planPacket = getTool(mockPi, "plan_packet");
       const planTicketLink = getTool(mockPi, "plan_ticket_link");
-      const planDashboard = getTool(mockPi, "plan_dashboard");
+      const planOverview = getTool(mockPi, "plan_overview");
       const planList = getTool(mockPi, "plan_list");
 
       const created = await planWrite.execute(
@@ -176,7 +176,7 @@ describe("plan tools", () => {
 
       const ticket = await ticketStore.createTicketAsync({
         title: "Implement plan store",
-        summary: "Persist state, packet, plan markdown, and dashboard artifacts.",
+        summary: "Persist state, packet, plan markdown, and overview artifacts.",
       });
 
       const linked = await planTicketLink.execute(
@@ -224,15 +224,15 @@ describe("plan tools", () => {
       expect(read.content[0].text).toContain("## Idempotence and Recovery");
       expect(read.content[0].text).toContain("## Revision Notes");
 
-      const dashboard = await planDashboard.execute(
+      const overview = await planOverview.execute(
         "call-5",
         { ref: "planning-layer-rollout" },
         undefined,
         undefined,
         ctx,
       );
-      expect(dashboard.details).toMatchObject({
-        dashboard: {
+      expect(overview.details).toMatchObject({
+        overview: {
           plan: {
             id: "planning-layer-rollout",
             repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),

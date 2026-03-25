@@ -27,13 +27,13 @@ import {
 } from "#storage/workspace.js";
 import type { TicketReadResult } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildPlanDashboard, getPlanTicketRef, summarizePlan } from "./dashboard.js";
+import { buildPlanOverview, getPlanTicketRef, summarizePlan } from "./overview.js";
 import type {
   CreatePlanInput,
   LinkPlanTicketInput,
   PlanContextRefs,
   PlanContextRefsUpdate,
-  PlanDashboardTicket,
+  PlanOverviewTicket,
   PlanListFilter,
   PlanReadResult,
   PlanRevisionRecord,
@@ -267,7 +267,7 @@ interface ResolvedPlanContext {
   tickets: string[];
   critiques: string[];
   docs: string[];
-  linkedTickets: PlanDashboardTicket[];
+  linkedTickets: PlanOverviewTicket[];
   packetSummary: string;
 }
 
@@ -421,7 +421,7 @@ export class PlanStore {
           specChangeIds: attributes.state.specChangeIds,
           ticketIds: attributes.state.ticketIds,
         },
-        dashboard: {} as ResearchRecord["dashboard"],
+        overview: {} as ResearchRecord["overview"],
         map: {} as ResearchRecord["map"],
       } as unknown as ResearchRecord;
     } catch {
@@ -567,7 +567,7 @@ export class PlanStore {
     }
   }
 
-  private async resolveLinkedTicketsAsync(state: PlanState): Promise<PlanDashboardTicket[]> {
+  private async resolveLinkedTicketsAsync(state: PlanState): Promise<PlanOverviewTicket[]> {
     const tickets = await Promise.all(
       state.linkedTickets.map(async (link) => {
         const ticket = await this.safeReadTicketAsync(link.ticketId);
@@ -792,14 +792,14 @@ export class PlanStore {
       .trimEnd()}\n`;
     const plan = renderPlanMarkdown(nextState, linkedTickets);
     const repository = resolveRepositoryQualifier(availableRepositories, repositoryId);
-    const dashboard = buildPlanDashboard(nextState, linkedTickets, repository);
+    const overview = buildPlanOverview(nextState, linkedTickets, repository);
 
     return {
       state: nextState,
       summary: summarizePlan(nextState, repository),
       packet,
       plan,
-      dashboard,
+      overview,
     };
   }
 

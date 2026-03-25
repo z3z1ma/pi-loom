@@ -102,7 +102,7 @@ export interface PlanSummary {
   ref: string;
 }
 
-export interface PlanDashboardTicket {
+export interface PlanOverviewTicket {
   ticketId: string;
   role: string | null;
   order: number;
@@ -111,14 +111,14 @@ export interface PlanDashboardTicket {
   ref: string;
 }
 
-export interface PlanDashboard {
+export interface PlanOverview {
   plan: PlanSummary;
   packetRef: string;
   planRef: string;
   sourceTarget: PlanSourceTarget;
   contextRefs: PlanContextRefs;
   scopePaths: LoomPortableRepositoryPath[];
-  linkedTickets: PlanDashboardTicket[];
+  linkedTickets: PlanOverviewTicket[];
   counts: {
     tickets: number;
     byStatus: Record<string, number>;
@@ -130,7 +130,7 @@ export interface PlanReadResult {
   summary: PlanSummary;
   packet: string;
   plan: string;
-  dashboard: PlanDashboard;
+  overview: PlanOverview;
 }
 
 export interface PlanListFilter {
