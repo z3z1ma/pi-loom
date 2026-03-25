@@ -1,10 +1,22 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { reserveBranchFamilyName } from "#storage/branch-reservations.js";
+import { findEntityByDisplayId } from "#storage/entities.js";
+import { openRepositoryWorkspaceStorage } from "#storage/workspace.js";
+import type { TicketReadResult } from "#ticketing/domain/models.js";
 
 export interface WorktreeNamingContext {
   ref: string;
   externalRefs?: string[];
+}
+
+export interface ManagedWorktreeBranchRequest {
+  cwd: string;
+  repositoryId: string;
+  ticket: TicketReadResult;
+  ownerKey: string;
+  metadata?: Record<string, unknown>;
 }
 
 function execGit(repoRoot: string, args: string[]): string {
@@ -30,6 +42,51 @@ function listBranches(repoRoot: string): string[] {
     .split("\n")
     .map((b) => b.trim())
     .filter(Boolean);
+}
+
+export async function resolveManagedWorktreeBranchName({
+  cwd,
+  repositoryId,
+  ticket,
+  ownerKey,
+  metadata,
+}: ManagedWorktreeBranchRequest): Promise<string> {
+  const branchMode = ticket.ticket.frontmatter["branch-mode"];
+  const branchFamily = ticket.ticket.frontmatter["branch-family"];
+  const exactBranchName = ticket.ticket.frontmatter["exact-branch-name"];
+
+  if (branchMode === "exact") {
+    if (!exactBranchName) {
+      throw new Error(`Ticket ${ticket.summary.id} is in exact branch mode but has no exact branch name.`);
+    }
+    return exactBranchName;
+  }
+
+  const resolvedFamily = branchMode === "allocator" ? branchFamily : `ralph/${ticket.summary.id}`;
+  if (!resolvedFamily) {
+    throw new Error(
+      `Ticket ${ticket.summary.id} must declare a branch family for allocator-backed worktree execution.`,
+    );
+  }
+
+  const { storage, identity } = await openRepositoryWorkspaceStorage(cwd, { repositoryId });
+  const ticketEntity = await findEntityByDisplayId(storage, identity.space.id, "ticket", ticket.summary.id);
+  const reservation = await reserveBranchFamilyName(storage, {
+    repositoryId,
+    branchFamily: resolvedFamily,
+    ownerKey,
+    ownerEntityId: ticketEntity?.id ?? null,
+    ownerEntityKind: ticketEntity ? "ticket" : null,
+    timestamp: new Date().toISOString(),
+    metadata: {
+      source: "managed-worktree",
+      ticketId: ticket.summary.id,
+      ticketRef: ticket.summary.ref,
+      branchMode,
+      ...(metadata ?? {}),
+    },
+  });
+  return reservation.branchName;
 }
 
 interface WorktreeDetail {

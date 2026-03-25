@@ -1,15 +1,16 @@
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createSeededGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import {
   PI_LOOM_RUNTIME_REPOSITORY_ID_ENV,
   PI_LOOM_RUNTIME_SPACE_ID_ENV,
   PI_LOOM_RUNTIME_WORKTREE_ID_ENV,
   PI_LOOM_RUNTIME_WORKTREE_PATH_ENV,
 } from "#storage/runtime-scope.js";
-import { buildDocumentationOverview } from "../domain/overview.js";
 import type { DocumentationState } from "../domain/models.js";
+import { buildDocumentationOverview } from "../domain/overview.js";
 import { renderUpdateDescriptor, renderUpdatePrompt } from "../domain/render.js";
-import { getDocsUpdateLaunchConfig, resolveDocsPackageRoot } from "../domain/runtime.js";
+import { getDocsUpdateLaunchConfig, resolveDocsPackageRoot, runDocsUpdate } from "../domain/runtime.js";
 
 function createState(overrides: Partial<DocumentationState> = {}): DocumentationState {
   return {
@@ -88,4 +89,46 @@ describe("docs reference rendering", () => {
     );
     expect(renderUpdatePrompt("/tmp/workspace/docs", state)).not.toContain("../");
   });
+});
+
+describe("docs worktree branch policy", () => {
+  it("uses managed branch reservations instead of external-ref ordering", async () => {
+    const workspace = createSeededGitWorkspace({
+      prefix: "pi-docs-runtime-branch-",
+      packageName: "pi-loom",
+      remoteUrl: "git@github.com:example/pi-loom.git",
+    });
+
+    try {
+      const ticketStore = (await import("#ticketing/domain/store.js")).createTicketStore(workspace.cwd);
+      const created = await ticketStore.createTicketAsync({
+        title: "Docs branch reservation ticket",
+        branchMode: "allocator",
+        branchFamily: "UDP-100",
+        externalRefs: ["ZZZ-2", "AAA-1"],
+      });
+
+      const worktreeModule = await import("#ralph/domain/worktree.js");
+      const harnessModule = await import("#ralph/domain/harness.js");
+      const provisionSpy = vi.spyOn(worktreeModule, "provisionWorktree").mockReturnValue(workspace.cwd);
+      const harnessSpy = vi.spyOn(harnessModule, "runHarnessLaunch").mockResolvedValue({
+        command: "pi",
+        args: [],
+        exitCode: 0,
+        output: "ok",
+        stderr: "",
+        usage: { measured: false, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+        status: "completed",
+        completedAt: new Date().toISOString(),
+        events: [],
+      });
+
+      await runDocsUpdate(workspace.cwd, "Update docs", undefined, undefined, undefined, created.summary.id, true);
+
+      expect(provisionSpy).toHaveBeenCalledWith(workspace.cwd, "UDP-100");
+      expect(harnessSpy).toHaveBeenCalled();
+    } finally {
+      workspace.cleanup();
+    }
+  }, 30000);
 });
