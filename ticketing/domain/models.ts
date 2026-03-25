@@ -22,6 +22,7 @@ export const TICKET_TYPES = ["task", "bug", "feature", "epic", "chore", "review"
 export const TICKET_PRIORITIES = ["low", "medium", "high", "critical"] as const;
 export const TICKET_RISKS = ["low", "medium", "high"] as const;
 export const REVIEW_STATUSES = ["none", "requested", "changes_requested", "approved"] as const;
+export const TICKET_BRANCH_MODES = ["none", "allocator", "exact"] as const;
 export const JOURNAL_KINDS = [
   "note",
   "decision",
@@ -39,6 +40,7 @@ export type TicketType = (typeof TICKET_TYPES)[number];
 export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
 export type TicketRisk = (typeof TICKET_RISKS)[number];
 export type TicketReviewStatus = (typeof REVIEW_STATUSES)[number];
+export type TicketBranchMode = (typeof TICKET_BRANCH_MODES)[number];
 export type JournalKind = (typeof JOURNAL_KINDS)[number];
 
 export interface TicketFrontmatter {
@@ -61,6 +63,9 @@ export interface TicketFrontmatter {
   risk: TicketRisk;
   "review-status": TicketReviewStatus;
   "external-refs": string[];
+  "branch-mode": TicketBranchMode;
+  "branch-family": string | null;
+  "exact-branch-name": string | null;
 }
 
 export interface TicketBody {
@@ -223,6 +228,9 @@ export interface CreateTicketInput {
   risk?: TicketRisk;
   reviewStatus?: TicketReviewStatus;
   externalRefs?: string[];
+  branchMode?: TicketBranchMode;
+  branchFamily?: string | null;
+  exactBranchName?: string | null;
 }
 
 export interface UpdateTicketInput {
@@ -241,6 +249,9 @@ export interface UpdateTicketInput {
   risk?: TicketRisk;
   reviewStatus?: TicketReviewStatus;
   externalRefs?: string[];
+  branchMode?: TicketBranchMode;
+  branchFamily?: string | null;
+  exactBranchName?: string | null;
   summary?: string;
   context?: string;
   plan?: string;

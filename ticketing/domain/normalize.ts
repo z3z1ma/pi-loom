@@ -2,9 +2,11 @@ import {
   MUTABLE_TICKET_STATUSES,
   type MutableTicketStatus,
   REVIEW_STATUSES,
+  TICKET_BRANCH_MODES,
   TICKET_PRIORITIES,
   TICKET_RISKS,
   TICKET_TYPES,
+  type TicketBranchMode,
   type TicketPriority,
   type TicketReviewStatus,
   type TicketRisk,
@@ -116,6 +118,10 @@ export function normalizeReviewStatus(value: string | undefined): TicketReviewSt
   return expectEnum("review status", value, REVIEW_STATUSES, "none");
 }
 
+export function normalizeBranchMode(value: string | undefined): TicketBranchMode {
+  return expectEnum("branch mode", value, TICKET_BRANCH_MODES, "none");
+}
+
 export function normalizeStringList(values: readonly string[] | undefined): string[] {
   return normalizeList(values);
 }
@@ -148,6 +154,44 @@ export function normalizeOptionalString(value: string | null | undefined): strin
   }
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+export interface NormalizedTicketBranchIntent {
+  branchMode: TicketBranchMode;
+  branchFamily: string | null;
+  exactBranchName: string | null;
+}
+
+export function normalizeTicketBranchIntent(input: {
+  branchMode?: string;
+  branchFamily?: string | null;
+  exactBranchName?: string | null;
+}): NormalizedTicketBranchIntent {
+  const branchMode = normalizeBranchMode(input.branchMode);
+  const branchFamily = normalizeOptionalString(input.branchFamily);
+  const exactBranchName = normalizeOptionalString(input.exactBranchName);
+
+  if (branchMode === "none") {
+    if (branchFamily || exactBranchName) {
+      throw new Error("branchFamily and exactBranchName must be omitted when branchMode is none");
+    }
+    return { branchMode, branchFamily: null, exactBranchName: null };
+  }
+
+  if (branchMode === "allocator") {
+    if (!branchFamily) {
+      throw new Error("branchFamily is required when branchMode is allocator");
+    }
+    if (exactBranchName) {
+      throw new Error("exactBranchName must be omitted when branchMode is allocator");
+    }
+    return { branchMode, branchFamily, exactBranchName: null };
+  }
+
+  if (!exactBranchName) {
+    throw new Error("exactBranchName is required when branchMode is exact");
+  }
+  return { branchMode, branchFamily, exactBranchName };
 }
 
 export function currentTimestamp(now: Date = new Date()): string {

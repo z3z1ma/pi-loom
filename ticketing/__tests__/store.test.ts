@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSeededGitWorkspace, createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { closeAllWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
+import { parseTicket, serializeTicket } from "../domain/frontmatter.js";
 import { ticketGraphNodeKey } from "../domain/graph.js";
 import { getCheckpointRef, getTicketRef } from "../domain/paths.js";
 import { createTicketStore } from "../domain/store.js";
@@ -541,5 +542,70 @@ describe("TicketStore canonical storage", () => {
       "research-ids": ["research-a"],
       "external-refs": ["plan:plan-a"],
     });
+  }, 30000);
+
+  it("persists branch intent fields and rejects conflicting combinations", async () => {
+    const store = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2024-01-07T00:00:00.000Z"));
+    const allocator = await store.createTicketAsync({
+      title: "Allocator-backed branch intent",
+      branchMode: "allocator",
+      branchFamily: "UDP-100",
+    });
+    expect(allocator.ticket.frontmatter).toMatchObject({
+      "branch-mode": "allocator",
+      "branch-family": "UDP-100",
+      "exact-branch-name": null,
+    });
+
+    const serialized = serializeTicket(allocator.ticket);
+    const reparsed = parseTicket(serialized, allocator.summary.id, false);
+    expect(reparsed.frontmatter).toMatchObject({
+      "branch-mode": "allocator",
+      "branch-family": "UDP-100",
+      "exact-branch-name": null,
+    });
+
+    vi.setSystemTime(new Date("2024-01-07T00:10:00.000Z"));
+    const exact = await store.updateTicketAsync(allocator.summary.id, {
+      branchMode: "exact",
+      exactBranchName: "release/udp-100-hotfix",
+    });
+    expect(exact.ticket.frontmatter).toMatchObject({
+      "branch-mode": "exact",
+      "branch-family": "UDP-100",
+      "exact-branch-name": "release/udp-100-hotfix",
+    });
+
+    vi.setSystemTime(new Date("2024-01-07T00:20:00.000Z"));
+    const cleared = await store.updateTicketAsync(allocator.summary.id, {
+      branchMode: "none",
+    });
+    expect(cleared.ticket.frontmatter).toMatchObject({
+      "branch-mode": "none",
+      "branch-family": null,
+      "exact-branch-name": null,
+    });
+
+    await expect(
+      store.createTicketAsync({
+        title: "Invalid exact branch",
+        branchMode: "exact",
+      }),
+    ).rejects.toThrow("exactBranchName is required when branchMode is exact");
+    await expect(
+      store.createTicketAsync({
+        title: "Invalid allocator branch",
+        branchMode: "allocator",
+        exactBranchName: "release/udp-100-hotfix",
+      }),
+    ).rejects.toThrow("branchFamily is required when branchMode is allocator");
+    await expect(
+      store.createTicketAsync({
+        title: "Invalid none branch",
+        branchFamily: "UDP-100",
+      }),
+    ).rejects.toThrow("branchFamily and exactBranchName must be omitted when branchMode is none");
   }, 30000);
 });

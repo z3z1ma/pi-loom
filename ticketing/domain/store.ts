@@ -38,6 +38,7 @@ import {
   formatTicketId,
   normalizeOptionalString,
   normalizeStringList,
+  normalizeTicketBranchIntent,
   normalizeTicketRef,
   parseTicketIdParts,
 } from "./normalize.js";
@@ -641,6 +642,11 @@ export class TicketStore {
     const existing = await this.canonicalRecords();
     const ticketPrefix = await this.resolveTicketDisplayPrefix(storage, identity);
     const ticketId = this.nextTicketId(existing, ticketPrefix);
+    const branchIntent = normalizeTicketBranchIntent({
+      branchMode: input.branchMode,
+      branchFamily: input.branchFamily,
+      exactBranchName: input.exactBranchName,
+    });
     const ticketRecord: TicketRecord = {
       frontmatter: {
         id: ticketId,
@@ -662,6 +668,9 @@ export class TicketStore {
         risk: input.risk ?? "medium",
         "review-status": input.reviewStatus ?? "none",
         "external-refs": normalizeStringList(input.externalRefs),
+        "branch-mode": branchIntent.branchMode,
+        "branch-family": branchIntent.branchFamily,
+        "exact-branch-name": branchIntent.exactBranchName,
       },
       body: createEmptyBody({
         summary: input.summary,
@@ -739,6 +748,19 @@ export class TicketStore {
       frontmatter: { ...current.ticket.frontmatter },
       body: { ...current.ticket.body },
     };
+    const nextBranchMode = updates.branchMode ?? record.frontmatter["branch-mode"];
+    const nextBranchFamily =
+      updates.branchFamily !== undefined
+        ? updates.branchFamily
+        : updates.branchMode === "none"
+          ? null
+          : record.frontmatter["branch-family"];
+    const nextExactBranchName =
+      updates.exactBranchName !== undefined
+        ? updates.exactBranchName
+        : updates.branchMode && updates.branchMode !== "exact"
+          ? null
+          : record.frontmatter["exact-branch-name"];
     if (updates.title !== undefined) record.frontmatter.title = updates.title.trim();
     if (updates.priority !== undefined) record.frontmatter.priority = updates.priority;
     if (updates.type !== undefined) record.frontmatter.type = updates.type;
@@ -760,6 +782,14 @@ export class TicketStore {
     if (updates.reviewStatus !== undefined) record.frontmatter["review-status"] = updates.reviewStatus;
     if (updates.externalRefs !== undefined)
       record.frontmatter["external-refs"] = normalizeStringList(updates.externalRefs);
+    const branchIntent = normalizeTicketBranchIntent({
+      branchMode: nextBranchMode,
+      branchFamily: nextBranchFamily,
+      exactBranchName: nextExactBranchName,
+    });
+    record.frontmatter["branch-mode"] = branchIntent.branchMode;
+    record.frontmatter["branch-family"] = branchIntent.branchFamily;
+    record.frontmatter["exact-branch-name"] = branchIntent.exactBranchName;
     if (updates.status !== undefined) record.frontmatter.status = updates.status;
     if (updates.summary !== undefined) record.body.summary = updates.summary.trim();
     if (updates.context !== undefined) record.body.context = updates.context.trim();
