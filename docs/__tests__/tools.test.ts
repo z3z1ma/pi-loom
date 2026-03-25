@@ -151,6 +151,7 @@ async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> 
               critiqueIds: [],
             },
             sourceTarget: { kind: "workspace", ref: "repo" },
+            upstreamPath: null,
             updateReason: "Persist canonical documentation snapshots.",
             guideTopics: ["documentation-memory"],
             linkedOutputPaths: [
@@ -227,7 +228,7 @@ describe("docs tools", () => {
     }
 
     expect(getTool(mockPi, "docs_update").promptSnippet).toContain("fresh process");
-    expect(getTool(mockPi, "docs_list").promptSnippet).toContain("substantial durable explanations");
+    expect(getTool(mockPi, "docs_list").promptSnippet).toContain("durable explanations stay consolidated");
     expect(getTool(mockPi, "docs_list").parameters).toMatchObject({
       properties: {
         exactStatus: expect.objectContaining({ enum: ["active", "archived"] }),
@@ -596,11 +597,9 @@ describe("docs tools", () => {
         expect.any(String),
         undefined,
         expect.any(Function),
-        expect.objectContaining({
-          spaceId: identity.space.id,
-          repositoryId: serviceA.id,
-          worktreeId: expect.any(String),
-        }),
+        expect.objectContaining({ repositoryId: serviceA.id }),
+        undefined,
+        undefined,
       );
     } finally {
       delete process.env.PI_LOOM_ROOT;

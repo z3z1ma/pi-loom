@@ -49,3 +49,4 @@ When planning workflow applies:
 - use plans to bridge durable understanding into staged execution, especially when an initiative or finalized spec needs a concrete linked ticket set and execution narrative wrapped around those tickets; the plan, not the spec itself, should own that execution linkage
 - keep linked ticket ids, roles, upstream source references, sequencing rationale, and validation intent truthful so the plan remains a reliable execution narrative
 - keep linked ticket integration Loom-native: plans can summarize ticket roles and current status, but tickets remain the source of live execution truth and carry their own acceptance criteria, dependencies, and execution notes
+- consult documentation memory for architectural context, constraints, and guides that should inform the execution strategy before committing to a specific approach

@@ -302,6 +302,7 @@ export class DocumentationStore {
         worktreeId: this.scope.worktreeId ?? null,
       };
     }
+    const upstreamPath = normalizeOptionalString((state as unknown as { upstreamPath?: string }).upstreamPath);
 
     const scopedPaths = [...state.scopePaths, ...state.linkedOutputPaths];
     const uniqueScopes = new Map<string, { repositoryId: string; worktreeId: string | null }>();
@@ -523,6 +524,7 @@ export class DocumentationStore {
         ref: sourceRef,
       },
       updateReason: typeof state.updateReason === "string" ? state.updateReason.trim() : "",
+      upstreamPath: "upstreamPath" in state ? normalizeOptionalString((state as { upstreamPath?: string | null }).upstreamPath) : null,
       guideTopics: normalizeStringList(state.guideTopics),
       linkedOutputPaths: normalizeStoredPortableRepositoryPathList(state.linkedOutputPaths, fallback),
       lastRevisionId: normalizeOptionalString(state.lastRevisionId),
@@ -1043,6 +1045,7 @@ export class DocumentationStore {
         `Keep ${input.title.trim()} truthful after completed work changes system understanding.`,
       guideTopics: normalizeStringList(input.guideTopics),
       linkedOutputPaths: await resolvePortableRepositoryPathInputs(this.cwd, input.linkedOutputPaths, this.scope),
+      upstreamPath: normalizeOptionalString(input.upstreamPath),
       lastRevisionId: null,
     };
   }
@@ -1143,6 +1146,7 @@ export class DocumentationStore {
       linkedOutputPaths: input.linkedOutputPaths
         ? await resolvePortableRepositoryPathInputs(this.cwd, input.linkedOutputPaths, this.scope)
         : current.state.linkedOutputPaths,
+      upstreamPath: input.upstreamPath !== undefined ? normalizeOptionalString(input.upstreamPath) : current.state.upstreamPath,
     };
     const revision = await this.buildAppendedRevision(current, nextState, documentBody, {
       changedSections: input.changedSections,

@@ -44,6 +44,7 @@ export interface DocumentationState {
   updateReason: string;
   guideTopics: string[];
   linkedOutputPaths: LoomPortableRepositoryPath[];
+  upstreamPath: string | null;
   lastRevisionId: string | null;
 }
 
@@ -58,6 +59,7 @@ export interface DocumentationSummary {
   sourceKind: DocSourceTargetKind;
   sourceRef: string;
   summary: string;
+  upstreamPath: string | null;
   revisionCount: number;
   ref: string;
 }
@@ -150,6 +152,7 @@ export interface CreateDocumentationInput {
   updateReason?: string;
   guideTopics?: string[];
   linkedOutputPaths?: string[];
+  upstreamPath?: string;
   document?: string;
 }
 
@@ -163,6 +166,7 @@ export interface UpdateDocumentationInput {
   updateReason?: string;
   guideTopics?: string[];
   linkedOutputPaths?: string[];
+  upstreamPath?: string;
   document?: string;
   changedSections?: string[];
 }

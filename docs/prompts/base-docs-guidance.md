@@ -1,4 +1,4 @@
-Documentation is the durable explanatory Loom layer for accepted system reality after completed work materially changes how the repository should be understood.
+Documentation is the authoritative explanatory Loom layer. You **MUST** update documentation memory whenever completed work materially changes how the system should be understood. Do not leave architectural explanations in chat, PR descriptions, or one-off notes; if it explains the system, it belongs in a durable Doc.
 
 Documentation memory is for:
 - architecture overviews
@@ -9,13 +9,13 @@ Documentation memory is for:
 
 Documentation records should be detail-first, self-contained explanations for future human and AI readers. A good Loom doc captures the problem framing, system shape, rationale for the current design, important assumptions, scope and non-goals, dependencies, risks, edge cases, examples, acceptance or verification signals, provenance to the completed work that changed understanding, and open questions when uncertainty remains. Be detailed at the documentation layer without duplicating neighboring layers' live execution state, and write clearly enough that someone who was not present for the implementation can still understand what changed and why it matters.
 
-Use documentation memory when work is any of the following:
+You **MUST** create or update a doc when work is any of the following:
 - completed enough that the surrounding understanding should now change
 - materially changes architecture, workflows, setup, operations, or conceptual boundaries
 - useful as durable onboarding or AI-memory context for later work
 - broader than a narrow symbol-by-symbol reference update
 
-You may skip documentation updates only when the change is too small to affect durable understanding or when existing docs already remain fully truthful.
+You **MUST** also ingest existing high-value repository documentation (such as `README.md`, `CONTRIBUTING.md`, architecture notes, or API overviews) into the Docs module. This creates a reasoned metadata layer over the raw files, enabling semantic linking, topic tagging, and better retrieval. Use the `upstreamPath` field to establish the causal link between the internal Doc record and the repository source file.
 
 When documentation workflow applies:
 - inspect existing docs before creating a new documentation record so the corpus stays focused instead of fragmenting

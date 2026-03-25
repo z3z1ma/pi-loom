@@ -25,6 +25,7 @@ Critique is distinct from execution and from Ralph looping:
 
 Default critique posture:
 - assume plausible output may still be wrong
+- consult documentation memory for authoritative architecture and constraint references against which to judge the work under review
 - look for hidden flaws, unsafe assumptions, missing tests, incomplete reasoning, roadmap drift, and constitutional violations
 - prefer a fresh reviewer context after substantive work
 - persist concrete findings and follow-up tickets instead of leaving them in chat only

@@ -120,6 +120,9 @@ const DocsWriteParams = Type.Object({
   updateReason: Type.Optional(Type.String()),
   guideTopics: Type.Optional(Type.Array(Type.String())),
   linkedOutputPaths: Type.Optional(Type.Array(Type.String())),
+  upstreamPath: Type.Optional(
+    Type.String({ description: "Path to an external source file (e.g. README.md) that this doc ingests." }),
+  ),
   document: Type.Optional(Type.String()),
   changedSections: Type.Optional(Type.Array(Type.String())),
 });
@@ -187,6 +190,7 @@ function toCreateInput(params: DocsWriteParamsValue) {
     contextRefs: params.contextRefs,
     sourceTarget: params.sourceTarget,
     updateReason: params.updateReason,
+    upstreamPath: params.upstreamPath,
     guideTopics: params.guideTopics,
     linkedOutputPaths: params.linkedOutputPaths,
     document: params.document,
@@ -202,6 +206,7 @@ function toUpdateInput(params: DocsWriteParamsValue) {
     contextRefs: params.contextRefs,
     sourceTarget: params.sourceTarget,
     updateReason: params.updateReason,
+    upstreamPath: params.upstreamPath,
     guideTopics: params.guideTopics,
     linkedOutputPaths: params.linkedOutputPaths,
     document: params.document,
@@ -216,7 +221,7 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     description:
       "List durable documentation records. Start broad with `text` when rediscovering a doc by title, topic, or source context; add exact filters such as `exactDocType`, `exactSectionGroup`, `exactSourceKind`, or `exactTopic` only when you intentionally want a narrower slice. Results default to `relevance` with `text`, otherwise `updated_desc`.",
     promptSnippet:
-      "Inspect existing documentation records before creating new docs so substantial durable explanations stay focused, non-duplicative, and attached to the right record; broad text search is the safest first pass when you do not know the exact doc classification yet, and the default relevance ordering is usually the right first view.",
+      "You **MUST** inspect existing documentation before creating new docs so durable explanations stay consolidated and non-duplicative.",
     promptGuidelines: [
       "Use this tool before creating a new documentation record so high-level topics stay consolidated in one durable, high-context document instead of fragmenting into shallow duplicates.",
       "When rediscovering a durable document, start with `text` and no exact filters; `exactStatus`, `exactDocType`, `exactSectionGroup`, `exactSourceKind`, and `exactTopic` narrow by exact stored values and can hide valid matches if guessed wrong.",
@@ -311,12 +316,13 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     label: "docs_write",
     description: "Create, update, or archive durable documentation records in local Loom memory.",
     promptSnippet:
-      "Persist substantial high-level documentation state and revisions durably instead of leaving important architecture and workflow explanations trapped in chat.",
+      "You **MUST** persist high-level documentation state durably. Do not leave architecture or workflow explanations in chat. Ingest existing repository docs (READMEs, etc.) using `upstreamPath` to build a reasoned knowledge base.",
     promptGuidelines: [
       "Create the documentation record before repeated updates so revisions accumulate on a stable durable id instead of scattering explanation across ad hoc notes.",
       "Use update with document content after completed work changes system understanding; write self-contained, high-context explanation rather than API reference snippets or shallow summaries.",
       "Updating `contextRefs` replaces the stored ref buckets you send; pass the full desired bucket contents, and use empty arrays to clear incorrect refs.",
       "Archive records when they stop describing active system reality; archiving records a final lifecycle revision and archived docs should no longer be updated.",
+      "When ingesting an existing file (like a README), set `upstreamPath` to the relative repo path; the internal doc becomes the metadata/reasoning layer over that source.",
     ],
     parameters: DocsWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

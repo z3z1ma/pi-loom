@@ -5,7 +5,7 @@ describe("docs prompt guidance", () => {
   it("loads durable docs doctrine from the packaged guidance file", () => {
     const guidance = getBaseDocsGuidance();
 
-    expect(guidance).toContain("Documentation is the durable explanatory Loom layer");
+    expect(guidance).toContain("Documentation is the authoritative explanatory Loom layer");
     expect(guidance).toContain("detail-first, self-contained explanations");
     expect(guidance).toContain("rather than API-reference snippets");
     expect(guidance).toContain("inspect existing docs before creating a new documentation record");
