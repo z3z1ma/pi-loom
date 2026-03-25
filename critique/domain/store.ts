@@ -20,6 +20,7 @@ import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
 import { requireResolvedRepositoryIdentity } from "#storage/repository.js";
 import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
+import { resolveRuntimeScopeCwd } from "#storage/runtime-scope.js";
 import {
   type LoomExplicitScopeInput,
   openRepositoryWorkspaceStorage,
@@ -28,9 +29,7 @@ import {
 } from "#storage/workspace.js";
 import type { CreateTicketInput, TicketReadResult } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildCritiqueOverview, summarizeCritique } from "./overview.js";
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
-
 import type {
   CreateCritiqueFindingInput,
   CreateCritiqueInput,
@@ -71,6 +70,7 @@ import {
   normalizeVerdict,
   slugifyTitle,
 } from "./normalize.js";
+import { buildCritiqueOverview, summarizeCritique } from "./overview.js";
 import { getCritiqueDir } from "./paths.js";
 import { renderCritiqueMarkdown, renderLaunchDescriptor } from "./render.js";
 
@@ -557,7 +557,7 @@ export class CritiqueStore {
   readonly scope: LoomExplicitScopeInput;
 
   constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
-    this.cwd = resolve(cwd);
+    this.cwd = resolveRuntimeScopeCwd(resolve(cwd));
     this.scope = scope;
   }
 

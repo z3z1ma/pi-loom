@@ -4,17 +4,24 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { createPlanStore } from "#plans/domain/store.js";
-import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
+import {
+  createSeededGitWorkspace,
+  createSeededParentGitWorkspace,
+  runTestGit,
+} from "#storage/__tests__/helpers/git-fixture.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import {
   PI_LOOM_RUNTIME_REPOSITORY_ID_ENV,
   PI_LOOM_RUNTIME_SPACE_ID_ENV,
   PI_LOOM_RUNTIME_WORKTREE_ID_ENV,
+  PI_LOOM_RUNTIME_WORKTREE_PATH_ENV,
+  runtimeScopeToEnv,
 } from "#storage/runtime-scope.js";
 import { selectActiveScope } from "#storage/scope.js";
 import { closeAllWorkspaceStorage, openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import type { ExecuteRalphLoopResult } from "../domain/loop.js";
+import { createRalphStore } from "../domain/store.js";
 
 function createMockPi(): {
   tools: Map<string, ToolDefinition>;
@@ -228,6 +235,171 @@ describe("ralph tool runtime scope integration", () => {
         delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
       } else {
         process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV] = previousRuntimeEnv.worktreeId;
+      }
+      rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
+    }
+  }, 120000);
+
+  it("reads packet state from the nested Ralph worktree when ctx.cwd still points at the parent repo", async () => {
+    const workspace = createSeededGitWorkspace({
+      prefix: "pi-ralph-tool-nested-worktree-",
+      packageName: "pi-ralph-tool-nested-worktree",
+      remoteUrl: "git@github.com:example/pi-ralph-tool-nested-worktree.git",
+      piLoomRoot: false,
+    });
+    const childWorktree = join(workspace.cwd, ".ralph-worktrees", "ralph-ticket-123");
+    runTestGit(workspace.cwd, "worktree", "add", "-b", "ralph/ticket-123", childWorktree);
+
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-ralph-tool-nested-worktree-state-"));
+    const previousRuntimeEnv = {
+      root: process.env.PI_LOOM_ROOT,
+      pwd: process.env.PWD,
+      spaceId: process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV],
+      repositoryId: process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV],
+      worktreeId: process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV],
+      worktreePath: process.env[PI_LOOM_RUNTIME_WORKTREE_PATH_ENV],
+    };
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      closeAllWorkspaceStorage();
+      const { identity: parentIdentity } = await openWorkspaceStorage(workspace.cwd);
+      const repository = parentIdentity.repository;
+      const parentWorktree = parentIdentity.worktree;
+      expect(repository).toBeDefined();
+      expect(parentWorktree).toBeDefined();
+      if (!repository || !parentWorktree) {
+        throw new Error("Missing parent repository/worktree identity");
+      }
+
+      const { identity: childIdentity } = await openWorkspaceStorage(childWorktree);
+      const childRepository = childIdentity.repository;
+      const nestedWorktree = childIdentity.worktree;
+      expect(childRepository?.id).toBe(repository.id);
+      expect(nestedWorktree).toBeDefined();
+      expect(nestedWorktree?.id).not.toBe(parentWorktree.id);
+      if (!childRepository || !nestedWorktree) {
+        throw new Error("Missing nested worktree identity");
+      }
+
+      const ticketStore = createTicketStore(childWorktree, {
+        repositoryId: childRepository.id,
+        worktreeId: nestedWorktree.id,
+      });
+      const ticket = await ticketStore.createTicketAsync({
+        title: "Nested worktree Ralph read ticket",
+        summary:
+          "Read the Ralph packet from a child worktree even when the host ctx.cwd still points at the parent repo.",
+        plan: "Seed a repository-bound Ralph run in the nested worktree, then exercise ralph_read through the tool path with stale parent runtime env.",
+        verification:
+          "The ralph_read packet call should resolve the child-worktree run instead of failing with an unknown parent worktree id.",
+      });
+
+      const planStore = createPlanStore(childWorktree, {
+        repositoryId: childRepository.id,
+        worktreeId: nestedWorktree.id,
+      });
+      const plan = await planStore.createPlan({
+        title: "Nested worktree Ralph read plan",
+        summary: "Exercise stale parent ctx.cwd handling when reading a child worktree Ralph packet.",
+        sourceTarget: { kind: "workspace", ref: childRepository.slug },
+      });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: ticket.summary.id, role: "execution" });
+
+      const run = createRalphStore(childWorktree).createRun({
+        title: "Nested worktree Ralph read run",
+        objective: "Keep packet reads bound to the actual child worktree session when the tool host lags behind.",
+        linkedRefs: {
+          planIds: [plan.state.planId],
+          ticketIds: [ticket.summary.id],
+        },
+        scope: {
+          mode: "execute",
+          repositoryId: childRepository.id,
+          specChangeId: null,
+          planId: plan.state.planId,
+          ticketId: ticket.summary.id,
+          roadmapItemIds: [],
+          initiativeIds: [],
+          researchIds: [],
+          critiqueIds: [],
+          docIds: [],
+        },
+        packetContext: {
+          capturedAt: new Date().toISOString(),
+          constitutionBrief: "Keep Ralph packet reads on the truthful worktree.",
+          specContext: null,
+          planContext: "Nested worktree packet context.",
+          ticketContext: "Bound ticket ledger lives in the nested worktree.",
+          priorIterationLearnings: [],
+          operatorNotes: null,
+        },
+      });
+
+      const staleParentScope = runtimeScopeToEnv({
+        spaceId: parentIdentity.space.id,
+        repositoryId: repository.id,
+        worktreeId: parentWorktree.id,
+        worktreePath: workspace.cwd,
+      });
+      process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV] = staleParentScope[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+      process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV] = staleParentScope[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+      process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV] = staleParentScope[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+      process.env[PI_LOOM_RUNTIME_WORKTREE_PATH_ENV] = staleParentScope[PI_LOOM_RUNTIME_WORKTREE_PATH_ENV];
+      process.env.PWD = childWorktree;
+
+      const mockPi = createMockPi();
+      const { registerRalphTools } = await import("../tools/ralph.js");
+      registerRalphTools(mockPi as unknown as ExtensionAPI);
+
+      const packet = await getTool(mockPi, "ralph_read").execute(
+        "call-nested-worktree-packet",
+        {
+          ticketRef: ticket.summary.id,
+          planRef: plan.state.planId,
+          mode: "packet",
+        },
+        undefined,
+        undefined,
+        createContext(workspace.cwd),
+      );
+
+      const details = (packet as { details: { run: { id: string }; packet: string } }).details;
+      expect(details.run.id).toBe(run.summary.id);
+      expect(details.packet).toContain(`- governing plan: ${plan.state.planId}`);
+      expect(details.packet).toContain(`- active ticket: ${ticket.summary.id}`);
+    } finally {
+      closeAllWorkspaceStorage();
+      if (previousRuntimeEnv.root === undefined) {
+        delete process.env.PI_LOOM_ROOT;
+      } else {
+        process.env.PI_LOOM_ROOT = previousRuntimeEnv.root;
+      }
+      if (previousRuntimeEnv.pwd === undefined) {
+        delete process.env.PWD;
+      } else {
+        process.env.PWD = previousRuntimeEnv.pwd;
+      }
+      if (previousRuntimeEnv.spaceId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV] = previousRuntimeEnv.spaceId;
+      }
+      if (previousRuntimeEnv.repositoryId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV] = previousRuntimeEnv.repositoryId;
+      }
+      if (previousRuntimeEnv.worktreeId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV] = previousRuntimeEnv.worktreeId;
+      }
+      if (previousRuntimeEnv.worktreePath === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_WORKTREE_PATH_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_WORKTREE_PATH_ENV] = previousRuntimeEnv.worktreePath;
       }
       rmSync(loomRoot, { recursive: true, force: true });
       workspace.cleanup();

@@ -3,7 +3,11 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
-import { readRuntimeScopeFromEnv, resolveEntityRuntimeScope } from "#storage/runtime-scope.js";
+import {
+  readRuntimeScopeFromEnvForCwd,
+  resolveEntityRuntimeScope,
+  resolveRuntimeScopeCwd,
+} from "#storage/runtime-scope.js";
 import { renderCritiqueDetail, renderOverview } from "../domain/render.js";
 import { runCritiqueLaunch } from "../domain/runtime.js";
 import { createCritiqueStore } from "../domain/store.js";
@@ -191,7 +195,8 @@ type CritiqueWriteParamsValue = Static<typeof CritiqueWriteParams>;
 type CritiqueFindingParamsValue = Static<typeof CritiqueFindingParams>;
 
 function getStore(ctx: ExtensionContext) {
-  return createCritiqueStore(ctx.cwd, readRuntimeScopeFromEnv());
+  const runtimeCwd = resolveRuntimeScopeCwd(ctx.cwd);
+  return createCritiqueStore(runtimeCwd, readRuntimeScopeFromEnvForCwd(runtimeCwd));
 }
 
 function machineResult(details: Record<string, unknown>, text: string) {

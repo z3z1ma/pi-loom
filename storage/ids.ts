@@ -29,6 +29,10 @@ export function createWorktreeId(repositoryId: LoomId, logicalKey: string, branc
   return createStableLoomId("worktree", [repositoryId, logicalKey, branch]);
 }
 
+export function createBranchReservationId(repositoryId: LoomId, ownerKey: string): LoomId {
+  return createStableLoomId("branch", [repositoryId, ownerKey]);
+}
+
 export function createEntityId(
   kind: LoomEntityKind,
   spaceId: LoomId,

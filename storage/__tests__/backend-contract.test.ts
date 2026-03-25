@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
+  LoomBranchReservationRecord,
   LoomCanonicalStorage,
   LoomEntityEventRecord,
   LoomEntityLinkRecord,
@@ -93,6 +94,20 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
     createdAt: space.createdAt,
     updatedAt: space.updatedAt,
   };
+  const branchReservation: LoomBranchReservationRecord = {
+    id: "branch-1",
+    repositoryId: repository.id,
+    branchFamily: "UDP-100",
+    familySequence: 0,
+    branchName: "UDP-100",
+    status: "reserved",
+    ownerKey: "ticket:t-1000",
+    ownerEntityId: entity.id,
+    ownerEntityKind: "ticket",
+    metadata: { source: "test" },
+    createdAt: space.createdAt,
+    updatedAt: space.updatedAt,
+  };
 
   await storage.upsertSpace(space);
   await storage.upsertRepository(repository);
@@ -101,6 +116,7 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
   await storage.upsertLink(link);
   await storage.appendEvent(event);
   await storage.upsertRuntimeAttachment(runtimeAttachment);
+  await storage.upsertBranchReservation(branchReservation);
 
   expect(await storage.getSpace(space.id)).toMatchObject(space);
   expect(await storage.listRepositories(space.id)).toEqual([expect.objectContaining({ id: repository.id })]);
@@ -111,6 +127,10 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
   expect(await storage.listEvents(entity.id)).toEqual([expect.objectContaining({ id: event.id })]);
   expect(await storage.listRuntimeAttachments(worktree.id)).toEqual([
     expect.objectContaining({ id: runtimeAttachment.id, processId: 4321 }),
+  ]);
+  expect(await storage.getBranchReservation(branchReservation.id)).toMatchObject({ branchName: "UDP-100" });
+  expect(await storage.listBranchReservations(repository.id)).toEqual([
+    expect.objectContaining({ id: branchReservation.id, familySequence: 0 }),
   ]);
 
   await expect(
@@ -129,6 +149,9 @@ async function exerciseContract(storage: LoomCanonicalStorage): Promise<void> {
 
   await storage.removeRuntimeAttachment(runtimeAttachment.id);
   expect(await storage.listRuntimeAttachments(worktree.id)).toEqual([]);
+
+  await storage.removeBranchReservation(branchReservation.id);
+  expect(await storage.listBranchReservations(repository.id)).toEqual([]);
 }
 
 async function seedConcurrencyWorkspace(storage: LoomCanonicalStorage): Promise<void> {

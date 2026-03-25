@@ -8,9 +8,8 @@ import { createEntityId, createLinkId, createRandomLoomId } from "#storage/ids.j
 import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { filterAndSortListEntries } from "#storage/list-search.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
-import { readRuntimeScopeFromEnv } from "#storage/runtime-scope.js";
+import { readRuntimeScopeFromEnvForCwd, resolveRuntimeScopeCwd } from "#storage/runtime-scope.js";
 import { openScopedWorkspaceStorageSync } from "#storage/workspace.js";
-import { buildRalphOverview, summarizeRalphRun } from "./overview.js";
 import { renderBulletList, renderSection } from "./frontmatter.js";
 import type {
   AppendRalphIterationInput,
@@ -73,6 +72,7 @@ import {
   normalizeStringList,
   summarizeText,
 } from "./normalize.js";
+import { buildRalphOverview, summarizeRalphRun } from "./overview.js";
 import {
   deriveRalphRunId,
   getRalphArtifactPaths,
@@ -137,7 +137,8 @@ interface StoredRalphEntityRow {
 }
 
 function openRalphCatalogSync(cwd: string) {
-  return openScopedWorkspaceStorageSync(cwd, readRuntimeScopeFromEnv());
+  const runtimeCwd = resolveRuntimeScopeCwd(cwd);
+  return openScopedWorkspaceStorageSync(runtimeCwd, readRuntimeScopeFromEnvForCwd(runtimeCwd));
 }
 
 interface RalphArtifactRow {
@@ -1436,7 +1437,7 @@ export class RalphStore {
   readonly cwd: string;
 
   constructor(cwd: string) {
-    this.cwd = resolve(cwd);
+    this.cwd = resolveRuntimeScopeCwd(resolve(cwd));
   }
 
   initLedger(): { initialized: true; root: string } {

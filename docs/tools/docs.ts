@@ -3,8 +3,12 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
-import { readRuntimeScopeFromEnv, resolveEntityRuntimeScope } from "#storage/runtime-scope.js";
-import { renderOverview, renderDocumentationDetail, renderUpdatePrompt } from "../domain/render.js";
+import {
+  readRuntimeScopeFromEnvForCwd,
+  resolveEntityRuntimeScope,
+  resolveRuntimeScopeCwd,
+} from "#storage/runtime-scope.js";
+import { renderDocumentationDetail, renderOverview, renderUpdatePrompt } from "../domain/render.js";
 import { runDocsUpdate } from "../domain/runtime.js";
 import { createDocumentationStore } from "../domain/store.js";
 
@@ -154,7 +158,8 @@ const DocsOverviewParams = Type.Object({
 type DocsWriteParamsValue = Static<typeof DocsWriteParams>;
 
 function getStore(ctx: ExtensionContext) {
-  return createDocumentationStore(ctx.cwd, readRuntimeScopeFromEnv());
+  const runtimeCwd = resolveRuntimeScopeCwd(ctx.cwd);
+  return createDocumentationStore(runtimeCwd, readRuntimeScopeFromEnvForCwd(runtimeCwd));
 }
 
 function machineResult(details: Record<string, unknown>, text: string) {

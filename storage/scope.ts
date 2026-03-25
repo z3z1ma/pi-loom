@@ -149,6 +149,10 @@ function resolveGitLayout(cwd: string): GitLayout | null {
   }
 }
 
+export function resolveGitWorkspaceRoot(cwd: string): string | null {
+  return resolveGitLayout(cwd)?.root ?? null;
+}
+
 function readGitRef(layout: GitLayout, ref: string): string | null {
   const directPaths = [...new Set([path.join(layout.gitDir, ref), path.join(layout.commonDir, ref)])];
   for (const directPath of directPaths) {

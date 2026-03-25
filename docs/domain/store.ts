@@ -27,6 +27,7 @@ import {
   resolvePortableRepositoryPathInputs,
 } from "#storage/repository-path.js";
 import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
+import { resolveRuntimeScopeCwd } from "#storage/runtime-scope.js";
 import {
   type LoomExplicitScopeInput,
   openRepositoryWorkspaceStorage,
@@ -34,7 +35,6 @@ import {
 } from "#storage/workspace.js";
 import type { TicketReadResult } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildDocumentationOverview, getDocumentationDocumentRef, summarizeDocumentation } from "./overview.js";
 import { parseMarkdownArtifact, renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
   CreateDocumentationInput,
@@ -67,6 +67,7 @@ import {
   slugifyTitle,
   summarizeDocument,
 } from "./normalize.js";
+import { buildDocumentationOverview, getDocumentationDocumentRef, summarizeDocumentation } from "./overview.js";
 import { renderDocumentationMarkdown } from "./render.js";
 
 const ENTITY_KIND = "documentation" as const;
@@ -282,7 +283,7 @@ export class DocumentationStore {
   readonly scope: LoomExplicitScopeInput;
 
   constructor(cwd: string, scope: LoomExplicitScopeInput = {}) {
-    this.cwd = resolve(cwd);
+    this.cwd = resolveRuntimeScopeCwd(resolve(cwd));
     this.scope = scope;
   }
 
@@ -302,8 +303,6 @@ export class DocumentationStore {
         worktreeId: this.scope.worktreeId ?? null,
       };
     }
-    const upstreamPath = normalizeOptionalString((state as unknown as { upstreamPath?: string }).upstreamPath);
-
     const scopedPaths = [...state.scopePaths, ...state.linkedOutputPaths];
     const uniqueScopes = new Map<string, { repositoryId: string; worktreeId: string | null }>();
     for (const entry of scopedPaths) {
@@ -524,7 +523,10 @@ export class DocumentationStore {
         ref: sourceRef,
       },
       updateReason: typeof state.updateReason === "string" ? state.updateReason.trim() : "",
-      upstreamPath: "upstreamPath" in state ? normalizeOptionalString((state as { upstreamPath?: string | null }).upstreamPath) : null,
+      upstreamPath:
+        "upstreamPath" in state
+          ? normalizeOptionalString((state as { upstreamPath?: string | null }).upstreamPath)
+          : null,
       guideTopics: normalizeStringList(state.guideTopics),
       linkedOutputPaths: normalizeStoredPortableRepositoryPathList(state.linkedOutputPaths, fallback),
       lastRevisionId: normalizeOptionalString(state.lastRevisionId),
@@ -1146,7 +1148,8 @@ export class DocumentationStore {
       linkedOutputPaths: input.linkedOutputPaths
         ? await resolvePortableRepositoryPathInputs(this.cwd, input.linkedOutputPaths, this.scope)
         : current.state.linkedOutputPaths,
-      upstreamPath: input.upstreamPath !== undefined ? normalizeOptionalString(input.upstreamPath) : current.state.upstreamPath,
+      upstreamPath:
+        input.upstreamPath !== undefined ? normalizeOptionalString(input.upstreamPath) : current.state.upstreamPath,
     };
     const revision = await this.buildAppendedRevision(current, nextState, documentBody, {
       changedSections: input.changedSections,

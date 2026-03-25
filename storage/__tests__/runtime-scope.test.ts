@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
   PI_LOOM_RUNTIME_WORKTREE_ID_ENV,
   PI_LOOM_RUNTIME_WORKTREE_PATH_ENV,
   readRuntimeScopeFromEnv,
+  readRuntimeScopeFromEnvForCwd,
   resolveEntityRuntimeScope,
   resolveRuntimeScope,
   runtimeScopeToEnv,
@@ -46,7 +47,88 @@ describe("runtime scope helpers", () => {
       repositoryId: "repo-001",
       worktreeId: "worktree-001",
     });
+    expect(readRuntimeScopeFromEnvForCwd("/tmp/worktree-001", runtimeScopeToEnv(scope))).toEqual({
+      spaceId: "space-001",
+      repositoryId: "repo-001",
+      worktreeId: "worktree-001",
+    });
+    expect(readRuntimeScopeFromEnvForCwd("/tmp/worktree-001/nested", runtimeScopeToEnv(scope))).toEqual({
+      spaceId: "space-001",
+      repositoryId: "repo-001",
+      worktreeId: "worktree-001",
+    });
+    expect(readRuntimeScopeFromEnvForCwd("/tmp/other-workspace", runtimeScopeToEnv(scope))).toBeUndefined();
     expect(readRuntimeScopeFromEnv({})).toBeUndefined();
+  });
+
+  it("ignores parent worktree runtime scope inside nested child worktrees", () => {
+    const parentWorktree = mkdtempSync(path.join(tmpdir(), "pi-storage-runtime-parent-worktree-"));
+    const childWorktree = path.join(parentWorktree, ".ralph-worktrees", "ralph-ticket-123");
+    cleanupPaths.push(parentWorktree);
+
+    mkdirSync(path.join(parentWorktree, ".git"), { recursive: true });
+    mkdirSync(path.join(childWorktree, ".git"), { recursive: true });
+
+    const parentScopeEnv = runtimeScopeToEnv({
+      spaceId: "space-parent",
+      repositoryId: "repo-parent",
+      worktreeId: "worktree-parent",
+      worktreePath: parentWorktree,
+    });
+    const childScopeEnv = runtimeScopeToEnv({
+      spaceId: "space-parent",
+      repositoryId: "repo-parent",
+      worktreeId: "worktree-child",
+      worktreePath: childWorktree,
+    });
+
+    expect(readRuntimeScopeFromEnvForCwd(path.join(parentWorktree, "src"), parentScopeEnv)).toEqual({
+      spaceId: "space-parent",
+      repositoryId: "repo-parent",
+      worktreeId: "worktree-parent",
+    });
+    expect(readRuntimeScopeFromEnvForCwd(childWorktree, parentScopeEnv)).toBeUndefined();
+    expect(readRuntimeScopeFromEnvForCwd(path.join(childWorktree, "nested"), parentScopeEnv)).toBeUndefined();
+    expect(readRuntimeScopeFromEnvForCwd(path.join(childWorktree, "nested"), childScopeEnv)).toEqual({
+      spaceId: "space-parent",
+      repositoryId: "repo-parent",
+      worktreeId: "worktree-child",
+    });
+  });
+
+  it("prefers PWD when the tool host cwd lags behind a nested Ralph worktree", () => {
+    const parentWorktree = mkdtempSync(path.join(tmpdir(), "pi-storage-runtime-parent-pwd-"));
+    const childWorktree = path.join(parentWorktree, ".ralph-worktrees", "ralph-ticket-456");
+    cleanupPaths.push(parentWorktree);
+
+    mkdirSync(path.join(parentWorktree, ".git"), { recursive: true });
+    mkdirSync(path.join(childWorktree, ".git"), { recursive: true });
+
+    const parentScopeEnv = {
+      ...runtimeScopeToEnv({
+        spaceId: "space-parent",
+        repositoryId: "repo-parent",
+        worktreeId: "worktree-parent",
+        worktreePath: parentWorktree,
+      }),
+      PWD: childWorktree,
+    };
+    const childScopeEnv = {
+      ...runtimeScopeToEnv({
+        spaceId: "space-parent",
+        repositoryId: "repo-parent",
+        worktreeId: "worktree-child",
+        worktreePath: childWorktree,
+      }),
+      PWD: path.join(childWorktree, "nested"),
+    };
+
+    expect(readRuntimeScopeFromEnvForCwd(parentWorktree, parentScopeEnv)).toBeUndefined();
+    expect(readRuntimeScopeFromEnvForCwd(parentWorktree, childScopeEnv)).toEqual({
+      spaceId: "space-parent",
+      repositoryId: "repo-parent",
+      worktreeId: "worktree-child",
+    });
   });
 
   it("fails closed when runtime scope targets a different Loom space", async () => {

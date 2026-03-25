@@ -1,4 +1,4 @@
-export const LOOM_STORAGE_CONTRACT_VERSION = 4 as const;
+export const LOOM_STORAGE_CONTRACT_VERSION = 5 as const;
 
 export const LOOM_ENTITY_KINDS = [
   "constitution",
@@ -46,12 +46,14 @@ export const LOOM_RUNTIME_ATTACHMENT_KINDS = [
 ] as const;
 
 export const LOOM_WORKTREE_STATUSES = ["attached", "suspended", "retired"] as const;
+export const LOOM_BRANCH_RESERVATION_STATUSES = ["reserved", "provisioned", "retired"] as const;
 
 export type LoomEntityKind = (typeof LOOM_ENTITY_KINDS)[number];
 export type LoomLinkKind = (typeof LOOM_LINK_KINDS)[number];
 export type LoomEventKind = (typeof LOOM_EVENT_KINDS)[number];
 export type LoomRuntimeAttachmentKind = (typeof LOOM_RUNTIME_ATTACHMENT_KINDS)[number];
 export type LoomWorktreeStatus = (typeof LOOM_WORKTREE_STATUSES)[number];
+export type LoomBranchReservationStatus = (typeof LOOM_BRANCH_RESERVATION_STATUSES)[number];
 
 export type LoomId = string;
 
@@ -167,6 +169,19 @@ export interface LoomRuntimeAttachment extends LoomAuditFields {
   metadata: Record<string, unknown>;
 }
 
+export interface LoomBranchReservationRecord extends LoomAuditFields {
+  id: LoomId;
+  repositoryId: LoomId;
+  branchFamily: string;
+  familySequence: number;
+  branchName: string;
+  status: LoomBranchReservationStatus;
+  ownerKey: string;
+  ownerEntityId: LoomId | null;
+  ownerEntityKind: LoomEntityKind | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface LoomCanonicalStorage {
   readonly contractVersion: typeof LOOM_STORAGE_CONTRACT_VERSION;
   readonly backendKind: string;
@@ -179,6 +194,8 @@ export interface LoomCanonicalStorage {
   listLinks(entityId: LoomId): Promise<LoomEntityLinkRecord[]>;
   listEvents(entityId: LoomId): Promise<LoomEntityEventRecord[]>;
   listRuntimeAttachments(worktreeId?: LoomId): Promise<LoomRuntimeAttachment[]>;
+  getBranchReservation(id: LoomId): Promise<LoomBranchReservationRecord | null>;
+  listBranchReservations(repositoryId?: LoomId): Promise<LoomBranchReservationRecord[]>;
   upsertSpace(record: LoomSpaceRecord): Promise<void>;
   upsertRepository(record: LoomRepositoryRecord): Promise<void>;
   upsertWorktree(record: LoomWorktreeRecord): Promise<void>;
@@ -190,6 +207,8 @@ export interface LoomCanonicalStorage {
   removeEvent(id: LoomId): Promise<void>;
   upsertRuntimeAttachment(record: LoomRuntimeAttachment): Promise<void>;
   removeRuntimeAttachment(id: LoomId): Promise<void>;
+  upsertBranchReservation(record: LoomBranchReservationRecord): Promise<void>;
+  removeBranchReservation(id: LoomId): Promise<void>;
   transact<T>(run: (tx: LoomCanonicalTransaction) => Promise<T>): Promise<T>;
 }
 

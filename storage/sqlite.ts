@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 import type {
+  LoomBranchReservationRecord,
   LoomCanonicalStorage,
   LoomCanonicalTransaction,
   LoomEntityEventRecord,
@@ -228,6 +229,23 @@ function migrate(db: SqliteDatabaseLike): void {
       FOREIGN KEY (worktree_id) REFERENCES worktrees(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS branch_reservations (
+      id TEXT PRIMARY KEY,
+      repository_id TEXT NOT NULL,
+      branch_family TEXT NOT NULL,
+      family_sequence INTEGER NOT NULL,
+      branch_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      owner_key TEXT NOT NULL,
+      owner_entity_id TEXT,
+      owner_entity_kind TEXT,
+      metadata_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+      FOREIGN KEY (owner_entity_id) REFERENCES entities(id) ON DELETE SET NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_repositories_space ON repositories(space_id);
     CREATE INDEX IF NOT EXISTS idx_repositories_space_slug ON repositories(space_id, slug);
     CREATE INDEX IF NOT EXISTS idx_worktrees_repository ON worktrees(repository_id);
@@ -245,6 +263,14 @@ function migrate(db: SqliteDatabaseLike): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_events_entity_sequence ON events(entity_id, sequence);
     CREATE INDEX IF NOT EXISTS idx_runtime_attachments_worktree ON runtime_attachments(worktree_id);
     CREATE INDEX IF NOT EXISTS idx_runtime_attachments_worktree_id ON runtime_attachments(worktree_id, id);
+    CREATE INDEX IF NOT EXISTS idx_branch_reservations_repository ON branch_reservations(repository_id);
+    CREATE INDEX IF NOT EXISTS idx_branch_reservations_family ON branch_reservations(repository_id, branch_family);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_branch_reservations_repository_branch_name
+      ON branch_reservations(repository_id, branch_name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_branch_reservations_repository_owner_key
+      ON branch_reservations(repository_id, owner_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_branch_reservations_repository_family_sequence
+      ON branch_reservations(repository_id, branch_family, family_sequence);
   `);
 
   db.exec("DROP TABLE IF EXISTS projections");
@@ -338,6 +364,25 @@ function rowToRuntimeAttachment(row: Record<string, unknown>): LoomRuntimeAttach
     locator: String(row.locator),
     processId: typeof row.process_id === "number" ? Number(row.process_id) : null,
     leaseExpiresAt: row.lease_expires_at ? String(row.lease_expires_at) : null,
+    metadata: decode(row.metadata_json, {} as Record<string, unknown>),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function rowToBranchReservation(row: Record<string, unknown>): LoomBranchReservationRecord {
+  return {
+    id: String(row.id),
+    repositoryId: String(row.repository_id),
+    branchFamily: String(row.branch_family),
+    familySequence: Number(row.family_sequence),
+    branchName: String(row.branch_name),
+    status: String(row.status) as LoomBranchReservationRecord["status"],
+    ownerKey: String(row.owner_key),
+    ownerEntityId: row.owner_entity_id ? String(row.owner_entity_id) : null,
+    ownerEntityKind: row.owner_entity_kind
+      ? (String(row.owner_entity_kind) as LoomBranchReservationRecord["ownerEntityKind"])
+      : null,
     metadata: decode(row.metadata_json, {} as Record<string, unknown>),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
@@ -483,6 +528,30 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
         .prepare("SELECT * FROM runtime_attachments ORDER BY id")
         .all()
         .map((row: unknown) => rowToRuntimeAttachment(row as Record<string, unknown>));
+    });
+  }
+
+  async getBranchReservation(id: string): Promise<LoomBranchReservationRecord | null> {
+    return this.serialize(async () => {
+      const row = this.db.prepare("SELECT * FROM branch_reservations WHERE id = ? LIMIT 1").get(id) as
+        | Record<string, unknown>
+        | undefined;
+      return row ? rowToBranchReservation(row) : null;
+    });
+  }
+
+  async listBranchReservations(repositoryId?: string): Promise<LoomBranchReservationRecord[]> {
+    return this.serialize(async () => {
+      if (repositoryId) {
+        return this.db
+          .prepare("SELECT * FROM branch_reservations WHERE repository_id = ? ORDER BY id")
+          .all(repositoryId)
+          .map((row: unknown) => rowToBranchReservation(row as Record<string, unknown>));
+      }
+      return this.db
+        .prepare("SELECT * FROM branch_reservations ORDER BY id")
+        .all()
+        .map((row: unknown) => rowToBranchReservation(row as Record<string, unknown>));
     });
   }
 
@@ -703,6 +772,74 @@ class SqliteLoomCatalogTx implements LoomCanonicalTransaction {
   async removeRuntimeAttachment(id: string): Promise<void> {
     return this.serialize(async () => {
       this.db.prepare("DELETE FROM runtime_attachments WHERE id = ?").run(id);
+    });
+  }
+
+  async upsertBranchReservation(record: LoomBranchReservationRecord): Promise<void> {
+    return this.serialize(async () => {
+      runNamed(
+        this.db.prepare(`
+        INSERT INTO branch_reservations (
+          id,
+          repository_id,
+          branch_family,
+          family_sequence,
+          branch_name,
+          status,
+          owner_key,
+          owner_entity_id,
+          owner_entity_kind,
+          metadata_json,
+          created_at,
+          updated_at
+        ) VALUES (
+          @id,
+          @repository_id,
+          @branch_family,
+          @family_sequence,
+          @branch_name,
+          @status,
+          @owner_key,
+          @owner_entity_id,
+          @owner_entity_kind,
+          @metadata_json,
+          @created_at,
+          @updated_at
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          repository_id = excluded.repository_id,
+          branch_family = excluded.branch_family,
+          family_sequence = excluded.family_sequence,
+          branch_name = excluded.branch_name,
+          status = excluded.status,
+          owner_key = excluded.owner_key,
+          owner_entity_id = excluded.owner_entity_id,
+          owner_entity_kind = excluded.owner_entity_kind,
+          metadata_json = excluded.metadata_json,
+          created_at = excluded.created_at,
+          updated_at = excluded.updated_at
+      `),
+        {
+          id: record.id,
+          repository_id: record.repositoryId,
+          branch_family: record.branchFamily,
+          family_sequence: record.familySequence,
+          branch_name: record.branchName,
+          status: record.status,
+          owner_key: record.ownerKey,
+          owner_entity_id: record.ownerEntityId,
+          owner_entity_kind: record.ownerEntityKind,
+          metadata_json: encode(record.metadata),
+          created_at: record.createdAt,
+          updated_at: record.updatedAt,
+        },
+      );
+    });
+  }
+
+  async removeBranchReservation(id: string): Promise<void> {
+    return this.serialize(async () => {
+      this.db.prepare("DELETE FROM branch_reservations WHERE id = ?").run(id);
     });
   }
 

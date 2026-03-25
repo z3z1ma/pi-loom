@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type {
+  LoomBranchReservationRecord,
   LoomCanonicalStorage,
   LoomCanonicalTransaction,
   LoomEntityEventRecord,
@@ -28,6 +29,7 @@ interface MemoryCatalogSnapshot {
   links: Array<[string, LoomEntityLinkRecord]>;
   events: Array<[string, LoomEntityEventRecord]>;
   runtimeAttachments: Array<[string, LoomRuntimeAttachment]>;
+  branchReservations: Array<[string, LoomBranchReservationRecord]>;
 }
 
 class MemoryExecutionGate {
@@ -135,6 +137,14 @@ class InMemoryLoomCatalogTx implements LoomCanonicalTransaction {
     return this.catalog.listRuntimeAttachments(worktreeId);
   }
 
+  async getBranchReservation(id: string): Promise<LoomBranchReservationRecord | null> {
+    return this.catalog.getBranchReservation(id);
+  }
+
+  async listBranchReservations(repositoryId?: string): Promise<LoomBranchReservationRecord[]> {
+    return this.catalog.listBranchReservations(repositoryId);
+  }
+
   async upsertSpace(record: LoomSpaceRecord): Promise<void> {
     return this.catalog.upsertSpace(record);
   }
@@ -179,6 +189,14 @@ class InMemoryLoomCatalogTx implements LoomCanonicalTransaction {
     return this.catalog.removeRuntimeAttachment(id);
   }
 
+  async upsertBranchReservation(record: LoomBranchReservationRecord): Promise<void> {
+    return this.catalog.upsertBranchReservation(record);
+  }
+
+  async removeBranchReservation(id: string): Promise<void> {
+    return this.catalog.removeBranchReservation(id);
+  }
+
   async transact<T>(run: (tx: LoomCanonicalTransaction) => Promise<T>): Promise<T> {
     return this.catalog.transactNested(run);
   }
@@ -195,6 +213,7 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
   private readonly links = new Map<string, LoomEntityLinkRecord>();
   private readonly events = new Map<string, LoomEntityEventRecord>();
   private readonly runtimeAttachments = new Map<string, LoomRuntimeAttachment>();
+  private readonly branchReservations = new Map<string, LoomBranchReservationRecord>();
   private readonly gate = new MemoryExecutionGate();
 
   private async serialize<T>(run: () => T | Promise<T>): Promise<T> {
@@ -210,6 +229,7 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
       links: clone([...this.links.entries()]),
       events: clone([...this.events.entries()]),
       runtimeAttachments: clone([...this.runtimeAttachments.entries()]),
+      branchReservations: clone([...this.branchReservations.entries()]),
     };
   }
 
@@ -221,6 +241,7 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
     this.links.clear();
     this.events.clear();
     this.runtimeAttachments.clear();
+    this.branchReservations.clear();
     for (const [id, record] of snapshot.spaces) this.spaces.set(id, record);
     for (const [id, record] of snapshot.repositories) this.repositories.set(id, record);
     for (const [id, record] of snapshot.worktrees) this.worktrees.set(id, record);
@@ -228,6 +249,7 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
     for (const [id, record] of snapshot.links) this.links.set(id, record);
     for (const [id, record] of snapshot.events) this.events.set(id, record);
     for (const [id, record] of snapshot.runtimeAttachments) this.runtimeAttachments.set(id, record);
+    for (const [id, record] of snapshot.branchReservations) this.branchReservations.set(id, record);
   }
 
   async getSpace(id: string): Promise<LoomSpaceRecord | null> {
@@ -295,6 +317,19 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
     return this.serialize(() =>
       [...this.runtimeAttachments.values()]
         .filter((record) => (worktreeId ? record.worktreeId === worktreeId : true))
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map(clone),
+    );
+  }
+
+  async getBranchReservation(id: string): Promise<LoomBranchReservationRecord | null> {
+    return this.serialize(() => clone(this.branchReservations.get(id) ?? null));
+  }
+
+  async listBranchReservations(repositoryId?: string): Promise<LoomBranchReservationRecord[]> {
+    return this.serialize(() =>
+      [...this.branchReservations.values()]
+        .filter((record) => (repositoryId ? record.repositoryId === repositoryId : true))
         .sort((left, right) => left.id.localeCompare(right.id))
         .map(clone),
     );
@@ -402,6 +437,18 @@ export class InMemoryLoomCatalog implements LoomCanonicalStorage {
   async removeRuntimeAttachment(id: string): Promise<void> {
     return this.serialize(() => {
       this.runtimeAttachments.delete(id);
+    });
+  }
+
+  async upsertBranchReservation(record: LoomBranchReservationRecord): Promise<void> {
+    return this.serialize(() => {
+      this.branchReservations.set(record.id, clone(record));
+    });
+  }
+
+  async removeBranchReservation(id: string): Promise<void> {
+    return this.serialize(() => {
+      this.branchReservations.delete(id);
     });
   }
 
