@@ -1,9 +1,9 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
-  RalphOverview,
   RalphIterationRecord,
   RalphIterationRuntimeRecord,
   RalphLaunchDescriptor,
+  RalphOverview,
   RalphReadResult,
   RalphRunState,
   RalphRunSummary,
@@ -290,6 +290,9 @@ export function renderLaunchPrompt(_cwd: string, launch: RalphLaunchDescriptor):
     `Mode: ${launch.resume ? "resume" : "fresh launch"}`,
     `Ticket ref: ${launch.ticketRef}`,
     `Plan ref: ${launch.planRef ?? "(none)"}`,
+    ...(launch.instructions.length > 0
+      ? ["", "Launch-specific instructions:", ...launch.instructions.map((instruction) => `- ${instruction}`)]
+      : []),
     "",
     "Before acting:",
     `- Call ${packetReadCall}.`,

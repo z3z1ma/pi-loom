@@ -34,3 +34,6 @@ resources/
 .loom/workers/
 .loom/**/launch.json
 .loom/runtime/
+
+/catalog.*
+/.ralph-worktrees

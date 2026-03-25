@@ -368,7 +368,12 @@ describe("ralph runtime session execution", () => {
   });
 
   it("renders launch packet refs without attempting repo-path translation", () => {
-    const launch = createLaunch({ resume: true });
+    const launch = createLaunch({
+      resume: true,
+      instructions: [
+        "If you intend to close the bound ticket, first create the intended changeset commit in the Ralph worktree with git commit; do not close the ticket with uncommitted work.",
+      ],
+    });
 
     expect(renderLaunchDescriptor("/workspace/project", launch)).toContain("Packet ref: ralph-run:run-session:packet");
     expect(renderLaunchDescriptor("/workspace/project", launch)).toContain(
@@ -376,6 +381,9 @@ describe("ralph runtime session execution", () => {
     );
     expect(renderLaunchPrompt("/workspace/project", launch)).toContain(
       "Use the exact ticketRef/planRef from this launch when reading Ralph packet state; do not derive alternate refs from the run id or packet ref.",
+    );
+    expect(renderLaunchPrompt("/workspace/project", launch)).toContain(
+      "If you intend to close the bound ticket, first create the intended changeset commit in the Ralph worktree with git commit; do not close the ticket with uncommitted work.",
     );
   });
 
@@ -1234,6 +1242,9 @@ describe("ralph loop policy enforcement", () => {
       });
 
       expect(firstRun.run.state.executionEnv).toMatchObject({ branchName: "UDP-100" });
+      expect(firstRun.run.state.nextLaunch.instructions).toContain(
+        "If you intend to close the bound ticket, first create the intended changeset commit in the Ralph worktree with git commit; do not close the ticket with uncommitted work.",
+      );
       expect(firstRerun.created).toBe(false);
       expect(firstRerun.run.state.executionEnv).toMatchObject({
         branchName: "UDP-100",

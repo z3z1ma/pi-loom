@@ -661,12 +661,21 @@ function buildSummary(scope: RalphRunScope, steeringPrompt: string | undefined):
   return truncate(steeringPrompt?.trim() ? `${base} ${steeringPrompt.trim()}` : base, 160);
 }
 
-function buildRunInstructions(scope: RalphRunScope, steeringPrompt: string | undefined): string[] {
+function buildRunInstructions(
+  scope: RalphRunScope,
+  steeringPrompt: string | undefined,
+  executionMode: ExecuteRalphLoopInput["executionMode"],
+): string[] {
   const instructions = [
     `Operate only within ticket ${scope.ticketId ?? "(none)"} under plan ${scope.planId ?? "(none)"}${scope.specChangeId ? ` and its governing spec ${scope.specChangeId}` : ""}.`,
     `Read the canonical packet through ralph_read mode=packet ticketRef=${scope.ticketId ?? "(none)"}${scope.planId ? ` planRef=${scope.planId}` : ""}.`,
     "Perform one bounded Ralph iteration and leave durable bound-ticket activity before exit.",
   ];
+  if (executionMode === "worktree") {
+    instructions.push(
+      "If you intend to close the bound ticket, first create the intended changeset commit in the Ralph worktree with git commit; do not close the ticket with uncommitted work.",
+    );
+  }
   if (steeringPrompt?.trim()) {
     instructions.push(`Operator notes: ${steeringPrompt.trim()}`);
   }
@@ -1335,7 +1344,7 @@ export async function ensureRalphRun(
         note: `Managed Ralph loop created for ${ticketRef}.`,
       },
       policySnapshot: input.policySnapshot,
-      launchInstructions: buildRunInstructions(scope, input.prompt),
+      launchInstructions: buildRunInstructions(scope, input.prompt, input.executionMode),
     });
     return { run: created, created: true };
   } catch (error) {
