@@ -405,4 +405,124 @@ describe("ralph tool runtime scope integration", () => {
       workspace.cleanup();
     }
   }, 120000);
+
+  it("creates the bound Ralph run on demand when reading packet mode for a linked plan ticket", async () => {
+    const workspace = createSeededGitWorkspace({
+      prefix: "pi-ralph-tool-create-on-read-",
+      packageName: "pi-ralph-tool-create-on-read",
+      remoteUrl: "git@github.com:example/pi-ralph-tool-create-on-read.git",
+      piLoomRoot: false,
+    });
+    const loomRoot = mkdtempSync(join(tmpdir(), "pi-ralph-tool-create-on-read-state-"));
+    const previousRuntimeEnv = {
+      root: process.env.PI_LOOM_ROOT,
+      spaceId: process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV],
+      repositoryId: process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV],
+      worktreeId: process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV],
+      worktreePath: process.env[PI_LOOM_RUNTIME_WORKTREE_PATH_ENV],
+    };
+    process.env.PI_LOOM_ROOT = loomRoot;
+
+    try {
+      closeAllWorkspaceStorage();
+      const { identity } = await openWorkspaceStorage(workspace.cwd);
+      const repository = identity.repository;
+      const worktree = identity.worktree;
+      expect(repository).toBeDefined();
+      expect(worktree).toBeDefined();
+      if (!repository || !worktree) {
+        throw new Error("Missing repository/worktree identity for packet creation test");
+      }
+
+      const ticketStore = createTicketStore(workspace.cwd, {
+        repositoryId: repository.id,
+        worktreeId: worktree.id,
+      });
+      const ticket = await ticketStore.createTicketAsync({
+        title: "Packet read creates Ralph run",
+        summary:
+          "Ensure packet-mode reads create the bound Ralph run when a linked plan ticket has no durable run yet.",
+        plan: "Create a repository-bound ticket and plan without seeding a Ralph run, then call ralph_read mode=packet through the tool path.",
+        verification:
+          "The packet read should return a packet, persist a durable Ralph run, and bind that run back to the exact plan/ticket pair.",
+      });
+
+      const planStore = createPlanStore(workspace.cwd, {
+        repositoryId: repository.id,
+        worktreeId: worktree.id,
+      });
+      const plan = await planStore.createPlan({
+        title: "Packet read creates Ralph run plan",
+        summary: "Exercise on-demand Ralph run creation through the packet read tool path.",
+        sourceTarget: { kind: "workspace", ref: repository.slug },
+      });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: ticket.summary.id, role: "execution" });
+
+      const mockPi = createMockPi();
+      const { registerRalphTools } = await import("../tools/ralph.js");
+      registerRalphTools(mockPi as unknown as ExtensionAPI);
+
+      const packet = await getTool(mockPi, "ralph_read").execute(
+        "call-create-on-read-packet",
+        {
+          ticketRef: ticket.summary.id,
+          planRef: plan.state.planId,
+          mode: "packet",
+        },
+        undefined,
+        undefined,
+        createContext(workspace.cwd),
+      );
+
+      const details = (packet as { details: { run: { id: string }; packet: string } }).details;
+      const createdRun = await createRalphStore(workspace.cwd).readRunAsync(details.run.id);
+
+      expect(details.packet).toContain(`- governing plan: ${plan.state.planId}`);
+      expect(details.packet).toContain(`- active ticket: ${ticket.summary.id}`);
+      expect(createdRun.state.scope).toMatchObject({
+        repositoryId: repository.id,
+        planId: plan.state.planId,
+        ticketId: ticket.summary.id,
+      });
+
+      closeAllWorkspaceStorage();
+      const reopened = await openWorkspaceStorage(workspace.cwd);
+      const runEntity = await findEntityByDisplayId(
+        reopened.storage,
+        reopened.identity.space.id,
+        "ralph_run",
+        details.run.id,
+      );
+      expect(runEntity).toMatchObject({ owningRepositoryId: repository.id });
+    } finally {
+      closeAllWorkspaceStorage();
+      if (previousRuntimeEnv.root === undefined) {
+        delete process.env.PI_LOOM_ROOT;
+      } else {
+        process.env.PI_LOOM_ROOT = previousRuntimeEnv.root;
+      }
+      if (previousRuntimeEnv.spaceId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_SPACE_ID_ENV] = previousRuntimeEnv.spaceId;
+      }
+      if (previousRuntimeEnv.repositoryId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_REPOSITORY_ID_ENV] = previousRuntimeEnv.repositoryId;
+      }
+      if (previousRuntimeEnv.worktreeId === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV] = previousRuntimeEnv.worktreeId;
+      }
+      if (previousRuntimeEnv.worktreePath === undefined) {
+        delete process.env[PI_LOOM_RUNTIME_WORKTREE_PATH_ENV];
+      } else {
+        process.env[PI_LOOM_RUNTIME_WORKTREE_PATH_ENV] = previousRuntimeEnv.worktreePath;
+      }
+      rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
+    }
+  }, 120000);
 });
