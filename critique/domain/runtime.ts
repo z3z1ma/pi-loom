@@ -1,5 +1,5 @@
 import { type HarnessExecutionResult, resolveExtensionRoot, runHarnessLaunch } from "#ralph/domain/harness.js";
-import { getWorktreeEnv, provisionWorktree, resolveLatestWorktreeName } from "#ralph/domain/worktree.js";
+import { getWorktreeEnv, provisionWorktree, resolveManagedWorktreeBranchName } from "#ralph/domain/worktree.js";
 import { type LoomRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import type { CritiqueLaunchDescriptor } from "./models.js";
@@ -27,22 +27,21 @@ export async function runCritiqueLaunch(
   let worktreeEnv: Record<string, string> = {};
 
   if (worktreeTicketRef) {
-    let externalRefs: string[] = [];
-    if (preferExternalRefNaming) {
-      try {
-        const ticketStore = createTicketStore(cwd);
-        const ticket = await ticketStore.readTicketAsync(worktreeTicketRef);
-        externalRefs = ticket.ticket.frontmatter["external-refs"] || [];
-      } catch {
-        // Ignore ticket lookup failures; fallback to internal ref naming
-      }
+    const ticket = await createTicketStore(cwd).readTicketAsync(worktreeTicketRef);
+    const repositoryId = ticket.summary.repository?.id ?? scope?.repositoryId;
+    if (!repositoryId) {
+      throw new Error(`Cannot resolve repository-scoped critique worktree branch for ${worktreeTicketRef}.`);
     }
-
-    const branchName = resolveLatestWorktreeName(
-      { ref: worktreeTicketRef, externalRefs },
+    const branchName = await resolveManagedWorktreeBranchName({
       cwd,
-      preferExternalRefNaming ?? false,
-    );
+      repositoryId,
+      ticket,
+      ownerKey: `critique:${worktreeTicketRef}`,
+      metadata: {
+        source: "critique-runtime",
+        preferExternalRefNaming: preferExternalRefNaming ?? false,
+      },
+    });
     finalCwd = provisionWorktree(cwd, branchName);
     worktreeEnv = getWorktreeEnv(cwd);
   }
