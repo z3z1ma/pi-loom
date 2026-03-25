@@ -429,6 +429,11 @@ export function registerTicketTools(pi: ExtensionAPI): void {
           const result = await runMutation(ctx, () => store.addNoteAsync(requireRef(params.ref), text));
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }
+        case "add_comment": {
+          if (!params.text?.trim()) throw new Error("text is required for add_comment");
+          const result = await runMutation(ctx, () => store.addNoteAsync(requireRef(params.ref), params.text as string));
+          return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
+        }
         case "add_journal_entry": {
           if (!params.text?.trim()) throw new Error("text is required for add_journal_entry");
           const text = params.text;

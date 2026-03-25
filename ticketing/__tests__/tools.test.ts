@@ -587,6 +587,23 @@ describe("ticket tools", () => {
         },
       });
 
+      const commentResult = await ticketWrite.execute(
+        "call-2b",
+        { action: "add_comment", ref: ticketId, text: "Adding a comment via new action" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(commentResult.details).toMatchObject({
+        action: "add_comment",
+        ticket: {
+          summary: { id: ticketId },
+          journal: expect.arrayContaining([
+            expect.objectContaining({ kind: "note", text: "Adding a comment via new action" }),
+          ]),
+        },
+      });
+
       const attachmentResult = await ticketWrite.execute(
         "call-3",
         { action: "attach_artifact", ref: ticketId, artifact: { label: "evidence", path: "evidence.txt" } },

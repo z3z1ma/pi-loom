@@ -12,6 +12,7 @@ export const TICKET_WRITE_ACTIONS = [
   "archive",
   "delete",
   "add_note",
+  "add_comment",
   "add_journal_entry",
   "attach_artifact",
   "add_dependency",
