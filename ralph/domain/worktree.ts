@@ -15,9 +15,10 @@ function execGit(repoRoot: string, args: string[]): string {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     }).trim();
-  } catch (error: any) {
-    if (error.status && error.stderr) {
-      throw new Error(`Git command failed: git ${args.join(" ")}\n${error.stderr}`);
+  } catch (error) {
+    const gitError = error as { status?: number; stderr?: string };
+    if (gitError.status && gitError.stderr) {
+      throw new Error(`Git command failed: git ${args.join(" ")}\n${gitError.stderr}`);
     }
     throw error;
   }

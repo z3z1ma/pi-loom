@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlanStore } from "#plans/domain/store.js";
-import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
+import { createSeededGitWorkspace, createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { createEntityId } from "#storage/ids.js";
 import {
@@ -1167,6 +1167,133 @@ describe("ralph loop policy enforcement", () => {
         process.env[PI_LOOM_RUNTIME_WORKTREE_ID_ENV] = previousRuntimeEnv.worktreeId;
       }
       rmSync(loomRoot, { recursive: true, force: true });
+      workspace.cleanup();
+    }
+  }, 120000);
+
+  it("allocates Ralph worktree branches from canonical reservations and reuses reruns", async () => {
+    const workspace = createSeededGitWorkspace({
+      prefix: "pi-ralph-branch-reservations-",
+      packageName: "pi-loom",
+      remoteUrl: "git@github.com:example/pi-loom.git",
+    });
+
+    try {
+      const ticketStore = createTicketStore(workspace.cwd);
+      const firstTicket = await ticketStore.createTicketAsync({
+        title: "Allocator branch ticket one",
+        branchMode: "allocator",
+        branchFamily: "UDP-100",
+        externalRefs: ["ZZZ-2", "AAA-1"],
+      });
+      const secondTicket = await ticketStore.createTicketAsync({
+        title: "Allocator branch ticket two",
+        branchMode: "allocator",
+        branchFamily: "UDP-100",
+      });
+      const exactTicket = await ticketStore.createTicketAsync({
+        title: "Exact branch ticket",
+        branchMode: "exact",
+        branchFamily: "UDP-100",
+        exactBranchName: "release/manual-hotfix",
+        externalRefs: ["AAA-1", "ZZZ-2"],
+      });
+
+      const planStore = createPlanStore(workspace.cwd);
+      const plan = await planStore.createPlan({
+        title: "Branch reservation plan",
+        summary: "Exercise canonical worktree branch reservations.",
+        sourceTarget: { kind: "workspace", ref: "pi-loom" },
+      });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: firstTicket.summary.id, role: "execution" });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: secondTicket.summary.id, role: "execution" });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: exactTicket.summary.id, role: "execution" });
+
+      const { ensureRalphRun } = await import("../domain/loop.js");
+      const ctx = { cwd: workspace.cwd, sessionManager: { getBranch: () => [] } } as unknown as ExtensionContext;
+
+      const firstRun = await ensureRalphRun(ctx, {
+        ticketRef: firstTicket.summary.id,
+        planRef: plan.state.planId,
+        executionMode: "worktree",
+      });
+      const firstRerun = await ensureRalphRun(ctx, {
+        ticketRef: firstTicket.summary.id,
+        planRef: plan.state.planId,
+        executionMode: "worktree",
+      });
+      const secondRun = await ensureRalphRun(ctx, {
+        ticketRef: secondTicket.summary.id,
+        planRef: plan.state.planId,
+        executionMode: "worktree",
+      });
+      const exactRun = await ensureRalphRun(ctx, {
+        ticketRef: exactTicket.summary.id,
+        planRef: plan.state.planId,
+        executionMode: "worktree",
+      });
+
+      expect(firstRun.run.state.executionEnv).toMatchObject({ branchName: "UDP-100" });
+      expect(firstRerun.created).toBe(false);
+      expect(firstRerun.run.state.executionEnv).toMatchObject({
+        branchName: "UDP-100",
+        worktreeRoot: firstRun.run.state.executionEnv?.worktreeRoot,
+      });
+      expect(secondRun.run.state.executionEnv).toMatchObject({ branchName: "UDP-100-1" });
+      expect(exactRun.run.state.executionEnv).toMatchObject({ branchName: "release/manual-hotfix" });
+    } finally {
+      workspace.cleanup();
+    }
+  }, 120000);
+
+  it("reuses the same reserved branch after worktree provisioning fails", async () => {
+    const workspace = createSeededGitWorkspace({
+      prefix: "pi-ralph-branch-reservation-retry-",
+      packageName: "pi-loom",
+      remoteUrl: "git@github.com:example/pi-loom.git",
+    });
+
+    try {
+      const ticketStore = createTicketStore(workspace.cwd);
+      const ticket = await ticketStore.createTicketAsync({
+        title: "Allocator branch retry ticket",
+        branchMode: "allocator",
+        branchFamily: "UDP-200",
+      });
+      const planStore = createPlanStore(workspace.cwd);
+      const plan = await planStore.createPlan({
+        title: "Branch retry plan",
+        summary: "Exercise reservation reuse after provisioning failure.",
+        sourceTarget: { kind: "workspace", ref: "pi-loom" },
+      });
+      await planStore.linkPlanTicket(plan.state.planId, { ticketId: ticket.summary.id, role: "execution" });
+
+      const worktreeModule = await import("../domain/worktree.js");
+      const provisionSpy = vi.spyOn(worktreeModule, "provisionWorktree");
+      provisionSpy.mockImplementationOnce(() => {
+        throw new Error("synthetic provision failure");
+      });
+
+      const { ensureRalphRun } = await import("../domain/loop.js");
+      const ctx = { cwd: workspace.cwd, sessionManager: { getBranch: () => [] } } as unknown as ExtensionContext;
+
+      await expect(
+        ensureRalphRun(ctx, {
+          ticketRef: ticket.summary.id,
+          planRef: plan.state.planId,
+          executionMode: "worktree",
+        }),
+      ).rejects.toThrow("synthetic provision failure");
+
+      provisionSpy.mockRestore();
+
+      const retried = await ensureRalphRun(ctx, {
+        ticketRef: ticket.summary.id,
+        planRef: plan.state.planId,
+        executionMode: "worktree",
+      });
+      expect(retried.run.state.executionEnv).toMatchObject({ branchName: "UDP-200" });
+    } finally {
       workspace.cleanup();
     }
   }, 120000);
