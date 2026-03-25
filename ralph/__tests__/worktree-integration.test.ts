@@ -65,7 +65,6 @@ describe("Ralph Worktree Integration", () => {
         ticketRef,
         prompt: "Fix the bug",
         executionMode: "worktree",
-        preferExternalRefNaming: true,
       },
     );
 

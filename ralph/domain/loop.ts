@@ -27,7 +27,6 @@ export interface ExecuteRalphLoopInput {
   ticketRef?: string;
   prompt?: string;
   executionMode?: "direct" | "worktree";
-  preferExternalRefNaming?: boolean;
   iterations?: number;
   policySnapshot?: {
     mode?: "strict" | "balanced" | "expedite";

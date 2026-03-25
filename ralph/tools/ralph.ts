@@ -163,12 +163,6 @@ const RalphRunParams = Type.Object({
       "Execution environment for the Ralph loop. `direct` runs in the current workspace; `worktree` creates an isolated git worktree for the run.",
     ),
   ),
-  preferExternalRefNaming: Type.Optional(
-    Type.Boolean({
-      description:
-        "When true, prefer external reference naming (e.g. ticket-based branch names) over internal UUIDs for worktrees.",
-    }),
-  ),
   steeringPrompt: Type.Optional(
     Type.String({
       description:
@@ -398,7 +392,6 @@ export async function startRalphLoopJob(
           {
             ref: run.state.runId,
             executionMode: input.executionMode,
-            preferExternalRefNaming: input.preferExternalRefNaming,
           },
           jobSignal,
           {
@@ -723,7 +716,6 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         planRef: params.planRef,
         prompt: params.steeringPrompt,
         executionMode: params.executionMode as ExecuteRalphLoopInput["executionMode"],
-        preferExternalRefNaming: params.preferExternalRefNaming,
         policySnapshot: params.policySnapshot as ExecuteRalphLoopInput["policySnapshot"],
       };
       const startedAt = Date.now();
@@ -807,7 +799,6 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         {
           ref: run.state.runId,
           executionMode: input.executionMode,
-          preferExternalRefNaming: input.preferExternalRefNaming,
         },
         signal,
         {

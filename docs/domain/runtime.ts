@@ -36,7 +36,6 @@ export async function runDocsUpdate(
   onUpdate?: (text: string) => void,
   scope?: LoomRuntimeScope,
   worktreeTicketRef?: string,
-  preferExternalRefNaming?: boolean,
 ): Promise<DocsExecutionResult> {
   let finalCwd = cwd;
   let worktreeEnv: Record<string, string> = {};
@@ -54,7 +53,6 @@ export async function runDocsUpdate(
       ownerKey: `docs:${worktreeTicketRef}`,
       metadata: {
         source: "docs-runtime",
-        preferExternalRefNaming: preferExternalRefNaming ?? false,
       },
     });
     finalCwd = provisionWorktree(cwd, branchName);

@@ -599,7 +599,6 @@ describe("docs tools", () => {
         expect.any(Function),
         expect.objectContaining({ repositoryId: serviceA.id }),
         undefined,
-        undefined,
       );
     } finally {
       delete process.env.PI_LOOM_ROOT;

@@ -389,7 +389,6 @@ describe("critique tools", () => {
           worktreePath: expect.stringContaining("service-a"),
         }),
         undefined,
-        undefined,
       );
     } finally {
       delete process.env.PI_LOOM_ROOT;

@@ -123,7 +123,7 @@ describe("docs worktree branch policy", () => {
         events: [],
       });
 
-      await runDocsUpdate(workspace.cwd, "Update docs", undefined, undefined, undefined, created.summary.id, true);
+      await runDocsUpdate(workspace.cwd, "Update docs", undefined, undefined, undefined, created.summary.id);
 
       expect(provisionSpy).toHaveBeenCalledWith(workspace.cwd, "UDP-100");
       expect(harnessSpy).toHaveBeenCalled();

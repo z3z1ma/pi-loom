@@ -66,7 +66,6 @@ describe("critique worktree branch policy", () => {
         undefined,
         undefined,
         created.summary.id,
-        true,
       );
 
       expect(provisionSpy).toHaveBeenCalledWith(workspace.cwd, "UDP-100");
