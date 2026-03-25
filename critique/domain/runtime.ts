@@ -18,7 +18,6 @@ export async function runCritiqueLaunch(
   onUpdate?: (text: string) => void,
   scope?: LoomRuntimeScope,
   worktreeTicketRef?: string,
-  preferExternalRefNaming?: boolean,
 ): Promise<CritiqueExecutionResult> {
   const extensionRoot = resolveExtensionPackageRoot();
   const prompt = renderLaunchPrompt(cwd, launch);
@@ -39,7 +38,6 @@ export async function runCritiqueLaunch(
       ownerKey: `critique:${worktreeTicketRef}`,
       metadata: {
         source: "critique-runtime",
-        preferExternalRefNaming: preferExternalRefNaming ?? false,
       },
     });
     finalCwd = provisionWorktree(cwd, branchName);
