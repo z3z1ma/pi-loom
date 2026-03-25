@@ -67,6 +67,26 @@ Ralph follows the storage scope model rather than inferring execution from one a
 
 `ralph_steer` is intentionally narrow. Steering is additive context for the next iteration boundary, not a second source of truth. It can clarify priorities or carry a newly discovered constraint, but it must not replace the governing ticket or be used to micromanage Ralph's base operating discipline.
 
+## Worktree branch-family workflow
+
+When `ralph_run` executes in `worktree` mode, the branch name now comes from durable ticket and storage state rather than from local git heuristics.
+
+- Ralph reads branch intent from the bound execution ticket
+- if the ticket uses `branch-mode: exact`, Ralph reuses `exact-branch-name` directly
+- if the ticket uses `branch-mode: allocator`, Ralph asks the canonical branch-family allocator for the next exact branch in that repository and family
+- if the ticket leaves `branch-mode: none`, Ralph falls back to a default ticket-scoped family instead of guessing from external refs
+
+The key behavior is idempotence by bound run: once a Ralph run has selected and stored its branch/worktree in `executionEnv`, reruns keep reusing that same branch and worktree. Canonical allocation only happens when a new worktree-backed run is first created.
+
+Examples:
+
+- repository A, family `UDP-100` → first Ralph run can allocate `UDP-100`
+- repository A, later follow-up ticket in the same family → new run can allocate `UDP-100-1` even if `UDP-100` no longer exists locally
+- repository B, same family `UDP-100` → can still allocate its own first `UDP-100` because reservations are scoped per repository
+- ticket override `exact-branch-name: release/manual-hotfix` → Ralph reuses `release/manual-hotfix` without allocating a family suffix
+
+Ralph no longer treats external refs or current local branch names as canonical lineage truth. If branch lineage matters, put it on the ticket or in the canonical reservation history.
+
 ## Local use
 
 ```bash

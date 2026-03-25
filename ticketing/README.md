@@ -90,6 +90,23 @@ That means a ticket may read as `ready` or `blocked` in summaries while still st
 
 Notable direct write support includes explicit reopen semantics via `ticket_write` action `reopen`, so closed tickets can be restored to open status truthfully rather than by manual file moves. Closed tickets are structurally frozen until reopened: relationship fields such as dependencies, parentage, initiative ids, research ids, and external refs cannot be changed while closed. Append-only journal updates, checkpoints, and attachments remain allowed.
 
+## Branch intent on execution tickets
+
+Execution tickets now carry the durable branch-intent contract that worktree-backed runtimes consume.
+
+- `branch-mode: none` means the ticket does not declare a special family or exact override; runtimes fall back to the default ticket-scoped family instead of guessing from git history or external refs
+- `branch-mode: allocator` means the ticket must also carry `branch-family`, and worktree-backed runtimes allocate an exact branch name canonically per repository and family
+- `branch-mode: exact` means the ticket must carry `exact-branch-name`; runtimes reuse that exact branch name directly rather than allocating a new family member
+
+`external-refs` remain useful for traceability, but they are not canonical branch truth. Ticket branch selection no longer comes from the alphabetically first external ref or from whatever branches happen to exist locally.
+
+Examples:
+
+- first follow-up ticket in repository A with `branch-mode: allocator` and `branch-family: UDP-100` can allocate `UDP-100`
+- later follow-up ticket in the same repository and family can allocate `UDP-100-1` even if `UDP-100` was already merged and deleted locally
+- repository B can still allocate its own `UDP-100` because family allocation is repository-scoped rather than global
+- a ticket with `branch-mode: exact` and `exact-branch-name: release/manual-hotfix` reuses that exact branch name across worktree-backed runtimes
+
 ## Artifact policy
 
 - ticket state is persisted durably in SQLite via pi-storage; this is the canonical truth for all ticket data

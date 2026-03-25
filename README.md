@@ -97,6 +97,17 @@ Ralph composes with plans, tickets, critique, docs, and related Loom artifacts a
 
 Workers are the local execution substrate: they keep control-plane and runtime-adjacent scratch state local to a worktree, but they are not themselves the shared execution ledger. Tickets are synchronized from the SQLite-backed execution layer via pi-storage.
 
+## Worktree branch-family model
+
+Worktree-backed execution now uses a durable branch-family model instead of deriving lineage from local git state.
+
+- execution tickets declare branch intent through `branch-mode`, `branch-family`, and `exact-branch-name`
+- canonical branch reservations are allocated per repository and branch family, so one repository can advance from `UDP-100` to `UDP-100-1` without affecting another repository's first `UDP-100`
+- exact overrides remain explicit and durable on the ticket instead of living in transient runtime flags
+- Ralph reruns stay idempotent by reusing the stored branch/worktree for the same bound run rather than reallocating on every iteration
+
+This means Pi Loom does not try to infer merge state from git alone. Follow-up work after merge is modeled explicitly through ticket branch intent and canonical reservation history, which stays truthful even when old local branches have already been deleted.
+
 ## Storage model
 
 Pi Loom persists canonical operational state in SQLite via pi-storage. The steady state is:
