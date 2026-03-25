@@ -2,7 +2,10 @@ import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi
 import { createConstitutionalStore } from "#constitution/domain/store.js";
 import { createPlanStore } from "#plans/domain/store.js";
 import { createSpecStore } from "#specs/domain/store.js";
+import { reserveBranchFamilyName } from "#storage/branch-reservations.js";
+import { findEntityByDisplayId } from "#storage/entities.js";
 import { resolveRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
+import { openRepositoryWorkspaceStorage } from "#storage/workspace.js";
 import type { TicketReadResult, TicketStatus } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import type {
@@ -17,7 +20,7 @@ import type {
 import { deriveRalphRunId } from "./paths.js";
 import { type RalphExecutionResult, type RalphLaunchEvent, runRalphLaunch } from "./runtime.js";
 import { createRalphStore } from "./store.js";
-import { provisionWorktree, resolveUniqueWorktreeName } from "./worktree.js";
+import { provisionWorktree } from "./worktree.js";
 
 type RalphContextLike = Pick<ExtensionContext, "cwd"> | Pick<ExtensionCommandContext, "cwd">;
 
@@ -1291,13 +1294,11 @@ export async function ensureRalphRun(
       throw new Error("Cannot use worktree execution mode: not in a git repository");
     }
     const ticket = await createTicketStore(ctx.cwd).readTicketAsync(binding.ticketId);
-    const branchName = resolveUniqueWorktreeName(
-      {
-        ref: ticket.summary.ref,
-        externalRefs: ticket.ticket.frontmatter["external-refs"],
-      },
-      runtimeScope.repositoryRoot,
-      input.preferExternalRefNaming ?? false,
+    const branchName = await resolveInitialWorktreeBranchName(
+      ctx,
+      runtimeScope.repositoryId,
+      ticket,
+      `ralph-run:${binding.runId}`,
     );
     const worktreePath = provisionWorktree(runtimeScope.repositoryRoot, branchName);
     executionEnv = {
@@ -1363,6 +1364,49 @@ function managedDecision(
     decidedBy,
     blockingRefs: [],
   };
+}
+
+async function resolveInitialWorktreeBranchName(
+  ctx: RalphContextLike,
+  repositoryId: string,
+  ticket: TicketReadResult,
+  ownerKey: string,
+): Promise<string> {
+  const branchMode = ticket.ticket.frontmatter["branch-mode"];
+  const branchFamily = ticket.ticket.frontmatter["branch-family"];
+  const exactBranchName = ticket.ticket.frontmatter["exact-branch-name"];
+
+  if (branchMode === "exact") {
+    if (!exactBranchName) {
+      throw new Error(`Ticket ${ticket.summary.id} is in exact branch mode but has no exact branch name.`);
+    }
+    return exactBranchName;
+  }
+
+  const resolvedFamily = branchMode === "allocator" ? branchFamily : `ralph/${ticket.summary.id}`;
+  if (!resolvedFamily) {
+    throw new Error(
+      `Ticket ${ticket.summary.id} must declare a branch family for allocator-backed worktree execution.`,
+    );
+  }
+
+  const { storage, identity } = await openRepositoryWorkspaceStorage(ctx.cwd, { repositoryId });
+  const ticketEntity = await findEntityByDisplayId(storage, identity.space.id, "ticket", ticket.summary.id);
+  const reservation = await reserveBranchFamilyName(storage, {
+    repositoryId,
+    branchFamily: resolvedFamily,
+    ownerKey,
+    ownerEntityId: ticketEntity?.id ?? null,
+    ownerEntityKind: ticketEntity ? "ticket" : null,
+    timestamp: new Date().toISOString(),
+    metadata: {
+      source: "ralph-run",
+      ticketId: ticket.summary.id,
+      ticketRef: ticket.summary.ref,
+      branchMode,
+    },
+  });
+  return reservation.branchName;
 }
 
 async function syncBoundRunScope(
