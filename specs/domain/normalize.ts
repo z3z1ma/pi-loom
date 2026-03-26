@@ -39,6 +39,13 @@ export function slugifyTitle(title: string): string {
   return normalized;
 }
 
+const DELTA_STYLE_SPEC_TITLE_PREFIX =
+  /^(add|adding|implement|implementing|create|creating|build|building|update|updating|refactor|refactoring|migrate|migrating|remove|removing|fix|fixing|change|changing|rename|renaming|wire|wiring|move|moving|replace|replacing|deprecate|deprecating)\b/i;
+
+export function isDeltaStyleSpecTitle(title: string): boolean {
+  return DELTA_STYLE_SPEC_TITLE_PREFIX.test(title.trim());
+}
+
 export function normalizeChangeId(value: string): string {
   const trimmed = value.trim().toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]*$/.test(trimmed)) {

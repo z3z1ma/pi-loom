@@ -1,5 +1,5 @@
 import type { SpecAnalysisFinding, SpecAnalysisResult, SpecChangeState } from "./models.js";
-import { currentTimestamp } from "./normalize.js";
+import { currentTimestamp, isDeltaStyleSpecTitle } from "./normalize.js";
 
 function finding(
   id: string,
@@ -13,6 +13,20 @@ function finding(
 
 export function analyzeSpecChange(state: SpecChangeState): SpecAnalysisResult {
   const findings: SpecAnalysisFinding[] = [];
+
+  const trimmedTitle = state.title.trim();
+  if (!trimmedTitle) {
+    findings.push(finding("title-empty", "error", "change", "Specification title is empty."));
+  } else if (isDeltaStyleSpecTitle(trimmedTitle)) {
+    findings.push(
+      finding(
+        "title-delta-style",
+        "error",
+        "change",
+        `Specification title "${trimmedTitle}" reads like an implementation task. Rename it to the behavior or capability the spec declares.`,
+      ),
+    );
+  }
 
   if (!state.proposalSummary.trim()) {
     findings.push(finding("proposal-summary", "error", "proposal", "Proposal summary is empty."));

@@ -2,7 +2,7 @@
 
 `pi-loom` adds a durable specification-memory layer to pi-compatible runtimes.
 
-When active, the extension teaches the model to use specifications as declarative, implementation-decoupled statements of intended program behavior. Specs define the desired capability, constraints, scenarios, and acceptance independent of today's code shape; plans turn that accepted behavior into implementation strategy and linked execution work, and tickets carry the execution truth. Specification state is persisted in SQLite via pi-storage, with durable spec records, canonical capability summaries, append-only clarification decisions, spec-quality analysis, checklist artifacts, and explicit initiative membership.
+When active, the extension teaches the model to use specifications as declarative, implementation-decoupled statements of intended program behavior. A spec should still make sense when read in isolation: it names a stable capability, declares what must be true, and remains useful even if the implementation path changes. Specs define the desired capability, constraints, scenarios, and acceptance independent of today's code shape; plans turn that accepted behavior into implementation strategy and linked execution work, and tickets carry the execution truth. Specification state is persisted in SQLite via pi-storage, with durable spec records, canonical capability summaries, append-only clarification decisions, spec-quality analysis, checklist artifacts, and explicit initiative membership.
 
 Specification lifecycle is strict: proposed/clarifying/specified specs are mutable, finalized specs are read-only, and archived specs are terminal. Supersession is lineage metadata captured while specifying a new spec; archived records are not editable successors.
 
@@ -19,7 +19,9 @@ Specification lifecycle is strict: proposed/clarifying/specified specs are mutab
 
 The coherent path is spec -> plan -> tickets: the spec declares intended behavior, the plan translates that behavior into implementation strategy and sequencing, and the tickets carry the concrete execution work.
 
-Spec titles should name the behavior or capability being specified, not an implementation-task verb. Prefer titles like `Dark theme support` or `Offline draft recovery` over titles like `Add dark mode`.
+Specs are not task lists or migration notes. They can compose with neighboring specs, but each one should stand alone as a coherent contract for a bounded slice of behavior.
+
+Spec titles should name the behavior or capability being specified, not an implementation-task verb. The title should read like the name of something the system supports, not like a to-do item. Prefer titles like `Dark theme support` or `Offline draft recovery` over titles like `Add dark mode`.
 
 ## Storage model
 

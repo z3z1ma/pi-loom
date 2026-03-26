@@ -1,6 +1,6 @@
 You are operating with a durable local specification-memory layer.
 
-Specifications are declarative, implementation-decoupled descriptions of desired program behavior. Inspect relevant research before opening or extending a spec when ambiguity, discovery, or evidence gathering remains, then use the spec as the bounded contract for the intended behavior once the work can be framed. Use specs before planning or ticket execution when the work is a new capability, a multi-ticket feature, architectural or cross-cutting, materially ambiguous, or important enough that requirements quality should be validated before implementation.
+Specifications are declarative, implementation-decoupled descriptions of desired program behavior. A spec should still make sense when read in isolation: it names a stable capability, declares what must be true, and stays valid even if the eventual implementation or rollout sequence changes. Inspect relevant research before opening or extending a spec when ambiguity, discovery, or evidence gathering remains, then use the spec as the bounded contract for the intended behavior once the work can be framed. Use specs before planning or ticket execution when the work is a new capability, a multi-ticket feature, architectural or cross-cutting, materially ambiguous, or important enough that requirements quality should be validated before implementation.
 
 When durable principles, non-negotiable constraints, or roadmap commitments may shape the bounded design, inspect constitutional memory before locking the spec, usually through the upstream initiative or linked strategic context rather than treating the spec itself as the source of project policy.
 
@@ -12,9 +12,11 @@ You may skip specs only for narrow localized fixes, one-off operational tasks, o
 
 Specs must be detail-first artifacts, not skeletal placeholders. Write them as self-contained contracts that make the problem framing, desired outcomes, rationale, assumptions, constraints, scope boundaries, dependencies, risks, tradeoffs, scenarios, edge cases, acceptance, verification strategy, provenance, and remaining open questions legible at the spec layer without duplicating neighboring layers' live execution state, so an implementer who did not author the spec can still understand what behavior must be true and why.
 
+Specs are not task lists, migration notes, or instructions to mutate today's code. They may compose with neighboring specs, but each spec must stand on its own as a coherent contract for one bounded slice of behavior.
+
 Reject blurbs that merely name the capability. If a future implementer or reviewer could not understand why the behavior matters, what must be true, what can go wrong, and how success will be verified from the spec alone, the spec is not ready.
 
-Title specs around the behavior or capability being specified, not around the implementation delta. Prefer `Dark theme support` or `Offline draft recovery` over `Add dark mode` or `Implement draft restore`.
+Title specs around the behavior or capability being specified, not around the implementation delta. A title should read like the name of something the system supports, not like a to-do item. Prefer `Dark theme support` or `Offline draft recovery` over `Add dark mode` or `Implement draft restore`.
 
 When spec workflow applies:
 - inspect existing initiatives first when the work may belong to a longer-horizon program
@@ -23,7 +25,7 @@ When spec workflow applies:
 - inspect existing specs and canonical capabilities before creating a new spec
 - use proposal and clarification steps to resolve ambiguity before implementation planning
 - use the `specify` step to record capabilities and design notes once the behavior is clear enough to structure
-- write proposal, clarifications, design notes, capabilities, and acceptance so the spec captures substantial bounded detail rather than a thin summary, with behavior-first language that stays valid even as implementation evolves
+- write proposal, clarifications, design notes, capabilities, and acceptance so the spec captures substantial bounded detail rather than a thin summary, with behavior-first language that stays valid even as implementation evolves and remains legible outside the current code delta
 - make requirements and scenarios concrete enough that downstream plans and tickets can inherit intent without reconstructing missing rationale or edge cases
 - treat spec analysis and checklist results as quality gates on the specification itself, not as implementation tests
 - when a finalized spec needs a coherent implementation rollout or broader execution slice, create or update a plan so execution strategy stays durable without overloading the spec artifacts themselves
@@ -32,6 +34,6 @@ When spec workflow applies:
 - read the originating spec before implementing tickets derived from it
 - treat constitutional memory as the durable project-policy layer above initiatives when strategic principles or constraints matter
 - treat research as the upstream evidence layer
-- treat specs as the durable behavior contract, plans as the durable implementation-strategy bridge into linked tickets, tickets as the comprehensive execution ledger and self-contained units of work, critique as the adversarial review layer, and docs as the post-completion explanatory layer
+- treat specs as the durable standalone behavior contract, plans as the durable implementation-strategy bridge into linked tickets, tickets as the comprehensive execution ledger and self-contained units of work, critique as the adversarial review layer, and docs as the post-completion explanatory layer
 - use critique for adversarial review of the spec or its implementation when analysis/checklists are no longer enough, keeping critique distinct from both spec quality gates and Ralph loop orchestration
 - when finalized spec work lands and materially changes high-level architecture or workflow understanding, update documentation memory after implementation is complete

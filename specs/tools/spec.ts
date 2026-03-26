@@ -96,13 +96,13 @@ const SpecWriteParams = Type.Object({
   title: Type.Optional(
     Type.String({
       description:
-        "Specification title. Name the intended behavior or capability, not an implementation-task verb; prefer `Dark theme support` over `Add dark mode`.",
+        "Specification title. Name the intended behavior or capability so the spec still makes sense in isolation, not an implementation-task verb; prefer `Dark theme support` over `Add dark mode`.",
     }),
   ),
   summary: Type.Optional(
     Type.String({
       description:
-        "Behavior-first summary of the desired outcome, constraints, or scope. Keep it truthful to intended program behavior rather than a task list or migration sequence.",
+        "Behavior-first summary of the desired outcome, constraints, or scope. Keep it truthful to intended program behavior rather than a task list or migration sequence so the statement remains valid as implementation changes.",
     }),
   ),
   question: Type.Optional(Type.String()),
@@ -252,6 +252,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Read the active or finalized specification before implementation when it is the durable source of intended behavior.",
       "Use the loaded specification to recover detailed requirements, rationale, dependencies, risks, edge cases, and acceptance instead of reconstructing them from memory or inferring them from current code.",
+      "Read the spec as a standalone contract for what must be true, not as a patch note for how the current codebase should be edited.",
       "Treat plans as the implementation bridge and tickets as the execution ledger; the specification defines the behavior they must honor.",
     ],
     parameters: SpecReadParams,
@@ -276,12 +277,14 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     description:
       "Create or update durable specification state in the local spec memory layer, keeping specifications declarative and implementation-decoupled while plans and tickets stay execution-aware.",
     promptSnippet:
-      "Persist proposal, clarification, and specification detail durably so product intent remains explicit, behavior-first, and reusable.",
+      "Persist proposal, clarification, and specification detail durably so product intent remains explicit, behavior-first, reusable, and legible in isolation.",
     promptGuidelines: [
       "Use this tool to formalize product intent before implementation when the work exceeds a narrow localized fix.",
       "Write clarifications back into the specification so future turns and agents can rely on them.",
       "Capture enough bounded detail for the specification layer: problem framing, desired behavior, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
+      "A good specification stands on its own: someone reading only the spec should understand the capability, the conditions that must hold, and why the behavior matters.",
       "When proposing a specification, title it around the behavior or capability being specified rather than an implementation-task verb or migration delta.",
+      "Reject titles or summaries that read like migration steps, code churn, or work-order commands instead of stable capability names and behavior contracts.",
       "Keep specifications declarative and implementation-decoupled; use `specify` to record capabilities and design notes, then create or update a plan when the specification is ready to drive implementation.",
       "`clarify`, `specify`, and other spec mutations are for mutable specs only. After `finalize`, the spec becomes read-only; after `archive`, it is terminal and remains available only for reading, lineage, and capability provenance.",
       "Use `supersedes` to record lineage to earlier specs during specification. Do not treat archived specs as mutable successors or editable placeholders.",
@@ -334,6 +337,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Use this tool to validate the specification itself.",
       "Run analysis before finalizing and before handing the spec off to plans or other execution artifacts.",
+      "Treat delta-style titles, task-list wording, or rollout-step framing as specification defects to fix before the spec becomes the contract for downstream work.",
       "Treat implementation-coupled wording, missing rationale, edge cases, dependencies, or verification detail as a spec-quality failure to fix before planning execution.",
       "Analysis and checklist generation mutate stored artifacts, so they are only valid while the spec is still mutable; rerun them before finalize, not after finalize or archive.",
     ],

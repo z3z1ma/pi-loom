@@ -52,6 +52,27 @@ describe("spec analysis", () => {
     expect(result.findings).toEqual([]);
   });
 
+  it("fails specs whose titles read like implementation tasks", () => {
+    const result = analyzeSpecChange(
+      buildState({
+        title: "Add dark mode",
+      }),
+    );
+
+    expect(result.readyToFinalize).toBe(false);
+    expect(result.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          artifact: "change",
+          blocking: true,
+          id: "title-delta-style",
+          message:
+            'Specification title "Add dark mode" reads like an implementation task. Rename it to the behavior or capability the spec declares.',
+        }),
+      ]),
+    );
+  });
+
   it("flags missing behavioral detail as a spec-quality failure", () => {
     const result = analyzeSpecChange(
       buildState({

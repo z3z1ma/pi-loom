@@ -79,7 +79,13 @@ describe("spec tools", () => {
       "Capture enough bounded detail for the specification layer: problem framing, desired behavior, rationale, assumptions, constraints, dependencies, tradeoffs, scenarios, edge cases, acceptance, verification, provenance, and open questions where they still exist.",
     );
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
+      "A good specification stands on its own: someone reading only the spec should understand the capability, the conditions that must hold, and why the behavior matters.",
+    );
+    expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
       "When proposing a specification, title it around the behavior or capability being specified rather than an implementation-task verb or migration delta.",
+    );
+    expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
+      "Reject titles or summaries that read like migration steps, code churn, or work-order commands instead of stable capability names and behavior contracts.",
     );
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
       "`clarify`, `specify`, and other spec mutations are for mutable specs only. After `finalize`, the spec becomes read-only; after `archive`, it is terminal and remains available only for reading, lineage, and capability provenance.",
@@ -88,7 +94,13 @@ describe("spec tools", () => {
       "keeping specifications declarative and implementation-decoupled while plans and tickets stay execution-aware",
     );
     expect(getTool(mockPi, "spec_read").promptGuidelines).toContain(
+      "Read the spec as a standalone contract for what must be true, not as a patch note for how the current codebase should be edited.",
+    );
+    expect(getTool(mockPi, "spec_read").promptGuidelines).toContain(
       "Treat plans as the implementation bridge and tickets as the execution ledger; the specification defines the behavior they must honor.",
+    );
+    expect(getTool(mockPi, "spec_analyze").promptGuidelines).toContain(
+      "Treat delta-style titles, task-list wording, or rollout-step framing as specification defects to fix before the spec becomes the contract for downstream work.",
     );
     expect(getTool(mockPi, "spec_analyze").promptGuidelines).toContain(
       "Analysis and checklist generation mutate stored artifacts, so they are only valid while the spec is still mutable; rerun them before finalize, not after finalize or archive.",

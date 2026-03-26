@@ -52,6 +52,25 @@ describe("spec checklist", () => {
     expect(result.items.every((item) => item.passed)).toBe(true);
   });
 
+  it("fails the checklist when the title reads like a work order", () => {
+    const result = buildSpecChecklist(
+      buildState({
+        title: "Implement draft restore",
+      }),
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "title",
+          passed: false,
+          title: "Title names a standalone behavior or capability",
+        }),
+      ]),
+    );
+  });
+
   it("fails checklist items when acceptance criteria or scenarios are missing", () => {
     const result = buildSpecChecklist(
       buildState({
