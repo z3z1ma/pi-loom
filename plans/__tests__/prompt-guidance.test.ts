@@ -16,9 +16,12 @@ describe("plan prompt guidance", () => {
       "tickets remain both the high-fidelity execution system of record and comprehensive, self-contained units of work",
     );
     expect(guidance).toContain(
-      "use the ticket layer to create, refine, or link tickets explicitly. Plans wrap those tickets in broader execution context",
+      "use the ticket layer truthfully: plans wrap those tickets in broader execution context",
     );
-    expect(guidance).toContain("specs as standalone declarative behavior contracts for intended system behavior");
+    expect(guidance).toContain(
+      "prefer the cohesive `plan_write` path that materializes linked tickets in the same write",
+    );
+    expect(guidance).toContain("specs as declarative specifications of intended behavior");
     expect(guidance).toContain("self-contained workplan for a novice reader");
     expect(guidance).toContain("Required plan sections are");
     expect(guidance).toContain("`Idempotence and Recovery`");

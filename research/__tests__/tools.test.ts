@@ -88,6 +88,12 @@ describe("research tools", () => {
 
     expect(getTool(mockPi, "research_hypothesis").promptSnippet).toContain("Persist structured reasoning");
     expect(getTool(mockPi, "research_artifact").promptSnippet).toContain("current-state records");
+    expect(getTool(mockPi, "research_read").promptSnippet).toContain(
+      "Load the full research record before drafting specs, initiatives, or execution artifacts",
+    );
+    expect(getTool(mockPi, "research_read").promptGuidelines).toContain(
+      "Read the research record before drafting related specs or starting implementation when durable findings, methodology, or rejected paths may already exist.",
+    );
     expect(getTool(mockPi, "research_read").promptGuidelines).toContain(
       'Use `research_write` with `action: "create"` to start new research; `research_read` only loads existing records and will fail for unknown refs.',
     );

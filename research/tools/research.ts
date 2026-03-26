@@ -349,9 +349,9 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     label: "research_read",
     description: "Read a research record with durable synthesis, hypotheses, artifacts, and linked work.",
     promptSnippet:
-      "Load the full research record before planning specs, initiatives, or execution so downstream work inherits the detailed evidence, rationale, assumptions, and unresolved questions already captured.",
+      "Load the full research record before drafting specs, initiatives, or execution artifacts so downstream work inherits the detailed evidence, rationale, assumptions, and unresolved questions already captured.",
     promptGuidelines: [
-      "Read the research record before starting related implementation when durable findings, methodology, or rejected paths may already exist.",
+      "Read the research record before drafting related specs or starting implementation when durable findings, methodology, or rejected paths may already exist.",
       'Use `research_write` with `action: "create"` to start new research; `research_read` only loads existing records and will fail for unknown refs.',
     ],
     parameters: ResearchReadParams,

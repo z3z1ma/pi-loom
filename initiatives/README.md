@@ -2,7 +2,7 @@
 
 `pi-loom` adds a strategic-memory layer to pi-compatible runtimes.
 
-When active, the extension teaches the model to use initiatives as first-class strategic containers above specs and tickets. Initiative state is stored canonically in SQLite via pi-storage, and initiative summaries or decisions are rendered from those records for inspection or export.
+When active, the extension teaches the model to use initiatives as first-class strategic containers above specs and tickets. Initiatives group related standalone specs and linked execution work into one durable strategic record without turning the initiative itself into a rollout checklist. Initiative state is stored canonically in SQLite via pi-storage, and initiative summaries or decisions are rendered from those records for inspection or export.
 
 `initiative_read` only loads existing initiatives. It accepts either an initiative id such as `platform-modernization` or an initiative directory path whose final segment normalizes to that id, but it does not create missing records on read.
 

@@ -360,6 +360,71 @@ describe("PlanStore durable memory", () => {
     expect(linked.plan).toContain("Canonical follow-up");
   }, 30000);
 
+  it("materializes new and existing linked tickets without storing shadow ticket state in plans", async () => {
+    const ticketStore = createTicketStore(workspace);
+    const planStore = createPlanStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-15T14:07:00.000Z"));
+    const existingTicket = await ticketStore.createTicketAsync({
+      title: "Existing review ticket",
+      summary: "Review the integrated workflow.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-15T14:08:00.000Z"));
+    const created = await planStore.createPlan({
+      title: "Integrated authoring rollout",
+      sourceTarget: { kind: "workspace", ref: "." },
+    });
+
+    const materialized = await planStore.materializeLinkedTickets(created.state.planId, [
+      {
+        title: "Implement cohesive authoring",
+        summary: "Create and link a ticket from the plan authoring surface.",
+        acceptance: ["One plan write can create and link this ticket."],
+        verification: "Run the targeted plan tool tests.",
+        role: "implementation",
+        order: 1,
+      },
+      {
+        ticketRef: existingTicket.summary.id,
+        role: "review",
+        order: 2,
+      },
+    ]);
+
+    expect(materialized.plan.state.linkedTickets).toEqual([
+      expect.objectContaining({ role: "implementation", order: 1 }),
+      expect.objectContaining({ ticketId: existingTicket.summary.id, role: "review", order: 2 }),
+    ]);
+    expect(materialized.tickets).toHaveLength(2);
+
+    const createdLinkedTicket = materialized.tickets.find((ticket) => ticket.summary.id !== existingTicket.summary.id);
+    expect(createdLinkedTicket).toBeDefined();
+    if (!createdLinkedTicket) {
+      throw new Error("Expected created linked ticket");
+    }
+
+    expect(materialized.plan.overview.linkedTickets).toEqual([
+      expect.objectContaining({ ticketId: createdLinkedTicket.summary.id, role: "implementation" }),
+      expect.objectContaining({ ticketId: existingTicket.summary.id, role: "review" }),
+    ]);
+    expect(materialized.plan.state.linkedTickets[0]).not.toHaveProperty("title");
+    expect(materialized.plan.state.linkedTickets[0]).not.toHaveProperty("status");
+    expect(
+      (await ticketStore.readTicketAsync(createdLinkedTicket.summary.id)).ticket.frontmatter["external-refs"],
+    ).toContain(`plan:${created.state.planId}`);
+    expect(
+      (await ticketStore.readTicketAsync(existingTicket.summary.id)).ticket.frontmatter["external-refs"],
+    ).toContain(`plan:${created.state.planId}`);
+
+    const unlinked = await planStore.unlinkPlanTicket(created.state.planId, existingTicket.summary.id);
+    expect(unlinked.state.linkedTickets).toEqual([
+      expect.objectContaining({ ticketId: createdLinkedTicket.summary.id, role: "implementation" }),
+    ]);
+    expect(
+      (await ticketStore.readTicketAsync(existingTicket.summary.id)).ticket.frontmatter["external-refs"],
+    ).toContain(`plan:${created.state.planId}`);
+  }, 30000);
 
   it("replaces and removes context refs explicitly instead of only accumulating them", async () => {
     const ticketStore = createTicketStore(workspace);

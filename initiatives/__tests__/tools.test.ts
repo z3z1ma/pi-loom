@@ -83,6 +83,13 @@ describe("initiative tools", () => {
     }
 
     expect(getTool(mockPi, "initiative_write").promptSnippet).toContain("Persist a substantial strategic record");
+    expect(getTool(mockPi, "initiative_write").promptSnippet).toContain("linked standalone specs");
+    expect(getTool(mockPi, "initiative_write").promptGuidelines).toContain(
+      "Use initiative links to group stable behavior contracts and their execution work under one strategy, not to turn the initiative into a spec or a rollout script.",
+    );
+    expect(getTool(mockPi, "initiative_read").promptGuidelines).toContain(
+      "Read the initiative before revising linked specs or sequencing linked tickets when durable strategic intent, rationale, risks, dependencies, or success criteria may matter.",
+    );
   });
 
   it("returns machine-usable shapes for list, read, write, and overview flows", async () => {

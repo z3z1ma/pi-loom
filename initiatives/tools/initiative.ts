@@ -240,7 +240,7 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
     promptSnippet:
       "Load the full strategic record for an existing initiative before planning multi-spec or multi-ticket work against it.",
     promptGuidelines: [
-      "Read the initiative before changing linked specs or tickets when durable strategic intent, rationale, risks, dependencies, or success criteria may matter.",
+      "Read the initiative before revising linked specs or sequencing linked tickets when durable strategic intent, rationale, risks, dependencies, or success criteria may matter.",
       "If the initiative may not exist yet, list first or create it explicitly; reads fail for missing initiatives instead of bootstrapping new records.",
     ],
     parameters: InitiativeReadParams,
@@ -255,9 +255,10 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
     label: "initiative_write",
     description: "Create or update durable initiative state in the local strategic memory layer.",
     promptSnippet:
-      "Persist a substantial strategic record with objective, rationale, scope, milestones, metrics, dependencies, linked specs, linked tickets, risks, and status summaries instead of leaving that context only in chat.",
+      "Persist a substantial strategic record with objective, rationale, scope, milestones, metrics, dependencies, linked standalone specs, linked tickets, risks, and status summaries instead of leaving that context only in chat.",
     promptGuidelines: [
       "Use this tool when work deserves durable strategic context beyond a single spec or ticket graph, and make that context detailed enough for later turns to understand the initiative without replaying chat.",
+      "Use initiative links to group stable behavior contracts and their execution work under one strategy, not to turn the initiative into a spec or a rollout script.",
       "Keep initiative rationale, scope boundaries, milestones, dependencies, risks, metrics, links, and status truthful so future turns and agents can rely on them.",
       "Status changes must remain lifecycle-truthful: entering `completed` or `archived` sets that terminal timestamp, and leaving either status clears the stale terminal timestamp.",
     ],

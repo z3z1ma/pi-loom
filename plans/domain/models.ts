@@ -1,6 +1,13 @@
 import type { LoomListSort } from "#storage/list-search.js";
 import type { LoomPortableRepositoryPath } from "#storage/repository-path.js";
 import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
+import type {
+  TicketBranchMode,
+  TicketPriority,
+  TicketReviewStatus,
+  TicketRisk,
+  TicketType,
+} from "#ticketing/domain/models.js";
 
 export const PLAN_STATUSES = ["active", "paused", "completed", "archived", "superseded"] as const;
 export const PLAN_SOURCE_TARGET_KINDS = ["workspace", "initiative", "spec", "research"] as const;
@@ -34,6 +41,36 @@ export interface PlanTicketLink {
   ticketId: string;
   role: string | null;
   order: number;
+}
+
+export interface PlanLinkedTicketInput {
+  ticketRef?: string;
+  title?: string;
+  summary?: string;
+  context?: string;
+  plan?: string;
+  notes?: string;
+  verification?: string;
+  journalSummary?: string;
+  priority?: TicketPriority;
+  type?: TicketType;
+  tags?: string[];
+  deps?: string[];
+  links?: string[];
+  initiativeIds?: string[];
+  researchIds?: string[];
+  parent?: string | null;
+  assignee?: string | null;
+  acceptance?: string[];
+  labels?: string[];
+  risk?: TicketRisk;
+  reviewStatus?: TicketReviewStatus;
+  externalRefs?: string[];
+  branchMode?: TicketBranchMode;
+  branchFamily?: string | null;
+  exactBranchName?: string | null;
+  role?: string | null;
+  order?: number;
 }
 
 export interface PlanDiscoveryRecord {

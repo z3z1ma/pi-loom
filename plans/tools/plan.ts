@@ -3,6 +3,13 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS } from "#storage/list-search.js";
+import {
+  REVIEW_STATUSES,
+  TICKET_BRANCH_MODES,
+  TICKET_PRIORITIES,
+  TICKET_RISKS,
+  TICKET_TYPES,
+} from "#ticketing/domain/models.js";
 import type { CreatePlanInput, PlanContextRefsUpdate, UpdatePlanInput } from "../domain/models.js";
 import { renderOverview, renderPlanDetail } from "../domain/render.js";
 import { createPlanStore } from "../domain/store.js";
@@ -14,6 +21,11 @@ const PlanWriteActionEnum = StringEnum(["init", "create", "update", "archive"] a
 const PlanReadModeEnum = StringEnum(["full", "state", "packet", "plan"] as const);
 const PlanTicketLinkActionEnum = StringEnum(["link", "unlink"] as const);
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
+const TicketTypeEnum = StringEnum(TICKET_TYPES);
+const TicketPriorityEnum = StringEnum(TICKET_PRIORITIES);
+const TicketRiskEnum = StringEnum(TICKET_RISKS);
+const TicketReviewStatusEnum = StringEnum(REVIEW_STATUSES);
+const TicketBranchModeEnum = StringEnum(TICKET_BRANCH_MODES);
 function withDescription<T extends Record<string, unknown>>(schema: T, description: string): T {
   return { ...schema, description } as T;
 }
@@ -45,6 +57,36 @@ const PlanRevisionSchema = Type.Object({
   timestamp: Type.String(),
   change: Type.String(),
   reason: Type.String(),
+});
+
+const PlanLinkedTicketInputSchema = Type.Object({
+  ticketRef: Type.Optional(Type.String()),
+  title: Type.Optional(Type.String()),
+  summary: Type.Optional(Type.String()),
+  context: Type.Optional(Type.String()),
+  plan: Type.Optional(Type.String()),
+  notes: Type.Optional(Type.String()),
+  verification: Type.Optional(Type.String()),
+  journalSummary: Type.Optional(Type.String()),
+  priority: Type.Optional(TicketPriorityEnum),
+  type: Type.Optional(TicketTypeEnum),
+  tags: Type.Optional(Type.Array(Type.String())),
+  deps: Type.Optional(Type.Array(Type.String())),
+  links: Type.Optional(Type.Array(Type.String())),
+  initiativeIds: Type.Optional(Type.Array(Type.String())),
+  researchIds: Type.Optional(Type.Array(Type.String())),
+  parent: Type.Optional(Type.String()),
+  assignee: Type.Optional(Type.String()),
+  acceptance: Type.Optional(Type.Array(Type.String())),
+  labels: Type.Optional(Type.Array(Type.String())),
+  risk: Type.Optional(TicketRiskEnum),
+  reviewStatus: Type.Optional(TicketReviewStatusEnum),
+  externalRefs: Type.Optional(Type.Array(Type.String())),
+  branchMode: Type.Optional(TicketBranchModeEnum),
+  branchFamily: Type.Optional(Type.String()),
+  exactBranchName: Type.Optional(Type.String()),
+  role: Type.Optional(Type.String()),
+  order: Type.Optional(Type.Number()),
 });
 
 const PlanListParams = Type.Object({
@@ -137,6 +179,12 @@ const PlanWriteParams = Type.Object({
   discoveries: Type.Optional(Type.Array(PlanDiscoverySchema)),
   decisions: Type.Optional(Type.Array(PlanDecisionSchema)),
   revisionNotes: Type.Optional(Type.Array(PlanRevisionSchema)),
+  linkedTicketInputs: Type.Optional(
+    withDescription(
+      Type.Array(PlanLinkedTicketInputSchema),
+      "Optional linked-ticket materialization input. Each entry either references an existing ticket via `ticketRef` or defines a new ticket to create via `title` plus full ticket detail. Use this when you can still make every ticket self-contained; omit it when you need to scaffold the plan first and add tickets later.",
+    ),
+  ),
 });
 
 const PlanPacketParams = Type.Object({
@@ -246,6 +294,7 @@ function toCreateInput(params: PlanWriteParamsValue): CreatePlanInput {
     idempotenceAndRecovery: params.idempotenceAndRecovery,
     artifactsAndNotes: params.artifactsAndNotes,
     interfacesAndDependencies: params.interfacesAndDependencies,
+    risksAndQuestions: params.risksAndQuestions,
     outcomesAndRetrospective: params.outcomesAndRetrospective,
     scopePaths: params.scopePaths,
     contextRefs,
@@ -276,6 +325,7 @@ function toUpdateInput(params: PlanWriteParamsValue): UpdatePlanInput {
     idempotenceAndRecovery: params.idempotenceAndRecovery,
     artifactsAndNotes: params.artifactsAndNotes,
     interfacesAndDependencies: params.interfacesAndDependencies,
+    risksAndQuestions: params.risksAndQuestions,
     outcomesAndRetrospective: params.outcomesAndRetrospective,
     scopePaths: params.scopePaths,
     contextRefs,
@@ -285,6 +335,32 @@ function toUpdateInput(params: PlanWriteParamsValue): UpdatePlanInput {
     decisions: params.decisions,
     revisionNotes: params.revisionNotes,
   };
+}
+
+function hasPlanUpdateFields(params: PlanWriteParamsValue): boolean {
+  return [
+    params.title,
+    params.status,
+    params.summary,
+    params.purpose,
+    params.contextAndOrientation,
+    params.milestones,
+    params.planOfWork,
+    params.concreteSteps,
+    params.validation,
+    params.idempotenceAndRecovery,
+    params.artifactsAndNotes,
+    params.interfacesAndDependencies,
+    params.risksAndQuestions,
+    params.outcomesAndRetrospective,
+    params.scopePaths,
+    params.contextRefs,
+    params.progress,
+    params.sourceTarget,
+    params.discoveries,
+    params.decisions,
+    params.revisionNotes,
+  ].some((value) => value !== undefined);
 }
 
 export function registerPlanTools(pi: ExtensionAPI): void {
@@ -383,12 +459,14 @@ export function registerPlanTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "plan_write",
     label: "plan_write",
-    description: "Create, update, or archive durable execution plans in local Loom memory.",
+    description:
+      "Create, update, or archive durable execution plans in local Loom memory, optionally materializing linked tickets in the same write.",
     promptSnippet:
       "You **MUST** use this tool to persist any execution strategy. Do not leave planning in chat; if you have a plan, you **MUST** write it down.",
     promptGuidelines: [
       "Create the plan before repeatedly revising the execution strategy so ticket links and source refs accumulate on a stable durable id.",
-      "Update plan content as a self-contained novice-facing workplan with explicit milestones, timestamped progress, concrete commands, validation, recovery guidance, interfaces, and revision notes without duplicating live per-ticket status, checkpoints, or journal detail; linked tickets must still stand alone as complete units of work, whether they pre-existed or were created through the ticket layer during planning.",
+      "Update plan content as a self-contained novice-facing workplan with explicit milestones, timestamped progress, concrete commands, validation, recovery guidance, interfaces, and revision notes without duplicating live per-ticket status, checkpoints, or journal detail; linked tickets must still stand alone as complete units of work, whether they pre-existed or were created through this tool during planning.",
+      "Use `linkedTicketInputs` when the execution slice is already clear and you can still write every ticket as a self-contained execution record with concrete acceptance and verification detail. Omit `linkedTicketInputs` when you need to scaffold the plan first and spend more room authoring the tickets later.",
       "`progress`, `discoveries`, and `decisions` are whole-list replacements, not patch-by-index updates. `revisionNotes` is append-only: supplied notes are added ahead of the automatic audit note for the write.",
       "For `contextRefs`, use `replace` to correct an entire ref bucket and `remove` to drop specific stale refs. Bare arrays are treated as `replace` for each provided bucket.",
     ],
@@ -404,12 +482,29 @@ export function registerPlanTools(pi: ExtensionAPI): void {
           );
         }
         case "create": {
-          const plan = await store.createPlan(toCreateInput(params));
-          return machineResult({ action: params.action, plan }, renderPlanDetail(plan));
+          const created = await store.createPlan(toCreateInput(params));
+          const result =
+            params.linkedTicketInputs && params.linkedTicketInputs.length > 0
+              ? await store.materializeLinkedTickets(created.state.planId, params.linkedTicketInputs)
+              : { plan: created, tickets: [] };
+          return machineResult(
+            { action: params.action, plan: result.plan, materializedTickets: result.tickets },
+            renderPlanDetail(result.plan),
+          );
         }
         case "update": {
-          const plan = await store.updatePlan(requireRef(params.ref), toUpdateInput(params));
-          return machineResult({ action: params.action, plan }, renderPlanDetail(plan));
+          const ref = requireRef(params.ref);
+          const updated = hasPlanUpdateFields(params)
+            ? await store.updatePlan(ref, toUpdateInput(params))
+            : await store.readPlan(ref);
+          const result =
+            params.linkedTicketInputs && params.linkedTicketInputs.length > 0
+              ? await store.materializeLinkedTickets(updated.state.planId, params.linkedTicketInputs)
+              : { plan: updated, tickets: [] };
+          return machineResult(
+            { action: params.action, plan: result.plan, materializedTickets: result.tickets },
+            renderPlanDetail(result.plan),
+          );
         }
         case "archive": {
           const plan = await store.archivePlan(requireRef(params.ref));
@@ -441,7 +536,7 @@ export function registerPlanTools(pi: ExtensionAPI): void {
       "Link tickets to the plan so the execution strategy stays detailed without copying live ticket state line-by-line.",
     promptGuidelines: [
       "Use link to attach an existing or newly created ticket to the plan and optionally record a plan-local role for that ticket inside the broader execution narrative, while keeping the ticket itself comprehensive and self-contained.",
-      "Use unlink only to remove the active plan membership; ticket provenance is intentionally not scrubbed from the ticket itself.",
+      "Use unlink only to remove the active plan membership; ticket provenance remains on the ticket so historical rediscovery still works.",
     ],
     parameters: PlanTicketLinkParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

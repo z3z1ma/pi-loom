@@ -77,7 +77,7 @@ The current Loom stack is:
 - critique for durable adversarial review packets, verdicts, findings, and follow-up work
 - docs for durable high-level architecture, workflow, concept, and operations understanding after completed work changes the system narrative
 
-Specs capture the intended behavior of the system independent of the current code shape. Each spec should stand on its own as a bounded contract for one capability or behavior slice rather than reading like a work order or migration note. Plans sit between specs (or broader initiative/workspace context) and tickets: they translate declarative contracts into implementation strategy against the current codebase, keep a thin execution narrative plus a linked ticket set, and carry ticket linkage so specs can stay declarative rather than turning into rollout documents.
+Specs capture the intended behavior of the system independent of the current code shape. Each spec should stand on its own as a bounded contract for one capability or behavior slice rather than reading like a work order or migration note. Plans sit between specs (or broader initiative/workspace context) and tickets: they translate declarative contracts into repository-specific implementation strategy without rewriting the contract itself, keep a thin execution narrative plus a linked ticket set, and carry ticket linkage so specs can stay declarative rather than turning into rollout documents.
 
 Initiatives should link back to constitutional roadmap items where applicable so strategic work can be traced to explicit constitutional commitments rather than only to local execution metadata.
 

@@ -81,6 +81,9 @@ describe("plan tools", () => {
     }
 
     expect(getTool(mockPi, "plan_ticket_link").promptSnippet).toContain("execution strategy stays detailed");
+    expect(getTool(mockPi, "plan_write").promptGuidelines).toContain(
+      "Use `linkedTicketInputs` when the execution slice is already clear and you can still write every ticket as a self-contained execution record with concrete acceptance and verification detail. Omit `linkedTicketInputs` when you need to scaffold the plan first and spend more room authoring the tickets later.",
+    );
     expect(
       (
         getTool(mockPi, "plan_read").parameters as unknown as {
@@ -121,9 +124,18 @@ describe("plan tools", () => {
         }
       ).properties.worktreeId,
     ).toMatchObject({ type: "string", optional: true });
+    expect(
+      (
+        getTool(mockPi, "plan_write").parameters as unknown as {
+          properties: {
+            linkedTicketInputs: { type: string; items: { properties: Record<string, unknown> }; optional: boolean };
+          };
+        }
+      ).properties.linkedTicketInputs,
+    ).toMatchObject({ type: "array", optional: true });
   });
 
-  it("returns machine-usable shapes for create, read, packet, ticket-link, overview, and list flows", async () => {
+  it("returns machine-usable shapes for integrated create, update, read, packet, ticket-link, overview, and list flows", async () => {
     const { cwd, cleanup } = createTempWorkspace();
     try {
       const mockPi = createMockPi();
@@ -159,6 +171,15 @@ describe("plan tools", () => {
               text: "Fill in the durable workplan sections before execution continues.",
             },
           ],
+          linkedTicketInputs: [
+            {
+              title: "Implement plan store",
+              summary: "Persist state, packet, plan markdown, and overview artifacts.",
+              acceptance: ["Plan write can materialize tickets in one cohesive call."],
+              verification: "Run targeted plan package tests.",
+              role: "implementation",
+            },
+          ],
         },
         undefined,
         undefined,
@@ -167,35 +188,75 @@ describe("plan tools", () => {
       expect(created.details).toMatchObject({
         action: "create",
         plan: {
+          state: {
+            linkedTickets: [expect.objectContaining({ role: "implementation" })],
+          },
           summary: {
             id: "planning-layer-rollout",
             repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
           },
         },
+        materializedTickets: [
+          expect.objectContaining({ summary: expect.objectContaining({ id: expect.any(String) }) }),
+        ],
       });
+
+      const createdTicketId = (
+        created.details as {
+          materializedTickets: Array<{ summary: { id: string } }>;
+        }
+      ).materializedTickets[0]?.summary.id;
+      expect(createdTicketId).toEqual(expect.any(String));
+      if (!createdTicketId) {
+        throw new Error("Expected created linked ticket id");
+      }
 
       const ticket = await ticketStore.createTicketAsync({
-        title: "Implement plan store",
-        summary: "Persist state, packet, plan markdown, and overview artifacts.",
+        title: "Review integrated workflow",
+        summary: "Verify existing-ticket materialization through plan updates.",
       });
 
-      const linked = await planTicketLink.execute(
+      const updated = await planWrite.execute(
         "call-2",
-        { action: "link", ref: "planning-layer-rollout", ticketId: ticket.summary.id, role: "implementation" },
+        {
+          action: "update",
+          ref: "planning-layer-rollout",
+          linkedTicketInputs: [{ ticketRef: ticket.summary.id, role: "review" }],
+        },
         undefined,
         undefined,
         ctx,
       );
-      expect(linked.details).toMatchObject({
-        action: "link",
+      expect(updated.details).toMatchObject({
+        action: "update",
         plan: {
           state: {
-            linkedTickets: [expect.objectContaining({ ticketId: ticket.summary.id, role: "implementation" })],
+            linkedTickets: [
+              expect.objectContaining({ ticketId: createdTicketId, role: "implementation" }),
+              expect.objectContaining({ ticketId: ticket.summary.id, role: "review" }),
+            ],
+          },
+        },
+        materializedTickets: [expect.objectContaining({ summary: expect.objectContaining({ id: ticket.summary.id }) })],
+      });
+
+      const unlinked = await planTicketLink.execute(
+        "call-3",
+        { action: "unlink", ref: "planning-layer-rollout", ticketId: ticket.summary.id },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(unlinked.details).toMatchObject({
+        action: "unlink",
+        plan: {
+          state: {
+            linkedTickets: [expect.objectContaining({ ticketId: createdTicketId, role: "implementation" })],
           },
         },
       });
 
-      const packet = await planPacket.execute("call-3", { ref: "planning-layer-rollout" }, undefined, undefined, ctx);
+      const packet = await planPacket.execute("call-4", { ref: "planning-layer-rollout" }, undefined, undefined, ctx);
       expect(packet.details).toMatchObject({
         plan: { id: "planning-layer-rollout" },
       });
@@ -206,7 +267,7 @@ describe("plan tools", () => {
       expect(packet.content[0].text).toContain("Planning Boundaries");
 
       const read = await planRead.execute(
-        "call-4",
+        "call-5",
         { ref: "planning-layer-rollout", mode: "plan" },
         undefined,
         undefined,
@@ -219,13 +280,13 @@ describe("plan tools", () => {
       if (read.content[0]?.type !== "text") {
         throw new Error("Expected plan text content");
       }
-      expect(read.content[0].text).toContain(`Ticket ${ticket.summary.id}`);
+      expect(read.content[0].text).toContain(`Ticket ${createdTicketId}`);
       expect(read.content[0].text).toContain("## Milestones");
       expect(read.content[0].text).toContain("## Idempotence and Recovery");
       expect(read.content[0].text).toContain("## Revision Notes");
 
       const overview = await planOverview.execute(
-        "call-5",
+        "call-6",
         { ref: "planning-layer-rollout" },
         undefined,
         undefined,
@@ -242,8 +303,8 @@ describe("plan tools", () => {
       });
 
       const listed = await planList.execute(
-        "call-6",
-        { exactSourceKind: "workspace", exactLinkedTicketId: ticket.summary.id },
+        "call-7",
+        { exactSourceKind: "workspace", exactLinkedTicketId: createdTicketId },
         undefined,
         undefined,
         ctx,

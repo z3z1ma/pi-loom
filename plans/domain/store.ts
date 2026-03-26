@@ -25,16 +25,16 @@ import {
   openRepositoryWorkspaceStorage,
   openScopedWorkspaceStorage,
 } from "#storage/workspace.js";
-import type { TicketReadResult } from "#ticketing/domain/models.js";
+import type { CreateTicketInput, TicketReadResult } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildPlanOverview, getPlanTicketRef, summarizePlan } from "./overview.js";
 import type {
   CreatePlanInput,
   LinkPlanTicketInput,
   PlanContextRefs,
   PlanContextRefsUpdate,
-  PlanOverviewTicket,
+  PlanLinkedTicketInput,
   PlanListFilter,
+  PlanOverviewTicket,
   PlanReadResult,
   PlanRevisionRecord,
   PlanState,
@@ -55,6 +55,7 @@ import {
   slugifyTitle,
   summarizeText,
 } from "./normalize.js";
+import { buildPlanOverview, getPlanTicketRef, summarizePlan } from "./overview.js";
 import { renderPlanMarkdown } from "./render.js";
 
 const ENTITY_KIND = "plan" as const;
@@ -139,6 +140,67 @@ function appendRevisionNote(
   additions: readonly PlanRevisionRecord[] = [],
 ): PlanRevisionRecord[] {
   return normalizeRevisionNotes([...existing, ...additions, note]);
+}
+
+function hasCreateTicketFields(input: PlanLinkedTicketInput): boolean {
+  return [
+    input.title,
+    input.summary,
+    input.context,
+    input.plan,
+    input.notes,
+    input.verification,
+    input.journalSummary,
+    input.priority,
+    input.type,
+    input.tags,
+    input.deps,
+    input.links,
+    input.initiativeIds,
+    input.researchIds,
+    input.parent,
+    input.assignee,
+    input.acceptance,
+    input.labels,
+    input.risk,
+    input.reviewStatus,
+    input.externalRefs,
+    input.branchMode,
+    input.branchFamily,
+    input.exactBranchName,
+  ].some((value) => value !== undefined);
+}
+
+function toCreateTicketInput(input: PlanLinkedTicketInput): CreateTicketInput {
+  if (!input.title?.trim()) {
+    throw new Error("linkedTicketInputs entries that create new tickets require title");
+  }
+  return {
+    title: input.title,
+    summary: input.summary,
+    context: input.context,
+    plan: input.plan,
+    notes: input.notes,
+    verification: input.verification,
+    journalSummary: input.journalSummary,
+    priority: input.priority,
+    type: input.type,
+    tags: input.tags,
+    deps: input.deps,
+    links: input.links,
+    initiativeIds: input.initiativeIds,
+    researchIds: input.researchIds,
+    parent: input.parent,
+    assignee: input.assignee,
+    acceptance: input.acceptance,
+    labels: input.labels,
+    risk: input.risk,
+    reviewStatus: input.reviewStatus,
+    externalRefs: input.externalRefs,
+    branchMode: input.branchMode,
+    branchFamily: input.branchFamily,
+    exactBranchName: input.exactBranchName,
+  };
 }
 
 function deriveContextRefsFromTicket(ticket: TicketReadResult): PlanContextRefs {
@@ -294,6 +356,10 @@ export class PlanStore {
 
   private async openRepositoryWorkspaceStorage() {
     return openRepositoryWorkspaceStorage(this.cwd, this.scope);
+  }
+
+  private createScopedTicketStore() {
+    return createTicketStore(this.cwd, this.scope);
   }
 
   private persistenceScopeForState(state: PlanState): Required<LoomExplicitScopeInput> {
@@ -1093,9 +1159,46 @@ export class PlanStore {
     return this.persistCanonical(nextState);
   }
 
+  async materializeLinkedTickets(
+    ref: string,
+    inputs: readonly PlanLinkedTicketInput[],
+  ): Promise<{ plan: PlanReadResult; tickets: TicketReadResult[] }> {
+    const ticketStore = this.createScopedTicketStore();
+    const materializedTickets: TicketReadResult[] = [];
+    let currentPlan = await this.readPlan(ref);
+
+    for (const input of inputs) {
+      if (input.ticketRef?.trim()) {
+        if (input.title !== undefined || hasCreateTicketFields(input)) {
+          throw new Error(
+            `linkedTicketInputs entries cannot mix ticketRef with new-ticket fields (${input.ticketRef.trim()})`,
+          );
+        }
+        const existingTicket = await ticketStore.readTicketAsync(input.ticketRef);
+        currentPlan = await this.linkPlanTicket(currentPlan.state.planId, {
+          ticketId: existingTicket.summary.id,
+          role: input.role,
+          order: input.order,
+        });
+        materializedTickets.push(await ticketStore.readTicketAsync(existingTicket.summary.id));
+        continue;
+      }
+
+      const createdTicket = await ticketStore.createTicketAsync(toCreateTicketInput(input));
+      currentPlan = await this.linkPlanTicket(currentPlan.state.planId, {
+        ticketId: createdTicket.summary.id,
+        role: input.role,
+        order: input.order,
+      });
+      materializedTickets.push(await ticketStore.readTicketAsync(createdTicket.summary.id));
+    }
+
+    return { plan: currentPlan, tickets: materializedTickets };
+  }
+
   async linkPlanTicket(ref: string, input: LinkPlanTicketInput): Promise<PlanReadResult> {
     const current = await this.readPlan(ref);
-    const ticketStore = createTicketStore(this.cwd);
+    const ticketStore = this.createScopedTicketStore();
     const ticketId = ticketStore.resolveTicketRef(input.ticketId);
     const existing = current.state.linkedTickets.find((link) => link.ticketId === ticketId);
     const otherLinks = current.state.linkedTickets.filter((link) => link.ticketId !== ticketId);
@@ -1138,13 +1241,11 @@ export class PlanStore {
 
   async unlinkPlanTicket(ref: string, ticketRef: string): Promise<PlanReadResult> {
     const current = await this.readPlan(ref);
-    const ticketStore = createTicketStore(this.cwd);
+    const ticketStore = this.createScopedTicketStore();
     let ticketId: string;
-    let ticketClosed = false;
     try {
       const ticket = await ticketStore.readTicketAsync(ticketRef);
       ticketId = ticket.summary.id;
-      ticketClosed = ticket.ticket.closed;
     } catch {
       ticketId = ticketStore.resolveTicketRef(ticketRef);
     }
@@ -1167,16 +1268,7 @@ export class PlanStore {
       projectionOwner: PLAN_PROJECTION_OWNER,
       desired: projectedLinksForPlan(nextState),
     });
-    const externalRef = `plan:${current.state.planId}`;
-    return storage.transact(async (tx) => {
-      const persisted = await this.persistCanonicalWithStorage(tx, identity, nextState);
-      if (!ticketClosed) {
-        await ticketStore.syncExternalRefWithStorage(tx, identity, ticketId, externalRef, false, {
-          allowClosed: true,
-        });
-      }
-      return persisted;
-    });
+    return storage.transact((tx) => this.persistCanonicalWithStorage(tx, identity, nextState));
   }
 
   async archivePlan(ref: string): Promise<PlanReadResult> {
