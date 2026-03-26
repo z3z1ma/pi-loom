@@ -85,7 +85,7 @@ describe("PlanStore durable memory", () => {
 
     vi.setSystemTime(new Date("2026-03-15T12:15:00.000Z"));
     const spec = await specStore.createChange({
-      title: "Add planning layer",
+      title: "Planning layer durability",
       summary: "Persist plans, packets, overviews, and ticket links.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],

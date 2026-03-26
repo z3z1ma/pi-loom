@@ -34,8 +34,8 @@ describe("InitiativeStore durable memory", () => {
 
     vi.setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
     await researchStore.createResearch({ title: "Investigate theme migration" });
-    await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
-    await specStore.createChange({ title: "Modernize theming tokens", summary: "Replace legacy color literals." });
+    await specStore.createChange({ title: "Dark theme support", summary: "Support a dark theme." });
+    await specStore.createChange({ title: "Theme token consistency", summary: "Replace legacy color literals." });
     const blocker = await ticketStore.createTicketAsync({ title: "Prepare token inventory" });
     const dependent = await ticketStore.createTicketAsync({
       title: "Apply token migration",
@@ -53,13 +53,13 @@ describe("InitiativeStore durable memory", () => {
       statusSummary: "Scoping and sequencing underway.",
       owners: ["platform"],
       tags: ["modernization", "ui"],
-      specChangeIds: ["add-dark-mode", "modernize-theming-tokens"],
+      specChangeIds: ["dark-theme-support", "theme-token-consistency"],
       ticketIds: [blocker.summary.id, dependent.summary.id],
       milestones: [
         {
           title: "Define migration path",
           description: "Lock the initial spec and ticket graph.",
-          specChangeIds: ["add-dark-mode"],
+          specChangeIds: ["dark-theme-support"],
           ticketIds: [dependent.summary.id],
         },
       ],
@@ -72,7 +72,7 @@ describe("InitiativeStore durable memory", () => {
     expect(created.overview.linkedTickets.blocked).toBe(0);
     expect(created.overview.milestones[0]).toMatchObject({ health: "pending" });
     expect(created.state.researchIds).toEqual([]);
-    expect((await specStore.readChange("add-dark-mode")).state.initiativeIds).toEqual(["platform-modernization"]);
+    expect((await specStore.readChange("dark-theme-support")).state.initiativeIds).toEqual(["platform-modernization"]);
     expect((await ticketStore.readTicketAsync(blocker.summary.id)).summary.initiativeIds).toEqual([
       "platform-modernization",
     ]);
@@ -121,7 +121,7 @@ describe("InitiativeStore durable memory", () => {
     expect((await initiativeStore.listInitiatives({ includeArchived: true }))[0]?.ref).toBe(
       "initiative:platform-modernization",
     );
-    expect((await specStore.readChange("modernize-theming-tokens")).summary.initiativeIds).toEqual([
+    expect((await specStore.readChange("theme-token-consistency")).summary.initiativeIds).toEqual([
       "platform-modernization",
     ]);
 

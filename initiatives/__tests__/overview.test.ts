@@ -39,7 +39,7 @@ describe("initiative overview", () => {
     });
     await researchStore.createResearch({ title: "Investigate observability gaps" });
     const planned = await specStore.createChange({
-      title: "Add observability wall",
+      title: "Runtime observability wall",
       summary: "Expose runtime health.",
     });
     const blocker = await ticketStore.createTicketAsync({ title: "Map legacy metrics" });

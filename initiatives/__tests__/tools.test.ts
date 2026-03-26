@@ -91,7 +91,7 @@ describe("initiative tools", () => {
       process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
       const specStore = createSpecStore(cwd);
       const ticketStore = createTicketStore(cwd);
-      await specStore.createChange({ title: "Add dark mode", summary: "Support a dark theme." });
+      await specStore.createChange({ title: "Dark theme support", summary: "Support a dark theme." });
       const ticket = await ticketStore.createTicketAsync({ title: "Build theme toggle" });
 
       const mockPi = createMockPi();
@@ -129,7 +129,7 @@ describe("initiative tools", () => {
 
       const linkedSpec = await initiativeWrite.execute(
         "call-2",
-        { action: "link_spec", ref: "platform-modernization", specChangeId: "add-dark-mode" },
+        { action: "link_spec", ref: "platform-modernization", specChangeId: "dark-theme-support" },
         undefined,
         undefined,
         ctx,
@@ -137,7 +137,7 @@ describe("initiative tools", () => {
       expect(linkedSpec.details).toMatchObject({
         action: "link_spec",
         initiative: {
-          state: { specChangeIds: ["add-dark-mode"] },
+          state: { specChangeIds: ["dark-theme-support"] },
         },
       });
 

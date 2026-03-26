@@ -79,7 +79,7 @@ describe("CritiqueStore durable memory", () => {
 
     vi.setSystemTime(new Date("2026-03-15T10:15:00.000Z"));
     const spec = await specStore.createChange({
-      title: "Add critique layer",
+      title: "Critique layer durability",
       summary: "Persist critique packets, runs, findings, and launch metadata.",
       initiativeIds: [initiative.state.initiativeId],
       researchIds: [research.state.researchId],
