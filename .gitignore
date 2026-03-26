@@ -37,3 +37,4 @@ resources/
 
 /catalog.*
 /.ralph-worktrees
+/state/scope-bindings.json
