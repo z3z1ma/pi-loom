@@ -3,6 +3,8 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
+import { assertWorkspaceProjectionFamiliesClean } from "#storage/projection-lifecycle.js";
+import { LOOM_PROJECTION_FAMILIES } from "#storage/projections.js";
 import type { AsyncJob } from "../domain/async-job-manager.js";
 import { AsyncJobManager } from "../domain/async-job-manager.js";
 import {
@@ -718,6 +720,7 @@ export function registerRalphTools(pi: ExtensionAPI): void {
         executionMode: params.executionMode as ExecuteRalphLoopInput["executionMode"],
         policySnapshot: params.policySnapshot as ExecuteRalphLoopInput["policySnapshot"],
       };
+      assertWorkspaceProjectionFamiliesClean(ctx.cwd, "ralph_run", LOOM_PROJECTION_FAMILIES);
       const startedAt = Date.now();
       const progressUpdates: string[] = [];
       if (params.background !== false) {

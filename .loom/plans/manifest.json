@@ -1,0 +1,351 @@
+{
+  "entries": [
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:data-plane-completion-execution-plan",
+      "contentHash": "e4d91efdf80f5edece50799488393f4f3f88c1952d1e83508290f902c6760c15",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/data-plane-completion-execution-plan.md",
+      "revisionToken": "73a73fbb1da67024156e7f8f0d75fd32c1c18273f66eb3886909e2ed012a3d7e"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:hybrid-branch-family-allocation-for-ralph-worktree-runs",
+      "contentHash": "5b79659b49b2929cd1a7261293503aba099fcf992d922c7740313f25e6124bd5",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/hybrid-branch-family-allocation-for-ralph-worktree-runs.md",
+      "revisionToken": "72bd5628a89c6e5af624d08964f7415c821948eb03a8c4b1f2cd821a211a5291"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:loom-storage-substrate-migration-strategy",
+      "contentHash": "f11805ccf184ac0942f8d18b0c62cf4704d2ecca3a9892ff9e19d8ed6542db22",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/loom-storage-substrate-migration-strategy.md",
+      "revisionToken": "a033ec1e0de2d39fa153cde24189b2841dc0710120c4e3ada1265d424c84eced"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:manager-worker-control-plane-next-phase",
+      "contentHash": "494a7b89168085ff1005bf3f14d65d1cc0e496822d6b7f58d3096dd56412686e",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/manager-worker-control-plane-next-phase.md",
+      "revisionToken": "eb8abe5a7c041c6a938ec8557269338c62b5247ba12fe44107844a37eee9dd7c"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:phase-1-graph-cutover-execution-plan",
+      "contentHash": "3b3633874825e531ed1b081dcfef3a4f1f4bb19199eb2464f677ac63fef2e814",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/phase-1-graph-cutover-execution-plan.md",
+      "revisionToken": "747bbe618a1c4bf750cfe465ee4c3d60a50d5c4f3ca9795ee190e555fed99eae"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:pi-chief-manager-as-ralph-cutover",
+      "contentHash": "b3473e2c083b8db4b0df8e43050173316ca12cec3183368ba947b14b44af84b3",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/pi-chief-manager-as-ralph-cutover.md",
+      "revisionToken": "17a5f9e0929e14345c46b0b20ec87e7e7b25dd0f1863db01a558b542f41942c7"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:production-readiness-rollout-for-first-class-multi-repository-loom-spaces",
+      "contentHash": "9d2ba87b14ad5c3afaaaa83e57719f7ee877e5da228076b07fd679717d5943da",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/production-readiness-rollout-for-first-class-multi-repository-loom-spaces.md",
+      "revisionToken": "59384ad0b5c5e3a6741aa97fed20c5500dac3fd5974a76f9ef526a9aea952425"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:ralph-backed-worker-manager-cutover",
+      "contentHash": "3aa199f0479cbf0851e6c01f9ed817dc49e7a67707446e4aae09e6011e2f313a",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/ralph-backed-worker-manager-cutover.md",
+      "revisionToken": "a48d4f4f1537deb63bee0d4425af83e699e8b9ecae67f84103dc1e83ff46cb61"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:ralph-loop-implementation-rollout",
+      "contentHash": "7a5da72375265e2d6ec28022bba7fb40beb1487e5b6d1c654fd732451e17fbed",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/ralph-loop-implementation-rollout.md",
+      "revisionToken": "67ef7f774e24da487a6672b66250cef658e76c2af913c1ed1937c8c188c48629"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:ralph-loop-loom-native-realignment",
+      "contentHash": "7310659bd652f20d1fa5b618e40da1e7ecadcc60042c5168a5ebf5676fb88480",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/ralph-loop-loom-native-realignment.md",
+      "revisionToken": "2e1bd65c91760fc41b5878125b4fc5fb2be07805cb28ba57aa4ce865e37945d3"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:repo-hygiene-and-path-portability-remediation",
+      "contentHash": "0437e73846ad62597cd992b3094a79993fe30351d3a02090d7bb05268a7d3656",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/repo-hygiene-and-path-portability-remediation.md",
+      "revisionToken": "470be7ba6e4cb3abf4a806505882124f890fab4d84556f7a86694d41d8934340"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:ticket-workspace-ui-revamp",
+      "contentHash": "02f3582b02e29dee437d535c326c735bbc1613fce1bf231f088f2d427c8245de",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/ticket-workspace-ui-revamp.md",
+      "revisionToken": "3d33a7b0d0d989918571982ce67cf9893bd057aadb657d1ca777b5c8591fdbc5"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:workspace-backed-manager-worker-substrate-rollout",
+      "contentHash": "64f6c78cc61de81da9df70a1499e6ccad4657f4eb4cf2b22d0762a708f51f4e7",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/workspace-backed-manager-worker-substrate-rollout.md",
+      "revisionToken": "2e97c8524af55c2cab19e86134cb99871750cbcdb8f829db32b04ab56757c703"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:workspace-package-reliability-scrub-execution",
+      "contentHash": "fab09a8332b41607712d6edf14d88a39e5330e674235d93941f2d1a09ab461ac",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/workspace-package-reliability-scrub-execution.md",
+      "revisionToken": "2b960c487e63a5063b694c5999109e13aa66c6f7aabdf8b4d926f94e5aa5805f"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "plan:workspace-projections-rollout-plan",
+      "contentHash": "dff3a1335c44d3010bb4dbe647846a346ac384da0713e5772c16b220858f455b",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/workspace-projections-rollout-plan.md",
+      "revisionToken": "b67587a33a1e7118ef3c861a832f7b80e237cd8426b49c77a4c2ab86646fa84d"
+    }
+  ],
+  "family": "plans",
+  "schemaVersion": 1
+}

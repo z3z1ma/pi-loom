@@ -13,7 +13,7 @@ function joinNonEmpty(chunks: string[]): string {
   return chunks.filter(Boolean).join("\n\n");
 }
 
-function renderHypotheses(hypotheses: ResearchHypothesisRecord[]): string {
+export function renderResearchHypotheses(hypotheses: ResearchHypothesisRecord[]): string {
   if (hypotheses.length === 0) {
     return "(none)";
   }
@@ -26,7 +26,7 @@ function renderHypotheses(hypotheses: ResearchHypothesisRecord[]): string {
     .join("\n");
 }
 
-function renderArtifacts(artifacts: ResearchArtifactRecord[]): string {
+export function renderResearchArtifacts(artifacts: ResearchArtifactRecord[]): string {
   if (artifacts.length === 0) {
     return "(none)";
   }
@@ -69,7 +69,7 @@ export function renderResearchMarkdown(
       renderSection("Non-Goals", renderBulletList(state.nonGoals)),
       renderSection("Methodology", renderBulletList(state.methodology)),
       renderSection("Keywords", renderBulletList(state.keywords)),
-      renderSection("Hypotheses", renderHypotheses(hypotheses)),
+      renderSection("Hypotheses", renderResearchHypotheses(hypotheses)),
       renderSection("Conclusions", renderBulletList(state.conclusions)),
       renderSection("Recommendations", renderBulletList(state.recommendations)),
       renderSection("Open Questions", renderBulletList(state.openQuestions)),
@@ -81,7 +81,7 @@ export function renderResearchMarkdown(
           ...state.ticketIds.map((id) => `ticket:${id}`),
         ]),
       ),
-      renderSection("Artifacts", renderArtifacts(artifacts)),
+      renderSection("Artifacts", renderResearchArtifacts(artifacts)),
     ]),
   );
 }

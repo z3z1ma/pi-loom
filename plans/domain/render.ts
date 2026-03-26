@@ -13,7 +13,7 @@ function renderRepository(summary: PlanSummary): string {
   return summary.repository ? ` repo=${summary.repository.slug}` : "";
 }
 
-function renderTicketProgress(tickets: PlanOverviewTicket[]): string {
+export function renderPlanTicketProgress(tickets: PlanOverviewTicket[]): string {
   if (tickets.length === 0) {
     return "- [ ] No tickets linked yet.";
   }
@@ -27,7 +27,7 @@ function renderTicketProgress(tickets: PlanOverviewTicket[]): string {
     .join("\n");
 }
 
-function renderProgress(state: PlanState, tickets: PlanOverviewTicket[]): string {
+export function renderPlanProgress(state: PlanState, tickets: PlanOverviewTicket[]): string {
   const progress =
     state.progress.length > 0
       ? state.progress
@@ -36,12 +36,12 @@ function renderProgress(state: PlanState, tickets: PlanOverviewTicket[]): string
       : "- [ ] Add timestamped progress updates as work advances.";
   const ticketSnapshot =
     tickets.length > 0
-      ? `\n\nLinked ticket snapshot from the live execution ledger:\n${renderTicketProgress(tickets)}`
+      ? `\n\nLinked ticket snapshot from the live execution ledger:\n${renderPlanTicketProgress(tickets)}`
       : "";
   return `${progress}${ticketSnapshot}`;
 }
 
-function renderDiscoveries(state: PlanState): string {
+export function renderPlanDiscoveries(state: PlanState): string {
   if (state.discoveries.length === 0) {
     return "- (none yet)";
   }
@@ -50,7 +50,7 @@ function renderDiscoveries(state: PlanState): string {
     .join("\n\n");
 }
 
-function renderDecisions(state: PlanState): string {
+export function renderPlanDecisions(state: PlanState): string {
   if (state.decisions.length === 0) {
     return "- (none yet)";
   }
@@ -62,7 +62,7 @@ function renderDecisions(state: PlanState): string {
     .join("\n\n");
 }
 
-function renderRevisionNotes(state: PlanState): string {
+export function renderPlanRevisionNotes(state: PlanState): string {
   if (state.revisionNotes.length === 0) {
     return "- (none yet)";
   }
@@ -71,7 +71,7 @@ function renderRevisionNotes(state: PlanState): string {
     .join("\n\n");
 }
 
-function renderTicketList(tickets: PlanOverviewTicket[]): string {
+export function renderPlanTicketList(tickets: PlanOverviewTicket[]): string {
   if (tickets.length === 0) {
     return "- (none linked)";
   }
@@ -111,13 +111,13 @@ export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanOverview
     ),
     "",
     "## Progress",
-    renderProgress(state, linkedTickets),
+    renderPlanProgress(state, linkedTickets),
     "",
     "## Surprises & Discoveries",
-    renderDiscoveries(state),
+    renderPlanDiscoveries(state),
     "",
     "## Decision Log",
-    renderDecisions(state),
+    renderPlanDecisions(state),
     "",
     "## Outcomes & Retrospective",
     renderText(state.outcomesAndRetrospective, "No retrospective recorded yet."),
@@ -168,13 +168,13 @@ export function renderPlanMarkdown(state: PlanState, linkedTickets: PlanOverview
     ),
     "",
     "## Linked Tickets",
-    renderTicketList(linkedTickets),
+    renderPlanTicketList(linkedTickets),
     "",
     "## Risks and Open Questions",
     renderText(state.risksAndQuestions, "No additional risks or open questions recorded."),
     "",
     "## Revision Notes",
-    renderRevisionNotes(state),
+    renderPlanRevisionNotes(state),
     "",
   ]
     .join("\n")
@@ -208,9 +208,7 @@ export function renderOverview(overview: PlanOverview): string {
   return [
     renderPlanSummary(overview.plan),
     `Repository: ${
-      overview.plan.repository
-        ? `${overview.plan.repository.displayName} [${overview.plan.repository.id}]`
-        : "(none)"
+      overview.plan.repository ? `${overview.plan.repository.displayName} [${overview.plan.repository.id}]` : "(none)"
     }`,
     `Plan ref: ${overview.plan.ref}`,
     `Packet ref: ${overview.packetRef}`,

@@ -13,6 +13,7 @@
     "allowSyntheticDefaultImports": true
   },
   "include": [
+    "bidi/**/*.ts",
     "constitution/**/*.ts",
     "research/**/*.ts",
     "initiatives/**/*.ts",

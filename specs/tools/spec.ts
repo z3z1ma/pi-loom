@@ -3,7 +3,9 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS } from "#storage/list-search.js";
+import { hasExportedProjectionFamily, runProjectionAwareOperation } from "#storage/projection-lifecycle.js";
 import type { SpecPlanInput } from "../domain/models.js";
+import { exportSpecProjections } from "../domain/projection.js";
 import { renderCapabilityDetail, renderSpecDetail, renderSpecSummary } from "../domain/render.js";
 import { createSpecStore } from "../domain/store.js";
 
@@ -159,6 +161,12 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
+async function refreshSpecProjectionsIfExported(cwd: string): Promise<void> {
+  if (hasExportedProjectionFamily(cwd, "specs")) {
+    await exportSpecProjections(cwd);
+  }
+}
+
 function requireRef(ref: string | undefined): string {
   if (!ref) {
     throw new Error("Specification reference is required for this action");
@@ -302,26 +310,59 @@ export function registerSpecTools(pi: ExtensionAPI): void {
         }
         case "propose": {
           if (!params.title?.trim()) throw new Error("title is required for propose");
-          const change = await store.createChange({ title: params.title, summary: params.summary });
+          const title = params.title;
+          const change = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "spec_write propose",
+            families: ["specs"],
+            action: () => store.createChange({ title, summary: params.summary }),
+            refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "clarify": {
           if (!params.question?.trim() || !params.answer?.trim()) {
             throw new Error("question and answer are required for clarify");
           }
-          const change = await store.recordClarification(requireRef(params.ref), params.question, params.answer);
+          const question = params.question;
+          const answer = params.answer;
+          const change = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "spec_write clarify",
+            families: ["specs"],
+            action: () => store.recordClarification(requireRef(params.ref), question, answer),
+            refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "specify": {
-          const change = await store.updatePlan(requireRef(params.ref), toSpecifyInput(params));
+          const change = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "spec_write specify",
+            families: ["specs"],
+            action: () => store.updatePlan(requireRef(params.ref), toSpecifyInput(params)),
+            refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "finalize": {
-          const change = await store.finalizeChange(requireRef(params.ref));
+          const change = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "spec_write finalize",
+            families: ["specs"],
+            action: () => store.finalizeChange(requireRef(params.ref)),
+            refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
         case "archive": {
-          const change = await store.archiveChange(requireRef(params.ref));
+          const change = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "spec_write archive",
+            families: ["specs"],
+            action: () => store.archiveChange(requireRef(params.ref)),
+            refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
         }
       }
@@ -345,15 +386,35 @@ export function registerSpecTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const store = getScopedStore(ctx, params);
       if (params.mode === "checklist") {
-        const change = await store.generateChecklist(params.ref);
+        const change = await runProjectionAwareOperation({
+          repositoryRoot: ctx.cwd,
+          operation: "spec_analyze checklist",
+          families: ["specs"],
+          action: () => store.generateChecklist(params.ref),
+          refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+        });
         return machineResult({ mode: params.mode, change }, renderSpecDetail(change));
       }
       if (params.mode === "both") {
-        await store.analyzeChange(params.ref);
-        const change = await store.generateChecklist(params.ref);
+        const change = await runProjectionAwareOperation({
+          repositoryRoot: ctx.cwd,
+          operation: "spec_analyze both",
+          families: ["specs"],
+          action: async () => {
+            await store.analyzeChange(params.ref);
+            return store.generateChecklist(params.ref);
+          },
+          refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+        });
         return machineResult({ mode: params.mode, change }, renderSpecDetail(change));
       }
-      const change = await store.analyzeChange(params.ref);
+      const change = await runProjectionAwareOperation({
+        repositoryRoot: ctx.cwd,
+        operation: "spec_analyze analysis",
+        families: ["specs"],
+        action: () => store.analyzeChange(params.ref),
+        refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+      });
       return machineResult({ mode: params.mode ?? "analysis", change }, renderSpecDetail(change));
     },
   });

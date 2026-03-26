@@ -4,6 +4,7 @@
   "description": "Unified Pi Loom package for durable constitutional, research, initiative, specification, planning, ticket, critique, Ralph orchestration, documentation, and storage workflows.",
   "type": "module",
   "files": [
+    "bidi/",
     "constitution/",
     "research/",
     "initiatives/",
@@ -23,10 +24,10 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "biome check package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md constitution critique docs initiatives plans ralph research specs storage ticketing",
-    "lint:fix": "biome check --write package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md constitution critique docs initiatives plans ralph research specs storage ticketing",
+    "lint": "biome check package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md AGENTS.md bidi constitution critique docs initiatives plans ralph research specs storage ticketing",
+    "lint:fix": "biome check --write package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md AGENTS.md bidi constitution critique docs initiatives plans ralph research specs storage ticketing",
     "check": "npm run lint && npm run typecheck",
-    "check:ci": "biome ci package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md constitution critique docs initiatives plans ralph research specs storage ticketing && tsc -p tsconfig.json --noEmit",
+    "check:ci": "biome ci package.json tsconfig.json vitest.config.ts vitest.integration.config.ts biome.json README.md AGENTS.md bidi constitution critique docs initiatives plans ralph research specs storage ticketing && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
@@ -48,6 +49,7 @@
   ],
   "pi": {
     "extensions": [
+      "./bidi/index.ts",
       "./constitution/index.ts",
       "./research/index.ts",
       "./initiatives/index.ts",

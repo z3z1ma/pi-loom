@@ -1,5 +1,7 @@
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { createPlanStore } from "#plans/domain/store.js";
+import { assertWorkspaceProjectionFamiliesClean } from "#storage/projection-lifecycle.js";
+import { LOOM_PROJECTION_FAMILIES } from "#storage/projections.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import { type ExecuteRalphLoopResult, executeRalphLoop } from "../domain/loop.js";
 import { renderRalphDetail } from "../domain/render.js";
@@ -228,6 +230,7 @@ export async function handleRalphCommand(args: string, ctx: ExtensionCommandCont
 
   switch (parsed.kind) {
     case "start": {
+      assertWorkspaceProjectionFamiliesClean(ctx.cwd, "/ralph start", LOOM_PROJECTION_FAMILIES);
       const result =
         parsed.mode === "plan"
           ? await runPlanLoop(ctx, { planRef: parsed.planRef as string, prompt: parsed.prompt })

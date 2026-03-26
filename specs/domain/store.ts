@@ -679,6 +679,23 @@ export class SpecStore {
     return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
   }
 
+  async updateProjectionNarrative(
+    ref: string,
+    input: { proposalSummary?: string; designNotes?: string },
+  ): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    assertMutableSpec(record, "change projection narrative");
+    const state = this.normalizeState({ ...record.state });
+    if (input.proposalSummary !== undefined) {
+      state.proposalSummary = input.proposalSummary.trim();
+    }
+    if (input.designNotes !== undefined) {
+      state.designNotes = input.designNotes.trim();
+    }
+    state.updatedAt = currentTimestamp();
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
+  }
+
   async setInitiativeIds(ref: string, initiativeIds: string[]): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
     assertMutableSpec(record, "change initiative links");

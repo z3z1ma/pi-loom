@@ -1,0 +1,568 @@
+{
+  "entries": [
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:add-inbox-driven-manager-worker-control-plane:artifact:design",
+      "contentHash": "a96a239394b5b33abb92660b9adc348fd525a86a3f07f21493d387f47e9ea1b3",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "add-inbox-driven-manager-worker-control-plane/design.md",
+      "revisionToken": "af91b5ca89b844495f66a65075b6731e054b97bef61b67287d9a75f118895ca2"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:add-inbox-driven-manager-worker-control-plane:artifact:proposal",
+      "contentHash": "555a4c69089332a6b2ce44018fceb46f24961d6c1e18cefa30c8f86f46fb7fe0",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "add-inbox-driven-manager-worker-control-plane/proposal.md",
+      "revisionToken": "37abd2d9bbefe556f7e3ae235f62a0b9a98f2ce6813f036d26daaa5eecf95ffe"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:add-ralph-loop-orchestration-extension:artifact:design",
+      "contentHash": "17980fc04820ea25a8d30c73ec6e1f614ef66321935effe35df88232957a2c44",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "add-ralph-loop-orchestration-extension/design.md",
+      "revisionToken": "c2e6e9f2f5ef618652e361239327709e90a31c774783b8adc3c9393c2f29bc8f"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:add-ralph-loop-orchestration-extension:artifact:proposal",
+      "contentHash": "8b82ccffc3583a247b22aeda71dda42336e1bcd58a54899f22fc94b268f4ef10",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "add-ralph-loop-orchestration-extension/proposal.md",
+      "revisionToken": "ab2622c88a72ba713fabc4f066efe1ddd4627345d297e6b256a1bcb081d4d2b8"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:add-workspace-backed-manager-worker-substrate:artifact:design",
+      "contentHash": "e4211b41a3dfb033d10975b0edecf464f042e2dfe697d66e5afbc09766ad5c0b",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "add-workspace-backed-manager-worker-substrate/design.md",
+      "revisionToken": "ae74c94fc01e5e67d27f483b89e24706ee7c758a462841fbd5a7d26aa03ddcbf"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:add-workspace-backed-manager-worker-substrate:artifact:proposal",
+      "contentHash": "465eaedd352e346164abff76190e9cfb86894963cf7383ee37cde6524c56c1be",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "add-workspace-backed-manager-worker-substrate/proposal.md",
+      "revisionToken": "cff19627094a0981ee85b9392bccbc5af897b57f670c0be8dde8c49b18530014"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:canonical-data-plane-completion:artifact:design",
+      "contentHash": "4fd6d41ae2ddeda5336df8e043927e52f7a601c503cc507232730eecf320f231",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "canonical-data-plane-completion/design.md",
+      "revisionToken": "bb2b95dc9c3a8f23184543030acae58f3aa40c9d1f8c69b6022abf27a653e4ec"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:canonical-data-plane-completion:artifact:proposal",
+      "contentHash": "13d71663a92368d77a1d9910bac8e1cc93be0d5419429c3de64c52b8957cd042",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "canonical-data-plane-completion/proposal.md",
+      "revisionToken": "b878771b8d754f7a0b211ec17586bd9c5ed2919babc05195867f39d7f9c8134f"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:canonical-graph-cutover-phase-1:artifact:design",
+      "contentHash": "5dffccbd488c9ffefb2311db428dd17cff3cea327f72eadf3d56493ac740833e",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "canonical-graph-cutover-phase-1/design.md",
+      "revisionToken": "d389ef41058c4adc31a7cdfc009e49aca9fa51a8acd69285b65658acc5cb3c68"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:canonical-graph-cutover-phase-1:artifact:proposal",
+      "contentHash": "d42b8d2689d2eaf9318421f5753060791f1d4cab8d1b00f9a9738339b6d6bb54",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "canonical-graph-cutover-phase-1/proposal.md",
+      "revisionToken": "2133e3ab6e11bc0ab4c9ca3e279421d5f7c21f27c44ce83472d6602ca77e698d"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:define-widget-first-loom-subsystem-ux-framework:artifact:design",
+      "contentHash": "1c7779e3650a9681580c716c8219bae1645c0eb94a76e622ae5bb546cd58d600",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "define-widget-first-loom-subsystem-ux-framework/design.md",
+      "revisionToken": "85c64131fc8e9a97f92b420342c86af8955c888482577e401a8229b75bef9746"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:define-widget-first-loom-subsystem-ux-framework:artifact:proposal",
+      "contentHash": "e1a5589911bb5cb517d1a3483bf9d514902f91899f342517b32ca7ddb75080e1",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "define-widget-first-loom-subsystem-ux-framework/proposal.md",
+      "revisionToken": "3fe9663db9f37479e3a50bdb4ac4578d9a728dfcbbfcad88cadd1ea3326e36bb"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-constitution-ux:artifact:design",
+      "contentHash": "c03245927608a05f849b9c30495333586becdbc4c3fac8d4407c50323651ceca",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-constitution-ux/design.md",
+      "revisionToken": "5980ad4db50f23c9120e2b9d0293cd29fd4610f2d1d9b811e84dbc6fc59dda20"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-constitution-ux:artifact:proposal",
+      "contentHash": "831370a6732a6917e23f2d1bc88afb45002e084cbd66ef979427f26e181260af",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-constitution-ux/proposal.md",
+      "revisionToken": "05ee562159ead6aabb4a3b98fb7521fade2ba3a44fc8dd42a30107e2004fb558"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-critique-ux:artifact:design",
+      "contentHash": "8fe6c0ea22dd276fb7fd312ab140ab92f307581fa56a117c25b0488495e51ce1",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-critique-ux/design.md",
+      "revisionToken": "308c3e6f06902f3dec92b25f3eafa248dc88b7380ffa4bfad32524a846b88e00"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-critique-ux:artifact:proposal",
+      "contentHash": "035b79d2004cc4d7ff11a255a5c63174ab4630e5c49f33bf3f4a8d675f9c4b89",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-critique-ux/proposal.md",
+      "revisionToken": "e1105448b7200d3a58fae8f021ec004264d88a2d7b9f1e8a72448229e4cece0a"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-docs-ux:artifact:design",
+      "contentHash": "cfcf442a0a9a00850631d126a612ba12cbca5f08533ead98b04462d1ee851801",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-docs-ux/design.md",
+      "revisionToken": "e01fd2d4731cf6f29d1978ab39d201e6e3635d8e926969f1838f4029bed88411"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-docs-ux:artifact:proposal",
+      "contentHash": "79fab5d41ab7a4542abb385ea84458c03d28de2183ec77418f56c1fc1d36d723",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-docs-ux/proposal.md",
+      "revisionToken": "c382fa444e93ed46c8fbb60ab4470fbc8dbbc48e16081f6fd7de2e1987c8ffe1"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-initiatives-ux:artifact:design",
+      "contentHash": "b69c959e02e65332f418613aff7051029971cc99236124d6e05c76c5f8abb057",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-initiatives-ux/design.md",
+      "revisionToken": "6ae257a20b396cbdbcb9e4b4f384aaaaeb891cc6b2488c001479af8c3a07e794"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-initiatives-ux:artifact:proposal",
+      "contentHash": "249f963ec4a1b7ca65636f25dca2bb5f6a846a0087483350e32f7d36d28e77f6",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-initiatives-ux/proposal.md",
+      "revisionToken": "3c05005024875a3a69711f929f08b0a07d6ac755693fff6dce77c0c6168ff2d7"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-plans-ux:artifact:design",
+      "contentHash": "a3cfe55b7967cf36104e48cd686c7a0f89e5d038cf174a8e2121ab24eb67410e",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-plans-ux/design.md",
+      "revisionToken": "c914ec084c392782b2395b0954defbc6d172add40c372830d919146d7965a36a"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-plans-ux:artifact:proposal",
+      "contentHash": "2b4da58b5e233d24013436b65fd5147d001c4c3f095c301645470e09cc923ea9",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-plans-ux/proposal.md",
+      "revisionToken": "ee2a090217066925e81043cfc620ff1c387dc8b2d77ed4dcacc7ca82fd38e6f9"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-ralph-ux:artifact:design",
+      "contentHash": "4a4d0569f13c7e0537449964ebc6ed9e458675446d71ed67b991a39038e297f8",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-ralph-ux/design.md",
+      "revisionToken": "2117e80836e8f43ee37a6d18c1e912343643be894174868714c3f29947f9f973"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-ralph-ux:artifact:proposal",
+      "contentHash": "52996990f151a1df346e4f6911e44fe117e15c72c7093209ef2021f67471e418",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-ralph-ux/proposal.md",
+      "revisionToken": "52cff3619faee2ea559b6b373b4727dad88733cafa3f27ecfa18bfb990b16b7b"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-research-ux:artifact:design",
+      "contentHash": "1340ebb36e1f1a47994aa7773bc0aa3f63eaff0adeb830faab6dd5432f7d9369",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-research-ux/design.md",
+      "revisionToken": "3904dc94ce6fae60f66c79ef1df0eef464806b58d7f96516860b7acbd29e6cd3"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-research-ux:artifact:proposal",
+      "contentHash": "68f6b3860a87db4fc97bc761f279980e8775d94fad8a0968000cf41251f4f4e8",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-research-ux/proposal.md",
+      "revisionToken": "08369fe8ca26fe1b15744faf8d06d37aeb9a5ba20b18a4781eb023fd5151c9a6"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-specs-ux:artifact:design",
+      "contentHash": "986844c5d6b18b42542be3b974088d59e05911b68c9b8e94d408499cb70a92c4",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-specs-ux/design.md",
+      "revisionToken": "3d53e853e7112804905d2b513f9a46db4346308eaf7125eaee99e7f8d6749d3f"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-specs-ux:artifact:proposal",
+      "contentHash": "8bb25b23d7727df2b43cdd1b236b9dfacf22b4a939629ac66e3cb6b10ad98720",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-specs-ux/proposal.md",
+      "revisionToken": "9a9381db73a7095e0eaafd3aebef173271f8e3cb575041d3b4606d40931b0995"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-ticketing-ux:artifact:design",
+      "contentHash": "7e46f796e57529d9c83f5e05ac95431e4da38e153477c23425eba52897d154fa",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "design-widget-first-ticketing-ux/design.md",
+      "revisionToken": "0e3bc9112cd3ad1eec273c8f9e7981963a01803213f54d41be99993a58105598"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-ticketing-ux:artifact:proposal",
+      "contentHash": "86602e25020e37e34ffbcf5941d778033b10a72395ab9ac5e6192b3f6efd839a",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "design-widget-first-ticketing-ux/proposal.md",
+      "revisionToken": "bfc47d37de6e4c45900814e8542db08f50082face2da99c6008e47c10429e33b"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-workers-ux:artifact:design",
+      "contentHash": "a2b7d819f046176f3a7b138b605be78970bd891c291af210ecb3d26eaa537f68",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-workers-ux/design.md",
+      "revisionToken": "4eb52a98faff867b88ebcb344892cea8cc622c52929355e4efbf651e92dfbed0"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:design-widget-first-workers-ux:artifact:proposal",
+      "contentHash": "96176bf6718d0d5c2f66318b92413d2f2567fe9a9d6156fd333efa51d0460496",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "design-widget-first-workers-ux/proposal.md",
+      "revisionToken": "c9f267d8e7a1fb74489b1e6ec297aa1e1db3731dc2f316c25ec6a773ab59e55b"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:first-class-multi-repository-loom-spaces:artifact:design",
+      "contentHash": "75bb387931ec35abdeae0fb4ecd27fbc9611ef9a284a918c378f32850f5d669b",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "first-class-multi-repository-loom-spaces/design.md",
+      "revisionToken": "3f3fcb85202e7e6d9bf002d8023fa188bfbc6787fcc378f70365bf29236fc145"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:first-class-multi-repository-loom-spaces:artifact:proposal",
+      "contentHash": "7ce0f1dca31dda30921345e4c4616177e25ba7613aae18251c81048f883f3fdc",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "first-class-multi-repository-loom-spaces/proposal.md",
+      "revisionToken": "39986806f6b04358ad43608d241da84ad60fa322a70e7161276a6bff314b86d5"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:integrated-plan-ticket-materialization:artifact:design",
+      "contentHash": "12b837fc53be18686a10fa972efe0b0c7d94ce390ed16898e450fe54a779af04",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "integrated-plan-ticket-materialization/design.md",
+      "revisionToken": "407c46a38ef4bd7fb6bee47c2d7f1403b857349ba1a480ccaf767a61cdf579e2"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:integrated-plan-ticket-materialization:artifact:proposal",
+      "contentHash": "8c37b9128556c0e3f90db82601dc65b29f088b662f4118d4c57dcdf2d4643d80",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "integrated-plan-ticket-materialization/proposal.md",
+      "revisionToken": "361fc5863783b14546a5f2d9ac37deefe4acc9f367b18526129862f87feb7e63"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:revamp-ticket-workspace-into-an-overlay-workbench-ux:artifact:design",
+      "contentHash": "8b82b0d10d604b83a8ec17c7caa9e491412e893e69ad905f57c0aeeb03a3cf05",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "revamp-ticket-workspace-into-an-overlay-workbench-ux/design.md",
+      "revisionToken": "cb999ec15d760fe3f4b25ca61d8bafa84184788c59216e68c5f2da69ff9b9da3"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:revamp-ticket-workspace-into-an-overlay-workbench-ux:artifact:proposal",
+      "contentHash": "90c52423dd26a2f58b5a892f9a4d63cd3b9289410d667f3bb5bb8a5fca35c1a3",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "revamp-ticket-workspace-into-an-overlay-workbench-ux/proposal.md",
+      "revisionToken": "ea06898c48714b28b9d9f99ed24048dabd62c849a43d66fa166b4ebfd850e980"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:session-based-ralph-and-chief-iteration-execution:artifact:design",
+      "contentHash": "eb5c87091974ba986df4aff70dcf0bbaf3ea154215d4600fb2e5fb976fba76e4",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "session-based-ralph-and-chief-iteration-execution/design.md",
+      "revisionToken": "9689ebc95c5ea8653923ba0ba79fabd64dd894fd2685fe6506209f47d8a669f6"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:session-based-ralph-and-chief-iteration-execution:artifact:proposal",
+      "contentHash": "c7d2bf1bf6a22bb2cb81b4b4a9893154689904d46eb67079ce003c45117103de",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "session-based-ralph-and-chief-iteration-execution/proposal.md",
+      "revisionToken": "4278d4666a270db49c04f1bbd8fed038b47b819fd8559269912393ca9536f932"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:sqlite-first-canonical-storage-substrate:artifact:design",
+      "contentHash": "92895709311e3b854fe29d0625eb2d3494b5ef33a28940244f02a94924f1b980",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "sqlite-first-canonical-storage-substrate/design.md",
+      "revisionToken": "2773fc7c67979966db5fedfa95692629aac9e39ec2e0c7bc2665e2101c02f084"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:sqlite-first-canonical-storage-substrate:artifact:proposal",
+      "contentHash": "bc0c38619b293800a706d936f2414f4067f8a63ada7a30e3e800436dfb946dec",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "sqlite-first-canonical-storage-substrate/proposal.md",
+      "revisionToken": "9ff15b872c4bf2ef1ff2880b5a4bfd0703945309cc605f4384d478318da51682"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:ticket-archive-support-and-list-search:artifact:design",
+      "contentHash": "23f1f7f4bda783fd50316ca8e868ea883d575096e89f3e2d48a7ed59d28ba0af",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "ticket-archive-support-and-list-search/design.md",
+      "revisionToken": "69b33e1601e1cce3a6f6fea49756e6f99d51e83a1f225dd19168dec7db1893c2"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:ticket-archive-support-and-list-search:artifact:proposal",
+      "contentHash": "34a8efe821f26fd1756a60633377f5554042ab115a92d08fb34f3dc151e6995d",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "ticket-archive-support-and-list-search/proposal.md",
+      "revisionToken": "75fe59f09266f7167453ecb38f1adc5b15336a5473a0be2259814f3489dc239b"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:workspace-projections-for-canonical-loom-records:artifact:design",
+      "contentHash": "1b270fcf9d4ae6682c90108533936459aea5fdcc6bbf83762e5c0315c96a6824",
+      "editability": {
+        "editableSections": [
+          "Design Notes"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "workspace-projections-for-canonical-loom-records/design.md",
+      "revisionToken": "a5c8a62e0e76cb258cc8ea55dcb1f7b434589cb98ee8846ee7649b81275f1823"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:workspace-projections-for-canonical-loom-records:artifact:proposal",
+      "contentHash": "864faab9667b34bfd96fa40e8ffce212a620edd1c6433ddb946e7304d6e77314",
+      "editability": {
+        "editableSections": [
+          "Overview"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "workspace-projections-for-canonical-loom-records/proposal.md",
+      "revisionToken": "457f0d3ef49ecde1924bec847e2dba59f4bbaa3aeaac3aaf786b711b84c950ec"
+    }
+  ],
+  "family": "specs",
+  "schemaVersion": 1
+}

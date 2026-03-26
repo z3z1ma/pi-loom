@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS } from "#storage/list-search.js";
+import { hasExportedProjectionFamily, runProjectionAwareOperation } from "#storage/projection-lifecycle.js";
 import {
   REVIEW_STATUSES,
   TICKET_BRANCH_MODES,
@@ -10,7 +11,9 @@ import {
   TICKET_RISKS,
   TICKET_TYPES,
 } from "#ticketing/domain/models.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import type { CreatePlanInput, PlanContextRefsUpdate, UpdatePlanInput } from "../domain/models.js";
+import { exportPlanProjections } from "../domain/projection.js";
 import { renderOverview, renderPlanDetail } from "../domain/render.js";
 import { createPlanStore } from "../domain/store.js";
 
@@ -256,6 +259,15 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
+async function refreshPlanProjectionFamilies(cwd: string, includeTickets = false): Promise<void> {
+  if (hasExportedProjectionFamily(cwd, "plans")) {
+    await exportPlanProjections(cwd);
+  }
+  if (includeTickets && hasExportedProjectionFamily(cwd, "tickets")) {
+    await createTicketStore(cwd).syncTicketWorkspaceProjectionAsync();
+  }
+}
+
 function isContextRefsUpdate(value: unknown): value is PlanContextRefsUpdate {
   return Boolean(value && typeof value === "object" && ("replace" in value || "remove" in value));
 }
@@ -482,11 +494,20 @@ export function registerPlanTools(pi: ExtensionAPI): void {
           );
         }
         case "create": {
-          const created = await store.createPlan(toCreateInput(params));
-          const result =
-            params.linkedTicketInputs && params.linkedTicketInputs.length > 0
-              ? await store.materializeLinkedTickets(created.state.planId, params.linkedTicketInputs)
-              : { plan: created, tickets: [] };
+          const guardFamilies =
+            (params.linkedTicketInputs?.length ?? 0) > 0 ? (["plans", "tickets"] as const) : (["plans"] as const);
+          const result = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "plan_write create",
+            families: guardFamilies,
+            action: async () => {
+              const created = await store.createPlan(toCreateInput(params));
+              return params.linkedTicketInputs && params.linkedTicketInputs.length > 0
+                ? store.materializeLinkedTickets(created.state.planId, params.linkedTicketInputs)
+                : { plan: created, tickets: [] };
+            },
+            refresh: () => refreshPlanProjectionFamilies(ctx.cwd, (params.linkedTicketInputs?.length ?? 0) > 0),
+          });
           return machineResult(
             { action: params.action, plan: result.plan, materializedTickets: result.tickets },
             renderPlanDetail(result.plan),
@@ -494,20 +515,39 @@ export function registerPlanTools(pi: ExtensionAPI): void {
         }
         case "update": {
           const ref = requireRef(params.ref);
-          const updated = hasPlanUpdateFields(params)
-            ? await store.updatePlan(ref, toUpdateInput(params))
-            : await store.readPlan(ref);
-          const result =
-            params.linkedTicketInputs && params.linkedTicketInputs.length > 0
-              ? await store.materializeLinkedTickets(updated.state.planId, params.linkedTicketInputs)
-              : { plan: updated, tickets: [] };
+          if (!hasPlanUpdateFields(params) && (params.linkedTicketInputs?.length ?? 0) === 0) {
+            const plan = await store.readPlan(ref);
+            return machineResult({ action: params.action, plan, materializedTickets: [] }, renderPlanDetail(plan));
+          }
+          const guardFamilies =
+            (params.linkedTicketInputs?.length ?? 0) > 0 ? (["plans", "tickets"] as const) : (["plans"] as const);
+          const result = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "plan_write update",
+            families: guardFamilies,
+            action: async () => {
+              const updated = hasPlanUpdateFields(params)
+                ? await store.updatePlan(ref, toUpdateInput(params))
+                : await store.readPlan(ref);
+              return params.linkedTicketInputs && params.linkedTicketInputs.length > 0
+                ? store.materializeLinkedTickets(updated.state.planId, params.linkedTicketInputs)
+                : { plan: updated, tickets: [] };
+            },
+            refresh: () => refreshPlanProjectionFamilies(ctx.cwd, (params.linkedTicketInputs?.length ?? 0) > 0),
+          });
           return machineResult(
             { action: params.action, plan: result.plan, materializedTickets: result.tickets },
             renderPlanDetail(result.plan),
           );
         }
         case "archive": {
-          const plan = await store.archivePlan(requireRef(params.ref));
+          const plan = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "plan_write archive",
+            families: ["plans"],
+            action: () => store.archivePlan(requireRef(params.ref)),
+            refresh: () => refreshPlanProjectionFamilies(ctx.cwd),
+          });
           return machineResult({ action: params.action, plan }, renderPlanDetail(plan));
         }
       }
@@ -541,14 +581,20 @@ export function registerPlanTools(pi: ExtensionAPI): void {
     parameters: PlanTicketLinkParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const store = getScopedStore(ctx, params);
-      const plan =
-        params.action === "link"
-          ? await store.linkPlanTicket(params.ref, {
-              ticketId: params.ticketId,
-              role: params.role,
-              order: params.order,
-            })
-          : await store.unlinkPlanTicket(params.ref, params.ticketId);
+      const plan = await runProjectionAwareOperation({
+        repositoryRoot: ctx.cwd,
+        operation: `plan_ticket_link ${params.action}`,
+        families: ["plans"],
+        action: () =>
+          params.action === "link"
+            ? store.linkPlanTicket(params.ref, {
+                ticketId: params.ticketId,
+                role: params.role,
+                order: params.order,
+              })
+            : store.unlinkPlanTicket(params.ref, params.ticketId),
+        refresh: () => refreshPlanProjectionFamilies(ctx.cwd),
+      });
       return machineResult({ action: params.action, plan }, renderPlanDetail(plan));
     },
   });

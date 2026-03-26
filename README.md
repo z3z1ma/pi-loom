@@ -125,6 +125,23 @@ sqlite3 "$PI_LOOM_ROOT/catalog.sqlite" ".backup '$PI_LOOM_ROOT/catalog-$(date +%
 
 If `PI_LOOM_ROOT` is unset, Pi Loom defaults to `~/.pi/loom`.
 
+## Workspace projections
+
+Workspace projections are the repo-visible `.loom/<family>/...` review surfaces for canonical Loom records. They make durable SQLite-backed state readable and selectively editable from the repository without turning markdown into a second system of record.
+
+- supported projection families today are `constitution`, `research`, `initiatives`, `specs`, `plans`, `docs`, and `tickets`
+- critique and Ralph remain canonical-only layers; they produce packets, runs, and review artifacts, but they do not project into `.loom/`
+- each projected family writes a manifest plus low-churn markdown or document files derived from canonical state
+- packets are not projections: plan, docs, critique, and Ralph packets are fresh-process handoff artifacts compiled on demand from canonical state and are never reconcile targets
+- human-facing `.loom` sync uses `/loom-status`, `/loom-export`, `/loom-refresh`, and `/loom-reconcile`; AI callers use `projection_status` and `projection_write`; there is no file-save autosync back into SQLite
+- dirty projected files block canonical writes and packet launches until the operator explicitly reconciles intentional edits or refreshes back to canonical output
+
+Ticket projections have stricter Git defaults because they churn the most.
+
+- `.loom/.gitignore` keeps `tickets/` and `.reconcile/` untracked by default while still allowing other projection families to be committed intentionally for review
+- the ticket family is retention-based rather than "all records forever": open tickets, recent updates, active-plan tickets, and tickets labeled `projection:pinned` remain projected; archived tickets do not
+- reconcile scratch, conflict leftovers, and local runtime/control-plane files are never shared truth and should stay out of version control
+
 ## Loom artifact commit policy
 
 Treat repo-visible artifacts as exports or review surfaces, not as canonical state:

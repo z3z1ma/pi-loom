@@ -1,7 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createPlanStore } from "#plans/domain/store.js";
+import { readProjectionManifest, resolveProjectionFilePath } from "#storage/projections.js";
 import { createSeededGitWorkspace, createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
 import { closeAllWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
@@ -607,5 +609,166 @@ describe("TicketStore canonical storage", () => {
         branchFamily: "UDP-100",
       }),
     ).rejects.toThrow("branchFamily and exactBranchName must be omitted when branchMode is none");
+  }, 30000);
+
+  it("projects a bounded ticket workspace view with retention metadata and git-safe defaults", async () => {
+    const seeded = createSeededGitWorkspace({
+      prefix: "pi-ticket-projection-membership-",
+      packageName: "pi-ticket-projection-membership",
+      remoteUrl: "https://github.com/example/pi-loom.git",
+    });
+    try {
+      process.env.PI_LOOM_ROOT = join(seeded.cwd, ".pi-loom-projection-membership");
+      const ticketStore = createTicketStore(seeded.cwd);
+      const planStore = createPlanStore(seeded.cwd);
+
+      vi.setSystemTime(new Date("2023-12-01T00:00:00.000Z"));
+      const agedClosed = await ticketStore.createTicketAsync({ title: "Aged closed ticket" });
+      vi.setSystemTime(new Date("2023-12-01T00:05:00.000Z"));
+      await ticketStore.closeTicketAsync(agedClosed.summary.id, "Archived from the active window.");
+
+      vi.setSystemTime(new Date("2023-12-02T00:00:00.000Z"));
+      const pinnedClosed = await ticketStore.createTicketAsync({
+        title: "Pinned closed ticket",
+        labels: ["projection:pinned"],
+      });
+      vi.setSystemTime(new Date("2023-12-02T00:05:00.000Z"));
+      await ticketStore.closeTicketAsync(pinnedClosed.summary.id, "Pinned for operator follow-up.");
+
+      vi.setSystemTime(new Date("2023-12-03T00:00:00.000Z"));
+      const planLinkedClosed = await ticketStore.createTicketAsync({ title: "Plan-linked closed ticket" });
+      vi.setSystemTime(new Date("2023-12-03T00:05:00.000Z"));
+      const plan = await planStore.createPlan({
+        title: "Projection execution slice",
+        sourceTarget: { kind: "workspace", ref: "." },
+      });
+      await planStore.linkPlanTicket(plan.state.planId, {
+        ticketId: planLinkedClosed.summary.id,
+        role: "implementation",
+        order: 1,
+      });
+      vi.setSystemTime(new Date("2023-12-03T00:10:00.000Z"));
+      await ticketStore.closeTicketAsync(planLinkedClosed.summary.id, "Still relevant to the active plan.");
+
+      vi.setSystemTime(new Date("2023-12-04T00:00:00.000Z"));
+      const openTicket = await ticketStore.createTicketAsync({ title: "Open projected ticket" });
+
+      vi.setSystemTime(new Date("2024-01-15T00:00:00.000Z"));
+      const recentClosed = await ticketStore.createTicketAsync({ title: "Recent closed ticket" });
+      vi.setSystemTime(new Date("2024-01-15T00:05:00.000Z"));
+      await ticketStore.closeTicketAsync(recentClosed.summary.id, "Recently closed and still useful.");
+
+      const result = await ticketStore.syncTicketWorkspaceProjectionAsync({ now: "2024-01-20T00:00:00.000Z" });
+      expect(result.gitignore.status).toBe("created");
+      expect(result.projected.map((entry) => entry.ticketId)).toEqual([
+        pinnedClosed.summary.id,
+        planLinkedClosed.summary.id,
+        openTicket.summary.id,
+        recentClosed.summary.id,
+      ]);
+      expect(result.prunedRelativePaths).toEqual([]);
+
+      const manifest = readProjectionManifest(result.manifestPath);
+      expect(manifest).toBeTruthy();
+      expect(manifest?.family).toBe("tickets");
+      expect(manifest?.metadata).toMatchObject({
+        retentionPolicy: {
+          recentWindowDays: 14,
+          pinLabel: "projection:pinned",
+          activePlanStatus: "active",
+          archivedTicketsProjected: false,
+        },
+      });
+      expect(manifest?.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            canonicalRef: `ticket:${openTicket.summary.id}`,
+            metadata: expect.objectContaining({ inclusionReasons: ["open"] }),
+          }),
+          expect.objectContaining({
+            canonicalRef: `ticket:${pinnedClosed.summary.id}`,
+            metadata: expect.objectContaining({ inclusionReasons: ["pinned"], pinned: true }),
+          }),
+          expect.objectContaining({
+            canonicalRef: `ticket:${planLinkedClosed.summary.id}`,
+            metadata: expect.objectContaining({
+              inclusionReasons: ["active_plan_linked"],
+              activePlanIds: [plan.state.planId],
+            }),
+          }),
+          expect.objectContaining({
+            canonicalRef: `ticket:${recentClosed.summary.id}`,
+            metadata: expect.objectContaining({ inclusionReasons: ["recent"] }),
+          }),
+        ]),
+      );
+
+      expect(existsSync(resolveProjectionFilePath(seeded.cwd, "tickets", `${agedClosed.summary.id}.md`))).toBe(false);
+      expect(existsSync(resolveProjectionFilePath(seeded.cwd, "tickets", `${openTicket.summary.id}.md`))).toBe(true);
+      expect(existsSync(resolveProjectionFilePath(seeded.cwd, "tickets", `${pinnedClosed.summary.id}.md`))).toBe(true);
+      expect(existsSync(resolveProjectionFilePath(seeded.cwd, "tickets", `${planLinkedClosed.summary.id}.md`))).toBe(
+        true,
+      );
+      expect(existsSync(resolveProjectionFilePath(seeded.cwd, "tickets", `${recentClosed.summary.id}.md`))).toBe(true);
+
+      const gitignore = readFileSync(join(seeded.cwd, ".loom", ".gitignore"), "utf-8");
+      expect(gitignore).toContain("tickets/");
+      expect(gitignore).toContain(".reconcile/");
+    } finally {
+      seeded.cleanup();
+    }
+  }, 30000);
+
+  it("prunes aged ticket projections from disk without mutating canonical ticket history", async () => {
+    const seeded = createSeededGitWorkspace({
+      prefix: "pi-ticket-projection-prune-",
+      packageName: "pi-ticket-projection-prune",
+      remoteUrl: "https://github.com/example/pi-loom.git",
+    });
+    try {
+      process.env.PI_LOOM_ROOT = join(seeded.cwd, ".pi-loom-projection-prune");
+      const ticketStore = createTicketStore(seeded.cwd);
+
+      vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+      const blocker = await ticketStore.createTicketAsync({ title: "Projection blocker" });
+      vi.setSystemTime(new Date("2024-01-01T00:01:00.000Z"));
+      const candidate = await ticketStore.createTicketAsync({ title: "Projection prune candidate" });
+      vi.setSystemTime(new Date("2024-01-01T00:02:00.000Z"));
+      await ticketStore.addDependencyAsync(candidate.summary.id, blocker.summary.id);
+      vi.setSystemTime(new Date("2024-01-01T00:03:00.000Z"));
+      await ticketStore.attachArtifactAsync(candidate.summary.id, {
+        label: "capture",
+        content: "retained canonical evidence",
+      });
+      vi.setSystemTime(new Date("2024-01-01T00:04:00.000Z"));
+      await ticketStore.closeTicketAsync(candidate.summary.id, "Closed cleanly.");
+
+      await ticketStore.syncTicketWorkspaceProjectionAsync({ now: "2024-01-05T00:00:00.000Z" });
+      const projectionPath = resolveProjectionFilePath(seeded.cwd, "tickets", `${candidate.summary.id}.md`);
+      expect(existsSync(projectionPath)).toBe(true);
+
+      const later = await ticketStore.syncTicketWorkspaceProjectionAsync({ now: "2024-02-01T00:00:00.000Z" });
+      expect(later.prunedRelativePaths).toEqual([`${candidate.summary.id}.md`]);
+      expect(existsSync(projectionPath)).toBe(false);
+
+      const reread = await ticketStore.readTicketAsync(candidate.summary.id);
+      expect(reread.ticket.closed).toBe(true);
+      expect(reread.ticket.frontmatter.deps).toEqual([blocker.summary.id]);
+      expect(reread.attachments).toEqual([
+        expect.objectContaining({ label: "capture", ticketId: candidate.summary.id }),
+      ]);
+      expect(reread.ticket.body.verification).toContain("Closed cleanly.");
+      expect(reread.journal).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "attachment", text: "Attached capture" }),
+          expect.objectContaining({ kind: "verification", text: "Closed cleanly." }),
+        ]),
+      );
+      expect(readProjectionManifest(later.manifestPath)?.entries).toEqual([
+        expect.objectContaining({ canonicalRef: `ticket:${blocker.summary.id}` }),
+      ]);
+    } finally {
+      seeded.cleanup();
+    }
   }, 30000);
 });

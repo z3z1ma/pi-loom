@@ -1,0 +1,490 @@
+{
+  "entries": [
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:assess-vendoring-the-oh-my-pi-task-subagent-executor-into-pi-ralph",
+      "contentHash": "b80fb7a970d55857268ca84ac29b1f7e3a66419926a0c4558800671667c67de0",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "assess-vendoring-the-oh-my-pi-task-subagent-executor-into-pi-ralph.md",
+      "revisionToken": "6545506635de5787587c0201d2d73716bb3e574e726be4ddd51d0496239573e0"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:chief-manager-record-atomicity-and-blocking-state-research",
+      "contentHash": "1fc690cd9651b366f1e11c892b7c911386afd4c429ffc7406cc51eef56a6ef3f",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "chief-manager-record-atomicity-and-blocking-state-research.md",
+      "revisionToken": "baacadafbb99a2afd21952f5b719d52ac9a08d1baeefe81f0bcf8e1144d0375c"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:evaluate-pi-control-surfaces-for-long-lived-workers",
+      "contentHash": "299b9414d92c0e13f2d1f5c738cda1c86e0ff35602cff05cf46363250411f0ba",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "evaluate-pi-control-surfaces-for-long-lived-workers.md",
+      "revisionToken": "0d3360ea66925d7b2ff933b358d66d5f2a0c4119ae643971c600324c8f395a61"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:evaluate-pi-custom-widgets-for-loom-human-centric-ux",
+      "contentHash": "dbac49a3ba1b4da178ebcf54a19df2d044e883679f9050b8b986cf65aa3e59db",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "evaluate-pi-custom-widgets-for-loom-human-centric-ux.md",
+      "revisionToken": "fe2d896f4803264700ad5af403979f217a7ac77117feb23eaaac5ce5b48b9642"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:full-suite-test-runtime-static-analysis",
+      "contentHash": "45c4fa7734ffa03de86346159a5b744c3139cc11855bc6b758755f32e71b2ddd",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "full-suite-test-runtime-static-analysis.md",
+      "revisionToken": "5df94555ec442ee4d4c62341781ce109e3545da0fb77bd2d8193d1dc373feed2"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:human-editable-workspace-projections-for-canonical-loom-records",
+      "contentHash": "e364b1a28e47169c4b0fe318e552a66b60d2e5e442c05173b2013d50e3151faf",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "human-editable-workspace-projections-for-canonical-loom-records.md",
+      "revisionToken": "8f92d69aeb59d9903ae8586110919e48f3d457de750e79f4c944f2239c163954"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:multi-repository-loom-coordination-readiness",
+      "contentHash": "e6413ed290167db0bdad55add54a1648604b2452eba55acee067c5a1bd5234bf",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "multi-repository-loom-coordination-readiness.md",
+      "revisionToken": "e4e820436c9b701e4e7e525ea47d3bfcce91d85cb2c1fa58a8f0381d2e4a8284"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:persistent-worker-direction-for-pi-workers",
+      "contentHash": "a10571611c85273de28835901e9a476a66f434ac86d4f44d6a66f5141c855468",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "persistent-worker-direction-for-pi-workers.md",
+      "revisionToken": "855f27c368c7eec2a8e46845db8bcae659292b95a5f04dae2f5732b5026b1706"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:pi-loom-crud-identity-and-referential-integrity-audit",
+      "contentHash": "19eaf04b6b14e8f09dc19884dec7d6adbd7ecc3f8fae83629594922893818bb6",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "pi-loom-crud-identity-and-referential-integrity-audit.md",
+      "revisionToken": "e838c956c3e69f4099c99023d6f854488f3bd1759a8b663005610ebcccdcdaf7"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:plan-and-ticket-orchestration-workflow-design",
+      "contentHash": "2463bf3c2049eac1109826035eb2f01b5a99395c2b0c6ae906796a9c3d65154f",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "plan-and-ticket-orchestration-workflow-design.md",
+      "revisionToken": "01c231865565af1270ae71eda2ab389fe3f78ba395272300c791b9f813b95552"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces",
+      "contentHash": "b85bbaa8bbcf2890e9417697fd8787952a21c5081a88d586f19e62a9e09b2abc",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces.md",
+      "revisionToken": "770d9199bdd93b74a87754e04b17a4a6dab2f074f57d9ab3646eb9daeffdfe8f"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:ralph-and-chief-in-process-session-runtime-migration",
+      "contentHash": "878efdf221b93aaff21ef9db711888fb691c1346457c880e54995e33a01257c7",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "ralph-and-chief-in-process-session-runtime-migration.md",
+      "revisionToken": "2ff266acbb57c6df241a2829cd413b1abbd9de19435f96cd89034b13480c989c"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:ralph-backed-worker-manager-architecture-cutover",
+      "contentHash": "a49bcc7f818df901303a515bf8dcf4849c49e83c9e19524873f20ad55124921e",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "ralph-backed-worker-manager-architecture-cutover.md",
+      "revisionToken": "f0ed4d56993a30b873ea8b874d1c5fba2ce6d0aae46eaf3c2fa4b08648a0e11b"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:ralph-branch-family-allocation-for-worktree-runs",
+      "contentHash": "24f13099099438119345531a4482ca8a62a8ea7b1e2c4d00de9d5ebd00bbc65d",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "ralph-branch-family-allocation-for-worktree-runs.md",
+      "revisionToken": "8e0874253833a4b52de3a3becbde984873ca62b3be3f4e4a3d22a9043d59d811"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:repo-bug-scrub-chief-manager-record-atomicity-2026-03-21",
+      "contentHash": "b336f756770e00ec7559844d217bc719f654d2a5b817753824e31e5ca93ae39c",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "repo-bug-scrub-chief-manager-record-atomicity-2026-03-21.md",
+      "revisionToken": "ec73fae8e5534977a393b3eb60989c0de13d734a6ad03e21946229e1632ad523"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:repository-hygiene-and-artifact-robustness-audit",
+      "contentHash": "ecbfb5cb43b16e01236e564d666112a92deeb47b3750139c46f58330d0ce0729",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "repository-hygiene-and-artifact-robustness-audit.md",
+      "revisionToken": "d2509b3541d902d9bb7e7119fd0d8448c7b36868008b51a5e030dd1f7bbb072d"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:sqlite-data-plane-audit-and-enrichment-opportunities",
+      "contentHash": "1938edb6f8fd9958cd5ad09a7b700cbd1a075a1c7335da52472964406e12f22c",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "sqlite-data-plane-audit-and-enrichment-opportunities.md",
+      "revisionToken": "099d5bd4b945d3afa65a622c5f321df8630af296dccc5ffc7f0f5ab13fb83b4c"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:sqlite-first-storage-substrate-and-sync-architecture",
+      "contentHash": "c13a2482134c94eee939aefd584c4caadafa49daad3524b8a06b255a7441fc88",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "sqlite-first-storage-substrate-and-sync-architecture.md",
+      "revisionToken": "43d8bd1612e0e625cfede8dff65886dfd899d120d8e0ab49729ceb381ea01a9e"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:state-of-the-art-for-ralph-loop-orchestration",
+      "contentHash": "3ceaa8bb09f38acfaf5c13e89bc3cd6313f3350285aeae8082de413c09fb1b32",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "state-of-the-art-for-ralph-loop-orchestration.md",
+      "revisionToken": "0b3a9ba9f5fcd5598f3b1d847cc862fd9ba3f625c47d097ede7e1a38caa5216b"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:test-suite-runtime-diagnosis-after-sqlite-cutover",
+      "contentHash": "5be835f6955c9df9a1be11bb8e1f4a1cb97bd0edbed5513459931f288c2465cd",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "test-suite-runtime-diagnosis-after-sqlite-cutover.md",
+      "revisionToken": "5eaa03b344ced8b821ec03b523943fe183defa20d9ab6da6bf7582eafeb0a11b"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:ticket-workspace-ui-revamp-reference-study",
+      "contentHash": "f6d5ea6d8c216bcc61fce862f5299c68309c393f0d1fb8d66a273d0209d3808a",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "ticket-workspace-ui-revamp-reference-study.md",
+      "revisionToken": "a52ed8f066be4b49c56ba7f48de0eb31732ad8dee7b44453e85841eab2a44d5f"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "research:workspace-package-robustness-scrub-2026-03",
+      "contentHash": "a4ced37cc5bb4e8a72205d82a9f1b8ca1a48728228bdfa22974fdf2cae086e6f",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "workspace-package-robustness-scrub-2026-03.md",
+      "revisionToken": "1be01a8f2fd42753799fa74957d3833729fcc40ffba8b249995e484460ac1229"
+    }
+  ],
+  "family": "research",
+  "schemaVersion": 1
+}

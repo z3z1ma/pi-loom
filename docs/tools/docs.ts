@@ -3,11 +3,13 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
+import { hasExportedProjectionFamily, runProjectionAwareOperation } from "#storage/projection-lifecycle.js";
 import {
   readRuntimeScopeFromEnvForCwd,
   resolveEntityRuntimeScope,
   resolveRuntimeScopeCwd,
 } from "#storage/runtime-scope.js";
+import { exportDocumentationProjections } from "../domain/projection.js";
 import { renderDocumentationDetail, renderOverview, renderUpdatePrompt } from "../domain/render.js";
 import { runDocsUpdate } from "../domain/runtime.js";
 import { createDocumentationStore } from "../domain/store.js";
@@ -161,6 +163,12 @@ function machineResult(details: Record<string, unknown>, text: string) {
     content: [{ type: "text" as const, text }],
     details,
   };
+}
+
+async function refreshDocumentationProjectionsIfExported(cwd: string): Promise<void> {
+  if (hasExportedProjectionFamily(cwd, "docs")) {
+    await exportDocumentationProjections(cwd);
+  }
 }
 
 function requireRef(ref: string | undefined): string {
@@ -335,15 +343,33 @@ export function registerDocsTools(pi: ExtensionAPI): void {
           );
         }
         case "create": {
-          const documentation = await store.createDoc(toCreateInput(params));
+          const documentation = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "docs_write create",
+            families: ["docs"],
+            action: () => store.createDoc(toCreateInput(params)),
+            refresh: () => refreshDocumentationProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, documentation }, renderDocumentationDetail(documentation));
         }
         case "update": {
-          const documentation = await store.updateDoc(requireRef(params.ref), toUpdateInput(params));
+          const documentation = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "docs_write update",
+            families: ["docs"],
+            action: () => store.updateDoc(requireRef(params.ref), toUpdateInput(params)),
+            refresh: () => refreshDocumentationProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, documentation }, renderDocumentationDetail(documentation));
         }
         case "archive": {
-          const documentation = await store.archiveDoc(requireRef(params.ref));
+          const documentation = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "docs_write archive",
+            families: ["docs"],
+            action: () => store.archiveDoc(requireRef(params.ref)),
+            refresh: () => refreshDocumentationProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, documentation }, renderDocumentationDetail(documentation));
         }
       }
@@ -383,58 +409,68 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     ],
     parameters: DocsUpdateParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const ambientStore = getStore(ctx);
-      const existing = await ambientStore.readDoc(params.ref);
-      const runtimeScope = await resolveEntityRuntimeScope(ctx.cwd, "documentation", existing.state.docId);
-      const store = createDocumentationStore(ctx.cwd, {
-        repositoryId: runtimeScope.repositoryId,
-        worktreeId: runtimeScope.worktreeId,
-      });
-      const prepared = params.updateReason
-        ? await store.updateDoc(existing.state.docId, { updateReason: params.updateReason })
-        : existing;
-      const previousRevisionId = prepared.state.lastRevisionId;
-      const execution = await runDocsUpdate(
-        ctx.cwd,
-        renderUpdatePrompt(ctx.cwd, prepared.state),
-        signal,
-        (text) => {
-          onUpdate?.({
-            content: [{ type: "text", text }],
-            details: {
-              documentation: prepared.summary,
-              execution: { status: "running" },
-            },
+      return runProjectionAwareOperation({
+        repositoryRoot: ctx.cwd,
+        operation: "docs_update",
+        families: ["docs"],
+        action: async () => {
+          const ambientStore = getStore(ctx);
+          const existing = await ambientStore.readDoc(params.ref);
+          const runtimeScope = await resolveEntityRuntimeScope(ctx.cwd, "documentation", existing.state.docId);
+          const store = createDocumentationStore(ctx.cwd, {
+            repositoryId: runtimeScope.repositoryId,
+            worktreeId: runtimeScope.worktreeId,
           });
+          const prepared = params.updateReason
+            ? await store.updateDoc(existing.state.docId, { updateReason: params.updateReason })
+            : existing;
+          if (params.updateReason) {
+            await refreshDocumentationProjectionsIfExported(ctx.cwd);
+          }
+          const previousRevisionId = prepared.state.lastRevisionId;
+          const execution = await runDocsUpdate(
+            ctx.cwd,
+            renderUpdatePrompt(ctx.cwd, prepared.state),
+            signal,
+            (text) => {
+              onUpdate?.({
+                content: [{ type: "text", text }],
+                details: {
+                  documentation: prepared.summary,
+                  execution: { status: "running" },
+                },
+              });
+            },
+            runtimeScope,
+            params.worktreeTicketRef,
+          );
+          const refreshed = await store.readDoc(existing.state.docId);
+          if (execution.exitCode !== 0) {
+            throw new Error(
+              [
+                `Documentation update process failed with exit code ${execution.exitCode}.`,
+                execution.stderr.trim() || execution.output.trim() || prepared.packet,
+              ]
+                .filter(Boolean)
+                .join("\n\n"),
+            );
+          }
+          if (refreshed.state.lastRevisionId === previousRevisionId) {
+            throw new Error(
+              execution.output.trim() ||
+                "Fresh documentation updater completed without persisting a revision through docs_write.",
+            );
+          }
+          return machineResult(
+            {
+              documentation: refreshed,
+              execution,
+              previousRevisionId,
+            },
+            execution.output || renderDocumentationDetail(refreshed),
+          );
         },
-        runtimeScope,
-        params.worktreeTicketRef,
-      );
-      const refreshed = await store.readDoc(existing.state.docId);
-      if (execution.exitCode !== 0) {
-        throw new Error(
-          [
-            `Documentation update process failed with exit code ${execution.exitCode}.`,
-            execution.stderr.trim() || execution.output.trim() || prepared.packet,
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
-        );
-      }
-      if (refreshed.state.lastRevisionId === previousRevisionId) {
-        throw new Error(
-          execution.output.trim() ||
-            "Fresh documentation updater completed without persisting a revision through docs_write.",
-        );
-      }
-      return machineResult(
-        {
-          documentation: refreshed,
-          execution,
-          previousRevisionId,
-        },
-        execution.output || renderDocumentationDetail(refreshed),
-      );
+      });
     },
   });
 

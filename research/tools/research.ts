@@ -3,16 +3,18 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS } from "#storage/list-search.js";
+import { hasExportedProjectionFamily, runProjectionAwareOperation } from "#storage/projection-lifecycle.js";
 import type {
   CreateResearchInput,
   ResearchArtifactInput,
   ResearchHypothesisInput,
   UpdateResearchInput,
 } from "../domain/models.js";
+import { exportResearchProjections } from "../domain/projection.js";
 import {
-  renderResearchOverview,
   renderResearchDetail,
   renderResearchMap,
+  renderResearchOverview,
   renderResearchSummary,
 } from "../domain/render.js";
 import { createResearchStore } from "../domain/store.js";
@@ -224,6 +226,12 @@ function machineResult(details: Record<string, unknown>, text: string) {
   };
 }
 
+async function refreshResearchProjectionsIfExported(cwd: string): Promise<void> {
+  if (hasExportedProjectionFamily(cwd, "research")) {
+    await exportResearchProjections(cwd);
+  }
+}
+
 function requireRef(ref: string | undefined): string {
   if (!ref) {
     throw new Error("Research reference is required for this action");
@@ -386,45 +394,105 @@ export function registerResearchTools(pi: ExtensionAPI): void {
           );
         }
         case "create": {
-          const research = await store.createResearch(toCreateInput(params));
+          const research = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "research_write create",
+            families: ["research"],
+            action: () => store.createResearch(toCreateInput(params)),
+            refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "update": {
-          const research = await store.updateResearch(requireRef(params.ref), toUpdateInput(params));
+          const research = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "research_write update",
+            families: ["research"],
+            action: () => store.updateResearch(requireRef(params.ref), toUpdateInput(params)),
+            refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "archive": {
-          const research = await store.archiveResearch(requireRef(params.ref));
+          const research = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "research_write archive",
+            families: ["research"],
+            action: () => store.archiveResearch(requireRef(params.ref)),
+            refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "link_initiative": {
           if (!params.initiativeId?.trim()) throw new Error("initiativeId is required for link_initiative");
-          const research = await store.linkInitiative(requireRef(params.ref), params.initiativeId);
+          const initiativeId = params.initiativeId;
+          const research = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "research_write link_initiative",
+            families: ["research"],
+            action: () => store.linkInitiative(requireRef(params.ref), initiativeId),
+            refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "unlink_initiative": {
           if (!params.initiativeId?.trim()) throw new Error("initiativeId is required for unlink_initiative");
-          const research = await store.unlinkInitiative(requireRef(params.ref), params.initiativeId);
+          const initiativeId = params.initiativeId;
+          const research = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "research_write unlink_initiative",
+            families: ["research"],
+            action: () => store.unlinkInitiative(requireRef(params.ref), initiativeId),
+            refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "link_spec": {
           if (!params.specChangeId?.trim()) throw new Error("specChangeId is required for link_spec");
-          const research = await store.linkSpec(requireRef(params.ref), params.specChangeId);
+          const specChangeId = params.specChangeId;
+          const research = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "research_write link_spec",
+            families: ["research"],
+            action: () => store.linkSpec(requireRef(params.ref), specChangeId),
+            refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "unlink_spec": {
           if (!params.specChangeId?.trim()) throw new Error("specChangeId is required for unlink_spec");
-          const research = await store.unlinkSpec(requireRef(params.ref), params.specChangeId);
+          const specChangeId = params.specChangeId;
+          const research = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "research_write unlink_spec",
+            families: ["research"],
+            action: () => store.unlinkSpec(requireRef(params.ref), specChangeId),
+            refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "link_ticket": {
           if (!params.ticketId?.trim()) throw new Error("ticketId is required for link_ticket");
-          const research = await store.linkTicket(requireRef(params.ref), params.ticketId);
+          const ticketId = params.ticketId;
+          const research = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "research_write link_ticket",
+            families: ["research"],
+            action: () => store.linkTicket(requireRef(params.ref), ticketId),
+            refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
         case "unlink_ticket": {
           if (!params.ticketId?.trim()) throw new Error("ticketId is required for unlink_ticket");
-          const research = await store.unlinkTicket(requireRef(params.ref), params.ticketId);
+          const ticketId = params.ticketId;
+          const research = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "research_write unlink_ticket",
+            families: ["research"],
+            action: () => store.unlinkTicket(requireRef(params.ref), ticketId),
+            refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, research }, renderResearchDetail(research));
         }
       }
@@ -443,10 +511,13 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchHypothesisParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = await getScopedStore(ctx, params).recordHypothesis(
-        params.ref,
-        params as ResearchHypothesisInput,
-      );
+      const research = await runProjectionAwareOperation({
+        repositoryRoot: ctx.cwd,
+        operation: "research_hypothesis",
+        families: ["research"],
+        action: () => getScopedStore(ctx, params).recordHypothesis(params.ref, params as ResearchHypothesisInput),
+        refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+      });
       return machineResult({ research }, renderResearchDetail(research));
     },
   });
@@ -466,7 +537,13 @@ export function registerResearchTools(pi: ExtensionAPI): void {
     ],
     parameters: ResearchArtifactParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const research = await getScopedStore(ctx, params).recordArtifact(params.ref, params as ResearchArtifactInput);
+      const research = await runProjectionAwareOperation({
+        repositoryRoot: ctx.cwd,
+        operation: "research_artifact",
+        families: ["research"],
+        action: () => getScopedStore(ctx, params).recordArtifact(params.ref, params as ResearchArtifactInput),
+        refresh: () => refreshResearchProjectionsIfExported(ctx.cwd),
+      });
       return machineResult({ research }, renderResearchDetail(research));
     },
   });

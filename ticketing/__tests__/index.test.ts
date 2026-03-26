@@ -189,9 +189,10 @@ describe("pi-ticketing extension", () => {
       expect(fallbackUi.setWidget).not.toHaveBeenCalled();
 
       fallbackUi.notify.mockClear();
+      fallbackUi.setStatus.mockClear();
       await command.handler("review blocked", fallbackCtx);
       expect(fallbackUi.notify).toHaveBeenCalledWith(expect.stringContaining("Ticket workbench: overview"), "info");
-      expect(fallbackUi.setStatus).toHaveBeenNthCalledWith(2, "ticket-home", undefined);
+      expect(fallbackUi.setStatus).toHaveBeenCalledWith("ticket-home", undefined);
     } finally {
       cleanup();
     }

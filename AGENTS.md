@@ -15,15 +15,24 @@
 6. Many stores sync canonical records and projections through `pi-loom/storage`; any future `.loom/` export is one-way and review-oriented rather than a second system of record.
 7. Area entrypoints also export a `_test` object so command handlers, prompt builders, and stores can be exercised directly from Vitest.
 
+### Workspace projections and packets
+- Workspace projections are the repo-visible `.loom/<family>/...` exports for canonical records; they are review and reconcile surfaces, not canonical truth.
+- Supported projection families today are `constitution`, `research`, `initiatives`, `specs`, `plans`, `docs`, and `tickets`.
+- Critique and Ralph do not project into `.loom/`; their packets and runtime artifacts stay distinct from projection flows.
+- Packets are fresh-process handoff artifacts compiled from canonical state. They are not reconcile targets and they do not autosync from file edits.
+- Use `/loom-status`, `/loom-export`, `/loom-refresh`, and `/loom-reconcile` for the human-facing `.loom/` sync surface. `projection_status` / `projection_write` remain AI tools. Hidden file-save autosync is intentionally unsupported.
+- Ticket projections are high-churn and default to local-only Git hygiene: `.loom/.gitignore` ignores `tickets/` plus `.reconcile/` scratch/conflict leftovers unless a workflow intentionally changes that default.
+
 ### Layer boundaries
 - Core execution flow: `constitution -> research -> initiatives -> specs -> plans -> tickets`, with `pi-ralph` orchestrating bounded plan/execute/review loops alongside ticket execution rather than replacing the ticket ledger.
 - `pi-critique` is the durable review layer; it does not replace tickets or plans.
 - `pi-ralph` orchestrates bounded plan/execute/review loops across the other layers; it is not a general workflow engine.
 - `pi-docs` is the post-completion explanatory layer.
 - `plans` is the only naming exception among the single-command extension areas: the slash command is `/workplan`, not `/plan`.
-- Command and tool families are paired by layer: `/ticket` + `ticket_*`, `/spec` + `spec_*`, `/workplan` + `plan_*`, `/critique` + `critique_*`, `/docs` + `docs_*`, `/ralph` + `ralph_*`.
+- Command and tool families are paired by layer: `/ticket` + `ticket_*`, `/spec` + `spec_*`, `/workplan` + `plan_*`, `/critique` + `critique_*`, `/docs` + `docs_*`, `/ralph` + `ralph_*`. Cross-layer `.loom` sync is the exception: human-facing commands live under `/loom-*`, while the AI tool surface remains `projection_*`.
 
 ## Key Directories
+- `bidi/` — cross-layer `.loom` sync command/tool area
 - `constitution/` — constitutional memory area
 - `research/` — research memory area
 - `initiatives/` — initiative memory area
@@ -123,6 +132,8 @@ The package manifest is the top-level `package.json`; contributor workflows are 
 - Start at `README.md` and `CONSTITUTION.md`, then read the target area README, then open that area’s `index.ts`.
 - Follow the existing area pattern instead of introducing a new layout.
 - Treat SQLite-backed canonical state as the source of truth. Exported `.loom/` material, when present, is derived and one-way.
+- When projections are involved, distinguish repo-visible projections from packets: projections may be exported and reconciled explicitly, while packets are fresh handoff artifacts that are never the source of truth.
+- Use `projection_status` before reconcile when you need to know whether a projected file is clean, modified, missing, or not exported. Use `projection_write` for explicit export/refresh/reconcile operations instead of assuming file edits are imported automatically.
 - When asked what to build next or how mature a subsystem is, prefer `CONSTITUTION.md`, constitutional memory, package READMEs, shipped code, tests, and `DATA_PLANE.md` over hypothetical future `.loom/` exports.
 - Do not assume a documented `.loom` subtree exists yet; confirm code paths and actual files before depending on them. `pi-ralph` documents run artifacts even when none are exported in this checkout.
 - When adding a new cross-layer feature, check whether the right home is research, initiative, spec, plan, ticket, critique, Ralph, or docs before wiring code.

@@ -1,0 +1,126 @@
+{
+  "entries": [
+    {
+      "baseVersion": null,
+      "canonicalRef": "initiative:canonical-shared-data-plane",
+      "contentHash": "a57975d19a258fbc3022808f0836bef67838f324092e57a2e1d43fcee866655b",
+      "editability": {
+        "editableSections": [
+          "Milestones",
+          "Non-Goals",
+          "Objective",
+          "Outcomes",
+          "Risks",
+          "Scope",
+          "Status Summary",
+          "Success Metrics"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "canonical-shared-data-plane.md",
+      "revisionToken": "bb0176652e9a8342de16a982a3c7009b0a571296faf26a159536791959234586"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "initiative:first-class-multi-repository-loom-spaces",
+      "contentHash": "2fa8c2b52088eacc825834cdc546b690645d3d35a7f024a5d78d9afde127f05e",
+      "editability": {
+        "editableSections": [
+          "Milestones",
+          "Non-Goals",
+          "Objective",
+          "Outcomes",
+          "Risks",
+          "Scope",
+          "Status Summary",
+          "Success Metrics"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "first-class-multi-repository-loom-spaces.md",
+      "revisionToken": "984be532cf1d8eba5557fd3513690f5466a81a28ded877a46a0f00fba1d8ef83"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "initiative:loom-storage-substrate-migration",
+      "contentHash": "97ad79ae6560d053869481a0fc94857a8f79d48b9729b270bd4469affbfd1890",
+      "editability": {
+        "editableSections": [
+          "Milestones",
+          "Non-Goals",
+          "Objective",
+          "Outcomes",
+          "Risks",
+          "Scope",
+          "Status Summary",
+          "Success Metrics"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "loom-storage-substrate-migration.md",
+      "revisionToken": "a00d930d7a805e63e842c525f41fd5a31182e18e78722b2a420810041cf1bb54"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "initiative:widget-first-human-centric-loom-subsystem-ux",
+      "contentHash": "0228249cc62eaee458b02c25036adb1f0181579a4fd26955ce03d1eab095c3c5",
+      "editability": {
+        "editableSections": [
+          "Milestones",
+          "Non-Goals",
+          "Objective",
+          "Outcomes",
+          "Risks",
+          "Scope",
+          "Status Summary",
+          "Success Metrics"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "widget-first-human-centric-loom-subsystem-ux.md",
+      "revisionToken": "6f346c3af78c8c129b8d6bcbc6de2ce6df3998ae0b04a20cad96fa1623309f07"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "initiative:workspace-backed-manager-worker-coordination",
+      "contentHash": "0254dec123e8aceda7c236c8a0754d541a441ea8ffefe099007294e90c04d929",
+      "editability": {
+        "editableSections": [
+          "Milestones",
+          "Non-Goals",
+          "Objective",
+          "Outcomes",
+          "Risks",
+          "Scope",
+          "Status Summary",
+          "Success Metrics"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "workspace-backed-manager-worker-coordination.md",
+      "revisionToken": "072e434309229e0b71b3c9032bd8a363b9bb92ac6f5377451ad10edb8d862a9b"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "initiative:workspace-package-reliability-scrub",
+      "contentHash": "dd4dbf768f4f4960ba35976126a84d9c248651ab7911baa3c85a245ce5019e9b",
+      "editability": {
+        "editableSections": [
+          "Milestones",
+          "Non-Goals",
+          "Objective",
+          "Outcomes",
+          "Risks",
+          "Scope",
+          "Status Summary",
+          "Success Metrics"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "workspace-package-reliability-scrub.md",
+      "revisionToken": "e9f4dd623505a13feabbeb42f2f37107d1965cf86d87367a6306d6ea3820751f"
+    }
+  ],
+  "family": "initiatives",
+  "schemaVersion": 1
+}

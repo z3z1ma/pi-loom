@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import path, { basename, resolve } from "node:path";
 import type { PlanState } from "#plans/domain/models.js";
 import type { LoomCanonicalStorage } from "#storage/contract.js";
@@ -7,6 +7,23 @@ import { createLinkId } from "#storage/ids.js";
 import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { assertProjectedEntityLinksResolvable, syncProjectedEntityLinks } from "#storage/links.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
+import { assertWorkspaceProjectionFamiliesClean, hasExportedProjectionFamily } from "#storage/projection-lifecycle.js";
+import {
+  type LoomProjectionSelectionInput,
+  normalizeProjectionSelection,
+  projectionEntryMatchesSelection,
+} from "#storage/projection-selection.js";
+import {
+  assessProjectionFileState,
+  createProjectionManifest,
+  createProjectionManifestEntry,
+  ensureProjectionWorkspace,
+  type LoomProjectionWriteResult,
+  readProjectionManifest,
+  resolveProjectionFilePath,
+  writeProjectionFile,
+  writeProjectionManifest,
+} from "#storage/projections.js";
 import { createPortableRepositoryPath, normalizePortableRelativePath } from "#storage/repository-path.js";
 import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
 import {
@@ -15,7 +32,7 @@ import {
   openScopedWorkspaceStorage,
 } from "#storage/workspace.js";
 import { inferMediaType } from "./attachments.js";
-import { createEmptyBody } from "./frontmatter.js";
+import { createEmptyBody, parseTicket, serializeTicket } from "./frontmatter.js";
 import { buildTicketGraph, findDependencyCycle, getTicketGraphNodeForSummary, summarizeTicket } from "./graph.js";
 import { createJournalEntry } from "./journal.js";
 import type {
@@ -47,6 +64,11 @@ import { filterTickets, summarizeTickets } from "./query.js";
 
 const ENTITY_KIND = "ticket" as const;
 const TICKET_PROJECTION_OWNER = "ticket-store" as const;
+const DEFAULT_TICKET_PROJECTION_RECENT_WINDOW_DAYS = 14 as const;
+const TICKET_PROJECTION_PIN_LABEL = "projection:pinned" as const;
+const TICKET_PROJECTION_REASON_ORDER = ["open", "active_plan_linked", "recent", "pinned"] as const;
+
+type TicketProjectionInclusionReason = (typeof TICKET_PROJECTION_REASON_ORDER)[number];
 
 interface TicketEntityAttributes {
   record: TicketReadResult;
@@ -66,6 +88,64 @@ interface ResolvedAttachmentSource {
   sourcePath: QualifiedRepositoryPath | null;
 }
 
+interface TicketWorkspaceProjectionOptions {
+  recentWindowDays?: number;
+  pinLabel?: string;
+  now?: string;
+}
+
+interface TicketWorkspaceProjectionRecord {
+  ticketId: string;
+  relativePath: string;
+  inclusionReasons: TicketProjectionInclusionReason[];
+  activePlanIds: string[];
+  write: LoomProjectionWriteResult;
+}
+
+interface TicketWorkspaceProjectionSyncResult {
+  repositoryRoot: string;
+  manifestPath: string;
+  recentWindowDays: number;
+  pinLabel: string;
+  projected: TicketWorkspaceProjectionRecord[];
+  prunedRelativePaths: string[];
+  manifest: LoomProjectionWriteResult;
+  gitignore: LoomProjectionWriteResult;
+}
+
+interface TicketWorkspaceProjectionCurrentEntry {
+  record: TicketReadResult;
+  selection: TicketProjectionSelection;
+  renderedContent: string;
+}
+
+interface TicketWorkspaceProjectionSnapshot {
+  repositoryRoot: string;
+  workspace: ReturnType<typeof ensureProjectionWorkspace>;
+  manifestPath: string;
+  recentWindowDays: number;
+  pinLabel: string;
+  currentEntries: TicketWorkspaceProjectionCurrentEntry[];
+  manifest: ReturnType<typeof createProjectionManifest>;
+}
+
+interface TicketWorkspaceProjectionReconcileResult {
+  updated: TicketReadResult[];
+  clean: string[];
+}
+
+interface RepositoryTicketProjectionCandidate {
+  entityVersion: number;
+  record: TicketReadResult;
+}
+
+interface TicketProjectionSelection {
+  candidate: RepositoryTicketProjectionCandidate;
+  relativePath: string;
+  inclusionReasons: TicketProjectionInclusionReason[];
+  activePlanIds: string[];
+}
+
 function isPathInsideRoot(rootPath: string, candidatePath: string): boolean {
   const relativePath = path.relative(rootPath, candidatePath);
   return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
@@ -77,6 +157,110 @@ function hasStructuredTicketAttributes(attributes: unknown): attributes is Ticke
 
 function hasStructuredPlanAttributes(attributes: unknown): attributes is PlanEntityAttributes {
   return Boolean(attributes && typeof attributes === "object" && "state" in attributes);
+}
+
+function normalizeProjectionReasonOrder(
+  reasons: Iterable<TicketProjectionInclusionReason>,
+): TicketProjectionInclusionReason[] {
+  const reasonSet = new Set(reasons);
+  return TICKET_PROJECTION_REASON_ORDER.filter((reason) => reasonSet.has(reason));
+}
+
+function normalizeTicketProjectionRecentWindowDays(value: number | undefined): number {
+  if (value === undefined) {
+    return DEFAULT_TICKET_PROJECTION_RECENT_WINDOW_DAYS;
+  }
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error("Ticket projection recentWindowDays must be a non-negative integer.");
+  }
+  return value;
+}
+
+function normalizeTicketProjectionClock(now: string | undefined): { timestamp: string; epochMs: number } {
+  const parsed = now?.trim() ? Date.parse(now) : Date.now();
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Invalid ticket projection timestamp: ${String(now)}`);
+  }
+  return { timestamp: new Date(parsed).toISOString(), epochMs: parsed };
+}
+
+function parseUpdatedAtMs(value: string, ticketId: string): number {
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Ticket ${ticketId} has invalid updated-at timestamp ${value}`);
+  }
+  return parsed;
+}
+
+function ticketProjectionRelativePath(ticketId: string): string {
+  return `${ticketId}.md`;
+}
+
+function activePlanIdsForTicket(record: TicketReadResult, activePlanIds: Set<string>): string[] {
+  return normalizeStringList(
+    record.ticket.frontmatter["external-refs"]
+      .map((externalRef) => parsePlanExternalRef(externalRef))
+      .filter((planId): planId is string => Boolean(planId && activePlanIds.has(planId))),
+  );
+}
+
+function selectTicketProjectionReasons(
+  record: TicketReadResult,
+  activePlanIds: Set<string>,
+  recentCutoffMs: number,
+  pinLabel: string,
+): { inclusionReasons: TicketProjectionInclusionReason[]; activePlanIds: string[] } {
+  if (record.ticket.archived || record.summary.archived) {
+    return { inclusionReasons: [], activePlanIds: [] };
+  }
+
+  const plans = activePlanIdsForTicket(record, activePlanIds);
+  const inclusionReasons: TicketProjectionInclusionReason[] = [];
+  if (record.summary.status !== "closed") {
+    inclusionReasons.push("open");
+  }
+  if (plans.length > 0) {
+    inclusionReasons.push("active_plan_linked");
+  }
+  if (parseUpdatedAtMs(record.summary.updatedAt, record.summary.id) >= recentCutoffMs) {
+    inclusionReasons.push("recent");
+  }
+  if (record.ticket.frontmatter.labels.includes(pinLabel)) {
+    inclusionReasons.push("pinned");
+  }
+
+  return {
+    inclusionReasons: normalizeProjectionReasonOrder(inclusionReasons),
+    activePlanIds: plans,
+  };
+}
+
+function createTicketProjectionManifestEntry(
+  selection: TicketProjectionSelection,
+  renderedContent: string,
+  pinLabel: string,
+) {
+  return createProjectionManifestEntry({
+    canonicalRef: getTicketRef(selection.candidate.record.summary.id),
+    relativePath: selection.relativePath,
+    renderedContent,
+    revision: {
+      canonicalRef: getTicketRef(selection.candidate.record.summary.id),
+      baseVersion: selection.candidate.entityVersion,
+      semanticInput: {
+        projection: "ticket-markdown-v1",
+        inclusionReasons: selection.inclusionReasons,
+        activePlanIds: selection.activePlanIds,
+        pinLabel,
+      },
+    },
+    editability: { mode: "full" },
+    metadata: {
+      inclusionReasons: selection.inclusionReasons,
+      activePlanIds: selection.activePlanIds,
+      pinned: selection.inclusionReasons.includes("pinned"),
+    },
+  });
 }
 
 function nextNumericId(existingIds: string[], prefix: string): string {
@@ -279,12 +463,19 @@ export class TicketStore {
     storage: LoomCanonicalStorage,
     identity: WorkspaceIdentity,
     record: TicketReadResult,
-    options: { validateProjectedLinks?: boolean; syncProjectedLinks?: boolean } = {},
+    options: {
+      allowDirtyProjectionWrite?: boolean;
+      validateProjectedLinks?: boolean;
+      syncProjectedLinks?: boolean;
+    } = {},
   ): Promise<TicketReadResult> {
     if (!identity.repository) {
       throw new Error(
         `Active scope for ${identity.space.id} is ambiguous; select a repository before repository-bound operations.`,
       );
+    }
+    if (!options.allowDirtyProjectionWrite) {
+      assertWorkspaceProjectionFamiliesClean(this.cwd, "ticket persistence", ["tickets"]);
     }
     const existing = await findEntityByDisplayId(storage, identity.space.id, ENTITY_KIND, record.summary.id);
     const version = (existing?.version ?? 0) + 1;
@@ -342,9 +533,18 @@ export class TicketStore {
     return canonicalRecord;
   }
 
-  private async upsertCanonicalRecord(record: TicketReadResult): Promise<TicketReadResult> {
+  private async upsertCanonicalRecord(
+    record: TicketReadResult,
+    options: { allowDirtyProjectionWrite?: boolean } = {},
+  ): Promise<TicketReadResult> {
     const { storage, identity } = await this.openRepositoryWorkspaceStorage();
-    return storage.transact((tx) => this.upsertCanonicalRecordWithStorage(tx, identity, record));
+    const canonical = await storage.transact((tx) =>
+      this.upsertCanonicalRecordWithStorage(tx, identity, record, options),
+    );
+    if (hasExportedProjectionFamily(this.cwd, "tickets")) {
+      await this.syncTicketWorkspaceProjectionAsync();
+    }
+    return canonical;
   }
 
   async syncExternalRefWithStorage(
@@ -635,6 +835,279 @@ export class TicketStore {
     return this.toCanonicalReadResult(record, this.canonicalSummaries(records), this.canonicalGraph(records));
   }
 
+  private async prepareTicketWorkspaceProjectionSnapshot(
+    options: TicketWorkspaceProjectionOptions = {},
+  ): Promise<TicketWorkspaceProjectionSnapshot> {
+    const recentWindowDays = normalizeTicketProjectionRecentWindowDays(options.recentWindowDays);
+    const pinLabel = normalizeOptionalString(options.pinLabel) ?? TICKET_PROJECTION_PIN_LABEL;
+    const { epochMs } = normalizeTicketProjectionClock(options.now);
+    const recentCutoffMs = epochMs - recentWindowDays * 24 * 60 * 60 * 1000;
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
+    const repository = identity.repository;
+    if (!repository) {
+      throw new Error(
+        `Active scope for ${identity.space.id} is ambiguous; select a repository before repository-bound operations.`,
+      );
+    }
+
+    const repositoryRoot = this.resolveLocalRepositoryRoot(identity);
+    const workspace = ensureProjectionWorkspace(repositoryRoot, { enabledFamilies: ["tickets"] });
+    const ticketFamily = workspace.families.find((family) => family.family === "tickets");
+    if (!ticketFamily) {
+      throw new Error("Projection workspace bootstrap did not enable the tickets family.");
+    }
+
+    const activePlanIds = new Set<string>();
+    for (const planEntity of await storage.listEntities(identity.space.id, "plan")) {
+      if (!hasStructuredPlanAttributes(planEntity.attributes)) {
+        continue;
+      }
+      if (planEntity.attributes.state.status === "active" && planEntity.displayId) {
+        activePlanIds.add(planEntity.displayId);
+      }
+    }
+
+    const candidates: RepositoryTicketProjectionCandidate[] = [];
+    for (const entity of await storage.listEntities(identity.space.id, ENTITY_KIND)) {
+      if (entity.owningRepositoryId !== repository.id) {
+        continue;
+      }
+      const ticketId = this.resolveTicketRef(entity.displayId ?? entity.id);
+      if (!hasStructuredTicketAttributes(entity.attributes)) {
+        throw new Error(`Ticket entity ${ticketId} is missing structured attributes`);
+      }
+      candidates.push({
+        entityVersion: entity.version,
+        record: this.entityRecord(entity, identity.repositories),
+      });
+    }
+
+    const currentEntries = candidates
+      .map((candidate) => {
+        const membership = selectTicketProjectionReasons(candidate.record, activePlanIds, recentCutoffMs, pinLabel);
+        const selection = {
+          candidate,
+          relativePath: ticketProjectionRelativePath(candidate.record.summary.id),
+          inclusionReasons: membership.inclusionReasons,
+          activePlanIds: membership.activePlanIds,
+        } satisfies TicketProjectionSelection;
+        return {
+          record: candidate.record,
+          selection,
+          renderedContent: serializeTicket(candidate.record.ticket),
+        } satisfies TicketWorkspaceProjectionCurrentEntry;
+      })
+      .filter((entry) => entry.selection.inclusionReasons.length > 0)
+      .sort((left, right) => left.record.summary.id.localeCompare(right.record.summary.id));
+
+    const manifest = createProjectionManifest(
+      "tickets",
+      currentEntries.map((entry) =>
+        createTicketProjectionManifestEntry(entry.selection, entry.renderedContent, pinLabel),
+      ),
+      {
+        retentionPolicy: {
+          recentWindowDays,
+          pinLabel,
+          activePlanStatus: "active",
+          openStatuses: ["open", "ready", "in_progress", "blocked", "review"],
+          archivedTicketsProjected: false,
+        },
+      },
+    );
+
+    return {
+      repositoryRoot,
+      workspace,
+      manifestPath: ticketFamily.manifestPath,
+      recentWindowDays,
+      pinLabel,
+      currentEntries,
+      manifest,
+    };
+  }
+
+  async syncTicketWorkspaceProjectionAsync(
+    options: TicketWorkspaceProjectionOptions = {},
+  ): Promise<TicketWorkspaceProjectionSyncResult> {
+    const snapshot = await this.prepareTicketWorkspaceProjectionSnapshot(options);
+    const projected = snapshot.currentEntries.map((entry) => {
+      const absolutePath = resolveProjectionFilePath(snapshot.repositoryRoot, "tickets", entry.selection.relativePath);
+      const write = writeProjectionFile(absolutePath, entry.renderedContent);
+      return {
+        ticketId: entry.record.summary.id,
+        relativePath: entry.selection.relativePath,
+        inclusionReasons: entry.selection.inclusionReasons,
+        activePlanIds: entry.selection.activePlanIds,
+        write,
+      } satisfies TicketWorkspaceProjectionRecord;
+    });
+
+    const previousManifest = readProjectionManifest(snapshot.manifestPath);
+    const retainedRelativePaths = new Set(projected.map((entry) => entry.relativePath));
+    const prunedRelativePaths =
+      previousManifest?.entries
+        .map((entry) => entry.relativePath)
+        .filter((relativePath) => !retainedRelativePaths.has(relativePath))
+        .sort((left, right) => left.localeCompare(right)) ?? [];
+    for (const relativePath of prunedRelativePaths) {
+      rmSync(resolveProjectionFilePath(snapshot.repositoryRoot, "tickets", relativePath), { force: true });
+    }
+    const manifestWrite = writeProjectionManifest(snapshot.manifestPath, snapshot.manifest);
+
+    return {
+      repositoryRoot: snapshot.repositoryRoot,
+      manifestPath: snapshot.manifestPath,
+      recentWindowDays: snapshot.recentWindowDays,
+      pinLabel: snapshot.pinLabel,
+      projected,
+      prunedRelativePaths,
+      manifest: manifestWrite,
+      gitignore: snapshot.workspace.gitignore,
+    };
+  }
+
+  async reconcileTicketWorkspaceProjectionsAsync(
+    selectionInput: LoomProjectionSelectionInput = {},
+    options: TicketWorkspaceProjectionOptions = {},
+  ): Promise<TicketWorkspaceProjectionReconcileResult> {
+    const selection = normalizeProjectionSelection(selectionInput);
+    const snapshot = await this.prepareTicketWorkspaceProjectionSnapshot(options);
+    const manifest = readProjectionManifest(snapshot.manifestPath);
+    if (!manifest) {
+      throw new Error("Projection family tickets has no manifest. Export it before reconciling.");
+    }
+    const manifestEntriesByPath = new Map(manifest.entries.map((entry) => [entry.relativePath, entry]));
+    const clean: string[] = [];
+    const planned: Array<{ current: TicketReadResult; parsed: TicketRecord }> = [];
+    let matchedSelection = false;
+
+    for (const entry of snapshot.currentEntries) {
+      const currentEntry = createTicketProjectionManifestEntry(
+        entry.selection,
+        entry.renderedContent,
+        snapshot.pinLabel,
+      );
+      if (!projectionEntryMatchesSelection("tickets", currentEntry, selection)) {
+        continue;
+      }
+      matchedSelection = true;
+      const manifestEntry = manifestEntriesByPath.get(currentEntry.relativePath);
+      if (!manifestEntry) {
+        throw new Error(
+          `Projection tickets/${currentEntry.relativePath} is not exported. Refresh it before reconciling.`,
+        );
+      }
+      const state = assessProjectionFileState(snapshot.repositoryRoot, "tickets", manifestEntry);
+      if (state.kind === "missing") {
+        throw new Error(`Projection tickets/${currentEntry.relativePath} is missing. Refresh it before reconciling.`);
+      }
+      if (state.kind !== "modified") {
+        clean.push(`tickets/${currentEntry.relativePath}`);
+        continue;
+      }
+      if (
+        manifestEntry.revisionToken !== currentEntry.revisionToken ||
+        manifestEntry.baseVersion !== currentEntry.baseVersion
+      ) {
+        throw new Error(`Projection tickets/${currentEntry.relativePath} is stale. Refresh it before reconciling.`);
+      }
+      const parsed = parseTicket(
+        readFileSync(state.absolutePath, "utf-8"),
+        `tickets/${currentEntry.relativePath}`,
+        entry.record.ticket.closed,
+      );
+      if (parsed.frontmatter.id !== entry.record.summary.id) {
+        throw new Error(
+          `Projection tickets/${currentEntry.relativePath} must preserve ticket id ${entry.record.summary.id}.`,
+        );
+      }
+      if (
+        parsed.frontmatter["created-at"] !== entry.record.ticket.frontmatter["created-at"] ||
+        parsed.frontmatter["updated-at"] !== entry.record.ticket.frontmatter["updated-at"]
+      ) {
+        throw new Error(
+          `Projection tickets/${currentEntry.relativePath} does not allow editing created-at or updated-at.`,
+        );
+      }
+      if (serializeTicket(parsed) === serializeTicket(entry.record.ticket)) {
+        clean.push(`tickets/${currentEntry.relativePath}`);
+        continue;
+      }
+      planned.push({ current: entry.record, parsed });
+    }
+
+    if (selection.hasSelection && !matchedSelection) {
+      throw new Error("No ticket projections matched the requested selection.");
+    }
+
+    const updated: TicketReadResult[] = [];
+    for (const item of planned) {
+      const current = await this.readTicketAsync(item.current.summary.id);
+      const parsed = item.parsed;
+      const desiredStatus = parsed.frontmatter.status;
+      const currentClosed = current.ticket.closed;
+      const desiredClosed = desiredStatus === "closed";
+      const hasNonStatusChanges =
+        serializeTicket({
+          frontmatter: { ...current.ticket.frontmatter, status: current.ticket.frontmatter.status },
+          body: current.ticket.body,
+        }) !==
+        serializeTicket({
+          frontmatter: { ...parsed.frontmatter, status: current.ticket.frontmatter.status },
+          body: parsed.body,
+        });
+
+      if (currentClosed && desiredClosed && hasNonStatusChanges) {
+        throw new Error(`Closed ticket ${current.summary.id} must be reopened before its projection can change.`);
+      }
+
+      if (currentClosed && !desiredClosed) {
+        await this.reopenTicketAsync(current.summary.id, { allowDirtyProjectionWrite: true });
+      }
+
+      const updatePatch: UpdateTicketInput = {
+        title: parsed.frontmatter.title,
+        priority: parsed.frontmatter.priority,
+        type: parsed.frontmatter.type,
+        tags: parsed.frontmatter.tags,
+        deps: parsed.frontmatter.deps,
+        links: parsed.frontmatter.links,
+        initiativeIds: parsed.frontmatter["initiative-ids"],
+        researchIds: parsed.frontmatter["research-ids"],
+        parent: parsed.frontmatter.parent,
+        assignee: parsed.frontmatter.assignee,
+        acceptance: parsed.frontmatter.acceptance,
+        labels: parsed.frontmatter.labels,
+        risk: parsed.frontmatter.risk,
+        reviewStatus: parsed.frontmatter["review-status"],
+        externalRefs: parsed.frontmatter["external-refs"],
+        branchMode: parsed.frontmatter["branch-mode"],
+        branchFamily: parsed.frontmatter["branch-family"],
+        exactBranchName: parsed.frontmatter["exact-branch-name"],
+        summary: parsed.body.summary,
+        context: parsed.body.context,
+        plan: parsed.body.plan,
+        notes: parsed.body.notes,
+        verification: parsed.body.verification,
+        journalSummary: parsed.body.journalSummary,
+      };
+      if (desiredStatus !== "closed" && desiredStatus !== "in_progress") {
+        updatePatch.status = desiredStatus;
+      }
+
+      let next = await this.updateTicketAsync(current.summary.id, updatePatch, { allowDirtyProjectionWrite: true });
+      if (!currentClosed && desiredClosed) {
+        next = await this.closeTicketAsync(current.summary.id, undefined, { allowDirtyProjectionWrite: true });
+      } else if (desiredStatus === "in_progress" && next.ticket.frontmatter.status !== "in_progress") {
+        next = await this.startTicketAsync(current.summary.id, { allowDirtyProjectionWrite: true });
+      }
+      updated.push(next);
+    }
+
+    return { updated, clean };
+  }
+
   async createTicketAsync(input: CreateTicketInput): Promise<TicketReadResult> {
     this.initLedger();
     const timestamp = currentTimestamp();
@@ -736,7 +1209,11 @@ export class TicketStore {
     );
   }
 
-  async updateTicketAsync(ref: string, updates: UpdateTicketInput): Promise<TicketReadResult> {
+  async updateTicketAsync(
+    ref: string,
+    updates: UpdateTicketInput,
+    options: { allowDirtyProjectionWrite?: boolean } = {},
+  ): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
     const hasUpdates = Object.values(updates).some((value) => value !== undefined);
     if (current.ticket.closed && hasUpdates) {
@@ -829,7 +1306,7 @@ export class TicketStore {
         ),
       ],
     };
-    await this.upsertCanonicalRecord(result);
+    await this.upsertCanonicalRecord(result, options);
     return this.readTicketAsync(record.frontmatter.id);
   }
 
@@ -963,6 +1440,10 @@ export class TicketStore {
       await tx.removeEntity(targetEntity.id);
     });
 
+    if (hasExportedProjectionFamily(this.cwd, "tickets")) {
+      await this.syncTicketWorkspaceProjectionAsync();
+    }
+
     return {
       action: "delete",
       deletedTicketId: ticketId,
@@ -972,7 +1453,10 @@ export class TicketStore {
     };
   }
 
-  async startTicketAsync(ref: string): Promise<TicketReadResult> {
+  async startTicketAsync(
+    ref: string,
+    options: { allowDirtyProjectionWrite?: boolean } = {},
+  ): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
     this.assertReopenedBeforeStructuralEdit(current, "be started");
     this.assertTransitionAllowed(
@@ -995,11 +1479,15 @@ export class TicketStore {
         current.journal.length + 1,
       ),
     ];
-    await this.upsertCanonicalRecord(current);
+    await this.upsertCanonicalRecord(current, options);
     return this.readTicketAsync(current.summary.id);
   }
 
-  async closeTicketAsync(ref: string, verificationNote?: string): Promise<TicketReadResult> {
+  async closeTicketAsync(
+    ref: string,
+    verificationNote?: string,
+    options: { allowDirtyProjectionWrite?: boolean } = {},
+  ): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
     const timestamp = currentTimestamp();
     current.ticket.frontmatter.status = "closed";
@@ -1021,11 +1509,14 @@ export class TicketStore {
         current.journal.length + 1,
       ),
     ];
-    await this.upsertCanonicalRecord(current);
+    await this.upsertCanonicalRecord(current, options);
     return this.readTicketAsync(current.summary.id);
   }
 
-  async reopenTicketAsync(ref: string): Promise<TicketReadResult> {
+  async reopenTicketAsync(
+    ref: string,
+    options: { allowDirtyProjectionWrite?: boolean } = {},
+  ): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
     if (!current.ticket.closed) {
       throw new Error(`Ticket ${current.summary.id} is not closed.`);
@@ -1045,7 +1536,7 @@ export class TicketStore {
         current.journal.length + 1,
       ),
     ];
-    await this.upsertCanonicalRecord(current);
+    await this.upsertCanonicalRecord(current, options);
     return this.readTicketAsync(current.summary.id);
   }
 
@@ -1070,7 +1561,13 @@ export class TicketStore {
     metadata: Record<string, unknown> = {},
   ): Promise<TicketReadResult> {
     const { storage, identity } = await this.openWorkspaceStorage();
-    return storage.transact((tx) => this.addJournalEntryWithStorage(tx, identity, ref, kind, text, metadata));
+    const result = await storage.transact((tx) =>
+      this.addJournalEntryWithStorage(tx, identity, ref, kind, text, metadata),
+    );
+    if (hasExportedProjectionFamily(this.cwd, "tickets")) {
+      await this.syncTicketWorkspaceProjectionAsync();
+    }
+    return result;
   }
 
   async addJournalEntryWithStorage(
@@ -1313,6 +1810,9 @@ export class TicketStore {
     const updated = await storage.transact((tx) =>
       this.syncExternalRefWithStorage(tx, identity, ref, externalRef, true, options),
     );
+    if (hasExportedProjectionFamily(this.cwd, "tickets")) {
+      await this.syncTicketWorkspaceProjectionAsync();
+    }
     return this.readTicketAsync(updated.summary.id);
   }
 
@@ -1325,6 +1825,9 @@ export class TicketStore {
     const updated = await storage.transact((tx) =>
       this.syncExternalRefWithStorage(tx, identity, ref, externalRef, false, options),
     );
+    if (hasExportedProjectionFamily(this.cwd, "tickets")) {
+      await this.syncTicketWorkspaceProjectionAsync();
+    }
     return this.readTicketAsync(updated.summary.id);
   }
 }

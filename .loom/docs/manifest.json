@@ -1,0 +1,106 @@
+{
+  "entries": [
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:specification-layer-semantics",
+      "contentHash": "c2ed620321e6f44761e96c277823adc9860fa8fc10d87c6145ee567bf25b110b",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "concepts/specification-layer-semantics.md",
+      "revisionToken": "e390408188163fff68f97f10c621ef28b106b61f55769896c557126aba502b97"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:integrated-plan-authoring-workflow",
+      "contentHash": "765242ea420556101b5c0c661981fa0f2dceffbb2671543402952fa4fc65a93c",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/integrated-plan-authoring-workflow.md",
+      "revisionToken": "126e01a4f9c53af4e05ef6ffaa46825944aecf2f39cf96a3bf373f1c9c3ec7c0"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:workspace-projections-guide",
+      "contentHash": "35b7869192db7d8c43e027bccca12aef0b4d9b986145d90bf5d797bf617897d0",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/workspace-projections-guide.md",
+      "revisionToken": "61db703ba68021326dac8578e18da09d4f0fd546303f1d6f3c11da76a7650f95"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:worktree-branch-family-workflow",
+      "contentHash": "96c16fa72d879a54db6fd67a14aa6a58ba4aa51649feab615e272350db442bdc",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/worktree-branch-family-workflow.md",
+      "revisionToken": "0ee88147ae2f7569175d7edd5d83179e98fa4fe927c7162ec59a70a4d1116b46"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:loom-multi-repository-spaces-overview",
+      "contentHash": "6c0b5537b7583e8cb8834b58d69ca5775e9ca836dd506225a293929d92bb0156",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/loom-multi-repository-spaces-overview.md",
+      "revisionToken": "e23eb2c47a7732ea8eb0e16f00851296c1efd830ce00a090362ea50a0c1b2330"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:loom-ralph-orchestration-overview",
+      "contentHash": "5f2b5ef4801f5bb5e09d426f409f28920ff414611d539953f21812f2b0cfceea",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/loom-ralph-orchestration-overview.md",
+      "revisionToken": "2020ed221a36e1905fa6567ef2f8349e0d5c021500f14e81dc10826e69ec397c"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:pi-chief-orchestration-overview",
+      "contentHash": "831aed262c12432a59a555a01d85514174197d24f8d3a4db0dbd9bf32c2767f9",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/pi-chief-orchestration-overview.md",
+      "revisionToken": "9408ed66293a811e4643e1702737ce1a55f17d8535f75b06794977a251123104"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:ralph-runtime-execution-and-observability-overview",
+      "contentHash": "f02928195523b20a252897dd99461275b6989067081c4fb835540660f121cfe4",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/ralph-runtime-execution-and-observability-overview.md",
+      "revisionToken": "93aab3de59a0e64020e24d33bdba21a7ed388a5f12d64450a991145880841531"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:wiggum-orchestration-package-overview",
+      "contentHash": "12323a22015dadf6eaed16328b75fa84b3090c7eb878c2180361ed28601fcf48",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/wiggum-orchestration-package-overview.md",
+      "revisionToken": "84dbad0f9647b5039bde8ac4065120007e967dc0ce7ccdabd5c9e1d566065102"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:workspace-backed-manager-worker-execution-overview",
+      "contentHash": "e304a2b305e1369a5a6f4b5baf4875bd7bb9333c577c3efc223d549fd06590d4",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/workspace-backed-manager-worker-execution-overview.md",
+      "revisionToken": "e651dd7326cb3898f49555641c7329af64d2c5ffb722b467e6ea87d42b4ceb58"
+    }
+  ],
+  "family": "docs",
+  "schemaVersion": 1
+}

@@ -1,3 +1,5 @@
+import { parseMarkdownBulletList, parseMarkdownSections } from "#storage/markdown-sections.js";
+
 export type FrontmatterValue = string | null | string[];
 
 export interface ParsedMarkdownArtifact {
@@ -109,28 +111,6 @@ export function renderBulletList(values: string[], empty = "(none)"): string {
   return values.map((value) => `- ${value}`).join("\n");
 }
 
-export function parseSections(body: string): Record<string, string> {
-  const sectionPattern = /^## (.+)$/gm;
-  const matches = [...body.matchAll(sectionPattern)];
-  const sections: Record<string, string> = {};
-  for (let index = 0; index < matches.length; index += 1) {
-    const match = matches[index];
-    const next = matches[index + 1];
-    const start = (match.index ?? 0) + match[0].length;
-    const end = next?.index ?? body.length;
-    sections[match[1].trim()] = body.slice(start, end).trim();
-  }
-  return sections;
-}
+export const parseSections = parseMarkdownSections;
 
-export function parseBulletLines(section: string | undefined): string[] {
-  if (!section) {
-    return [];
-  }
-  return section
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim())
-    .filter(Boolean);
-}
+export const parseBulletLines = parseMarkdownBulletList;

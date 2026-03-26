@@ -20,9 +20,17 @@ function isTicketCommandText(text: string): boolean {
   return trimmed === `/${TICKET_COMMAND}` || trimmed.startsWith(`/${TICKET_COMMAND} `);
 }
 
-function launchTicketWorkspace(ctx: ExtensionContext): void {
+function extractTicketCommandArgs(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed === `/${TICKET_COMMAND}`) {
+    return "";
+  }
+  return trimmed.slice(`/${TICKET_COMMAND}`.length).trim();
+}
+
+function launchTicketWorkspace(ctx: ExtensionContext, args = ""): void {
   void (async () => {
-    const output = await handleTicketCommand("", ctx as ExtensionCommandContext);
+    const output = await handleTicketCommand(args, ctx as ExtensionCommandContext);
     await refreshTicketHomeWidget(ctx);
     if (output) {
       ctx.ui.notify(output, "info");
@@ -51,7 +59,7 @@ function installTicketCommandEditor(ctx: ExtensionContext): void {
       }
 
       ctx.ui.setEditorText("");
-      launchTicketWorkspace(ctx);
+      launchTicketWorkspace(ctx, extractTicketCommandArgs(text));
 
       return { consume: true };
     });
@@ -73,8 +81,8 @@ async function refreshTicketHomeWidget(ctx: ExtensionContext): Promise<void> {
 export default function piTicketing(pi: ExtensionAPI): void {
   pi.registerCommand(TICKET_COMMAND, {
     description: "Open the focused ticket workspace",
-    handler: async (_args: string, ctx: ExtensionCommandContext) => {
-      const output = await handleTicketCommand("", ctx);
+    handler: async (args: string, ctx: ExtensionCommandContext) => {
+      const output = await handleTicketCommand(args, ctx);
       await refreshTicketHomeWidget(ctx);
       if (output) {
         ctx.ui.notify(output, "info");

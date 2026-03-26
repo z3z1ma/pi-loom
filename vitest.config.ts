@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: [
+      "bidi/**/__tests__/**/*.test.ts",
       "constitution/**/__tests__/**/*.test.ts",
       "research/**/__tests__/**/*.test.ts",
       "initiatives/**/__tests__/**/*.test.ts",

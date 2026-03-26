@@ -3,8 +3,10 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import { analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS } from "#storage/list-search.js";
+import { hasExportedProjectionFamily, runProjectionAwareOperation } from "#storage/projection-lifecycle.js";
 import type { CreateInitiativeInput, InitiativeMilestoneInput, UpdateInitiativeInput } from "../domain/models.js";
-import { renderInitiativeOverview, renderInitiativeDetail, renderInitiativeSummary } from "../domain/render.js";
+import { exportInitiativeProjections } from "../domain/projection.js";
+import { renderInitiativeDetail, renderInitiativeOverview, renderInitiativeSummary } from "../domain/render.js";
 import { createInitiativeStore } from "../domain/store.js";
 
 const InitiativeStatusEnum = StringEnum([
@@ -124,6 +126,12 @@ function machineResult(details: Record<string, unknown>, text: string) {
     content: [{ type: "text" as const, text }],
     details,
   };
+}
+
+async function refreshInitiativeProjectionsIfExported(cwd: string): Promise<void> {
+  if (hasExportedProjectionFamily(cwd, "initiatives")) {
+    await exportInitiativeProjections(cwd);
+  }
 }
 
 function requireRef(ref: string | undefined): string {
@@ -274,55 +282,107 @@ export function registerInitiativeTools(pi: ExtensionAPI): void {
           );
         }
         case "create": {
-          const initiative = await store.createInitiative(toCreateInput(params));
+          const initiative = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "initiative_write create",
+            families: ["initiatives"],
+            action: () => store.createInitiative(toCreateInput(params)),
+            refresh: () => refreshInitiativeProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "update": {
-          const initiative = await store.updateInitiative(requireRef(params.ref), toUpdateInput(params));
+          const initiative = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "initiative_write update",
+            families: ["initiatives"],
+            action: () => store.updateInitiative(requireRef(params.ref), toUpdateInput(params)),
+            refresh: () => refreshInitiativeProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "add_decision": {
           if (!params.question?.trim() || !params.answer?.trim()) {
             throw new Error("question and answer are required for add_decision");
           }
-          const initiative = await store.recordDecision(
-            requireRef(params.ref),
-            params.question,
-            params.answer,
-            params.decisionKind,
-          );
+          const question = params.question;
+          const answer = params.answer;
+          const initiative = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "initiative_write add_decision",
+            families: ["initiatives"],
+            action: () => store.recordDecision(requireRef(params.ref), question, answer, params.decisionKind),
+            refresh: () => refreshInitiativeProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "link_spec": {
           if (!params.specChangeId?.trim()) throw new Error("specChangeId is required for link_spec");
-          const initiative = await store.linkSpec(requireRef(params.ref), params.specChangeId);
+          const specChangeId = params.specChangeId;
+          const initiative = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "initiative_write link_spec",
+            families: ["initiatives"],
+            action: () => store.linkSpec(requireRef(params.ref), specChangeId),
+            refresh: () => refreshInitiativeProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "unlink_spec": {
           if (!params.specChangeId?.trim()) throw new Error("specChangeId is required for unlink_spec");
-          const initiative = await store.unlinkSpec(requireRef(params.ref), params.specChangeId);
+          const specChangeId = params.specChangeId;
+          const initiative = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "initiative_write unlink_spec",
+            families: ["initiatives"],
+            action: () => store.unlinkSpec(requireRef(params.ref), specChangeId),
+            refresh: () => refreshInitiativeProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "link_ticket": {
           if (!params.ticketId?.trim()) throw new Error("ticketId is required for link_ticket");
-          const initiative = await store.linkTicket(requireRef(params.ref), params.ticketId);
+          const ticketId = params.ticketId;
+          const initiative = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "initiative_write link_ticket",
+            families: ["initiatives"],
+            action: () => store.linkTicket(requireRef(params.ref), ticketId),
+            refresh: () => refreshInitiativeProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "unlink_ticket": {
           if (!params.ticketId?.trim()) throw new Error("ticketId is required for unlink_ticket");
-          const initiative = await store.unlinkTicket(requireRef(params.ref), params.ticketId);
+          const ticketId = params.ticketId;
+          const initiative = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "initiative_write unlink_ticket",
+            families: ["initiatives"],
+            action: () => store.unlinkTicket(requireRef(params.ref), ticketId),
+            refresh: () => refreshInitiativeProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "upsert_milestone": {
           if (!params.milestone) throw new Error("milestone is required for upsert_milestone");
-          const initiative = await store.upsertMilestone(
-            requireRef(params.ref),
-            params.milestone as InitiativeMilestoneInput,
-          );
+          const initiative = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "initiative_write upsert_milestone",
+            families: ["initiatives"],
+            action: () => store.upsertMilestone(requireRef(params.ref), params.milestone as InitiativeMilestoneInput),
+            refresh: () => refreshInitiativeProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
         case "archive": {
-          const initiative = await store.archiveInitiative(requireRef(params.ref));
+          const initiative = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "initiative_write archive",
+            families: ["initiatives"],
+            action: () => store.archiveInitiative(requireRef(params.ref)),
+            refresh: () => refreshInitiativeProjectionsIfExported(ctx.cwd),
+          });
           return machineResult({ action: params.action, initiative }, renderInitiativeDetail(initiative));
         }
       }

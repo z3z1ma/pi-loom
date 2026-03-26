@@ -1,0 +1,126 @@
+---
+id: workspace-projections-for-canonical-loom-records
+title: "Workspace projections for canonical Loom records"
+status: specified
+created-at: 2026-03-26T07:22:46.384Z
+updated-at: 2026-03-26T07:42:14.513Z
+research: []
+initiatives: []
+capabilities:
+  - module-scoped-workspace-projections
+  - low-churn-markdown-and-family-manifests
+  - revision-aware-reconcile
+  - pi-harness-sync-lifecycle
+  - bounded-ticket-projections
+---
+
+## Design Notes
+Pi Loom needs a first-class workspace projection subsystem that serves the interactive authoring half of the product without confusing it with packet-driven autonomous execution. Workspace projections are repository-visible, human-readable, and selectively human-editable surfaces for canonical Loom records. They exist to improve introspectability, git-native review, and local collaboration while preserving SQLite/Postgres as the only canonical store.
+
+Projection scope is intentionally narrower than all Loom layers. Constitution, specs, plans, initiatives, research, docs, and tickets project into `.loom/<module>/...`. Critique and Ralph do not, because their packet and run artifacts are operational handoffs rather than durable authoring surfaces.
+
+Projection format must optimize for humans and Git. Each module family owns many markdown files plus one manifest file that indexes stable canonical refs, projection schema version, base revision tokens, content hashes, editability mode, and module-specific metadata needed for reconcile. Per-file sidecar JSON is forbidden. Markdown bodies should prefer stable headings and deterministic ordering; renderers must omit volatile metadata such as routine updated-at timestamps unless the field is semantically meaningful. Pi Loom must avoid rewriting files when the rendered markdown and stable manifest metadata are unchanged.
+
+Workspace projections are derived and revision-aware. Disk edits are proposed mutations against canonical state, not parallel truth. In v1, disk-to-canonical flow happens only through explicit reconcile/import actions. File-save watchers do not mutate canonical state. Canonical-to-disk flow is automatic after successful canonical writes performed through Pi Loom commands or tools for enabled projection families, with changed files refreshed before control returns. Session startup may ensure `.loom/` structure and `.loom/.gitignore` defaults exist and may scan manifests for dirtiness, but it must not auto-import. Before packet-based autonomous execution or any canonical mutation that depends on a dirty projected record, Pi Loom must fail closed until the user or agent reconciles or discards the pending disk edit.
+
+Path policy should express artifact meaning without creating rename churn. Specs, constitution, initiatives, research, docs, and tickets use stable id-oriented paths. Plans use an immutable created-date path segment chosen on first export so they read as time-bound artifacts without being renamed on every revision. Docs projections must remain human-usable enough that a repository may treat Loom-maintained docs as a primary documentation surface when desired.
+
+Ticket projections need special retention rules because execution history can grow without bound. The projection system should export all open tickets, tickets linked from active plans, and recently updated tickets within a configurable recency window whose default is 14 days. Older closed tickets may be pruned from `.loom/tickets/` without affecting canonical ticket history. `.loom/.gitignore` should ignore `.loom/tickets/` by default so local ticket introspection does not automatically become repository churn, while advanced users may opt in to tracking tickets by changing gitignore policy.
+
+Generated/read-only sections versus editable sections are module-specific. The reconcile flow must preserve canonical-only child history and computed state rather than requiring markdown round-tripping for every structured child record. For example, ticket execution journals, critique findings, Ralph iterations, and other append-only or operational records remain canonical artifacts that may be summarized in projections but are not directly edited through workspace markdown.
+
+## Capability Map
+- module-scoped-workspace-projections: Module-scoped workspace projections
+- low-churn-markdown-and-family-manifests: Low-churn markdown and family manifests
+- revision-aware-reconcile: Revision-aware projection reconcile
+- pi-harness-sync-lifecycle: Pi-centered projection sync lifecycle
+- bounded-ticket-projections: Bounded ticket projections
+
+## Requirements
+- req-001: Documentation projections remain human-usable narrative documents rather than machine-only dumps so repositories may treat Loom-maintained docs as a primary documentation surface if they choose.
+  Acceptance: A plan exported on one day keeps the same date-oriented file path after later revisions.; A projected record can be resolved back to its canonical ref through the family manifest without reading SQLite internals.; Enabling projections for a repository creates `.loom/<module>/` directories only for the in-scope families.; No projection export path is created for critique or Ralph records.
+  Capabilities: module-scoped-workspace-projections
+- req-002: Every projected markdown file is anchored to one stable canonical record ref that remains discoverable through the family manifest.
+  Acceptance: A plan exported on one day keeps the same date-oriented file path after later revisions.; A projected record can be resolved back to its canonical ref through the family manifest without reading SQLite internals.; Enabling projections for a repository creates `.loom/<module>/` directories only for the in-scope families.; No projection export path is created for critique or Ralph records.
+  Capabilities: module-scoped-workspace-projections
+- req-003: Pi Loom does not export critique or Ralph packet/run artifacts into `.loom/`.
+  Acceptance: A plan exported on one day keeps the same date-oriented file path after later revisions.; A projected record can be resolved back to its canonical ref through the family manifest without reading SQLite internals.; Enabling projections for a repository creates `.loom/<module>/` directories only for the in-scope families.; No projection export path is created for critique or Ralph records.
+  Capabilities: module-scoped-workspace-projections
+- req-004: Pi Loom exports workspace projections only for constitution, specs, plans, initiatives, research, docs, and tickets.
+  Acceptance: A plan exported on one day keeps the same date-oriented file path after later revisions.; A projected record can be resolved back to its canonical ref through the family manifest without reading SQLite internals.; Enabling projections for a repository creates `.loom/<module>/` directories only for the in-scope families.; No projection export path is created for critique or Ralph records.
+  Capabilities: module-scoped-workspace-projections
+- req-005: Plan projection paths include an immutable created-date segment chosen on first export and preserved across later updates.
+  Acceptance: A plan exported on one day keeps the same date-oriented file path after later revisions.; A projected record can be resolved back to its canonical ref through the family manifest without reading SQLite internals.; Enabling projections for a repository creates `.loom/<module>/` directories only for the in-scope families.; No projection export path is created for critique or Ralph records.
+  Capabilities: module-scoped-workspace-projections
+- req-006: Each projected module family stores many markdown files and exactly one manifest file that indexes those files for that family.
+  Acceptance: A family manifest can be used to enumerate projected files and their canonical refs without opening one JSON sidecar per markdown file.; Routine internal timestamp updates that do not affect human-readable meaning do not generate markdown diffs.; Running export twice against unchanged canonical state produces no file-content changes under `.loom/`.; The repository receives a generated `.loom/.gitignore` that ignores temporary projection internals and `.loom/tickets/` by default.
+  Capabilities: low-churn-markdown-and-family-manifests
+- req-007: Manifest entries and markdown sections use deterministic ordering so repeated exports from unchanged canonical state produce byte-stable files.
+  Acceptance: A family manifest can be used to enumerate projected files and their canonical refs without opening one JSON sidecar per markdown file.; Routine internal timestamp updates that do not affect human-readable meaning do not generate markdown diffs.; Running export twice against unchanged canonical state produces no file-content changes under `.loom/`.; The repository receives a generated `.loom/.gitignore` that ignores temporary projection internals and `.loom/tickets/` by default.
+  Capabilities: low-churn-markdown-and-family-manifests
+- req-008: Per-record sidecar metadata files are forbidden; canonical linkage and revision metadata live in the family manifest.
+  Acceptance: A family manifest can be used to enumerate projected files and their canonical refs without opening one JSON sidecar per markdown file.; Routine internal timestamp updates that do not affect human-readable meaning do not generate markdown diffs.; Running export twice against unchanged canonical state produces no file-content changes under `.loom/`.; The repository receives a generated `.loom/.gitignore` that ignores temporary projection internals and `.loom/tickets/` by default.
+  Capabilities: low-churn-markdown-and-family-manifests
+- req-009: Pi Loom creates `.loom/.gitignore` with defaults that ignore projection internals, temporary reconcile artifacts, conflict scratch files, and high-churn ticket projections by default.
+  Acceptance: A family manifest can be used to enumerate projected files and their canonical refs without opening one JSON sidecar per markdown file.; Routine internal timestamp updates that do not affect human-readable meaning do not generate markdown diffs.; Running export twice against unchanged canonical state produces no file-content changes under `.loom/`.; The repository receives a generated `.loom/.gitignore` that ignores temporary projection internals and `.loom/tickets/` by default.
+  Capabilities: low-churn-markdown-and-family-manifests
+- req-010: Pi Loom rewrites a projection markdown file or manifest entry only when rendered human content or stable metadata has changed.
+  Acceptance: A family manifest can be used to enumerate projected files and their canonical refs without opening one JSON sidecar per markdown file.; Routine internal timestamp updates that do not affect human-readable meaning do not generate markdown diffs.; Running export twice against unchanged canonical state produces no file-content changes under `.loom/`.; The repository receives a generated `.loom/.gitignore` that ignores temporary projection internals and `.loom/tickets/` by default.
+  Capabilities: low-churn-markdown-and-family-manifests
+- req-011: Projection markdown and manifests must omit volatile fields that are not semantically meaningful for repository readers, including routine updated-at timestamps when they exist only as internal bookkeeping.
+  Acceptance: A family manifest can be used to enumerate projected files and their canonical refs without opening one JSON sidecar per markdown file.; Routine internal timestamp updates that do not affect human-readable meaning do not generate markdown diffs.; Running export twice against unchanged canonical state produces no file-content changes under `.loom/`.; The repository receives a generated `.loom/.gitignore` that ignores temporary projection internals and `.loom/tickets/` by default.
+  Capabilities: low-churn-markdown-and-family-manifests
+- req-012: A reconcile/import action may mutate canonical state only when the projection's declared base revision still matches the current canonical revision or when a module-specific conflict resolution flow explicitly accepts the change.
+  Acceptance: Attempting to edit a generated-only section fails closed with a clear reconcile error.; Editing an exported spec markdown file and running reconcile updates the canonical spec only when the base revision still matches.; Pruning an old ticket projection from disk leaves the canonical ticket readable through ticket tools.; Reconciling a stale projection against a newer canonical record yields a conflict or proposed revision instead of a silent overwrite.
+  Capabilities: revision-aware-reconcile
+- req-013: Conflict outcomes must be inspectable and recoverable, including the ability to keep disk edits as a pending conflict/proposed revision instead of discarding them silently.
+  Acceptance: Attempting to edit a generated-only section fails closed with a clear reconcile error.; Editing an exported spec markdown file and running reconcile updates the canonical spec only when the base revision still matches.; Pruning an old ticket projection from disk leaves the canonical ticket readable through ticket tools.; Reconciling a stale projection against a newer canonical record yields a conflict or proposed revision instead of a silent overwrite.
+  Capabilities: revision-aware-reconcile
+- req-014: Each family manifest entry records at least the canonical ref, projection schema version, base canonical revision token, current content hash, and editability mode for the projected markdown file.
+  Acceptance: Attempting to edit a generated-only section fails closed with a clear reconcile error.; Editing an exported spec markdown file and running reconcile updates the canonical spec only when the base revision still matches.; Pruning an old ticket projection from disk leaves the canonical ticket readable through ticket tools.; Reconciling a stale projection against a newer canonical record yields a conflict or proposed revision instead of a silent overwrite.
+  Capabilities: revision-aware-reconcile
+- req-015: If canonical state has advanced or the projection edits touch protected generated sections, Pi Loom must not silently merge or overwrite the newer canonical record.
+  Acceptance: Attempting to edit a generated-only section fails closed with a clear reconcile error.; Editing an exported spec markdown file and running reconcile updates the canonical spec only when the base revision still matches.; Pruning an old ticket projection from disk leaves the canonical ticket readable through ticket tools.; Reconciling a stale projection against a newer canonical record yields a conflict or proposed revision instead of a silent overwrite.
+  Capabilities: revision-aware-reconcile
+- req-016: Projection file removal caused by retention policy or export disabling must never archive or delete the canonical record unless an explicit canonical mutation requests that behavior.
+  Acceptance: Attempting to edit a generated-only section fails closed with a clear reconcile error.; Editing an exported spec markdown file and running reconcile updates the canonical spec only when the base revision still matches.; Pruning an old ticket projection from disk leaves the canonical ticket readable through ticket tools.; Reconciling a stale projection against a newer canonical record yields a conflict or proposed revision instead of a silent overwrite.
+  Capabilities: revision-aware-reconcile
+- req-017: The reconcile flow is module-aware: editable narrative sections may round-trip through markdown, while generated summaries and canonical-only append-only child history remain protected.
+  Acceptance: Attempting to edit a generated-only section fails closed with a clear reconcile error.; Editing an exported spec markdown file and running reconcile updates the canonical spec only when the base revision still matches.; Pruning an old ticket projection from disk leaves the canonical ticket readable through ticket tools.; Reconciling a stale projection against a newer canonical record yields a conflict or proposed revision instead of a silent overwrite.
+  Capabilities: revision-aware-reconcile
+- req-018: After a successful canonical mutation performed through Pi Loom slash commands or tools for an enabled family, Pi Loom automatically refreshes only the changed projections before returning control.
+  Acceptance: Launching packet-based autonomous execution against a record with dirty projections fails closed until reconcile or discard occurs.; Starting a Pi session in a repository with projections enabled does not mutate canonical records even if `.loom/` contains unimported manual edits.; The same reconcile requirement applies whether the user works through slash commands, tools, or headless automation.; Updating a plan through Pi tools refreshes only that plan's projection files and related manifest entries when content changed.
+  Capabilities: pi-harness-sync-lifecycle
+- req-019: Before packet-based autonomous execution or before a canonical mutation that depends on a dirty projected record, Pi Loom must block the action or require explicit reconcile/discard so execution continues from canonical truth.
+  Acceptance: Launching packet-based autonomous execution against a record with dirty projections fails closed until reconcile or discard occurs.; Starting a Pi session in a repository with projections enabled does not mutate canonical records even if `.loom/` contains unimported manual edits.; The same reconcile requirement applies whether the user works through slash commands, tools, or headless automation.; Updating a plan through Pi tools refreshes only that plan's projection files and related manifest entries when content changed.
+  Capabilities: pi-harness-sync-lifecycle
+- req-020: Dirty-projection status must be visible enough in the harness that users and agents can discover why an action is blocked.
+  Acceptance: Launching packet-based autonomous execution against a record with dirty projections fails closed until reconcile or discard occurs.; Starting a Pi session in a repository with projections enabled does not mutate canonical records even if `.loom/` contains unimported manual edits.; The same reconcile requirement applies whether the user works through slash commands, tools, or headless automation.; Updating a plan through Pi tools refreshes only that plan's projection files and related manifest entries when content changed.
+  Capabilities: pi-harness-sync-lifecycle
+- req-021: Disk-to-canonical import occurs only through explicit reconcile/import actions in v1; file-save watchers and background auto-import are out of scope.
+  Acceptance: Launching packet-based autonomous execution against a record with dirty projections fails closed until reconcile or discard occurs.; Starting a Pi session in a repository with projections enabled does not mutate canonical records even if `.loom/` contains unimported manual edits.; The same reconcile requirement applies whether the user works through slash commands, tools, or headless automation.; Updating a plan through Pi tools refreshes only that plan's projection files and related manifest entries when content changed.
+  Capabilities: pi-harness-sync-lifecycle
+- req-022: On `session_start`, Pi Loom may create missing `.loom/` structure, family manifests, and `.loom/.gitignore` defaults for enabled projections and may scan for dirty projections, but it must not auto-import disk edits.
+  Acceptance: Launching packet-based autonomous execution against a record with dirty projections fails closed until reconcile or discard occurs.; Starting a Pi session in a repository with projections enabled does not mutate canonical records even if `.loom/` contains unimported manual edits.; The same reconcile requirement applies whether the user works through slash commands, tools, or headless automation.; Updating a plan through Pi tools refreshes only that plan's projection files and related manifest entries when content changed.
+  Capabilities: pi-harness-sync-lifecycle
+- req-023: Projection lifecycle behavior must preserve headless parity: tool-driven and command-driven flows honor the same dirty-check and reconcile rules.
+  Acceptance: Launching packet-based autonomous execution against a record with dirty projections fails closed until reconcile or discard occurs.; Starting a Pi session in a repository with projections enabled does not mutate canonical records even if `.loom/` contains unimported manual edits.; The same reconcile requirement applies whether the user works through slash commands, tools, or headless automation.; Updating a plan through Pi tools refreshes only that plan's projection files and related manifest entries when content changed.
+  Capabilities: pi-harness-sync-lifecycle
+- req-024: `.loom/.gitignore` ignores `.loom/tickets/` by default; repositories may opt in to tracking ticket projections by changing that rule.
+  Acceptance: A default repository setup keeps `.loom/tickets/` untracked in Git while still exporting local ticket markdown for browsing.; A recently closed ticket remains projected until it ages past the configured window, after which export prunes the markdown file but not the canonical ticket.; An old blocked ticket linked from an active plan remains projected even if it is older than the recency window.; Changing the ticket retention window updates future export membership without rewriting unaffected non-ticket projection families.
+  Capabilities: bounded-ticket-projections
+- req-025: Closed tickets older than the recency window and not linked from active plans may be pruned from `.loom/tickets/` during export without affecting canonical ticket history.
+  Acceptance: A default repository setup keeps `.loom/tickets/` untracked in Git while still exporting local ticket markdown for browsing.; A recently closed ticket remains projected until it ages past the configured window, after which export prunes the markdown file but not the canonical ticket.; An old blocked ticket linked from an active plan remains projected even if it is older than the recency window.; Changing the ticket retention window updates future export membership without rewriting unaffected non-ticket projection families.
+  Capabilities: bounded-ticket-projections
+- req-026: Pruning or ignoring ticket projections must not change canonical ticket ids, statuses, journals, attachments, checkpoints, or dependency history.
+  Acceptance: A default repository setup keeps `.loom/tickets/` untracked in Git while still exporting local ticket markdown for browsing.; A recently closed ticket remains projected until it ages past the configured window, after which export prunes the markdown file but not the canonical ticket.; An old blocked ticket linked from an active plan remains projected even if it is older than the recency window.; Changing the ticket retention window updates future export membership without rewriting unaffected non-ticket projection families.
+  Capabilities: bounded-ticket-projections
+- req-027: The ticket family manifest records the retention policy in effect so pruning behavior is inspectable.
+  Acceptance: A default repository setup keeps `.loom/tickets/` untracked in Git while still exporting local ticket markdown for browsing.; A recently closed ticket remains projected until it ages past the configured window, after which export prunes the markdown file but not the canonical ticket.; An old blocked ticket linked from an active plan remains projected even if it is older than the recency window.; Changing the ticket retention window updates future export membership without rewriting unaffected non-ticket projection families.
+  Capabilities: bounded-ticket-projections
+- req-028: Ticket projection export includes all open tickets, all tickets linked from active plans, and closed or inactive tickets updated within a configurable recent-ticket window whose default is 14 days.
+  Acceptance: A default repository setup keeps `.loom/tickets/` untracked in Git while still exporting local ticket markdown for browsing.; A recently closed ticket remains projected until it ages past the configured window, after which export prunes the markdown file but not the canonical ticket.; An old blocked ticket linked from an active plan remains projected even if it is older than the recency window.; Changing the ticket retention window updates future export membership without rewriting unaffected non-ticket projection families.
+  Capabilities: bounded-ticket-projections
+- req-029: Users may pin specific tickets for continued projection even when they would otherwise age out of the recency window.
+  Acceptance: A default repository setup keeps `.loom/tickets/` untracked in Git while still exporting local ticket markdown for browsing.; A recently closed ticket remains projected until it ages past the configured window, after which export prunes the markdown file but not the canonical ticket.; An old blocked ticket linked from an active plan remains projected even if it is older than the recency window.; Changing the ticket retention window updates future export membership without rewriting unaffected non-ticket projection families.
+  Capabilities: bounded-ticket-projections

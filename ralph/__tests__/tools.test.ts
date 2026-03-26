@@ -1,5 +1,10 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { exportSpecProjections } from "#specs/domain/projection.js";
+import { createSpecStore } from "#specs/domain/store.js";
 import type { ExecuteRalphLoopResult } from "../domain/loop.js";
 import type {
   RalphContinuationDecision,
@@ -478,6 +483,17 @@ function createContext(cwd: string): ExtensionContext {
   return { cwd, sessionManager: { getBranch: () => [] } } as unknown as ExtensionContext;
 }
 
+function createTempWorkspace(): { cwd: string; cleanup: () => void } {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-ralph-tools-"));
+  return {
+    cwd,
+    cleanup: () => {
+      delete process.env.PI_LOOM_ROOT;
+      rmSync(cwd, { recursive: true, force: true });
+    },
+  };
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -619,6 +635,35 @@ describe("ralph tools", () => {
       type: "text",
       text: expect.stringContaining("Started managed Ralph loop"),
     });
+  });
+
+  it("fails closed when exported workspace projections are dirty before launching Ralph", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+      const specStore = createSpecStore(cwd);
+      await specStore.createChange({ title: "Workspace projections", summary: "Expose readable projections." });
+      const exported = await exportSpecProjections(cwd);
+      writeFileSync(exported.files[0].path, "Locally edited spec projection\n", "utf-8");
+
+      const mockPi = createMockPi();
+      const { registerRalphTools } = await import("../tools/ralph.js");
+      const { executeRalphLoop } = await import("../domain/loop.js");
+      registerRalphTools(mockPi as unknown as ExtensionAPI);
+
+      await expect(
+        getTool(mockPi, "ralph_run").execute(
+          "call-dirty",
+          { planRef: "plan-1", ticketRef: "ticket-1", background: false },
+          undefined,
+          undefined,
+          createContext(cwd),
+        ),
+      ).rejects.toThrow("Blocked ralph_run because exported workspace projections are dirty.");
+      expect(executeRalphLoop).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
   });
 
   it("waits for all selected Ralph jobs when requested", async () => {

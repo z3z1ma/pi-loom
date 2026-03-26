@@ -1,0 +1,114 @@
+---
+id: evaluate-pi-custom-widgets-for-loom-human-centric-ux
+title: "Evaluate Pi custom widgets for Loom human-centric UX"
+status: synthesized
+created-at: 2026-03-17T05:42:16.685Z
+tags:
+  - loom
+  - pi
+  - slash-commands
+  - ux
+  - widgets
+source-refs:
+  - .agents/resources/oh-my-pi/docs/tui.md
+  - .agents/resources/oh-my-pi/packages/coding-agent/src/extensibility/extensions/types.ts
+  - .agents/resources/oh-my-pi/packages/swarm-extension/src/extension.ts
+  - .agents/resources/pi-mono/packages/coding-agent/examples/extensions/send-user-message.ts
+  - .agents/resources/pi-mono/packages/coding-agent/examples/extensions/widget-placement.ts
+  - .agents/resources/pi-mono/packages/coding-agent/src/core/agent-session.ts
+  - .agents/resources/pi-mono/packages/coding-agent/src/core/extensions/types.ts
+  - .agents/resources/pi-mono/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+  - .agents/resources/pi-mono/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+  - .agents/resources/pi-subagents/render.ts
+  - .agents/resources/pi-supervisor/src/ui/status-widget.ts
+  - package.json
+  - packages/pi-critique/extensions/commands/critique.ts
+  - packages/pi-ticketing/extensions/index.ts
+  - packages/pi-workers/extensions/index.ts
+---
+
+## Question
+How robust are Pi custom widgets today, and what widget strategy best fits Pi Loom's direction of replacing subsystem slash-command homes with interactive human-centric surfaces instead of tool-mirroring commands?
+
+## Objective
+Produce source-backed guidance on whether Pi Loom can move its major subsystem entrypoints from slash-command-first UX to widget-first interactive UX, and identify the runtime constraints, fallback surfaces, and design patterns that would make that shift truthful and maintainable.
+
+## Status Summary
+Research synthesized. Pi Loom itself is still slash-command-first with no widget usage. Per the user-provided platform clarification, oh-my-pi should be treated as able to do everything pi can do, so pi-mono widget examples are valid design input for Loom. The practical UX recommendation remains: use widgets as persistent subsystem surfaces, pair them with `ctx.ui.custom(...)` for focused interaction, and replace tool-mirroring slash commands with a smaller set of human-facing verbs that hand off via normal user-message flows.
+
+## Scope
+- .agents/resources/oh-my-pi/docs/extensions.md
+- .agents/resources/oh-my-pi/docs/tui.md
+- .agents/resources/oh-my-pi/packages/coding-agent/src/extensibility/extensions/types.ts
+- .agents/resources/oh-my-pi/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
+- .agents/resources/oh-my-pi/packages/swarm-extension/src/extension.ts
+- .agents/resources/pi-mono/packages/coding-agent/examples/extensions/send-user-message.ts
+- .agents/resources/pi-mono/packages/coding-agent/examples/extensions/widget-placement.ts
+- .agents/resources/pi-mono/packages/coding-agent/src/core/agent-session.ts
+- .agents/resources/pi-mono/packages/coding-agent/src/core/extensions/types.ts
+- .agents/resources/pi-mono/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+- .agents/resources/pi-mono/packages/coding-agent/src/modes/rpc/rpc-mode.ts
+- .agents/resources/pi-subagents/render.ts
+- .agents/resources/pi-supervisor/src/ui/status-widget.ts
+- package.json
+- packages/pi-critique/extensions/commands/critique.ts
+- packages/pi-ticketing/extensions/index.ts
+- packages/pi-workers/extensions/index.ts
+
+## Non-Goals
+- Commit to a specific migration plan for every Loom subsystem
+- Implement widget support in pi-loom or Pi runtime packages
+- Re-litigate the user-provided platform assertion that oh-my-pi is functionally capable of everything pi can do
+
+## Methodology
+- Compare documented widget APIs with actual interactive and RPC implementations
+- Extract real widget usage examples from reference extensions and adjacent repos
+- Incorporate the user-provided platform clarification that oh-my-pi is a fork of pi-mono and should be treated as functionally capable of running pi widget examples
+- Inspect pi-loom sources to determine current widget usage and current human-facing command structure
+- Read official/source-adjacent Pi docs and extension API types from cloned reference repositories
+
+## Keywords
+- custom-ui
+- interactive-ux
+- loom
+- pi
+- slash-commands
+- widgets
+
+## Conclusions
+- `pi.sendUserMessage(...)` provides the cleanest bridge from human-centric commands or widget-triggered actions into real agent turns, which means Loom can delete tool-mirroring slash commands without forcing all action semantics into widget code.
+- Given the fork-parity assumption, the limiting factor is no longer whether widgets can exist in oh-my-pi, but how Loom chooses to structure each subsystem so the widget, focused custom UI, and surviving slash verbs have clear, non-overlapping jobs.
+- Pi Loom currently has no widget usage in package sources; its human-facing surface is still organized around slash-command entrypoints such as `/ticket`, `/worker`, `/manager`, and `/critique`, with separate machine-facing tools.
+- The available Pi widget model is strong enough for widget-first subsystem homes: keyed widgets, component-factory widgets, above/below-editor placement, lifecycle/disposal handling, and a degraded RPC path for string-array widgets are all demonstrated in the pi-mono fork lineage and should be treated as applicable to oh-my-pi per the user clarification.
+- The richer interaction surface remains `ctx.ui.custom(...)`, which is the correct place for focused drill-down UI, wizards, pickers, keyboard-driven flows, and transient task-specific interaction.
+- Widgets are not the whole application surface. Across the examples, they are most effective as persistent state surfaces: progress, summaries, active context, next actions, supervision state, and lightweight dashboards.
+
+## Recommendations
+- As Loom migrates subsystem by subsystem, remove tool-mirroring slash commands only when the widget-plus-verb replacement fully covers the human path for that subsystem.
+- Design each subsystem around one durable home widget that stays visible and answers: what is this subsystem's current state, what matters now, and what are the highest-value next actions?
+- Keep a small number of pointed human-facing slash commands per subsystem, but make them economic verbs such as open, focus, create, review, resume, or refine rather than thin wrappers around every AI tool.
+- Proceed assuming pi examples and widget patterns are portable to oh-my-pi for Loom design work.
+- Reserve `ctx.ui.custom(...)` for deeper interaction instead of overloading persistent widgets with complex navigation or modal editing.
+- Use `pi.sendUserMessage(...)` when a widget selection or slash command should trigger actual agent work, so the human interaction layer stays decoupled from tool APIs.
+
+## Open Questions
+- What common widget shell should all Loom subsystems share so the interaction model feels consistent across constitution, research, specs, plans, tickets, workers, critique, Ralph, and docs?
+- What minimum set of human verbs should survive per subsystem once tool-mirroring slash commands are removed?
+- Which subsystem should be migrated first as the proving ground for widget-first UX: tickets, workers, critique, or another layer?
+
+## Linked Work
+_Generated summary. Reconcile ignores edits in this section so canonical hypotheses, artifacts, and linked work are preserved._
+
+- initiative:widget-first-human-centric-loom-subsystem-ux
+
+## Hypotheses
+_Generated summary. Reconcile ignores edits in this section so canonical hypotheses, artifacts, and linked work are preserved._
+
+- hyp-003 [supported/high] Widgets are best treated as persistent display surfaces, while richer interaction should route through `ctx.ui.custom(...)` and user-message injection rather than trying to make widgets the whole application surface.
+  Evidence: `.agents/resources/pi-mono/packages/coding-agent/examples/extensions/send-user-message.ts` shows command handlers using `pi.sendUserMessage(...)` to turn UI actions into real conversational turns, while docs describe `ctx.ui.custom(...)` as the full focused TUI component surface.; `.agents/resources/pi-subagents/render.ts` uses `setWidget` for a lightweight live progress summary, not full interaction.; `.agents/resources/pi-supervisor/src/ui/status-widget.ts` uses `setWidget` for compact persistent supervision state and truncates lines manually.
+  Results: Loom can replace many subsystem home commands with widgets plus a small set of human verbs, but widgets alone should not absorb modal editing, multi-step wizards, or freeform prompting.
+
+## Artifacts
+_Generated summary. Reconcile ignores edits in this section so canonical hypotheses, artifacts, and linked work are preserved._
+
+(none)

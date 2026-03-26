@@ -1,6 +1,7 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
+import { hasExportedProjectionFamily, runProjectionAwareOperation } from "#storage/projection-lifecycle.js";
 import type {
   ConstitutionalEntryInput,
   RoadmapItemInput,
@@ -8,7 +9,8 @@ import type {
   UpdateRoadmapItemInput,
   UpdateVisionInput,
 } from "../domain/models.js";
-import { renderConstitutionOverview, renderConstitutionDetail, renderRoadmapItemDetail } from "../domain/render.js";
+import { exportConstitutionProjections } from "../domain/projection.js";
+import { renderConstitutionDetail, renderConstitutionOverview, renderRoadmapItemDetail } from "../domain/render.js";
 import { createConstitutionalStore } from "../domain/store.js";
 
 const ConstitutionSectionEnum = StringEnum([
@@ -103,6 +105,12 @@ function machineResult(details: Record<string, unknown>, text: string) {
     content: [{ type: "text" as const, text }],
     details,
   };
+}
+
+async function refreshConstitutionProjection(cwd: string): Promise<void> {
+  if (hasExportedProjectionFamily(cwd, "constitution")) {
+    await exportConstitutionProjections(cwd);
+  }
 }
 
 function renderRoadmapListText(
@@ -240,29 +248,51 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
           );
         }
         case "update_vision": {
-          const constitution = await store.updateVision(toVisionUpdate(params as ConstitutionWriteParamsValue));
+          const constitution = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "constitution_write update_vision",
+            families: ["constitution"],
+            action: () => store.updateVision(toVisionUpdate(params as ConstitutionWriteParamsValue)),
+            refresh: () => refreshConstitutionProjection(ctx.cwd),
+          });
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "update_principles": {
           if (!(params as ConstitutionWriteParamsValue).principles) {
             throw new Error("principles are required for update_principles");
           }
-          const constitution = await store.setPrinciples(
-            (params as ConstitutionWriteParamsValue).principles as ConstitutionalEntryInput[],
-          );
+          const constitution = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "constitution_write update_principles",
+            families: ["constitution"],
+            action: () =>
+              store.setPrinciples((params as ConstitutionWriteParamsValue).principles as ConstitutionalEntryInput[]),
+            refresh: () => refreshConstitutionProjection(ctx.cwd),
+          });
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "update_constraints": {
           if (!(params as ConstitutionWriteParamsValue).constraints) {
             throw new Error("constraints are required for update_constraints");
           }
-          const constitution = await store.setConstraints(
-            (params as ConstitutionWriteParamsValue).constraints as ConstitutionalEntryInput[],
-          );
+          const constitution = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "constitution_write update_constraints",
+            families: ["constitution"],
+            action: () =>
+              store.setConstraints((params as ConstitutionWriteParamsValue).constraints as ConstitutionalEntryInput[]),
+            refresh: () => refreshConstitutionProjection(ctx.cwd),
+          });
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "update_roadmap": {
-          const constitution = await store.updateRoadmap(toRoadmapUpdate(params as ConstitutionWriteParamsValue));
+          const constitution = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "constitution_write update_roadmap",
+            families: ["constitution"],
+            action: () => store.updateRoadmap(toRoadmapUpdate(params as ConstitutionWriteParamsValue)),
+            refresh: () => refreshConstitutionProjection(ctx.cwd),
+          });
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "record_decision": {
@@ -272,15 +302,23 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
           ) {
             throw new Error("question and answer are required for record_decision");
           }
-          const constitution = await store.recordDecision(
-            (params as ConstitutionWriteParamsValue).question as string,
-            (params as ConstitutionWriteParamsValue).answer as string,
-            (params as ConstitutionWriteParamsValue).decisionKind,
-            (params as ConstitutionWriteParamsValue).affectedArtifacts,
-          );
+          const constitution = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "constitution_write record_decision",
+            families: ["constitution"],
+            action: () =>
+              store.recordDecision(
+                (params as ConstitutionWriteParamsValue).question as string,
+                (params as ConstitutionWriteParamsValue).answer as string,
+                (params as ConstitutionWriteParamsValue).decisionKind,
+                (params as ConstitutionWriteParamsValue).affectedArtifacts,
+              ),
+            refresh: () => refreshConstitutionProjection(ctx.cwd),
+          });
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
       }
+      throw new Error(`Unsupported constitution_roadmap action: ${String(params.action)}`);
     },
   });
 
@@ -319,36 +357,61 @@ export function registerConstitutionTools(pi: ExtensionAPI): void {
           );
         }
         case "create_item": {
-          const constitution = await store.upsertRoadmapItem(toRoadmapCreate(params as ConstitutionRoadmapParamsValue));
+          const constitution = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "constitution_roadmap create_item",
+            families: ["constitution"],
+            action: () => store.upsertRoadmapItem(toRoadmapCreate(params as ConstitutionRoadmapParamsValue)),
+            refresh: () => refreshConstitutionProjection(ctx.cwd),
+          });
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "update_item": {
-          const constitution = await store.upsertRoadmapItem(
-            toRoadmapUpdateItem(params as ConstitutionRoadmapParamsValue),
-          );
+          const constitution = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "constitution_roadmap update_item",
+            families: ["constitution"],
+            action: () => store.upsertRoadmapItem(toRoadmapUpdateItem(params as ConstitutionRoadmapParamsValue)),
+            refresh: () => refreshConstitutionProjection(ctx.cwd),
+          });
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "link_initiative": {
           if (!(params as ConstitutionRoadmapParamsValue).initiativeId?.trim()) {
             throw new Error("initiativeId is required for link_initiative");
           }
-          const constitution = await store.linkInitiative(
-            requireItemId((params as ConstitutionRoadmapParamsValue).itemId),
-            (params as ConstitutionRoadmapParamsValue).initiativeId as string,
-          );
+          const constitution = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "constitution_roadmap link_initiative",
+            families: ["constitution"],
+            action: () =>
+              store.linkInitiative(
+                requireItemId((params as ConstitutionRoadmapParamsValue).itemId),
+                (params as ConstitutionRoadmapParamsValue).initiativeId as string,
+              ),
+            refresh: () => refreshConstitutionProjection(ctx.cwd),
+          });
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
         case "unlink_initiative": {
           if (!(params as ConstitutionRoadmapParamsValue).initiativeId?.trim()) {
             throw new Error("initiativeId is required for unlink_initiative");
           }
-          const constitution = await store.unlinkInitiative(
-            requireItemId((params as ConstitutionRoadmapParamsValue).itemId),
-            (params as ConstitutionRoadmapParamsValue).initiativeId as string,
-          );
+          const constitution = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "constitution_roadmap unlink_initiative",
+            families: ["constitution"],
+            action: () =>
+              store.unlinkInitiative(
+                requireItemId((params as ConstitutionRoadmapParamsValue).itemId),
+                (params as ConstitutionRoadmapParamsValue).initiativeId as string,
+              ),
+            refresh: () => refreshConstitutionProjection(ctx.cwd),
+          });
           return machineResult({ action: params.action, constitution }, renderConstitutionDetail(constitution));
         }
       }
+      throw new Error(`Unsupported constitution_write action: ${String(params.action)}`);
     },
   });
 

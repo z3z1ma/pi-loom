@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { exportSpecProjections } from "../domain/projection.js";
 
 vi.mock("@mariozechner/pi-ai", () => ({
   StringEnum: (values: readonly string[]) => ({ type: "string", enum: [...values] }),
@@ -297,4 +298,93 @@ describe("spec tools", () => {
       cleanup();
     }
   }, 15000);
+
+  it("refreshes exported spec projections after successful spec writes", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+      const mockPi = createMockPi();
+      const { registerSpecTools } = await import("../tools/spec.js");
+      registerSpecTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+      const specWrite = getTool(mockPi, "spec_write");
+
+      await specWrite.execute(
+        "call-1",
+        { action: "propose", title: "Workspace projections", summary: "Expose readable projections." },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const exported = await exportSpecProjections(cwd);
+      const before = readFileSync(exported.files[0].path, "utf-8");
+
+      await specWrite.execute(
+        "call-2",
+        {
+          action: "specify",
+          ref: "workspace-projections",
+          designNotes: "Use CSS variables and persistence.",
+          capabilities: [
+            {
+              title: "Projection refresh",
+              summary: "Refresh exported projections after canonical writes.",
+              requirements: ["Projection files stay in sync with canonical records."],
+              acceptance: ["The refreshed projection includes updated design notes."],
+              scenarios: ["An operator updates the spec and sees the exported file refresh."],
+            },
+          ],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      const after = readFileSync(exported.files[0].path, "utf-8");
+      expect(after).toContain("Projection refresh");
+      expect(after).toContain("Projection files stay in sync with canonical records.");
+      expect(after).not.toBe(before);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("fails closed when a spec projection is dirty", async () => {
+    const { cwd, cleanup } = createTempWorkspace();
+    try {
+      process.env.PI_LOOM_ROOT = join(cwd, ".pi-loom-test");
+      const mockPi = createMockPi();
+      const { registerSpecTools } = await import("../tools/spec.js");
+      registerSpecTools(mockPi as unknown as ExtensionAPI);
+      const ctx = createContext(cwd);
+      const specWrite = getTool(mockPi, "spec_write");
+
+      await specWrite.execute(
+        "call-1",
+        { action: "propose", title: "Workspace projections", summary: "Expose readable projections." },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const exported = await exportSpecProjections(cwd);
+      writeFileSync(exported.files[0].path, "Locally edited spec projection\n", "utf-8");
+
+      await expect(
+        specWrite.execute(
+          "call-2",
+          {
+            action: "specify",
+            ref: "workspace-projections",
+            designNotes: "This should be blocked.",
+            capabilities: [],
+          },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("Blocked spec_write specify because exported workspace projections are dirty.");
+    } finally {
+      cleanup();
+    }
+  });
 });
