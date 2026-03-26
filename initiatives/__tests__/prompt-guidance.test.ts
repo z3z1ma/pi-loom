@@ -17,6 +17,7 @@ describe("initiative prompt guidance", () => {
     expect(guidance).toContain(
       "create or update a plan rather than stretching the initiative itself into a ticket-by-ticket scratchpad or execution journal",
     );
+    expect(guidance).toContain("specs as standalone declarative behavior contracts for intended system behavior");
     expect(guidance).toContain("plans as the durable execution-strategy layer");
     expect(guidance).toContain("docs as the post-completion explanatory layer");
     expect(guidance).toContain("update documentation memory so the high-level narrative stays truthful");

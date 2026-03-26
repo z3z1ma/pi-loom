@@ -16,6 +16,7 @@ describe("docs prompt guidance", () => {
       "someone who was not present for the implementation can still understand what changed and why it matters",
     );
     expect(guidance).toContain("do not write shallow blurbs or minimal summaries");
+    expect(guidance).toContain("specs as standalone declarative behavior contracts for intended system behavior");
     expect(guidance).toContain("plans as the execution-strategy layer");
     expect(guidance).toContain("use plans for pre-completion execution strategy");
     expect(guidance).toContain("preserve revision history");

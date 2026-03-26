@@ -12,6 +12,7 @@ describe("research prompt guidance", () => {
     expect(guidance).toContain("preserve rejected hypotheses");
     expect(guidance).toContain("record artifacts as canonical evidence packages");
     expect(guidance).toContain("constitutional memory as the durable project-policy layer");
+    expect(guidance).toContain("specs as standalone declarative behavior contracts for intended system behavior");
     expect(guidance).toContain("plans as the execution-strategy layer for staged multi-ticket work");
     expect(guidance).toContain("docs as the post-completion explanatory layer");
     expect(guidance).toContain("update documentation memory so the durable explanation stays truthful");

@@ -14,6 +14,7 @@ describe("constitutional prompt guidance", () => {
       "what changed, why it changed, what remains uncertain, and which artifacts are affected",
     );
     expect(guidance).toContain("research is the evidence corpus, initiatives are strategic containers");
+    expect(guidance).toContain("specs are standalone declarative behavior contracts for intended system behavior");
     expect(guidance).toContain("plans as the detailed-at-that-layer container");
     expect(guidance).toContain("docs are the post-completion explanatory layer");
     expect(guidance).toContain("update documentation memory so high-level project explanations stay truthful");

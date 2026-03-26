@@ -70,14 +70,14 @@ The current Loom stack is:
 - constitutional memory for durable project vision, principles, constraints, roadmap intent, and logged decisions
 - research for durable discovery, evidence, and upstream context
 - initiatives for durable strategic outcome context
-- specs for durable declarative behavior contracts that stay independent of current implementation details
+- specs for durable standalone declarative behavior contracts that stay independent of current implementation details and continue to make sense even when implementation strategy changes
 - plans for durable execution strategy and linked multi-ticket rollouts
 - tickets for durable execution state
 - Ralph orchestration for bounded plan/execute/review loops that compose with tickets and related Loom context without replacing tickets as shared repo truth
 - critique for durable adversarial review packets, verdicts, findings, and follow-up work
 - docs for durable high-level architecture, workflow, concept, and operations understanding after completed work changes the system narrative
 
-Specs capture the intended behavior of the system independent of the current code shape. Plans sit between specs (or broader initiative/workspace context) and tickets: they translate declarative contracts into implementation strategy against the current codebase, keep a thin execution narrative plus a linked ticket set, and carry ticket linkage so specs can stay declarative rather than turning into rollout documents.
+Specs capture the intended behavior of the system independent of the current code shape. Each spec should stand on its own as a bounded contract for one capability or behavior slice rather than reading like a work order or migration note. Plans sit between specs (or broader initiative/workspace context) and tickets: they translate declarative contracts into implementation strategy against the current codebase, keep a thin execution narrative plus a linked ticket set, and carry ticket linkage so specs can stay declarative rather than turning into rollout documents.
 
 Initiatives should link back to constitutional roadmap items where applicable so strategic work can be traced to explicit constitutional commitments rather than only to local execution metadata.
 

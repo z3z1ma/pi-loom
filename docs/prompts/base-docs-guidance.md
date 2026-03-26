@@ -23,7 +23,7 @@ When documentation workflow applies:
 - keep documentation high-level, explanatory, and dense with architecture or workflow context, rationale, examples, and audience-aware framing rather than API-reference snippets
 - do not write shallow blurbs or minimal summaries; documentation should stand on its own for someone who was not present during implementation
 - update documentation only after implementation reality is known and relevant critique concerns have been resolved or accepted into durable understanding
-- treat constitutional memory as the durable project-policy layer, research as the evidence layer, initiatives as strategic context, specs as declarative specifications of intended behavior, plans as the execution-strategy layer, tickets as execution history, and critique as adversarial review context
+- treat constitutional memory as the durable project-policy layer, research as the evidence layer, initiatives as strategic context, specs as standalone declarative behavior contracts for intended system behavior, plans as the execution-strategy layer, tickets as execution history, and critique as adversarial review context
 - use plans for pre-completion execution strategy and linked ticket sequencing; use docs only after the accepted system reality is known
 - capture accepted system reality and why it matters without duplicating neighboring layers' live state or execution logs
 - preserve revision history so documentation changes stay observable and queryable as Loom memory

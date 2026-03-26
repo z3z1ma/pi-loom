@@ -18,6 +18,7 @@ describe("plan prompt guidance", () => {
     expect(guidance).toContain(
       "use the ticket layer to create, refine, or link tickets explicitly. Plans wrap those tickets in broader execution context",
     );
+    expect(guidance).toContain("specs as standalone declarative behavior contracts for intended system behavior");
     expect(guidance).toContain("self-contained workplan for a novice reader");
     expect(guidance).toContain("Required plan sections are");
     expect(guidance).toContain("`Idempotence and Recovery`");
