@@ -23,22 +23,22 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:workspace-projections-guide",
-      "contentHash": "9693e101cdda7deb61e441fc1a9a7d2704cb9abf2950cbeeeec25b14e80652a7",
+      "contentHash": "442e00cdb27f3eba08a9c38d6e48e2ab37243d004666a6f030dacfc638e97833",
       "editability": {
         "mode": "full"
       },
       "relativePath": "guides/workspace-projections-guide.md",
-      "revisionToken": "7bcdebd437874fbeb9e55604b425657fa54ce74916d73d6346513378308dcb85"
+      "revisionToken": "c209ed49036913a07b6a3d9ff0aed88deaf5fa96fff83cc235173d6e244c9916"
     },
     {
       "baseVersion": null,
       "canonicalRef": "doc:worktree-branch-family-workflow",
-      "contentHash": "a489cd45d8879c6fbe44d1162be823e51ae6814514e9fd6b01206d810e7bbb37",
+      "contentHash": "b99d58056590f97c6147a2b9600089e38fb2085ce3de8ddfa4ce948a1957927a",
       "editability": {
         "mode": "full"
       },
       "relativePath": "guides/worktree-branch-family-workflow.md",
-      "revisionToken": "84a6897acf4f008a8c74e66ac1d352c13508c74a87aba443fcb8f4a38a87b8ca"
+      "revisionToken": "a95e2fd4ae004f78de03dac06d4af1f5bb206f9bb564f551dcfc47d414fd79d8"
     },
     {
       "baseVersion": null,
@@ -72,6 +72,26 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "doc:canonical-data-plane-and-storage-model-overview",
+      "contentHash": "e31a09ebd56a0faa222bb14e593c22f6af86b204763246e2f6aa18ff83265900",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/canonical-data-plane-and-storage-model-overview.md",
+      "revisionToken": "877624fbd7aa2776d856047a2d04a45b2429493c2cd1f07beec16d60c7c11b1e"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:constitutional-memory-overview",
+      "contentHash": "d5e463d2a2952b2f2d700975b491bca24e935171f44d7eacced5cafa9a72bfe4",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/constitutional-memory-overview.md",
+      "revisionToken": "484ebb03ee2591e89d2874f97539a98474bc7a2cc2eb0b23a23fb4925349872b"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "doc:curated-documentation-governance",
       "contentHash": "1f8c9dabac2e202794fc5b2c8584ea6ad0f0f9a8e566168eda624d20a707c8c2",
       "editability": {
@@ -79,6 +99,16 @@
       },
       "relativePath": "overviews/curated-documentation-governance.md",
       "revisionToken": "8560dd3342159227670e5c41a922baa862215e6ddb1de830a6a9c5b4931d64a0"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:documentation-memory-overview",
+      "contentHash": "86c5358b609d1e72734e50db67c12a2a0d58595af2357a07a1d7c7a45e93e645",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/documentation-memory-overview.md",
+      "revisionToken": "a7bd846e6236fa18f76a882049fb386f31628e06e6fda6530ff207c6b0a72e46"
     },
     {
       "baseVersion": null,
@@ -113,12 +143,12 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:pi-loom-operating-model-overview",
-      "contentHash": "904fbfa6787cbb83b6bd4b98a758bcc9d5d09857e2147b36c045e1857c2d703e",
+      "contentHash": "683ac55ee9924dea6adb2b515c9138585f49b8ba5b507c98c21515333a872273",
       "editability": {
         "mode": "full"
       },
       "relativePath": "overviews/pi-loom-operating-model-overview.md",
-      "revisionToken": "d14cdafdea57f69f59c569ffcde7b00a55760fe88f781d50e9c3062092f23c89"
+      "revisionToken": "476a0b443b85b7fbdd3790f6933d1e07580b7c726a2a1498a22f8e7e9002750f"
     },
     {
       "baseVersion": null,
@@ -149,6 +179,16 @@
       },
       "relativePath": "overviews/ticket-documentation-closeout-gate.md",
       "revisionToken": "982d6878bd08a7970edb9a5b975f3ab76254ff5cdfff03a71fcf9dda92348cea"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:ticket-ledger-and-execution-records-overview",
+      "contentHash": "0cddf07ab75abd94e26f7b2a2c2fca5038fcd28e713d8388f946184b8f40e187",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/ticket-ledger-and-execution-records-overview.md",
+      "revisionToken": "0a1e38e4475e0828ebb98ae61fdb36401c50d90dadaad56d0fe33fbec7f87dd5"
     },
     {
       "baseVersion": null,
