@@ -10,9 +10,9 @@ import type {
   HypothesisConfidence,
   ResearchArtifactKind,
   ResearchArtifactRecord,
-  ResearchOverview,
   ResearchHypothesisRecord,
   ResearchHypothesisStatus,
+  ResearchOverview,
   ResearchState,
 } from "./models.js";
 import { normalizeStringList } from "./normalize.js";

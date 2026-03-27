@@ -43,6 +43,8 @@ import type {
   CreateTicketInput,
   DeleteTicketResult,
   JournalKind,
+  TicketDocsImpactInput,
+  TicketDocsImpactState,
   TicketGraphResult,
   TicketListFilter,
   TicketReadResult,
@@ -53,6 +55,7 @@ import type {
 import {
   currentTimestamp,
   formatTicketId,
+  normalizeDocsDisposition,
   normalizeOptionalString,
   normalizeStringList,
   normalizeTicketBranchIntent,
@@ -117,6 +120,31 @@ interface TicketWorkspaceProjectionCurrentEntry {
   record: TicketReadResult;
   selection: TicketProjectionSelection;
   renderedContent: string;
+}
+
+interface LinkedDocumentationSummary {
+  id: string;
+  title: string;
+  status: string;
+  topicId: string | null;
+  topicRole: string;
+  publicationStatus: string;
+  recommendedAction: string;
+}
+
+interface LinkedDocumentationFinding {
+  id: string;
+  kind: string;
+  severity: string;
+  title: string;
+  docIds: string[];
+  recommendedAction: string;
+}
+
+interface TicketCloseoutContext {
+  docsImpact: TicketDocsImpactState;
+  linkedDocs: LinkedDocumentationSummary[];
+  findings: LinkedDocumentationFinding[];
 }
 
 interface TicketWorkspaceProjectionSnapshot {
@@ -339,6 +367,36 @@ function parsePlanExternalRef(value: string): string | null {
   }
   const planId = trimmed.slice("plan:".length).trim();
   return planId ? planId : null;
+}
+
+function docsImpactFromFrontmatter(frontmatter: TicketRecord["frontmatter"]): TicketDocsImpactState {
+  return {
+    disposition: frontmatter["docs-disposition"],
+    refs: [...frontmatter["docs-refs"]],
+    note: frontmatter["docs-note"],
+    reviewedAt: frontmatter["docs-reviewed-at"],
+  };
+}
+
+function formatDocsImpactSummary(docsImpact: TicketDocsImpactState): string {
+  const disposition = docsImpact.disposition ?? "pending";
+  const refs = docsImpact.refs.length > 0 ? docsImpact.refs.join(", ") : "none";
+  const note = docsImpact.note ?? "none";
+  const reviewedAt = docsImpact.reviewedAt ?? "not reviewed";
+  return `disposition=${disposition}; refs=${refs}; note=${note}; reviewedAt=${reviewedAt}`;
+}
+
+function mergeDocsImpact(
+  frontmatter: TicketRecord["frontmatter"],
+  input: TicketDocsImpactInput | undefined,
+): TicketDocsImpactState {
+  return {
+    disposition:
+      input?.disposition !== undefined ? normalizeDocsDisposition(input.disposition) : frontmatter["docs-disposition"],
+    refs: input?.refs !== undefined ? normalizeStringList(input.refs) : [...frontmatter["docs-refs"]],
+    note: input?.note !== undefined ? normalizeOptionalString(input.note) : frontmatter["docs-note"],
+    reviewedAt: frontmatter["docs-reviewed-at"],
+  };
 }
 
 function projectedLinksForTicket(record: TicketReadResult): ProjectedEntityLinkInput[] {
@@ -835,6 +893,44 @@ export class TicketStore {
     return this.toCanonicalReadResult(record, this.canonicalSummaries(records), this.canonicalGraph(records));
   }
 
+  async readCloseoutContextAsync(ref: string): Promise<TicketCloseoutContext> {
+    const current = await this.readTicketAsync(ref);
+    return this.loadDocsCloseoutContext(current);
+  }
+
+  private async loadDocsCloseoutContext(record: TicketReadResult): Promise<TicketCloseoutContext> {
+    const { createDocumentationStore } = await import("#docs/domain/store.js");
+    const docsStore = createDocumentationStore(this.cwd, this.scope);
+    const linkedDocs = await docsStore.listDocsLinkedToTicket(record.summary.id);
+    const findingsById = new Map<string, LinkedDocumentationFinding>();
+    for (const doc of linkedDocs) {
+      const audit = await docsStore.auditGovernance(doc.id);
+      for (const finding of audit.findings) {
+        findingsById.set(finding.id, {
+          id: finding.id,
+          kind: finding.kind,
+          severity: finding.severity,
+          title: finding.title,
+          docIds: [...finding.docIds],
+          recommendedAction: finding.recommendedAction,
+        });
+      }
+    }
+    return {
+      docsImpact: docsImpactFromFrontmatter(record.ticket.frontmatter),
+      linkedDocs: linkedDocs.map((doc) => ({
+        id: doc.id,
+        title: doc.title,
+        status: doc.status,
+        topicId: doc.topicId,
+        topicRole: doc.topicRole,
+        publicationStatus: doc.governance.publicationStatus,
+        recommendedAction: doc.governance.recommendedAction,
+      })),
+      findings: [...findingsById.values()].sort((left, right) => left.id.localeCompare(right.id)),
+    };
+  }
+
   private async prepareTicketWorkspaceProjectionSnapshot(
     options: TicketWorkspaceProjectionOptions = {},
   ): Promise<TicketWorkspaceProjectionSnapshot> {
@@ -1085,6 +1181,9 @@ export class TicketStore {
         branchMode: parsed.frontmatter["branch-mode"],
         branchFamily: parsed.frontmatter["branch-family"],
         exactBranchName: parsed.frontmatter["exact-branch-name"],
+        docsDisposition: parsed.frontmatter["docs-disposition"] ?? undefined,
+        docsRefs: parsed.frontmatter["docs-refs"],
+        docsNote: parsed.frontmatter["docs-note"],
         summary: parsed.body.summary,
         context: parsed.body.context,
         plan: parsed.body.plan,
@@ -1098,7 +1197,9 @@ export class TicketStore {
 
       let next = await this.updateTicketAsync(current.summary.id, updatePatch, { allowDirtyProjectionWrite: true });
       if (!currentClosed && desiredClosed) {
-        next = await this.closeTicketAsync(current.summary.id, undefined, { allowDirtyProjectionWrite: true });
+        next = await this.closeTicketAsync(current.summary.id, undefined, undefined, {
+          allowDirtyProjectionWrite: true,
+        });
       } else if (desiredStatus === "in_progress" && next.ticket.frontmatter.status !== "in_progress") {
         next = await this.startTicketAsync(current.summary.id, { allowDirtyProjectionWrite: true });
       }
@@ -1144,6 +1245,11 @@ export class TicketStore {
         "branch-mode": branchIntent.branchMode,
         "branch-family": branchIntent.branchFamily,
         "exact-branch-name": branchIntent.exactBranchName,
+        "docs-disposition":
+          input.docsDisposition !== undefined ? normalizeDocsDisposition(input.docsDisposition) : null,
+        "docs-refs": normalizeStringList(input.docsRefs),
+        "docs-note": normalizeOptionalString(input.docsNote),
+        "docs-reviewed-at": null,
       },
       body: createEmptyBody({
         summary: input.summary,
@@ -1267,6 +1373,10 @@ export class TicketStore {
     record.frontmatter["branch-mode"] = branchIntent.branchMode;
     record.frontmatter["branch-family"] = branchIntent.branchFamily;
     record.frontmatter["exact-branch-name"] = branchIntent.exactBranchName;
+    if (updates.docsDisposition !== undefined)
+      record.frontmatter["docs-disposition"] = normalizeDocsDisposition(updates.docsDisposition);
+    if (updates.docsRefs !== undefined) record.frontmatter["docs-refs"] = normalizeStringList(updates.docsRefs);
+    if (updates.docsNote !== undefined) record.frontmatter["docs-note"] = normalizeOptionalString(updates.docsNote);
     if (updates.status !== undefined) record.frontmatter.status = updates.status;
     if (updates.summary !== undefined) record.body.summary = updates.summary.trim();
     if (updates.context !== undefined) record.body.context = updates.context.trim();
@@ -1483,15 +1593,141 @@ export class TicketStore {
     return this.readTicketAsync(current.summary.id);
   }
 
+  private renderCloseoutContext(context: TicketCloseoutContext): string {
+    const linkedDocs =
+      context.linkedDocs.length > 0
+        ? context.linkedDocs
+            .map(
+              (doc) =>
+                `- ${doc.id} [${doc.status}/${doc.publicationStatus}] ${doc.title} (${doc.topicId ?? "migration-debt"}/${doc.topicRole}) → ${doc.recommendedAction}`,
+            )
+            .join("\n")
+        : "- none";
+    const findings =
+      context.findings.length > 0
+        ? context.findings
+            .map(
+              (finding) =>
+                `- ${finding.id} [${finding.severity}/${finding.kind}] ${finding.title} → ${finding.recommendedAction}`,
+            )
+            .join("\n")
+        : "- none";
+    return [
+      `Current docs impact: ${formatDocsImpactSummary(context.docsImpact)}`,
+      "Linked docs:",
+      linkedDocs,
+      "Open audit findings:",
+      findings,
+    ].join("\n");
+  }
+
+  private async assertCloseoutReady(
+    current: TicketReadResult,
+    verificationNote: string | undefined,
+    docsImpactInput: TicketDocsImpactInput | undefined,
+  ): Promise<{ docsImpact: TicketDocsImpactState; journalText: string }> {
+    const verificationText = [current.ticket.body.verification, verificationNote?.trim()]
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+    const closeoutContext = await this.loadDocsCloseoutContext(current);
+    const docsImpact = mergeDocsImpact(current.ticket.frontmatter, docsImpactInput);
+
+    if (!verificationText) {
+      throw new Error(
+        `Ticket ${current.summary.id} requires concrete verification evidence before it can close. Add verification text or close with a verification note.`,
+      );
+    }
+
+    if (!docsImpact.disposition) {
+      throw new Error(
+        [
+          `Ticket ${current.summary.id} requires a documentation disposition before it can close.`,
+          "Set docsDisposition to update, create, supersede, archive, or waive.",
+          "Use docsRefs for concrete doc evidence when documentation changed, or docsNote for an explainable waiver.",
+          "",
+          this.renderCloseoutContext(closeoutContext),
+        ].join("\n"),
+      );
+    }
+
+    if (docsImpact.disposition === "waive") {
+      if (!docsImpact.note) {
+        throw new Error(
+          [
+            `Ticket ${current.summary.id} uses docsDisposition=waive but is missing docsNote.`,
+            "Record why the completed work does not change the governed documentation surface, then retry closeout.",
+            "",
+            this.renderCloseoutContext(closeoutContext),
+          ].join("\n"),
+        );
+      }
+      return {
+        docsImpact,
+        journalText: verificationNote?.trim() || "Closed ticket with recorded verification evidence and docs waiver",
+      };
+    }
+
+    if (docsImpact.refs.length === 0) {
+      throw new Error(
+        [
+          `Ticket ${current.summary.id} uses docsDisposition=${docsImpact.disposition} but is missing docsRefs.`,
+          "Provide the governed doc ids that were created, updated, superseded, or archived as closeout evidence.",
+          "",
+          this.renderCloseoutContext(closeoutContext),
+        ].join("\n"),
+      );
+    }
+
+    const { createDocumentationStore } = await import("#docs/domain/store.js");
+    const docsStore = createDocumentationStore(this.cwd, this.scope);
+    for (const docRef of docsImpact.refs) {
+      const doc = await docsStore.readDoc(docRef);
+      const sourceTargetMatches =
+        doc.state.sourceTarget.kind === "ticket" &&
+        normalizeTicketRef(doc.state.sourceTarget.ref) === current.summary.id;
+      const contextLinkMatches = doc.state.contextRefs.ticketIds.includes(current.summary.id);
+      if (!sourceTargetMatches && !contextLinkMatches) {
+        throw new Error(
+          `Documentation ${doc.summary.id} is not linked to ticket ${current.summary.id}. Link the doc to this ticket through sourceTarget or contextRefs before closing.`,
+        );
+      }
+      const audit = await docsStore.auditGovernance(doc.summary.id);
+      if (audit.findings.length > 0) {
+        throw new Error(
+          [
+            `Documentation ${doc.summary.id} still has unresolved governance findings and cannot satisfy ticket closeout evidence.`,
+            ...audit.findings.map(
+              (finding) =>
+                `- ${finding.id} [${finding.severity}/${finding.kind}] ${finding.title} → ${finding.recommendedAction}`,
+            ),
+          ].join("\n"),
+        );
+      }
+    }
+
+    return {
+      docsImpact,
+      journalText:
+        verificationNote?.trim() || "Closed ticket with recorded verification evidence and documentation updates",
+    };
+  }
+
   async closeTicketAsync(
     ref: string,
     verificationNote?: string,
+    docsImpactInput?: TicketDocsImpactInput,
     options: { allowDirtyProjectionWrite?: boolean } = {},
   ): Promise<TicketReadResult> {
     const current = await this.readTicketAsync(ref);
+    const { docsImpact, journalText } = await this.assertCloseoutReady(current, verificationNote, docsImpactInput);
     const timestamp = currentTimestamp();
     current.ticket.frontmatter.status = "closed";
     current.ticket.frontmatter["updated-at"] = timestamp;
+    current.ticket.frontmatter["docs-disposition"] = docsImpact.disposition;
+    current.ticket.frontmatter["docs-refs"] = docsImpact.refs;
+    current.ticket.frontmatter["docs-note"] = docsImpact.note;
+    current.ticket.frontmatter["docs-reviewed-at"] = timestamp;
     current.ticket.closed = true;
     if (verificationNote?.trim()) {
       current.ticket.body.verification = [current.ticket.body.verification, verificationNote.trim()]
@@ -1503,9 +1739,15 @@ export class TicketStore {
       createJournalEntry(
         current.summary.id,
         "verification",
-        verificationNote?.trim() || "Closed ticket",
+        journalText,
         timestamp,
-        { action: "close" },
+        {
+          action: "close",
+          docsDisposition: docsImpact.disposition,
+          docsRefs: docsImpact.refs,
+          docsNote: docsImpact.note,
+          docsReviewedAt: timestamp,
+        },
         current.journal.length + 1,
       ),
     ];
@@ -1524,6 +1766,7 @@ export class TicketStore {
     const timestamp = currentTimestamp();
     current.ticket.frontmatter.status = "open";
     current.ticket.frontmatter["updated-at"] = timestamp;
+    current.ticket.frontmatter["docs-reviewed-at"] = null;
     current.ticket.closed = false;
     current.journal = [
       ...current.journal,

@@ -350,7 +350,10 @@ async function recordBoundTicketActivity(
     await ticketStore.addJournalEntryAsync(ticketId, "verification", options.verificationText);
   }
   if (options.close) {
-    await ticketStore.closeTicketAsync(ticketId, options.verificationText ?? "Verified during bounded iteration.");
+    await ticketStore.closeTicketAsync(ticketId, options.verificationText ?? "Verified during bounded iteration.", {
+      disposition: "waive",
+      note: "No governed docs changed in this test.",
+    });
   }
 }
 

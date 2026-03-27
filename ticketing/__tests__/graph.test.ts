@@ -6,6 +6,11 @@ import { buildTicketGraph, ticketGraphNodeKey, ticketGraphQualifiedId } from "..
 import type { TicketSummary } from "../domain/models.js";
 import { createTicketStore } from "../domain/store.js";
 
+const TEST_DOCS_WAIVER = {
+  disposition: "waive" as const,
+  note: "No governed docs changed in this test.",
+};
+
 describe("ticket dependency graph", () => {
   let workspace: string;
 
@@ -49,7 +54,7 @@ describe("ticket dependency graph", () => {
     );
 
     vi.setSystemTime(new Date("2024-05-01T00:00:03.000Z"));
-    await store.closeTicketAsync(foundation.summary.id, "Database healthy");
+    await store.closeTicketAsync(foundation.summary.id, "Database healthy", TEST_DOCS_WAIVER);
     const resolvedGraph = await createTicketStore(workspace).graphAsync();
     expect(resolvedGraph.ready.map((ref) => ref.id)).toEqual([dependent.summary.id, statusPage.summary.id]);
     expect(resolvedGraph.blocked).toEqual([]);
@@ -147,7 +152,7 @@ describe("ticket dependency graph", () => {
     expect(store.resolveTicketRef(created.ticket.ref)).toBe(id);
 
     vi.setSystemTime(new Date("2024-05-02T00:00:01.000Z"));
-    const closed = await store.closeTicketAsync(id, "Reference ref stays stable after closure");
+    const closed = await store.closeTicketAsync(id, "Reference ref stays stable after closure", TEST_DOCS_WAIVER);
     expect(closed.ticket.ref).toBe(`ticket:${id}`);
     expect(store.resolveTicketRef(closed.ticket.ref)).toBe(id);
   }, 30000);

@@ -4,6 +4,7 @@ import {
   TICKET_PRIORITIES,
   TICKET_RISKS,
   TICKET_TYPES,
+  type TicketDocsDisposition,
   type TicketReadResult,
   type TicketReviewStatus,
   type TicketRisk,
@@ -136,6 +137,87 @@ function promptTitle(ctx: ExtensionCommandContext, initialValue: string): Promis
   return ctx.ui.input("Ticket title", initialValue || "Short human-readable title");
 }
 
+function parseDocsRefsInput(value: string | undefined): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function renderCloseoutPromptSummary(
+  closeout: Awaited<ReturnType<ReturnType<typeof createTicketStore>["readCloseoutContextAsync"]>>,
+): string {
+  const linkedDocs =
+    closeout.linkedDocs.length > 0
+      ? closeout.linkedDocs
+          .map((doc) => `${doc.id} [${doc.status}/${doc.publicationStatus}] ${doc.title} → ${doc.recommendedAction}`)
+          .join("\n")
+      : "none";
+  const findings =
+    closeout.findings.length > 0
+      ? closeout.findings.map((finding) => `${finding.severity}/${finding.kind} ${finding.title}`).join("\n")
+      : "none";
+  return [
+    `Current docs disposition: ${closeout.docsImpact.disposition ?? "pending"}`,
+    `Current docs refs: ${closeout.docsImpact.refs.join(", ") || "none"}`,
+    `Linked docs:\n${linkedDocs}`,
+    `Open audit findings:\n${findings}`,
+  ].join("\n\n");
+}
+
+async function promptDocsCloseout(
+  ctx: ExtensionCommandContext,
+  store: ReturnType<typeof createTicketStore>,
+  ref: string,
+): Promise<{ disposition?: TicketDocsDisposition; refs?: string[]; note?: string }> {
+  const closeout = await store.readCloseoutContextAsync(ref);
+  if (!ctx.hasUI) {
+    return {
+      disposition: closeout.docsImpact.disposition ?? undefined,
+      refs: closeout.docsImpact.refs,
+      note: closeout.docsImpact.note ?? undefined,
+    };
+  }
+
+  const disposition = (
+    await ctx.ui.input(
+      `Close ${ref}: docs disposition (update, create, supersede, archive, waive)\n\n${renderCloseoutPromptSummary(closeout)}`,
+      closeout.docsImpact.disposition ?? "",
+    )
+  )?.trim();
+
+  if (!disposition) {
+    return {
+      disposition: undefined,
+      refs: closeout.docsImpact.refs,
+      note: closeout.docsImpact.note ?? undefined,
+    };
+  }
+
+  if (disposition === "waive") {
+    const note = await ctx.ui.editor(
+      `Close ${ref}: docs waiver reason\n\nExplain why this completed work does not require a governed docs change.`,
+      closeout.docsImpact.note ?? "",
+    );
+    return { disposition, note: note?.trim() };
+  }
+
+  const refs = parseDocsRefsInput(
+    await ctx.ui.input(
+      `Close ${ref}: docs refs\n\nProvide governed doc ids separated by commas.`,
+      closeout.docsImpact.refs.join(", "),
+    ),
+  );
+  return {
+    disposition: disposition as TicketDocsDisposition,
+    refs,
+    note: closeout.docsImpact.note ?? undefined,
+  };
+}
+
 async function promptFieldUpdate(
   ctx: ExtensionCommandContext,
   ref: string,
@@ -243,12 +325,17 @@ async function performWorkspaceAction(
       } else if (action.status === "review") {
         updated = await store.updateTicketAsync(action.ref, { status: "review" });
       } else {
+        const docsCloseout = await promptDocsCloseout(ctx, store, action.ref);
         const verificationNote = action.verificationNote?.trim()
           ? action.verificationNote.trim()
           : ctx.hasUI
             ? (await ctx.ui.editor(`Close ${action.ref}: verification`, ""))?.trim()
             : undefined;
-        updated = await store.closeTicketAsync(action.ref, verificationNote);
+        updated = await store.closeTicketAsync(action.ref, verificationNote, {
+          disposition: docsCloseout.disposition,
+          refs: docsCloseout.refs,
+          note: docsCloseout.note,
+        });
       }
       await safeSyncTicketHomeWidget(ctx);
       notifyTicketResult(ctx, updated);

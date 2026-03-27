@@ -4,10 +4,23 @@ title: "Pi Chief orchestration overview"
 status: archived
 type: overview
 section: overviews
+topic-id: null
+topic-role: legacy
+publication-status: legacy-migration-debt
+publication-summary: "Legacy readable doc with missing governed topic ownership metadata."
+recommended-action: backfill-topic-metadata
+current-owner: null
+active-owners: []
 audience:
   - ai
   - human
 source: workspace:.
+verified-at: null
+verification-source: null
+successor: null
+successor-title: null
+predecessors: []
+retirement-reason: null
 topics:
   - chief
   - daemon

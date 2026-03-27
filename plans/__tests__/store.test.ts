@@ -242,7 +242,10 @@ describe("PlanStore durable memory", () => {
       role: "review",
       order: 2,
     });
-    await ticketStore.closeTicketAsync(reviewTicket.summary.id, "Critique and overview tests pass.");
+    await ticketStore.closeTicketAsync(reviewTicket.summary.id, "Critique and overview tests pass.", {
+      disposition: "waive",
+      note: "No governed docs changed in this test.",
+    });
     const linkedClosed = await planStore.readPlan(linkedPlan.state.planId);
 
     expect(linkedClosed.state.planId).toBe("planning-layer-rollout");

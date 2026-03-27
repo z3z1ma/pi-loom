@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { ResearchRecord } from "../domain/models.js";
 import {
   buildResearchProjection,
   createResearchProjectionManifest,
-  reconcileResearchProjection,
   RESEARCH_PROJECTION_EDITABLE_SECTIONS,
+  reconcileResearchProjection,
 } from "../domain/projection.js";
-import type { ResearchRecord } from "../domain/models.js";
 
 function sampleResearchRecord(overrides: Partial<ResearchRecord["state"]> = {}): ResearchRecord {
   return {

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { PlanReadResult, PlanState } from "../domain/models.js";
 import {
   buildPlanProjection,
   createPlanProjectionManifest,
+  PLAN_PROJECTION_EDITABLE_SECTIONS,
   reconcilePlanProjection,
   resolvePlanProjectionRelativePath,
-  PLAN_PROJECTION_EDITABLE_SECTIONS,
 } from "../domain/projection.js";
-import type { PlanReadResult, PlanState } from "../domain/models.js";
 
 function samplePlanState(overrides: Partial<PlanState> = {}): PlanState {
   return {

@@ -35,6 +35,7 @@ When ticketing applies:
 - keep stored state truthful as work evolves
 - journal decisions, discoveries, blockers, scope changes, failed attempts, acceptance progress, and verification as they happen so the ledger stays durable across turns
 - update ticket fields and journal entries as reality changes instead of leaving stale intent in place
+- when significant work closes, record an explicit documentation disposition with concrete evidence: cite the governed docs that changed, or record a waiver reason that explains why the explanatory surface is unchanged
 - record attachments and checkpoints when they improve auditability or handoff
 - inspect dependencies before proposing sequence or parallelism
 - treat constitutional memory as the durable project-policy layer, research as the upstream evidence layer, specs as standalone declarative behavior contracts when present, plans as the durable execution-strategy layer that turns those contracts and broader context into ticketed work, critique as the adversarial review layer, docs as the post-completion explanatory layer, and treat tickets as both the durable source of live execution truth and the complete self-contained definition of each unit of work

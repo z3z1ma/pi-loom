@@ -11,5 +11,5 @@ export function getBaseDocsGuidance(): string {
 }
 
 export function buildDocsSystemPrompt(_cwd: string): string {
-  return `${BASE_GUIDANCE}\n\nDocumentation state is persisted in SQLite via pi-storage. Prefer docs packets and durable high-level documentation over chat-only explanations.`;
+  return `${BASE_GUIDANCE}\n\nDocumentation state is persisted in SQLite via pi-storage. Prefer docs packets and durable high-level documentation over chat-only explanations. Governed docs expose topic ownership, lifecycle, publication truth, and successor state explicitly; update or supersede the current surface instead of fragmenting it with parallel active docs.`;
 }

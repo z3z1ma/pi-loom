@@ -4,10 +4,24 @@ title: "Workspace projections guide"
 status: active
 type: guide
 section: guides
+topic-id: workspace-projections
+topic-role: companion
+publication-status: current-companion
+publication-summary: "Current companion doc beneath active topic owner workspace-projections."
+recommended-action: update-current-companion
+current-owner: workspace-projections
+active-owners:
+  - workspace-projections
 audience:
   - ai
   - human
 source: workspace:workspace
+verified-at: 2026-03-27T10:46:33.159Z
+verification-source: manual:pl-0131-iter-001
+successor: null
+successor-title: null
+predecessors: []
+retirement-reason: null
 topics:
   - explicit-reconcile
   - loom-sync
@@ -15,68 +29,33 @@ topics:
   - projection-families
   - ticket-retention
   - workspace-projections
-outputs: []
+outputs:
+  - https-github-com-z3z1ma-pi-loom-git:README.md
 upstream-path: README.md
 ---
 
 # Workspace projections guide
 
-## Purpose
+Workspace projections are the repo-visible `.loom/<family>/...` review surfaces for canonical Loom records. They are derived outputs from SQLite-backed state, not a second system of record.
 
-Workspace projections are the repo-visible `.loom/<family>/...` review surfaces for canonical Loom records. They make durable SQLite-backed state readable and selectively editable from the repository without turning markdown into a second system of record.
+## What projections are for
 
-The important design constraint is that projections are derived views, not canonical truth. SQLite remains the source of truth for every projected layer.
+Projections make canonical Loom records readable and selectively editable from the repository when a workflow intentionally needs that surface. They exist for review, export, and explicit reconcile flows.
 
-## Supported projection families
+## What projections are not
 
-The shipped projection families are:
+Packets are not projections. Docs, plan, critique, and Ralph packets are bounded handoff artifacts compiled from canonical state. They are never reconcile targets.
 
-- `constitution`
-- `research`
-- `initiatives`
-- `specs`
-- `plans`
-- `docs`
-- `tickets`
+## Current sync workflow
 
-Critique and Ralph are intentionally excluded from `.loom/` projections. They still have durable memory and runtime artifacts, but those layers remain canonical-only and do not become projection families.
+Human operators use `/loom-status`, `/loom-export`, `/loom-refresh`, and `/loom-reconcile` to inspect, export, refresh, and reconcile projections. AI callers use `projection_status` and `projection_write`.
 
-## Projections are not packets
+There is no hidden file-save autosync. Dirty projected files block canonical writes and packet launches until the operator either reconciles intentional edits or refreshes back to canonical output.
 
-Projections and packets serve different purposes:
+## Family boundaries
 
-- projections are repo-visible exports of canonical records
-- packets are fresh-process handoff artifacts compiled on demand from canonical state
-- packets are not reconcile targets
-- packets do not autosync from file edits
+Supported projection families are constitution, research, initiatives, specs, plans, docs, and tickets. Critique and Ralph remain canonical-only layers: they produce packets and runtime artifacts, but they do not project into `.loom/`.
 
-This separation matters because packets are short-lived working context for a fresh process, while projections are durable review surfaces that can be inspected, exported, refreshed, or reconciled explicitly.
+## Ticket projection hygiene
 
-## Explicit Loom sync commands
-
-Human-facing sync flows now live at the top level instead of under `/ticket`:
-
-- `/loom-status` inspects whether exported `.loom/` files are clean, modified, missing, or not exported
-- `/loom-export` materializes canonical records into `.loom/<family>/...`
-- `/loom-refresh` re-renders exported files from canonical state
-- `/loom-reconcile` accepts intentional file-side edits back into canonical storage
-
-AI callers continue to use `projection_status` and `projection_write`. There is still no file-save autosync back into SQLite; intentional edits stay local until they are explicitly reconciled.
-
-Dirty projected files are a blocking condition, not a silent merge. Canonical writes and packet launches fail closed until the operator either reconciles the edited projection or refreshes it back to canonical output.
-
-## Ticket Git defaults and retention
-
-Ticket projections have stricter Git defaults because they churn the most.
-
-- `.loom/.gitignore` keeps `tickets/` and `.reconcile/` untracked by default
-- other projection families may still be committed intentionally when a workflow wants them for review
-- ticket retention is selective rather than "all records forever": open tickets, recently updated tickets, active-plan tickets, and tickets labeled `projection:pinned` remain projected
-- archived tickets do not remain in the projection set by default
-- reconcile scratch, conflict leftovers, and local runtime/control-plane files are never shared truth and should stay out of version control
-
-## Why the exclusion matters
-
-Keeping critique and Ralph out of `.loom/` preserves a clean boundary between review/runtime artifacts and repo-visible review surfaces. Those layers already have their own durable records and handoff packets; projecting them would blur the line between canonical memory, handoff context, and filesystem review surfaces.
-
-The result is a small, explicit projection model: stable families get review surfaces, packets stay ephemeral, SQLite remains the only authoritative store, and human operators have a dedicated Loom-wide sync command surface instead of a ticket-owned subcommand.
+Ticket projections churn the most, so `.loom/.gitignore` keeps `tickets/` and `.reconcile/` scratch state untracked by default unless a workflow intentionally wants them committed for review.

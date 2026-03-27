@@ -5,8 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createConstitutionalStore } from "#constitution/domain/store.js";
 import { createInitiativeStore } from "#initiatives/domain/store.js";
 import { createResearchStore } from "#research/domain/store.js";
-import { findEntityByDisplayId } from "#storage/entities.js";
+import { findEntityByDisplayId, upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
+import { createTicketStore } from "#ticketing/domain/store.js";
 import { parseMarkdownArtifact } from "../domain/frontmatter.js";
 import { createDocumentationStore } from "../domain/store.js";
 
@@ -276,4 +277,451 @@ describe("DocumentationStore durable memory", () => {
     expect(reread.packet).toBe(archived.packet);
     expect(reread.overview).toEqual(archived.overview);
   }, 120000);
+
+  it("preserves legacy readability when stored docs predate governance metadata", async () => {
+    const docsStore = createDocumentationStore(workspace);
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    const repository = identity.repository;
+    expect(repository).toBeDefined();
+    if (!repository) {
+      throw new Error("Expected repository identity for legacy docs test.");
+    }
+
+    await upsertEntityByDisplayIdWithLifecycleEvents(
+      storage,
+      {
+        kind: "documentation",
+        spaceId: identity.space.id,
+        owningRepositoryId: repository.id,
+        displayId: "legacy-doc",
+        title: "Legacy doc",
+        summary: "Legacy docs remain readable during migration.",
+        status: "active",
+        version: 1,
+        tags: ["overview"],
+        attributes: {
+          snapshot: {
+            state: {
+              docId: "legacy-doc",
+              title: "Legacy doc",
+              status: "active",
+              docType: "overview",
+              sectionGroup: "overviews",
+              createdAt: "2026-03-20T10:00:00.000Z",
+              updatedAt: "2026-03-20T10:00:00.000Z",
+              summary: "Legacy docs remain readable during migration.",
+              audience: ["ai", "human"],
+              scopePaths: [],
+              contextRefs: {
+                roadmapItemIds: [],
+                initiativeIds: [],
+                researchIds: [],
+                specChangeIds: [],
+                ticketIds: [],
+                critiqueIds: [],
+              },
+              sourceTarget: { kind: "workspace", ref: "repo" },
+              updateReason: "Seed legacy readability test.",
+              guideTopics: ["legacy-docs"],
+              linkedOutputPaths: [],
+              upstreamPath: null,
+              lastRevisionId: null,
+            },
+            revisions: [],
+            documentBody: "## Summary\nLegacy docs remain readable during migration.",
+          },
+        },
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:00:00.000Z",
+      },
+      {
+        actor: "test",
+        createdPayload: { change: "seeded_legacy_doc" },
+        updatedPayload: { change: "seeded_legacy_doc" },
+      },
+    );
+
+    await expect(docsStore.readDoc("legacy-doc")).resolves.toMatchObject({
+      state: {
+        topicId: null,
+        topicRole: "legacy",
+        verifiedAt: null,
+        verificationSource: null,
+        successorDocId: null,
+        retirementReason: null,
+      },
+      summary: {
+        topicId: null,
+        topicRole: "legacy",
+        verifiedAt: null,
+        successorDocId: null,
+      },
+      overview: {
+        topicId: null,
+        topicRole: "legacy",
+        verifiedAt: null,
+        verificationSource: null,
+        successorDocId: null,
+        retirementReason: null,
+      },
+    });
+  });
+
+  it("stores governed topic metadata and supersession links in canonical records", async () => {
+    const docsStore = createDocumentationStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-21T09:00:00.000Z"));
+    const original = await docsStore.createDoc({
+      title: "Curated docs governance",
+      docType: "overview",
+      topicId: "curated-documentation-governance",
+      topicRole: "owner",
+      summary: "Explain how one topic maps to one current overview.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-21T09:00:00.000Z",
+      verificationSource: "ticket:pl-0124",
+      guideTopics: ["docs-governance"],
+      updateReason: "Seed the first governed overview.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-21T09:05:00.000Z"));
+    const successor = await docsStore.createDoc({
+      title: "Curated docs governance v2",
+      docType: "overview",
+      topicId: "curated-documentation-governance",
+      topicRole: "owner",
+      summary: "The current canonical overview for docs governance.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-21T09:05:00.000Z",
+      verificationSource: "ticket:pl-0124",
+      guideTopics: ["docs-governance"],
+      updateReason: "Publish the successor overview.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-21T09:10:00.000Z"));
+    const superseded = await docsStore.supersedeDoc(original.state.docId, {
+      successorDocId: successor.state.docId,
+      updateReason: "Supersede the original overview after publishing the successor.",
+    });
+
+    expect(superseded.state).toMatchObject({
+      status: "superseded",
+      topicId: "curated-documentation-governance",
+      topicRole: "owner",
+      verifiedAt: "2026-03-21T09:00:00.000Z",
+      verificationSource: "ticket:pl-0124",
+      successorDocId: successor.state.docId,
+      retirementReason: null,
+    });
+    expect(superseded.summary).toMatchObject({
+      topicId: "curated-documentation-governance",
+      topicRole: "owner",
+      verifiedAt: "2026-03-21T09:00:00.000Z",
+      successorDocId: successor.state.docId,
+    });
+    expect(superseded.overview).toMatchObject({
+      topicId: "curated-documentation-governance",
+      topicRole: "owner",
+      verifiedAt: "2026-03-21T09:00:00.000Z",
+      verificationSource: "ticket:pl-0124",
+      successorDocId: successor.state.docId,
+      retirementReason: null,
+    });
+    expect(superseded.document).toContain("topic-id: curated-documentation-governance");
+    expect(superseded.document).toContain(`successor: ${successor.state.docId}`);
+    expect(superseded.packet).toContain("## Governance Metadata");
+    expect(superseded.packet).toContain(`- lifecycle: successor=${successor.state.docId}`);
+
+    await expect(
+      docsStore.supersedeDoc(successor.state.docId, {
+        successorDocId: original.state.docId,
+      }),
+    ).rejects.toThrow(`got superseded`);
+  });
+
+  it("curates listDocs defaults and requires explicit access for supporting or historical material", async () => {
+    const docsStore = createDocumentationStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-26T09:00:00.000Z"));
+    const currentOwner = await docsStore.createDoc({
+      title: "Governed topic overview",
+      docType: "overview",
+      topicId: "governed-topic",
+      topicRole: "owner",
+      summary: "Current owner for a governed topic.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-26T09:00:00.000Z",
+      verificationSource: "manual:review",
+    });
+
+    vi.setSystemTime(new Date("2026-03-26T09:05:00.000Z"));
+    const companion = await docsStore.createDoc({
+      title: "Governed topic guide",
+      docType: "guide",
+      topicId: "governed-topic",
+      summary: "Current companion guide beneath the governed topic owner.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-26T09:05:00.000Z",
+      verificationSource: "manual:review",
+    });
+
+    vi.setSystemTime(new Date("2026-03-26T09:10:00.000Z"));
+    const successorOwner = await docsStore.createDoc({
+      title: "Replacement topic overview",
+      docType: "overview",
+      topicId: "replacement-topic",
+      topicRole: "owner",
+      summary: "Current owner for the replacement topic.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-26T09:10:00.000Z",
+      verificationSource: "manual:review",
+    });
+
+    vi.setSystemTime(new Date("2026-03-26T09:15:00.000Z"));
+    const supersededOwner = await docsStore.createDoc({
+      title: "Retired replacement overview",
+      docType: "overview",
+      topicId: "replacement-topic",
+      topicRole: "owner",
+      summary: "Former owner that should become historical.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-26T09:15:00.000Z",
+      verificationSource: "manual:review",
+    });
+
+    vi.setSystemTime(new Date("2026-03-26T09:20:00.000Z"));
+    await docsStore.supersedeDoc(supersededOwner.state.docId, {
+      successorDocId: successorOwner.state.docId,
+      updateReason: "Move current truth to the replacement overview.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-26T09:25:00.000Z"));
+    const archivedGuide = await docsStore.createDoc({
+      title: "Archived governed guide",
+      docType: "guide",
+      topicId: "replacement-topic",
+      summary: "Historical guide that should stay hidden by default.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-26T09:25:00.000Z",
+      verificationSource: "manual:review",
+    });
+
+    vi.setSystemTime(new Date("2026-03-26T09:30:00.000Z"));
+    await docsStore.archiveDoc(archivedGuide.state.docId);
+
+    vi.setSystemTime(new Date("2026-03-26T09:35:00.000Z"));
+    const legacyGuide = await docsStore.createDoc({
+      title: "Legacy migration guide",
+      docType: "guide",
+      summary: "Legacy readable guide that still needs topic metadata.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+    });
+
+    vi.setSystemTime(new Date("2026-03-26T09:40:00.000Z"));
+    const ownerlessGuide = await docsStore.createDoc({
+      title: "Ownerless governed workflow",
+      docType: "workflow",
+      topicId: "ownerless-topic",
+      summary: "Governed supporting doc that should require intentional access until an owner exists.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-26T09:40:00.000Z",
+      verificationSource: "manual:review",
+    });
+
+    const defaultDiscovery = await docsStore.listDocs();
+    expect(defaultDiscovery.map((summary) => summary.id)).toEqual(
+      expect.arrayContaining([currentOwner.state.docId, successorOwner.state.docId, legacyGuide.state.docId]),
+    );
+    expect(defaultDiscovery.map((summary) => summary.id)).toEqual([
+      successorOwner.state.docId,
+      currentOwner.state.docId,
+      legacyGuide.state.docId,
+    ]);
+    expect(defaultDiscovery.map((summary) => summary.id)).not.toContain(companion.state.docId);
+    expect(defaultDiscovery.map((summary) => summary.id)).not.toContain(ownerlessGuide.state.docId);
+    expect(defaultDiscovery.map((summary) => summary.id)).not.toContain(supersededOwner.state.docId);
+    expect(defaultDiscovery.map((summary) => summary.id)).not.toContain(archivedGuide.state.docId);
+
+    const guideDiscovery = await docsStore.listDocs({ docType: "guide" });
+    expect(guideDiscovery.map((summary) => summary.id)).toEqual(
+      expect.arrayContaining([companion.state.docId, legacyGuide.state.docId]),
+    );
+    expect(guideDiscovery.map((summary) => summary.id)).not.toContain(archivedGuide.state.docId);
+
+    const supportingDiscovery = await docsStore.listDocs({ topic: "governed-topic", includeSupporting: true });
+    expect(supportingDiscovery.map((summary) => summary.id)).toEqual([currentOwner.state.docId, companion.state.docId]);
+
+    const ownerlessSupporting = await docsStore.listDocs({ topic: "ownerless-topic", includeSupporting: true });
+    expect(ownerlessSupporting.map((summary) => summary.id)).toEqual([ownerlessGuide.state.docId]);
+
+    const historicalDiscovery = await docsStore.listDocs({ includeHistorical: true, status: "superseded" });
+    expect(historicalDiscovery.map((summary) => summary.id)).toContain(supersededOwner.state.docId);
+
+    const archivedDiscovery = await docsStore.listDocs({ includeHistorical: true, status: "archived" });
+    expect(archivedDiscovery.map((summary) => summary.id)).toContain(archivedGuide.state.docId);
+  });
+
+  it("classifies stale, overlapping, orphaned, and unverified governance drift", async () => {
+    const docsStore = createDocumentationStore(workspace);
+    const ticketStore = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-24T09:00:00.000Z"));
+    const sourceTicket = await ticketStore.createTicketAsync({
+      title: "Documented execution slice",
+      summary: "Provides the durable source target for the stale-doc scenario.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-24T09:05:00.000Z"));
+    await docsStore.createDoc({
+      title: "Stale governed doc",
+      docType: "overview",
+      topicId: "stale-governed-doc",
+      topicRole: "owner",
+      summary: "A doc that will become stale after its source ticket changes.",
+      sourceTarget: { kind: "ticket", ref: sourceTicket.summary.id },
+      verifiedAt: "2026-03-24T09:05:00.000Z",
+      verificationSource: `ticket:${sourceTicket.summary.id}`,
+    });
+
+    vi.setSystemTime(new Date("2026-03-24T09:10:00.000Z"));
+    await ticketStore.updateTicketAsync(sourceTicket.summary.id, {
+      summary: "The execution slice changed after the documentation review.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-24T09:15:00.000Z"));
+    await docsStore.createDoc({
+      title: "Overlap one",
+      docType: "overview",
+      topicId: "overlap-topic",
+      topicRole: "owner",
+      summary: "First overlapping overview.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-24T09:15:00.000Z",
+      verificationSource: "manual:review",
+    });
+    await docsStore.createDoc({
+      title: "Overlap two",
+      docType: "overview",
+      topicId: "overlap-topic",
+      topicRole: "owner",
+      summary: "Second overlapping overview.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-24T09:15:00.000Z",
+      verificationSource: "manual:review",
+    });
+    await docsStore.createDoc({
+      title: "Orphaned doc",
+      docType: "guide",
+      summary: "Still missing governed ownership metadata.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+      verifiedAt: "2026-03-24T09:15:00.000Z",
+      verificationSource: "manual:review",
+    });
+    await docsStore.createDoc({
+      title: "Unverified doc",
+      docType: "guide",
+      topicId: "unverified-topic",
+      topicRole: "companion",
+      summary: "Missing review evidence.",
+      sourceTarget: { kind: "workspace", ref: "repo" },
+    });
+
+    vi.setSystemTime(new Date("2026-03-24T09:20:00.000Z"));
+    const audit = await docsStore.auditGovernance();
+
+    expect(audit.subjects).toHaveLength(5);
+    expect(audit.counts).toMatchObject({
+      docsAudited: 5,
+      findings: 4,
+      byKind: {
+        stale: 1,
+        overlapping: 1,
+        orphaned: 1,
+        unverified: 1,
+      },
+    });
+    expect(audit.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "stale",
+          docIds: ["stale-governed-doc"],
+          evidence: expect.arrayContaining([expect.stringContaining(`ticket:${sourceTicket.summary.id}`)]),
+        }),
+        expect.objectContaining({
+          kind: "overlapping",
+          docIds: ["overlap-one", "overlap-two"],
+          severity: "high",
+        }),
+        expect.objectContaining({
+          kind: "orphaned",
+          docIds: ["orphaned-doc"],
+          evidence: expect.arrayContaining([expect.stringContaining("migration-debt")]),
+        }),
+        expect.objectContaining({
+          kind: "unverified",
+          docIds: ["unverified-doc"],
+          evidence: expect.arrayContaining([expect.stringContaining("no verifiedAt")]),
+        }),
+      ]),
+    );
+  });
+
+  it("does not self-invalidate stale audits on verification-only refreshes", async () => {
+    const docsStore = createDocumentationStore(workspace);
+    const ticketStore = createTicketStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-24T09:00:00.000Z"));
+    const sourceTicket = await ticketStore.createTicketAsync({
+      title: "Documented execution slice",
+      summary: "Provides the durable source target for the verification refresh scenario.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-24T09:05:00.000Z"));
+    const documented = await docsStore.createDoc({
+      title: "Verification refresh doc",
+      docType: "overview",
+      topicId: "verification-refresh-doc",
+      topicRole: "owner",
+      summary: "A governed doc whose verification metadata is refreshed without editing the body.",
+      sourceTarget: { kind: "ticket", ref: sourceTicket.summary.id },
+      verifiedAt: "2026-03-24T09:05:00.000Z",
+      verificationSource: `ticket:${sourceTicket.summary.id}`,
+    });
+
+    vi.setSystemTime(new Date("2026-03-24T09:10:00.000Z"));
+    await ticketStore.updateTicketAsync(sourceTicket.summary.id, {
+      summary: "The execution slice changed after the initial documentation review.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-24T09:15:00.000Z"));
+    const refreshed = await docsStore.updateDoc(documented.state.docId, {
+      verifiedAt: "2026-03-24T09:14:00.000Z",
+      verificationSource: `ticket:${sourceTicket.summary.id}`,
+      updateReason: "Refresh verification evidence after confirming the doc still matches the ticket.",
+    });
+
+    expect(refreshed.state.updatedAt).toBe("2026-03-24T09:05:00.000Z");
+    expect(refreshed.state.verifiedAt).toBe("2026-03-24T09:14:00.000Z");
+    expect(refreshed.revisions.at(-1)).toMatchObject({
+      id: "rev-001",
+      createdAt: "2026-03-24T09:15:00.000Z",
+      changedSections: [],
+      reason: "Refresh verification evidence after confirming the doc still matches the ticket.",
+    });
+
+    vi.setSystemTime(new Date("2026-03-24T09:20:00.000Z"));
+    const audit = await docsStore.auditGovernance(documented.state.docId);
+
+    expect(audit.counts).toMatchObject({
+      docsAudited: 1,
+      findings: 0,
+      byKind: {
+        stale: 0,
+        overlapping: 0,
+        orphaned: 0,
+        unverified: 0,
+      },
+    });
+    expect(audit.findings).toEqual([]);
+  });
 });

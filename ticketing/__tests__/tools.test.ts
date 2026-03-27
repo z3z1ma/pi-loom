@@ -39,6 +39,11 @@ function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   };
 }
 
+const TEST_DOCS_WAIVER = {
+  docsDisposition: "waive" as const,
+  docsNote: "No governed docs changed in this test.",
+};
+
 function createParentWorkspaceWithChildren(): { cwd: string; cleanup: () => void } {
   const workspace = createSeededParentGitWorkspace({
     prefix: "pi-ticketing-tools-multi-",
@@ -235,6 +240,24 @@ describe("ticket tools", () => {
     expect(getTool(mockPi, "ticket_write").promptGuidelines).toContain(
       "Closed tickets are structurally frozen until reopened; append-only journal, checkpoint, and attachment writes remain available, but dependency and other relationship edits must go through reopen first.",
     );
+    expect(getTool(mockPi, "ticket_write").promptGuidelines).toContain(
+      "Closing meaningful work now requires a truthful docs closeout: set docsDisposition plus docsRefs for updated docs, or docsDisposition=waive with docsNote explaining why no governed doc changed.",
+    );
+    expect(
+      (
+        getTool(mockPi, "ticket_write").parameters as unknown as {
+          properties: {
+            docsDisposition: { enum: string[]; optional: boolean };
+            docsRefs: { type: string; optional: boolean };
+            docsNote: { type: string; optional: boolean };
+          };
+        }
+      ).properties,
+    ).toMatchObject({
+      docsDisposition: { enum: ["update", "create", "supersede", "archive", "waive"], optional: true },
+      docsRefs: { type: "array", optional: true },
+      docsNote: { type: "string", optional: true },
+    });
     expect(
       (
         getTool(mockPi, "ticket_read").parameters as unknown as {
@@ -675,7 +698,12 @@ describe("ticket tools", () => {
 
       const closeResult = await ticketWrite.execute(
         "call-4",
-        { action: "close", ref: ticketId, verification: "verified by targeted tool test" },
+        {
+          action: "close",
+          ref: ticketId,
+          verification: "verified by targeted tool test",
+          ...TEST_DOCS_WAIVER,
+        },
         undefined,
         undefined,
         ctx,
@@ -786,7 +814,7 @@ describe("ticket tools", () => {
 
       await ticketWrite.execute(
         "call-close",
-        { action: "close", ref: ticketId, verification: "done" },
+        { action: "close", ref: ticketId, verification: "done", ...TEST_DOCS_WAIVER },
         undefined,
         undefined,
         ctx,

@@ -2,6 +2,29 @@
   "entries": [
     {
       "baseVersion": null,
+      "canonicalRef": "plan:curated-documentation-governance-and-drift-control-rollout",
+      "contentHash": "7a7dcd029191563370b060665b4fbcc73daa7c0efc0270b025ea8c5e5baf10cf",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/curated-documentation-governance-and-drift-control-rollout.md",
+      "revisionToken": "43c9dd618e9a2adc1cc2c0d99e117e2bf91fe819cefef435b30f6a06da6f80e3"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "plan:data-plane-completion-execution-plan",
       "contentHash": "e4d91efdf80f5edece50799488393f4f3f88c1952d1e83508290f902c6760c15",
       "editability": {

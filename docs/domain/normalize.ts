@@ -3,12 +3,14 @@ import {
   DOC_SECTION_GROUPS,
   DOC_SOURCE_TARGET_KINDS,
   DOC_STATUSES,
+  DOC_TOPIC_ROLES,
   DOC_TYPES,
   type DocAudience,
   type DocSectionGroup,
   type DocSourceTargetKind,
   type DocStatus,
   type DocsContextRefs,
+  type DocTopicRole,
   type DocType,
 } from "./models.js";
 
@@ -74,6 +76,24 @@ export function normalizeDocRef(value: string): string {
 
 export function normalizeDocStatus(value: string | undefined): DocStatus {
   return expectEnum("documentation status", value, DOC_STATUSES, "active");
+}
+
+export function normalizeTopicId(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(trimmed)) {
+    throw new Error(`Invalid documentation topic id: ${value}`);
+  }
+  return trimmed;
+}
+
+export function normalizeTopicRole(value: string | undefined, fallback: DocTopicRole = "legacy"): DocTopicRole {
+  return expectEnum("documentation topic role", value, DOC_TOPIC_ROLES, fallback);
 }
 
 export function normalizeDocType(value: string | undefined): DocType {

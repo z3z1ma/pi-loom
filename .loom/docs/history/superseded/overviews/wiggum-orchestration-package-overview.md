@@ -1,20 +1,30 @@
 ---
 id: wiggum-orchestration-package-overview
 title: "Wiggum orchestration package overview"
-status: active
+status: superseded
 type: overview
 section: overviews
+topic-id: wiggum-orchestration-package
+topic-role: owner
+publication-status: historical-superseded
+publication-summary: "Historical superseded record retired from active publication: Pi Loom no longer ships a separate Wiggum orchestration package. Current orchestration truth lives in the top-level Ralph package and its governed docs, so this package-specific record remains historical only."
+recommended-action: follow-successor-or-retirement
+current-owner: null
+active-owners: []
 audience:
   - ai
   - human
 source: workspace:pi-loom
+verified-at: 2026-03-27T09:30:00.000Z
+verification-source: ticket:pl-0129
+successor: null
+successor-title: null
+predecessors: []
+retirement-reason: "Pi Loom no longer ships a separate Wiggum orchestration package. Current orchestration truth lives in the top-level Ralph package and its governed docs, so this package-specific record remains historical only."
 topics:
-  - async-jobs
-  - orchestration-reset
+  - historical
   - ralph-wiggum
-outputs:
-  - https-github-com-z3z1ma-pi-loom-git:packages/pi-ralph-wiggum/README.md
-  - https-github-com-z3z1ma-pi-loom-git:README.md
+outputs: []
 upstream-path: null
 ---
 

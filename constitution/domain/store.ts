@@ -8,7 +8,6 @@ import type { ProjectedEntityLinkInput } from "#storage/links.js";
 import { syncProjectedEntityLinks } from "#storage/links.js";
 import { getLoomCatalogPaths } from "#storage/locations.js";
 import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
-import { buildConstitutionalOverview } from "./overview.js";
 import type {
   ConstitutionalEntry,
   ConstitutionalEntryInput,
@@ -38,6 +37,7 @@ import {
   normalizeStringList,
   slugifyTitle,
 } from "./normalize.js";
+import { buildConstitutionalOverview } from "./overview.js";
 import {
   renderConstitutionalBrief,
   renderConstraintsMarkdown,

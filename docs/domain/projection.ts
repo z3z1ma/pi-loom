@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import {
   createWorkspaceProjectionDocument,
   createWorkspaceProjectionManifest,
@@ -49,6 +49,18 @@ function readFrontmatterStringList(value: string | string[] | null | undefined):
   return [];
 }
 
+export function getDocumentationProjectionRelativePath(result: DocumentationReadResult): string {
+  const basePath = `${result.state.sectionGroup}/${result.state.docId}.md`;
+  switch (result.state.status) {
+    case "active":
+      return basePath;
+    case "superseded":
+      return `history/superseded/${basePath}`;
+    case "archived":
+      return `history/archived/${basePath}`;
+  }
+}
+
 function docsProjectionSemanticInput(result: DocumentationReadResult): Record<string, unknown> {
   const currentDocument = parseMarkdownArtifact(result.document, `${result.state.docId}.md`).body;
   return {
@@ -56,6 +68,14 @@ function docsProjectionSemanticInput(result: DocumentationReadResult): Record<st
     status: result.state.status,
     docType: result.state.docType,
     sectionGroup: result.state.sectionGroup,
+    topicId: result.state.topicId,
+    topicRole: result.state.topicRole,
+    publicationStatus: result.governance.publicationStatus,
+    currentOwnerDocId: result.governance.currentOwnerDocId,
+    activeOwnerDocIds: result.governance.activeOwnerDocIds,
+    recommendedAction: result.governance.recommendedAction,
+    successorDocId: result.state.successorDocId,
+    retirementReason: result.state.retirementReason,
     audience: result.state.audience,
     sourceTarget: result.state.sourceTarget,
     guideTopics: result.state.guideTopics,
@@ -74,8 +94,21 @@ export function buildDocumentationProjection(result: DocumentationReadResult): W
       status: result.state.status,
       type: result.state.docType,
       section: result.state.sectionGroup,
+      "topic-id": result.state.topicId,
+      "topic-role": result.state.topicRole,
+      "publication-status": result.governance.publicationStatus,
+      "publication-summary": result.governance.publicationSummary,
+      "recommended-action": result.governance.recommendedAction,
+      "current-owner": result.governance.currentOwnerDocId,
+      "active-owners": result.governance.activeOwnerDocIds,
       audience: result.state.audience,
       source: `${result.state.sourceTarget.kind}:${result.state.sourceTarget.ref}`,
+      "verified-at": result.state.verifiedAt,
+      "verification-source": result.state.verificationSource,
+      successor: result.state.successorDocId,
+      "successor-title": result.governance.successorTitle,
+      predecessors: result.governance.predecessorDocIds,
+      "retirement-reason": result.state.retirementReason,
       topics: result.state.guideTopics,
       outputs: renderPortableRepositoryPathList(result.state.linkedOutputPaths),
       "upstream-path": result.state.upstreamPath,
@@ -86,7 +119,7 @@ export function buildDocumentationProjection(result: DocumentationReadResult): W
   return createWorkspaceProjectionDocument({
     family: "docs",
     canonicalRef: `doc:${result.state.docId}`,
-    relativePath: `${result.state.sectionGroup}/${result.state.docId}.md`,
+    relativePath: getDocumentationProjectionRelativePath(result),
     renderedContent,
     semanticInput: docsProjectionSemanticInput(result),
     editability: { mode: "full" },
@@ -112,11 +145,12 @@ export interface DocumentationProjectionExportResult {
   manifest: LoomProjectionManifest;
   files: DocumentationProjectionFileResult[];
   documents: DocumentationReadResult[];
+  prunedRelativePaths: string[];
 }
 
 async function loadDocumentationProjectionRecords(cwd: string): Promise<DocumentationReadResult[]> {
   const store = createDocumentationStore(cwd);
-  const summaries = await store.listDocs();
+  const summaries = await store.listDocs({ includeSupporting: true, includeHistorical: true });
   const records = await Promise.all(summaries.map((summary) => store.readDoc(summary.id)));
   return records.sort((left, right) => left.state.docId.localeCompare(right.state.docId));
 }
@@ -134,15 +168,25 @@ export async function exportDocumentationProjections(cwd: string): Promise<Docum
       document,
     };
   });
+  const previousManifest = readProjectionManifest(resolveProjectionFilePath(cwd, DOCS_FAMILY, "manifest.json"));
+  const retainedRelativePaths = new Set(files.map((file) => buildDocumentationProjection(file.document).relativePath));
+  const prunedRelativePaths =
+    previousManifest?.entries
+      .map((entry) => entry.relativePath)
+      .filter((relativePath) => !retainedRelativePaths.has(relativePath))
+      .sort((left, right) => left.localeCompare(right)) ?? [];
+  for (const relativePath of prunedRelativePaths) {
+    rmSync(resolveProjectionFilePath(cwd, DOCS_FAMILY, relativePath), { force: true });
+  }
   writeProjectionManifest(resolveProjectionFilePath(cwd, DOCS_FAMILY, "manifest.json"), manifest);
-  return { manifest, files, documents };
+  return { manifest, files, documents, prunedRelativePaths };
 }
 
 export function reconcileDocumentationProjection(
   current: DocumentationReadResult,
   markdown: string,
 ): UpdateDocumentationInput {
-  const relativePath = `${current.state.sectionGroup}/${current.state.docId}.md`;
+  const relativePath = getDocumentationProjectionRelativePath(current);
   const parsed = parseMarkdownArtifact(markdown, relativePath);
 
   const title = readFrontmatterString(parsed.frontmatter.title) ?? current.state.title;

@@ -17,17 +17,16 @@ import { resolveRepositoryQualifier } from "#storage/repository-qualifier.js";
 import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
 import { TICKET_STATUSES, type TicketReadResult, type TicketSummary } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildInitiativeOverview } from "./overview.js";
 import type {
   CreateInitiativeInput,
-  InitiativeOverview,
-  InitiativeOverviewMilestone,
   InitiativeDecisionKind,
   InitiativeDecisionRecord,
   InitiativeListFilter,
   InitiativeMilestone,
   InitiativeMilestoneHealth,
   InitiativeMilestoneInput,
+  InitiativeOverview,
+  InitiativeOverviewMilestone,
   InitiativeRecord,
   InitiativeState,
   InitiativeSummary,
@@ -45,6 +44,7 @@ import {
   normalizeStringList,
   slugifyTitle,
 } from "./normalize.js";
+import { buildInitiativeOverview } from "./overview.js";
 import { getInitiativeDir } from "./paths.js";
 import { renderInitiativeMarkdown } from "./render.js";
 

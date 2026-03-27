@@ -16,6 +16,7 @@ describe("docs prompt guidance", () => {
       "someone who was not present for the implementation can still understand what changed and why it matters",
     );
     expect(guidance).toContain("do not write shallow blurbs or minimal summaries");
+    expect(guidance).toContain("governed topic ownership, verification evidence, and drift audit results explicit");
     expect(guidance).toContain("specs as standalone declarative behavior contracts for intended system behavior");
     expect(guidance).toContain("plans as the execution-strategy layer");
     expect(guidance).toContain("use plans for pre-completion execution strategy");
@@ -29,6 +30,9 @@ describe("docs prompt guidance", () => {
     expect(prompt.startsWith(getBaseDocsGuidance())).toBe(true);
     expect(prompt).toContain("Documentation state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain("Prefer docs packets and durable high-level documentation over chat-only explanations.");
+    expect(prompt).toContain(
+      "Governed docs expose topic ownership, lifecycle, publication truth, and successor state explicitly",
+    );
     expect(prompt).toContain("detail-first, self-contained explanations");
   });
 });

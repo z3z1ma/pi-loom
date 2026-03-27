@@ -1,8 +1,8 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
-  CritiqueOverview,
   CritiqueFindingRecord,
   CritiqueLaunchDescriptor,
+  CritiqueOverview,
   CritiqueReadResult,
   CritiqueRunRecord,
   CritiqueState,

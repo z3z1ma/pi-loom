@@ -1,6 +1,7 @@
 import type { TicketBody, TicketFrontmatter, TicketRecord } from "./models.js";
 import {
   normalizeBranchMode,
+  normalizeDocsDisposition,
   normalizeOptionalString,
   normalizePriority,
   normalizeReviewStatus,
@@ -67,6 +68,13 @@ function ensureFrontmatterDefaults(frontmatter: Partial<TicketFrontmatter>): Tic
     "branch-mode": branchIntent.branchMode,
     "branch-family": branchIntent.branchFamily,
     "exact-branch-name": branchIntent.exactBranchName,
+    "docs-disposition":
+      typeof frontmatter["docs-disposition"] === "string"
+        ? normalizeDocsDisposition(frontmatter["docs-disposition"])
+        : null,
+    "docs-refs": normalizeStringList(frontmatter["docs-refs"]),
+    "docs-note": normalizeOptionalString(frontmatter["docs-note"]),
+    "docs-reviewed-at": normalizeOptionalString(frontmatter["docs-reviewed-at"]),
   };
 }
 
@@ -242,6 +250,19 @@ export function parseTicket(text: string, sourceLabel: string, closed: boolean):
     "external-refs": Array.isArray(frontmatterRaw["external-refs"])
       ? (frontmatterRaw["external-refs"] as string[])
       : [],
+    "docs-disposition":
+      typeof frontmatterRaw["docs-disposition"] === "string"
+        ? normalizeDocsDisposition(frontmatterRaw["docs-disposition"] as string)
+        : undefined,
+    "docs-refs": Array.isArray(frontmatterRaw["docs-refs"]) ? (frontmatterRaw["docs-refs"] as string[]) : [],
+    "docs-note":
+      typeof frontmatterRaw["docs-note"] === "string" || frontmatterRaw["docs-note"] === null
+        ? (frontmatterRaw["docs-note"] as string | null)
+        : null,
+    "docs-reviewed-at":
+      typeof frontmatterRaw["docs-reviewed-at"] === "string" || frontmatterRaw["docs-reviewed-at"] === null
+        ? (frontmatterRaw["docs-reviewed-at"] as string | null)
+        : null,
   });
 
   return {

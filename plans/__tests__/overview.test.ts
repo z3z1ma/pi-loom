@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createPortableRepositoryPath } from "#storage/repository-path.js";
-import { buildPlanOverview } from "../domain/overview.js";
 import type { PlanState } from "../domain/models.js";
+import { buildPlanOverview } from "../domain/overview.js";
 
 function portablePath(relativePath: string) {
   return createPortableRepositoryPath({

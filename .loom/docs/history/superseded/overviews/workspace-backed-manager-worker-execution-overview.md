@@ -1,14 +1,29 @@
 ---
 id: workspace-backed-manager-worker-execution-overview
 title: "Workspace-backed manager-worker execution overview"
-status: active
+status: superseded
 type: overview
 section: overviews
+topic-id: workspace-backed-manager-worker-execution
+topic-role: owner
+publication-status: historical-superseded
+publication-summary: "Historical superseded record retired from active publication: The workspace-backed manager/worker control plane is not the current shipped execution surface. Pi Loom currently documents direct Ralph orchestration and defers any future broader control plane to a later redesign."
+recommended-action: follow-successor-or-retirement
+current-owner: null
+active-owners: []
 audience:
   - ai
   - human
 source: spec:add-inbox-driven-manager-worker-control-plane
-topics: []
+verified-at: 2026-03-27T09:30:00.000Z
+verification-source: ticket:pl-0129
+successor: null
+successor-title: null
+predecessors: []
+retirement-reason: "The workspace-backed manager/worker control plane is not the current shipped execution surface. Pi Loom currently documents direct Ralph orchestration and defers any future broader control plane to a later redesign."
+topics:
+  - historical
+  - manager-worker
 outputs: []
 upstream-path: null
 ---

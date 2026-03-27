@@ -1,8 +1,8 @@
 import type { LoomRepositoryQualifier } from "#storage/repository-qualifier.js";
 import type {
-  CritiqueOverview,
   CritiqueFindingRecord,
   CritiqueLaunchDescriptor,
+  CritiqueOverview,
   CritiqueRunRecord,
   CritiqueState,
   CritiqueSummary,

@@ -2,11 +2,13 @@ import {
   MUTABLE_TICKET_STATUSES,
   type MutableTicketStatus,
   REVIEW_STATUSES,
+  TICKET_DOCS_DISPOSITIONS,
   TICKET_BRANCH_MODES,
   TICKET_PRIORITIES,
   TICKET_RISKS,
   TICKET_TYPES,
   type TicketBranchMode,
+  type TicketDocsDisposition,
   type TicketPriority,
   type TicketReviewStatus,
   type TicketRisk,
@@ -120,6 +122,10 @@ export function normalizeReviewStatus(value: string | undefined): TicketReviewSt
 
 export function normalizeBranchMode(value: string | undefined): TicketBranchMode {
   return expectEnum("branch mode", value, TICKET_BRANCH_MODES, "none");
+}
+
+export function normalizeDocsDisposition(value: string | undefined): TicketDocsDisposition {
+  return expectEnum("docs disposition", value, TICKET_DOCS_DISPOSITIONS, "waive");
 }
 
 export function normalizeStringList(values: readonly string[] | undefined): string[] {

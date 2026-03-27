@@ -11,6 +11,11 @@ import {
   type TicketWorkspaceSnapshot,
 } from "../ui/ticket-workspace.js";
 
+const TEST_DOCS_WAIVER = {
+  disposition: "waive" as const,
+  note: "No governed docs changed in this test.",
+};
+
 interface FakeCustomComponent {
   render(width: number): string[];
   handleInput(data: string): void;
@@ -301,7 +306,7 @@ describe("ticket overlay workbench", () => {
         vi.setSystemTime(new Date(`2026-03-22T00:02:0${index + 1}.000Z`));
         const created = await store.createTicketAsync({ title: `Overview closed ${index + 1}` });
         vi.setSystemTime(new Date(`2026-03-22T00:03:0${index + 1}.000Z`));
-        await store.closeTicketAsync(created.summary.id, "done");
+        await store.closeTicketAsync(created.summary.id, "done", TEST_DOCS_WAIVER);
       }
 
       const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "home" });
@@ -365,7 +370,7 @@ describe("ticket overlay workbench", () => {
           closedLeadId = created.summary.id;
         }
         vi.setSystemTime(new Date(`2026-03-22T00:03:0${index + 1}.000Z`));
-        await store.closeTicketAsync(created.summary.id, "done");
+        await store.closeTicketAsync(created.summary.id, "done", TEST_DOCS_WAIVER);
       }
       const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "home" });
       const renders: string[] = [];
@@ -594,7 +599,7 @@ describe("ticket overlay workbench", () => {
     try {
       const store = createTicketStore(cwd);
       const created = await store.createTicketAsync({ title: "Closed ticket" });
-      await store.closeTicketAsync(created.summary.id, "verified");
+      await store.closeTicketAsync(created.summary.id, "verified", TEST_DOCS_WAIVER);
       const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "list" });
       const failingStore = {
         readTicketAsync: vi.fn(async () => {
@@ -659,7 +664,7 @@ describe("ticket overlay workbench", () => {
       const store = createTicketStore(cwd);
       const ready = await store.createTicketAsync({ title: "Ready board item" });
       const closed = await store.createTicketAsync({ title: "Closed board item" });
-      await store.closeTicketAsync(closed.summary.id, "done");
+      await store.closeTicketAsync(closed.summary.id, "done", TEST_DOCS_WAIVER);
       const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "board" });
       let rendered = "";
 
@@ -870,7 +875,7 @@ describe("ticket overlay workbench", () => {
     try {
       const store = createTicketStore(cwd);
       const archived = await store.createTicketAsync({ title: "Archive me" });
-      await store.closeTicketAsync(archived.summary.id, "done");
+      await store.closeTicketAsync(archived.summary.id, "done", TEST_DOCS_WAIVER);
       await store.createTicketAsync({ title: "Keep me" });
       const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "list" });
 
@@ -902,7 +907,7 @@ describe("ticket overlay workbench", () => {
     try {
       const store = createTicketStore(cwd);
       const archived = await store.createTicketAsync({ title: "Delete me" });
-      await store.closeTicketAsync(archived.summary.id, "done");
+      await store.closeTicketAsync(archived.summary.id, "done", TEST_DOCS_WAIVER);
       await store.archiveTicketAsync(archived.summary.id);
       const snapshot = await loadTicketWorkspaceSnapshot(store, { kind: "detail", ref: archived.summary.id });
       snapshot.tickets = [archived.summary];

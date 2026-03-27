@@ -19,7 +19,6 @@ import {
   type openWorkspaceStorage,
 } from "#storage/workspace.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
-import { buildResearchOverview } from "./overview.js";
 import { buildResearchMap } from "./map.js";
 import type {
   CreateResearchInput,
@@ -47,6 +46,7 @@ import {
   normalizeStringList,
   slugifyTitle,
 } from "./normalize.js";
+import { buildResearchOverview } from "./overview.js";
 import { renderResearchMarkdown } from "./render.js";
 
 const ENTITY_KIND = "research" as const;

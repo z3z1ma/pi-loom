@@ -6,6 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 import { handleTicketCommand } from "../commands/ticket.js";
 import { createTicketStore } from "../domain/store.js";
 
+const TEST_DOCS_WAIVER = {
+  disposition: "waive" as const,
+  note: "No governed docs changed in this test.",
+};
+
 function createTempWorkspace(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "pi-ticketing-commands-"));
   return {
@@ -107,6 +112,8 @@ describe("/ticket command handler", () => {
       const result = await handleTicketCommand("", ctx);
       await new Promise((resolve) => setTimeout(resolve, 0));
       await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(result).toBe("");
       const updated = await store.readTicketAsync("t-0001");
@@ -123,7 +130,7 @@ describe("/ticket command handler", () => {
       const store = createTicketStore(cwd);
       await store.initLedgerAsync();
       await store.createTicketAsync({ title: "Archive from workspace" });
-      await store.closeTicketAsync("t-0001", "done");
+      await store.closeTicketAsync("t-0001", "done", TEST_DOCS_WAIVER);
       await store.createTicketAsync({ title: "Still visible" });
       const ui = {
         custom: vi
@@ -158,7 +165,7 @@ describe("/ticket command handler", () => {
       const store = createTicketStore(cwd);
       await store.initLedgerAsync();
       await store.createTicketAsync({ title: "Delete from workspace" });
-      await store.closeTicketAsync("t-0001", "done");
+      await store.closeTicketAsync("t-0001", "done", TEST_DOCS_WAIVER);
       await store.archiveTicketAsync("t-0001");
       await store.createTicketAsync({ title: "Still visible" });
       const ui = {

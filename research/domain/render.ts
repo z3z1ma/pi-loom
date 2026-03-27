@@ -1,9 +1,9 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
   ResearchArtifactRecord,
-  ResearchOverview,
   ResearchHypothesisRecord,
   ResearchMap,
+  ResearchOverview,
   ResearchRecord,
   ResearchState,
   ResearchSummary,

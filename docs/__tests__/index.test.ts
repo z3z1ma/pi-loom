@@ -188,6 +188,7 @@ describe("pi-docs extension", () => {
     expect(mockPi).not.toHaveProperty("commands");
     expect((mockPi as unknown as { registerCommand?: unknown }).registerCommand).toBeUndefined();
     expect([...mockPi.tools.keys()].sort()).toEqual([
+      "docs_audit",
       "docs_list",
       "docs_overview",
       "docs_packet",
@@ -319,9 +320,7 @@ describe("pi-docs extension", () => {
       )) as { systemPrompt: string };
 
       expect(result.systemPrompt).toContain("Base system prompt");
-      expect(result.systemPrompt).toContain(
-        "Documentation is the authoritative explanatory Loom layer.",
-      );
+      expect(result.systemPrompt).toContain("Documentation is the authoritative explanatory Loom layer.");
       expect(result.systemPrompt).toContain("Documentation state is persisted in SQLite via pi-storage.");
       expect(result.systemPrompt).toContain(
         "Prefer docs packets and durable high-level documentation over chat-only explanations.",

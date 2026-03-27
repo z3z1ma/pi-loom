@@ -4,72 +4,60 @@ title: "Loom multi-repository spaces overview"
 status: active
 type: overview
 section: overviews
+topic-id: loom-multi-repository-spaces
+topic-role: owner
+publication-status: current-owner
+publication-summary: "Current canonical overview for governed topic loom-multi-repository-spaces."
+recommended-action: update-current-owner
+current-owner: loom-multi-repository-spaces-overview
+active-owners:
+  - loom-multi-repository-spaces-overview
 audience:
   - ai
   - human
-source: spec:first-class-multi-repository-loom-spaces
-topics: []
+source: workspace:workspace
+verified-at: 2026-03-27T10:46:33.159Z
+verification-source: manual:pl-0131-iter-001
+successor: null
+successor-title: null
+predecessors: []
+retirement-reason: null
+topics:
+  - repositories
+  - scope
+  - workspaces
 outputs: []
 upstream-path: null
 ---
 
 # Loom multi-repository spaces overview
 
-Loom supports a first-class multi-repository operating model where a single "Loom space" spans multiple repositories. This allows for coordinated work (plans, tickets, research, specs) across a system that is split into several git repositories, without losing the identity of individual repositories or relying on fragile current-working-directory (CWD) assumptions.
+Pi Loom supports a first-class multi-repository operating model where one Loom space can enroll multiple repositories and multiple local worktrees for the same repository. The space, not the current working directory, is the coordination boundary.
 
-## Concepts
+## Core concepts
 
 ### Space
-The **Space** is the canonical coordination boundary. It represents the "system" or "project" as a whole.
-- Contains multiple **Repositories**.
-- Persisted in the SQLite catalog.
-- Acts as the container for all Loom artifacts (tickets, plans, specs, etc.).
-- Independent of any single file system location (though currently backed by local SQLite).
+A Loom space is the canonical coordination boundary. It stores the durable SQLite-backed catalog and groups the repositories that participate in the same operational context.
 
 ### Repository
-A **Repository** is a canonical member of a Space.
-- Has a stable identity (e.g., `github.com/org/repo`).
-- Can be enrolled or unenrolled from a Space.
-- Owns source code and repository-specific artifacts.
-- Loom artifacts like Tickets are "owned" by a Repository to avoid naming collisions (e.g., `pl-123` in Repo A is distinct from `pl-123` in Repo B, though typically they share a sequence or use distinct prefixes if configured).
+A repository is a canonically enrolled member of the space. Repository-owned records keep their repository identity even when the current session starts from a parent directory instead of the repository root.
 
 ### Worktree
-A **Worktree** is a local checkout of a Repository.
-- A Repository can have multiple Worktrees (e.g., main checkout, feature branch worktrees).
-- Runtime operations (editing files, running tests) happen in a Worktree.
-- A Space knows about Worktrees but treats them as ephemeral runtime binding targets.
+A worktree is one local checkout of a repository. Runtime work such as file edits, tests, Ralph launches, and docs maintenance happens in a worktree, but canonical state remains in the shared catalog.
 
-## Operating Model
+## Scope selection and targeting
 
-### Startup and Discovery
-Loom startup is no longer strictly bound to "one session = one repo".
-- **Parent-Directory Startup**: You can start Loom from a parent directory containing multiple repositories. Loom detects the Space (via `.pi/loom` or similar) and discovers enrolled Repositories in the subdirectories.
-- **Repository-Directory Startup**: Starting inside a repository directory automatically infers the active Repository and Worktree, provided it is enrolled in the Space.
+Pi Loom no longer assumes that one session maps to one repository inferred from `cwd`.
 
-### Scope Selection
-When operating in a Space with multiple Repositories, ambiguity must be resolved explicitly.
-- `scope_read`: Displays the current Space, enrolled Repositories, and the active Repository/Worktree (if selected).
-- `scope_write`: Used to explicitly **select**, **enroll**, or **unenroll** a Repository.
-  - If you start in a parent directory, you may need to `select` a Repository before performing repository-specific actions (like creating a ticket bound to that repo).
-  - Broad reads (e.g., listing all tickets in the space) do not require a specific selection and will return results from all enrolled repositories.
+- `scope_read` reports the discovered space, enrolled repositories, the active repository/worktree binding, and diagnostics.
+- `scope_write` is the explicit path for selecting, revoking, enrolling, or unenrolling repository scope.
+- Broad reads can operate at space scope.
+- Repository-bound writes and path-bearing operations must either run under an unambiguous active repository selection or provide explicit repository targeting.
 
-### Portable Paths
-To avoid ambiguity, file paths in a multi-repository Space are **Repository-Qualified**.
-- Format: `<repo-slug>:path/to/file` (e.g., `my-backend:src/main.ts`).
-- Relative paths (e.g., `src/main.ts`) are only accepted if an active Repository is currently selected.
-- Loom artifacts (Plans, Docs) should use qualified paths to ensure they remain valid regardless of where the reader is located.
+## Portable paths and runtime launches
 
-### Runtime Targeting
-When Loom launches subprocesses (e.g., for `ralph_run`, `critique_launch`, or `docs_update`), it propagates the **Explicit Scope** (Space/Repository/Worktree) to the child process.
-- The child process does not guess its scope from CWD.
-- It receives the canonical scope identifiers, ensuring it operates on the correct canonical artifacts.
-- If a specific Worktree is required (e.g., to run tests), the launch fails if that Worktree is not available.
+Repository-qualified paths keep artifacts truthful in ambiguous sessions. Runtime launches for Ralph, docs, and critique propagate explicit space/repository/worktree scope into the child process instead of guessing from the child `cwd`.
 
-### Export and Import
-- **Space Export**: A full snapshot of the Space, including all Repositories and artifacts. (`scope.kind = "space"`, `partial = false`).
-- **Repository Export**: A partial snapshot containing only artifacts relevant to a specific Repository. (`scope.kind = "repository"`, `partial = true`). Use this for moving a single repo's context or backing up specific parts of the system.
+## Degraded mode
 
-### Degraded Mode
-A Repository remains enrolled in the Space even if its local Worktree is missing (e.g., deleted or not yet cloned on this machine).
-- **Read Operations**: You can still read Tickets, Specs, and Plans associated with the "missing" Repository from the SQLite catalog.
-- **Write/Runtime Operations**: Actions requiring file access (edits, test runs) will fail with a diagnostic indicating the Worktree is unavailable.
+A repository may remain canonically enrolled even when no local worktree is currently available. Space-level reads still work, while repository-bound writes and runtime launches fail closed instead of silently hopping to a different repository.

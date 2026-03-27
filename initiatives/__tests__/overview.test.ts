@@ -44,7 +44,10 @@ describe("initiative overview", () => {
     });
     const blocker = await ticketStore.createTicketAsync({ title: "Map legacy metrics" });
     const closer = await ticketStore.createTicketAsync({ title: "Backfill overviews" });
-    await ticketStore.closeTicketAsync(closer.summary.id, "Overview smoke checks passed.");
+    await ticketStore.closeTicketAsync(closer.summary.id, "Overview smoke checks passed.", {
+      disposition: "waive",
+      note: "No governed docs changed in this test.",
+    });
 
     await initiativeStore.createInitiative({
       title: "Observability program",

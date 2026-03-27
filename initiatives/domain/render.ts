@@ -1,8 +1,8 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
-  InitiativeOverview,
   InitiativeDecisionRecord,
   InitiativeMilestone,
+  InitiativeOverview,
   InitiativeRecord,
   InitiativeState,
   InitiativeSummary,

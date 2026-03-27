@@ -120,6 +120,26 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "spec:curated-documentation-governance:artifact:design",
+      "contentHash": "3c991890e41144047a581f07fc28c6b1394c4fd8516c2802985ffe709c69a3a5",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "curated-documentation-governance/design.md",
+      "revisionToken": "618a261344464433e132a60f9deed739a7f37ad1333dbee3e6658be011ed2230"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:curated-documentation-governance:artifact:proposal",
+      "contentHash": "265fd9a3e3316c713a5eee0828c59d879a2dacc55ae77a4cb165015d4b5c85c4",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "curated-documentation-governance/proposal.md",
+      "revisionToken": "308ecaf6e68b6be086a643af28d3705f8160087b53df119513c3878d053eaa6b"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "spec:define-widget-first-loom-subsystem-ux-framework:artifact:design",
       "contentHash": "1c7779e3650a9681580c716c8219bae1645c0eb94a76e622ae5bb546cd58d600",
       "editability": {

@@ -11,7 +11,7 @@ import type {
   TicketStatus,
   UpdateTicketInput,
 } from "../domain/models.js";
-import { TICKET_WRITE_ACTIONS } from "../domain/models.js";
+import { TICKET_DOCS_DISPOSITIONS, TICKET_WRITE_ACTIONS } from "../domain/models.js";
 import { renderGraph, renderTicketDetail, renderTicketSummary } from "../domain/render.js";
 import { createTicketStore } from "../domain/store.js";
 import { syncTicketHomeWidget } from "../ui/ticket-workspace.js";
@@ -22,6 +22,7 @@ const TicketPriorityEnum = StringEnum(["low", "medium", "high", "critical"] as c
 const TicketRiskEnum = StringEnum(["low", "medium", "high"] as const);
 const TicketReviewStatusEnum = StringEnum(["none", "requested", "changes_requested", "approved"] as const);
 const TicketBranchModeEnum = StringEnum(["none", "allocator", "exact"] as const);
+const TicketDocsDispositionEnum = StringEnum(TICKET_DOCS_DISPOSITIONS);
 const JournalKindEnum = StringEnum([
   "note",
   "decision",
@@ -143,6 +144,9 @@ const TicketWriteParams = Type.Object({
   branchMode: Type.Optional(TicketBranchModeEnum),
   branchFamily: Type.Optional(Type.String()),
   exactBranchName: Type.Optional(Type.String()),
+  docsDisposition: Type.Optional(TicketDocsDispositionEnum),
+  docsRefs: Type.Optional(Type.Array(Type.String())),
+  docsNote: Type.Optional(Type.String()),
   dependency: Type.Optional(Type.String()),
   journalKind: Type.Optional(JournalKindEnum),
   text: Type.Optional(Type.String()),
@@ -246,6 +250,9 @@ function toUpdateInput(params: TicketWriteParamsValue): UpdateTicketInput {
     branchMode: params.branchMode,
     branchFamily: params.branchFamily,
     exactBranchName: params.exactBranchName,
+    docsDisposition: params.docsDisposition,
+    docsRefs: params.docsRefs,
+    docsNote: params.docsNote,
   };
 }
 
@@ -277,6 +284,9 @@ function toCreateInput(params: TicketWriteParamsValue): CreateTicketInput {
     branchMode: params.branchMode,
     branchFamily: params.branchFamily,
     exactBranchName: params.exactBranchName,
+    docsDisposition: params.docsDisposition,
+    docsRefs: params.docsRefs,
+    docsNote: params.docsNote,
   };
 }
 
@@ -390,6 +400,7 @@ export function registerTicketTools(pi: ExtensionAPI): void {
       "Use this tool for durable work state rather than transient scratch planning.",
       "Create ticket bodies as complete, self-contained units of work with concrete context, acceptance criteria, plan, dependencies, risks, provenance, and verification expectations rather than minimal blurbs; a capable newcomer should be able to understand why the task exists, what generally needs to happen, and what done looks like.",
       "Closed tickets are structurally frozen until reopened; append-only journal, checkpoint, and attachment writes remain available, but dependency and other relationship edits must go through reopen first.",
+      "Closing meaningful work now requires a truthful docs closeout: set docsDisposition plus docsRefs for updated docs, or docsDisposition=waive with docsNote explaining why no governed doc changed.",
       "Update the ticket as the work evolves so future turns and agents can rely on truthful ongoing state instead of stale summaries.",
     ],
     parameters: TicketWriteParams,
@@ -416,7 +427,11 @@ export function registerTicketTools(pi: ExtensionAPI): void {
         }
         case "close": {
           const result = await runMutation(ctx, () =>
-            store.closeTicketAsync(requireRef(params.ref), params.verification),
+            store.closeTicketAsync(requireRef(params.ref), params.verification, {
+              disposition: params.docsDisposition,
+              refs: params.docsRefs,
+              note: params.docsNote,
+            }),
           );
           return machineResult({ action: params.action, ticket: result }, renderTicketDetail(result));
         }

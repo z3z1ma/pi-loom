@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { DocumentationGovernanceSurface, DocumentationReadResult, DocumentationState } from "../domain/models.js";
+import { buildDocumentationOverview, summarizeDocumentation } from "../domain/overview.js";
 import {
   buildDocumentationProjection,
   createDocumentationProjectionManifest,
   reconcileDocumentationProjection,
 } from "../domain/projection.js";
 import { renderDocumentationMarkdown } from "../domain/render.js";
-import type { DocumentationReadResult, DocumentationState } from "../domain/models.js";
 
 function sampleDocState(overrides: Partial<DocumentationState> = {}): DocumentationState {
   return {
@@ -14,6 +15,8 @@ function sampleDocState(overrides: Partial<DocumentationState> = {}): Documentat
     status: overrides.status ?? "active",
     docType: overrides.docType ?? "guide",
     sectionGroup: overrides.sectionGroup ?? "guides",
+    topicId: overrides.topicId ?? "workspace-projections",
+    topicRole: overrides.topicRole ?? "companion",
     createdAt: overrides.createdAt ?? "2026-03-20T12:00:00.000Z",
     updatedAt: overrides.updatedAt ?? "2026-03-21T12:00:00.000Z",
     summary: overrides.summary ?? "Explain how repository-visible projections relate to canonical storage.",
@@ -28,6 +31,10 @@ function sampleDocState(overrides: Partial<DocumentationState> = {}): Documentat
       critiqueIds: [],
     },
     sourceTarget: overrides.sourceTarget ?? { kind: "workspace", ref: "repo" },
+    verifiedAt: overrides.verifiedAt ?? "2026-03-21T12:00:00.000Z",
+    verificationSource: overrides.verificationSource ?? "ticket:pl-0117",
+    successorDocId: overrides.successorDocId ?? null,
+    retirementReason: overrides.retirementReason ?? null,
     updateReason: overrides.updateReason ?? "Document the accepted projection behavior.",
     guideTopics: overrides.guideTopics ?? ["workspace-projections"],
     linkedOutputPaths: overrides.linkedOutputPaths ?? [],
@@ -36,8 +43,45 @@ function sampleDocState(overrides: Partial<DocumentationState> = {}): Documentat
   };
 }
 
+function sampleGovernance(
+  state: DocumentationState,
+  overrides: Partial<DocumentationGovernanceSurface> = {},
+): DocumentationGovernanceSurface {
+  return {
+    publicationStatus:
+      overrides.publicationStatus ?? (state.status === "active" ? "current-companion" : "historical-archived"),
+    publicationSummary:
+      overrides.publicationSummary ??
+      (state.status === "active"
+        ? "Current companion doc beneath active topic owner workspace-projections-overview."
+        : "Historical archived record that should stay readable but never count as current truth."),
+    recommendedAction:
+      overrides.recommendedAction ?? (state.status === "active" ? "update-current-companion" : "keep-archived-history"),
+    currentOwnerDocId: overrides.currentOwnerDocId ?? "workspace-projections-overview",
+    currentOwnerTitle: overrides.currentOwnerTitle ?? "Workspace projections overview",
+    activeOwnerDocIds: overrides.activeOwnerDocIds ?? ["workspace-projections-overview"],
+    successorDocId: overrides.successorDocId ?? state.successorDocId,
+    successorTitle: overrides.successorTitle ?? null,
+    predecessorDocIds: overrides.predecessorDocIds ?? [],
+    relatedDocs: overrides.relatedDocs ?? [
+      {
+        id: "workspace-projections-overview",
+        title: "Workspace projections overview",
+        status: "active",
+        docType: "overview",
+        topicRole: "owner",
+        updatedAt: "2026-03-21T11:00:00.000Z",
+        publicationStatus: "current-owner",
+        relationship: "current-owner",
+        ref: "documentation:workspace-projections-overview",
+      },
+    ],
+  };
+}
+
 function sampleDoc(overrides: Partial<DocumentationState> = {}): DocumentationReadResult {
   const state = sampleDocState(overrides);
+  const governance = sampleGovernance(state);
   const body = [
     "# Workspace projections",
     "",
@@ -45,70 +89,37 @@ function sampleDoc(overrides: Partial<DocumentationState> = {}): DocumentationRe
     "",
     "Canonical state stays in SQLite while `.loom/` remains derived.",
   ].join("\n");
+  const summary = summarizeDocumentation(state, 0, governance);
+  const overview = buildDocumentationOverview(state, [], governance);
   return {
     state,
-    summary: {
-      id: state.docId,
-      title: state.title,
-      status: state.status,
-      docType: state.docType,
-      sectionGroup: state.sectionGroup,
-      updatedAt: state.updatedAt,
-      repository: null,
-      sourceKind: state.sourceTarget.kind,
-      sourceRef: state.sourceTarget.ref,
-      summary: state.summary,
-      upstreamPath: state.upstreamPath,
-      revisionCount: 2,
-      ref: `doc:${state.docId}`,
-    },
+    summary,
     packet: "packet",
-    document: renderDocumentationMarkdown(state, body),
+    document: renderDocumentationMarkdown(state, governance, body),
     revisions: [],
-    overview: {
-      doc: {
-        id: state.docId,
-        title: state.title,
-        status: state.status,
-        docType: state.docType,
-        sectionGroup: state.sectionGroup,
-        updatedAt: state.updatedAt,
-        repository: null,
-        sourceKind: state.sourceTarget.kind,
-        sourceRef: state.sourceTarget.ref,
-        summary: state.summary,
-        upstreamPath: state.upstreamPath,
-        revisionCount: 2,
-        ref: `doc:${state.docId}`,
-      },
-      packetRef: `doc:${state.docId}:packet`,
-      documentRef: `doc:${state.docId}:document`,
-      revisionCount: 2,
-      lastRevision: null,
-      audience: state.audience,
-      guideTopics: state.guideTopics,
-      linkedOutputPaths: state.linkedOutputPaths,
-      contextRefs: state.contextRefs,
-      scopePaths: state.scopePaths,
-    },
-  } as DocumentationReadResult;
+    overview,
+    governance,
+  };
 }
 
 describe("documentation workspace projections", () => {
   it("renders docs-quality markdown through the shared manifest contract", () => {
     const alpha = sampleDoc();
     const beta = sampleDoc({ docId: "alpha-guide", title: "Alpha guide" });
+    const archived = sampleDoc({ docId: "retired-guide", title: "Retired guide", status: "archived" });
 
     const projection = buildDocumentationProjection(alpha);
-    const manifest = createDocumentationProjectionManifest([alpha, beta]);
+    const manifest = createDocumentationProjectionManifest([alpha, beta, archived]);
 
     expect(projection.relativePath).toBe("guides/workspace-projections-guide.md");
     expect(projection.manifestEntry.editability).toEqual({ mode: "full" });
     expect(projection.renderedContent.match(/^---$/gm)).toHaveLength(2);
+    expect(projection.renderedContent).toContain("publication-status: current-companion");
     expect(projection.renderedContent).toContain("# Workspace projections");
     expect(manifest.entries.map((entry) => entry.relativePath)).toEqual([
       "guides/alpha-guide.md",
       "guides/workspace-projections-guide.md",
+      "history/archived/guides/retired-guide.md",
     ]);
   });
 
@@ -119,6 +130,7 @@ describe("documentation workspace projections", () => {
       .replace('title: "Workspace projections guide"', 'title: "Repository projection guide"')
       .replace("type: guide", "type: faq")
       .replace("source: workspace:repo", "source: ticket:pl-9999")
+      .replace("publication-status: current-companion", "publication-status: current-owner")
       .replace("topics:\n  - workspace-projections", "topics:\n  - workspace-projections\n  - projections")
       .replace("outputs: []", "outputs:\n  - docs/loom.md")
       .replace("upstream-path: README.md", "upstream-path: CONTRIBUTING.md")
@@ -141,5 +153,6 @@ describe("documentation workspace projections", () => {
     expect(update).not.toHaveProperty("sourceTarget");
     expect(update).not.toHaveProperty("docType");
     expect(update).not.toHaveProperty("status");
+    expect(update).not.toHaveProperty("topicRole");
   });
 });

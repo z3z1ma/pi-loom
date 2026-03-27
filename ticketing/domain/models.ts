@@ -23,6 +23,7 @@ export const TICKET_PRIORITIES = ["low", "medium", "high", "critical"] as const;
 export const TICKET_RISKS = ["low", "medium", "high"] as const;
 export const REVIEW_STATUSES = ["none", "requested", "changes_requested", "approved"] as const;
 export const TICKET_BRANCH_MODES = ["none", "allocator", "exact"] as const;
+export const TICKET_DOCS_DISPOSITIONS = ["update", "create", "supersede", "archive", "waive"] as const;
 export const JOURNAL_KINDS = [
   "note",
   "decision",
@@ -41,7 +42,21 @@ export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
 export type TicketRisk = (typeof TICKET_RISKS)[number];
 export type TicketReviewStatus = (typeof REVIEW_STATUSES)[number];
 export type TicketBranchMode = (typeof TICKET_BRANCH_MODES)[number];
+export type TicketDocsDisposition = (typeof TICKET_DOCS_DISPOSITIONS)[number];
 export type JournalKind = (typeof JOURNAL_KINDS)[number];
+
+export interface TicketDocsImpactInput {
+  disposition?: TicketDocsDisposition;
+  refs?: string[];
+  note?: string | null;
+}
+
+export interface TicketDocsImpactState {
+  disposition: TicketDocsDisposition | null;
+  refs: string[];
+  note: string | null;
+  reviewedAt: string | null;
+}
 
 export interface TicketFrontmatter {
   id: string;
@@ -66,6 +81,10 @@ export interface TicketFrontmatter {
   "branch-mode": TicketBranchMode;
   "branch-family": string | null;
   "exact-branch-name": string | null;
+  "docs-disposition": TicketDocsDisposition | null;
+  "docs-refs": string[];
+  "docs-note": string | null;
+  "docs-reviewed-at": string | null;
 }
 
 export interface TicketBody {
@@ -231,6 +250,9 @@ export interface CreateTicketInput {
   branchMode?: TicketBranchMode;
   branchFamily?: string | null;
   exactBranchName?: string | null;
+  docsDisposition?: TicketDocsDisposition;
+  docsRefs?: string[];
+  docsNote?: string | null;
 }
 
 export interface UpdateTicketInput {
@@ -259,6 +281,9 @@ export interface UpdateTicketInput {
   verification?: string;
   journalSummary?: string;
   status?: Exclude<MutableTicketStatus, "closed">;
+  docsDisposition?: TicketDocsDisposition;
+  docsRefs?: string[];
+  docsNote?: string | null;
 }
 
 export interface AttachArtifactInput {

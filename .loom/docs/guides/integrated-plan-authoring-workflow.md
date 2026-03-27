@@ -4,13 +4,27 @@ title: "Integrated plan authoring workflow"
 status: active
 type: guide
 section: guides
+topic-id: integrated-plan-authoring
+topic-role: companion
+publication-status: current-companion
+publication-summary: "Current companion doc beneath active topic owner integrated-plan-authoring."
+recommended-action: update-current-companion
+current-owner: integrated-plan-authoring
+active-owners:
+  - integrated-plan-authoring
 audience:
   - ai
   - human
-source: spec:integrated-plan-ticket-materialization
+source: workspace:workspace
+verified-at: 2026-03-27T10:46:33.159Z
+verification-source: manual:pl-0131-iter-001
+successor: null
+successor-title: null
+predecessors: []
+retirement-reason: null
 topics:
-  - plan-authoring
-  - ticket-materialization
+  - plans
+  - ticket-linkage
   - workflow
 outputs: []
 upstream-path: null
@@ -18,43 +32,20 @@ upstream-path: null
 
 # Integrated plan authoring workflow
 
-## Purpose
-Use `plan_write` as the primary cohesive authoring surface when a plan's execution slice is already clear enough that the caller can also write each linked ticket as a fully detailed, self-contained execution record in the same operation.
+Integrated plan authoring keeps the plan as the durable execution-strategy container while letting `plan_write` create or update linked tickets in the same write when the rollout is already clear.
 
-## What changed
-`plan_write` can now accept optional `linkedTicketInputs`. Each entry either:
-- references an existing ticket with `ticketRef`, plus optional plan-local `role` and `order`, or
-- defines a new ticket to create with `title` and the normal ticket-detail fields, plus optional plan-local `role` and `order`.
+## Integrated path
 
-The tool persists the plan strategy, materializes any requested tickets through the ticket store, links them into the plan, and returns the resulting plan state plus the materialized ticket results.
+Use the integrated path when:
 
-## Boundary rules
-- Plans remain the execution-strategy layer.
-- Tickets remain the canonical execution ledger and must still contain their own context, acceptance criteria, implementation narrative, risks, and verification expectations.
-- Plan state stores only active linked-ticket membership metadata: ticket id, plan-local role, and order.
-- Ticket title and status continue to be derived from the live ticket ledger whenever the plan is read or rendered.
-- `linkedTickets` means active plan membership.
-- `contextRefs.ticketIds` means only loose packet context and must not be treated as interchangeable with active membership.
+- the execution slice is already understood
+- each linked ticket can still be written as a complete self-contained execution unit
+- the plan should immediately carry the authoritative linked-ticket set
 
-## When to use the integrated path
-Use `linkedTicketInputs` when:
-- the execution slice is already clear
-- the caller can still provide fully detailed ticket bodies
-- reducing authoring fragmentation is more important than staging the work across several calls
+## Staged path
 
-Do not use `linkedTicketInputs` when:
-- the plan needs to be scaffolded first
-- the caller needs more room to think through each ticket carefully
-- creating tickets now would encourage thin placeholders rather than truthful units of work
+Create or revise the plan first when ticket authorship needs more room, additional discovery, or later sequencing. In that case the plan remains the bounded strategy container and ticket linkage is added afterward.
 
-In those cases, create or update the plan first, then create tickets separately and link them later.
+## Important distinction
 
-## Provenance and unlinking
-Linking a ticket still records `plan:<planId>` provenance on the ticket through external refs. Removing active membership from the plan no longer scrubs that provenance from the ticket, so historical rediscovery still works even after a ticket leaves the active execution slice.
-
-## Observable results
-After an integrated write:
-- `plan_read` and `plan_overview` reflect the linked ticket count and live ticket statuses
-- the plan markdown includes the linked ticket section and live ticket snapshot
-- each linked ticket remains independently readable as a complete execution record
-- ticket provenance back to the plan remains queryable
+`linkedTickets` is active plan membership. Loose ticket references in packet context are not a replacement for that durable linkage.

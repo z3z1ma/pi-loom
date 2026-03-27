@@ -16,9 +16,7 @@ describe("spec prompt guidance", () => {
     );
     expect(guidance).toContain("Specs must be detail-first artifacts, not skeletal placeholders.");
     expect(guidance).toContain("self-contained contracts");
-    expect(guidance).toContain(
-      "Specs are not task lists, migration notes, or instructions to mutate today's code.",
-    );
+    expect(guidance).toContain("Specs are not task lists, migration notes, or instructions to mutate today's code.");
     expect(guidance).toContain(
       "an implementer who did not author the spec can still understand what behavior must be true and why",
     );

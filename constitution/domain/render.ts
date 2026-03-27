@@ -1,7 +1,7 @@
 import { renderBulletList, renderSection, serializeMarkdownArtifact } from "./frontmatter.js";
 import type {
-  ConstitutionalOverview,
   ConstitutionalEntry,
+  ConstitutionalOverview,
   ConstitutionalRecord,
   ConstitutionalState,
   ConstitutionDecisionRecord,

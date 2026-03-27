@@ -30,6 +30,7 @@ describe("ticketing prompt guidance", () => {
     expect(guidance).toContain("detailed enough to survive handoff as the fundamental quantum of work");
     expect(guidance).toContain("a newcomer can tell why the work exists, what to do next, and what proves completion");
     expect(guidance).toContain("prefer durable specifics over vague blurbs");
+    expect(guidance).toContain("record an explicit documentation disposition with concrete evidence");
     expect(guidance).toContain("constitutional memory as the durable project-policy layer");
     expect(guidance).toContain("specs as standalone declarative behavior contracts when present");
     expect(guidance).toContain("plans as the durable execution-strategy layer");

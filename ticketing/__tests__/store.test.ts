@@ -2,15 +2,25 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDocumentationStore } from "#docs/domain/store.js";
 import { createPlanStore } from "#plans/domain/store.js";
-import { readProjectionManifest, resolveProjectionFilePath } from "#storage/projections.js";
 import { createSeededGitWorkspace, createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import { findEntityByDisplayId } from "#storage/entities.js";
+import { readProjectionManifest, resolveProjectionFilePath } from "#storage/projections.js";
 import { closeAllWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
 import { parseTicket, serializeTicket } from "../domain/frontmatter.js";
 import { ticketGraphNodeKey } from "../domain/graph.js";
 import { getCheckpointRef, getTicketRef } from "../domain/paths.js";
 import { createTicketStore } from "../domain/store.js";
+
+const TEST_DOCS_WAIVER = {
+  disposition: "waive" as const,
+  note: "No governed docs changed in this test.",
+};
+
+async function closeTicketWithWaiver(store: ReturnType<typeof createTicketStore>, ref: string, verification: string) {
+  return store.closeTicketAsync(ref, verification, TEST_DOCS_WAIVER);
+}
 
 function createParentWorkspaceWithChildren(): { cwd: string; cleanup: () => void } {
   const workspace = createSeededParentGitWorkspace({
@@ -126,7 +136,7 @@ describe("TicketStore canonical storage", () => {
     ]);
 
     vi.setSystemTime(new Date("2024-01-02T05:06:07.000Z"));
-    const closed = await store.closeTicketAsync(created.summary.id, "Smoke test passed.");
+    const closed = await closeTicketWithWaiver(store, created.summary.id, "Smoke test passed.");
     expect(closed.ticket.closed).toBe(true);
     expect(closed.ticket.ref).toBe(ticketRef);
     expect(closed.summary.ref).toBe(ticketRef);
@@ -181,6 +191,103 @@ describe("TicketStore canonical storage", () => {
     });
   }, 30000);
 
+  it("fails closed without a docs disposition and records governed doc evidence for changed work", async () => {
+    const store = createTicketStore(workspace);
+    const docsStore = createDocumentationStore(workspace);
+
+    vi.setSystemTime(new Date("2024-01-02T07:00:00.000Z"));
+    const changedFeature = await store.createTicketAsync({
+      title: "Roll out curated closeout gate",
+      summary: "Feature behavior changed and the explanatory surface must stay truthful.",
+    });
+
+    vi.setSystemTime(new Date("2024-01-02T07:05:00.000Z"));
+    const doc = await docsStore.createDoc({
+      title: "Curated closeout gate",
+      docType: "overview",
+      topicId: "curated-closeout-gate",
+      topicRole: "owner",
+      summary: "Explains the execution closeout gate for docs impact.",
+      sourceTarget: { kind: "ticket", ref: changedFeature.summary.id },
+      verifiedAt: "2024-01-02T07:05:00.000Z",
+      verificationSource: `ticket:${changedFeature.summary.id}`,
+    });
+
+    await expect(
+      store.closeTicketAsync(changedFeature.summary.id, "Verified changed-feature closeout."),
+    ).rejects.toThrow(
+      new RegExp(`requires a documentation disposition[\\s\\S]*${doc.summary.id}[\\s\\S]*update-current-owner`),
+    );
+
+    vi.setSystemTime(new Date("2024-01-02T07:06:00.000Z"));
+    const closed = await store.closeTicketAsync(changedFeature.summary.id, "Verified changed-feature closeout.", {
+      disposition: "update",
+      refs: [doc.summary.id],
+    });
+
+    expect(closed.ticket.frontmatter).toMatchObject({
+      status: "closed",
+      "docs-disposition": "update",
+      "docs-refs": [doc.summary.id],
+      "docs-reviewed-at": "2024-01-02T07:06:00.000Z",
+    });
+    expect(closed.journal).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "verification",
+          text: "Verified changed-feature closeout.",
+          metadata: expect.objectContaining({ docsDisposition: "update", docsRefs: [doc.summary.id] }),
+        }),
+      ]),
+    );
+  }, 30000);
+
+  it("accepts archived governed docs as concrete evidence for removed-feature closeout", async () => {
+    const store = createTicketStore(workspace);
+    const docsStore = createDocumentationStore(workspace);
+
+    vi.setSystemTime(new Date("2024-01-02T08:00:00.000Z"));
+    const removedFeature = await store.createTicketAsync({
+      title: "Retire legacy feature",
+      summary: "The removed feature should not leave active docs behind.",
+    });
+
+    vi.setSystemTime(new Date("2024-01-02T08:05:00.000Z"));
+    const doc = await docsStore.createDoc({
+      title: "Legacy feature guide",
+      docType: "guide",
+      topicId: "legacy-feature",
+      topicRole: "companion",
+      summary: "Describes the legacy feature before retirement.",
+      sourceTarget: { kind: "ticket", ref: removedFeature.summary.id },
+      verifiedAt: "2024-01-02T08:05:00.000Z",
+      verificationSource: `ticket:${removedFeature.summary.id}`,
+    });
+    vi.setSystemTime(new Date("2024-01-02T08:06:00.000Z"));
+    await docsStore.archiveDoc(doc.summary.id);
+
+    vi.setSystemTime(new Date("2024-01-02T08:07:00.000Z"));
+    const closed = await store.closeTicketAsync(removedFeature.summary.id, "Verified removed-feature closeout.", {
+      disposition: "archive",
+      refs: [doc.summary.id],
+    });
+
+    expect(closed.ticket.frontmatter).toMatchObject({
+      status: "closed",
+      "docs-disposition": "archive",
+      "docs-refs": [doc.summary.id],
+      "docs-reviewed-at": "2024-01-02T08:07:00.000Z",
+    });
+    expect(closed.journal).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "verification",
+          metadata: expect.objectContaining({ docsDisposition: "archive", docsRefs: [doc.summary.id] }),
+        }),
+      ]),
+    );
+  }, 30000);
+
   it("persists sequential ticket writes in sqlite by incrementing the canonical entity version", async () => {
     const store = createTicketStore(workspace);
 
@@ -189,7 +296,7 @@ describe("TicketStore canonical storage", () => {
     vi.setSystemTime(new Date("2024-01-03T00:00:02.000Z"));
     await store.addNoteAsync(created.summary.id, "Captured incident notes");
     vi.setSystemTime(new Date("2024-01-03T00:00:03.000Z"));
-    await store.closeTicketAsync(created.summary.id, "Verified closure");
+    await closeTicketWithWaiver(store, created.summary.id, "Verified closure");
     vi.setSystemTime(new Date("2024-01-03T00:00:04.000Z"));
     await store.reopenTicketAsync(created.summary.id);
 
@@ -235,7 +342,7 @@ describe("TicketStore canonical storage", () => {
     vi.setSystemTime(new Date("2024-01-04T00:00:01.000Z"));
     const closedArchivedCandidate = await store.createTicketAsync({ title: "Archive me while closed" });
     vi.setSystemTime(new Date("2024-01-04T00:00:02.000Z"));
-    await store.closeTicketAsync(closedArchivedCandidate.summary.id, "done");
+    await closeTicketWithWaiver(store, closedArchivedCandidate.summary.id, "done");
 
     vi.setSystemTime(new Date("2024-01-04T00:00:03.000Z"));
     await expect(store.archiveTicketAsync(archivedCandidate.summary.id)).rejects.toThrow(
@@ -289,7 +396,7 @@ describe("TicketStore canonical storage", () => {
     const child = await store.createTicketAsync({ title: "Child of deleted", parent: archivedCandidate.summary.id });
 
     vi.setSystemTime(new Date("2024-01-05T00:00:04.000Z"));
-    await store.closeTicketAsync(archivedCandidate.summary.id, "done");
+    await closeTicketWithWaiver(store, archivedCandidate.summary.id, "done");
     vi.setSystemTime(new Date("2024-01-05T00:00:05.000Z"));
     const deleted = await store.deleteTicketAsync(archivedCandidate.summary.id);
 
@@ -493,7 +600,7 @@ describe("TicketStore canonical storage", () => {
     });
 
     vi.setSystemTime(new Date("2024-01-06T00:00:02.000Z"));
-    await store.closeTicketAsync(created.summary.id, "verified closed");
+    await closeTicketWithWaiver(store, created.summary.id, "verified closed");
 
     await expect(store.startTicketAsync(created.summary.id)).rejects.toThrow(
       `Closed ticket ${created.summary.id} cannot be started; use reopen before editing it.`,
@@ -625,7 +732,7 @@ describe("TicketStore canonical storage", () => {
       vi.setSystemTime(new Date("2023-12-01T00:00:00.000Z"));
       const agedClosed = await ticketStore.createTicketAsync({ title: "Aged closed ticket" });
       vi.setSystemTime(new Date("2023-12-01T00:05:00.000Z"));
-      await ticketStore.closeTicketAsync(agedClosed.summary.id, "Archived from the active window.");
+      await closeTicketWithWaiver(ticketStore, agedClosed.summary.id, "Archived from the active window.");
 
       vi.setSystemTime(new Date("2023-12-02T00:00:00.000Z"));
       const pinnedClosed = await ticketStore.createTicketAsync({
@@ -633,7 +740,7 @@ describe("TicketStore canonical storage", () => {
         labels: ["projection:pinned"],
       });
       vi.setSystemTime(new Date("2023-12-02T00:05:00.000Z"));
-      await ticketStore.closeTicketAsync(pinnedClosed.summary.id, "Pinned for operator follow-up.");
+      await closeTicketWithWaiver(ticketStore, pinnedClosed.summary.id, "Pinned for operator follow-up.");
 
       vi.setSystemTime(new Date("2023-12-03T00:00:00.000Z"));
       const planLinkedClosed = await ticketStore.createTicketAsync({ title: "Plan-linked closed ticket" });
@@ -648,7 +755,7 @@ describe("TicketStore canonical storage", () => {
         order: 1,
       });
       vi.setSystemTime(new Date("2023-12-03T00:10:00.000Z"));
-      await ticketStore.closeTicketAsync(planLinkedClosed.summary.id, "Still relevant to the active plan.");
+      await closeTicketWithWaiver(ticketStore, planLinkedClosed.summary.id, "Still relevant to the active plan.");
 
       vi.setSystemTime(new Date("2023-12-04T00:00:00.000Z"));
       const openTicket = await ticketStore.createTicketAsync({ title: "Open projected ticket" });
@@ -656,7 +763,7 @@ describe("TicketStore canonical storage", () => {
       vi.setSystemTime(new Date("2024-01-15T00:00:00.000Z"));
       const recentClosed = await ticketStore.createTicketAsync({ title: "Recent closed ticket" });
       vi.setSystemTime(new Date("2024-01-15T00:05:00.000Z"));
-      await ticketStore.closeTicketAsync(recentClosed.summary.id, "Recently closed and still useful.");
+      await closeTicketWithWaiver(ticketStore, recentClosed.summary.id, "Recently closed and still useful.");
 
       const result = await ticketStore.syncTicketWorkspaceProjectionAsync({ now: "2024-01-20T00:00:00.000Z" });
       expect(result.gitignore.status).toBe("created");
@@ -737,11 +844,11 @@ describe("TicketStore canonical storage", () => {
       await ticketStore.addDependencyAsync(candidate.summary.id, blocker.summary.id);
       vi.setSystemTime(new Date("2024-01-01T00:03:00.000Z"));
       await ticketStore.attachArtifactAsync(candidate.summary.id, {
-        label: "capture",
+        label: "evidence",
         content: "retained canonical evidence",
       });
       vi.setSystemTime(new Date("2024-01-01T00:04:00.000Z"));
-      await ticketStore.closeTicketAsync(candidate.summary.id, "Closed cleanly.");
+      await closeTicketWithWaiver(ticketStore, candidate.summary.id, "Closed cleanly.");
 
       await ticketStore.syncTicketWorkspaceProjectionAsync({ now: "2024-01-05T00:00:00.000Z" });
       const projectionPath = resolveProjectionFilePath(seeded.cwd, "tickets", `${candidate.summary.id}.md`);
@@ -755,12 +862,12 @@ describe("TicketStore canonical storage", () => {
       expect(reread.ticket.closed).toBe(true);
       expect(reread.ticket.frontmatter.deps).toEqual([blocker.summary.id]);
       expect(reread.attachments).toEqual([
-        expect.objectContaining({ label: "capture", ticketId: candidate.summary.id }),
+        expect.objectContaining({ label: "evidence", ticketId: candidate.summary.id }),
       ]);
       expect(reread.ticket.body.verification).toContain("Closed cleanly.");
       expect(reread.journal).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ kind: "attachment", text: "Attached capture" }),
+          expect.objectContaining({ kind: "attachment", text: "Attached evidence" }),
           expect.objectContaining({ kind: "verification", text: "Closed cleanly." }),
         ]),
       );

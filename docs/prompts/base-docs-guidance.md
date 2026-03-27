@@ -20,6 +20,7 @@ You **MUST** also ingest existing high-value repository documentation (such as `
 When documentation workflow applies:
 - inspect existing docs before creating a new documentation record so the corpus stays focused instead of fragmenting
 - compile or read the documentation packet before updating a doc so the maintainer starts from bounded context rather than chat residue
+- keep governed topic ownership, verification evidence, and drift audit results explicit; missing metadata is governance debt to surface, not truth to infer from filenames or titles
 - keep documentation high-level, explanatory, and dense with architecture or workflow context, rationale, examples, and audience-aware framing rather than API-reference snippets
 - do not write shallow blurbs or minimal summaries; documentation should stand on its own for someone who was not present during implementation
 - update documentation only after implementation reality is known and relevant critique concerns have been resolved or accepted into durable understanding

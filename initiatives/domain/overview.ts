@@ -10,10 +10,10 @@ import { openWorkspaceStorage } from "#storage/workspace.js";
 import { TICKET_STATUSES, type TicketSummary } from "#ticketing/domain/models.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import type {
-  InitiativeOverview,
-  InitiativeOverviewMilestone,
   InitiativeMilestone,
   InitiativeMilestoneHealth,
+  InitiativeOverview,
+  InitiativeOverviewMilestone,
   InitiativeState,
 } from "./models.js";
 import { normalizeStringList } from "./normalize.js";
