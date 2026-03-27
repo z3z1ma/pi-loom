@@ -112,6 +112,16 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "doc:pi-loom-operating-model-overview",
+      "contentHash": "904fbfa6787cbb83b6bd4b98a758bcc9d5d09857e2147b36c045e1857c2d703e",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/pi-loom-operating-model-overview.md",
+      "revisionToken": "d14cdafdea57f69f59c569ffcde7b00a55760fe88f781d50e9c3062092f23c89"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "doc:ralph-runtime-execution-and-observability-overview",
       "contentHash": "144431775a9cf738dbeb852a36a49067347a1c60e505678ed3e012f9531ad61b",
       "editability": {

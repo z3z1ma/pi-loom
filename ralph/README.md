@@ -2,7 +2,7 @@
 
 SQLite-backed Ralph managed-loop orchestration for pi.
 
-This package adds a bounded Ralph-specific orchestration layer with canonical run state stored in SQLite via pi-storage. Ralph runs are ticket-bound: each run is durably tied to one ticket, optionally anchored to a governing plan when one is supplied or inferable, keeps that ticket's orchestration state truthful between fresh-context worker launches, and exits only when the ticket run completes or the operator stops, pauses, or steers it.
+This package adds a bounded Ralph-specific orchestration layer with canonical run state stored in SQLite via pi-storage. Ralph runs are ticket-bound: each run is durably tied to one ticket, optionally anchored to a governing plan when one is supplied or inferable, keeps that ticket's orchestration state truthful between fresh-context launches, and exits only when the ticket run completes or the operator stops, pauses, or steers it.
 
 ## Capabilities
 
@@ -13,7 +13,7 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 - multiple Ralph runs may coexist in one workspace when they do not target the same ticket concurrently
 - plan-anchored execution where the governing spec is inherited from the plan when present
 - fresh-context ticket iterations with durable runtime artifacts for launch lifecycle, tool activity, streamed assistant output, stderr, and failures, plus detection of missing bound-ticket activity
-- background execution backed by an in-process async job manager so long-running loops can be started, inspected, awaited, and cancelled without losing durable run truth
+- background execution backed by in-process async job control so long-running loops can be started, inspected, awaited, and cancelled without losing durable run truth
 - explicit operator control over start/stop/steer/status instead of transcript-only orchestration
 - runtime-limit and token-budget enforcement that halts runs explicitly when bounded execution exceeds the configured policy
 - extension lifecycle hooks that initialize the Ralph ledger for orchestration state management
@@ -32,8 +32,8 @@ This package adds a bounded Ralph-specific orchestration layer with canonical ru
 ## Artifact policy
 
 - `launch.json` is a runtime-only handoff descriptor for a specific fresh-session or session-runtime launch; it is not durable canonical state
-- runtime artifacts are durable per-iteration execution records: they are not the source of loop truth, but they are the primary observability surface for what the worker actually did while storing a portable invocation summary instead of machine-local spawn paths
-- Ralph synthesizes each latest bounded iteration from the bound ticket before/after a worker launch; iteration and runtime records remain revisable observability keyed by iteration id rather than an immutable append-only history API
+- runtime artifacts are durable per-iteration execution records: they are not the source of loop truth, but they are the primary observability surface for what a Ralph run actually did while storing a portable invocation summary instead of machine-local spawn paths
+- Ralph synthesizes each latest bounded iteration from the bound ticket before/after a fresh launch; iteration and runtime records remain revisable observability keyed by iteration id rather than an immutable append-only history API
 
 ## Current implementation status
 
@@ -54,7 +54,7 @@ AI tool usage:
 - use `ralph_steer`, `ralph_stop`, and `ralph_read` with the same `ticketRef` and optional `planRef` to manipulate or inspect the targeted run without choosing run ids in AI input
 - use `ralph_job_read`, `ralph_job_wait`, and `ralph_job_cancel` for explicit background-job inspection, waiting, and cancellation
 
-`ralph_run` is the primary loop tool. It creates or resumes the system-owned Ralph run for one exact `ticketRef` plus its effective plan binding, inherits the governing spec from the plan when one is present, and runs fresh-context bounded iterations against that ticket until the run pauses, halts, or completes. The bound ticket is the authoritative execution ledger: the worker is expected to keep ticket status, body, journal, verification, and blockers truthful during the iteration, and Ralph synthesizes the latest bounded iteration from those ticket changes after the worker exits. Parallelism is therefore explicit: different tickets may run in parallel, but the same ticket must not have two Ralph runs executing at once.
+`ralph_run` is the primary loop tool. It creates or resumes the system-owned Ralph run for one exact `ticketRef` plus its effective plan binding, inherits the governing spec from the plan when one is present, and runs fresh-context bounded iterations against that ticket until the run pauses, halts, or completes. The bound ticket is the authoritative execution ledger: the run is expected to keep ticket status, body, journal, verification, and blockers truthful during the iteration, and Ralph synthesizes the latest bounded iteration from those ticket changes after the launch exits. Parallelism is therefore explicit: different tickets may run in parallel, but the same ticket must not have two Ralph runs executing at once.
 
 ## Multi-repository runtime targeting
 

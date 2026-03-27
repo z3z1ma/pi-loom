@@ -1,140 +1,280 @@
 # Repository Guidelines
 
 ## Project Overview
-- `pi-loom` is a single repo-root npm package. Its top-level subdirectories implement the Loom stack: constitutional memory, research, initiatives, specs, plans, tickets, critique, Ralph orchestration, docs, and storage.
-- Canonical state lives in SQLite today; the checked-in repo no longer carries a `.loom/` tree. Source lives under the top-level area directories such as `constitution/`, `ticketing/`, `ralph/`, and `storage/`. Some stores may eventually export one-way review surfaces into `.loom/`, but that export path is not the current source of truth.
-- The root `package.json` is both the package manifest and the integration point: it loads every extension through `pi.extensions`.
-- Workflow guidance lives primarily in `README.md` plus the area READMEs under `<area>/README.md`; treat those as the first documentation stop before inferring behavior from checked-in `.loom` examples.
+
+`pi-loom` is a single TypeScript package that implements Loom's durable memory and execution layers: `constitution/`, `research/`, `initiatives/`, `specs/`, `plans/`, `ticketing/`, `critique/`, `ralph/`, `docs/`, plus shared storage in `storage/`.
+
+The important architectural rule is that canonical state lives in SQLite via `storage/`. Repo-visible `.loom/` files are derived review/projection surfaces, not the source of truth.
+
+The root `package.json` is also the integration point: it loads the Pi extension entrypoints through `pi.extensions` (`bidi/`, `constitution/`, `research/`, `initiatives/`, `specs/`, `plans/`, `ticketing/`, `critique/`, `ralph/`, `docs/`).
 
 ## Architecture & Data Flow
-1. A slash command or tool call enters through an area entrypoint such as `ticketing/index.ts` or `specs/index.ts`.
-2. Each area's `index.ts` registers its command/tool surface, initializes its ledger on `session_start`, and appends area-specific prompt guidance on `before_agent_start`.
-3. `commands/*.ts` handle human-facing slash commands; `tools/*.ts` expose AI-facing tool APIs.
-4. `domain/*.ts` owns the repo-materialized model: `store.ts`, `models.ts`, `paths.ts`, `normalize.ts`, `render.ts`, plus area-specific helpers like `overview.ts`, `frontmatter.ts`, `projection.ts`, `graph.ts`, or `runtime.ts`.
-5. Domain stores own the package-local model and canonical SQLite projection logic; when human-facing artifacts are exported, they are derived from canonical records rather than treated as primary state.
-6. Many stores sync canonical records and projections through `pi-loom/storage`; any future `.loom/` export is one-way and review-oriented rather than a second system of record.
-7. Area entrypoints also export a `_test` object so command handlers, prompt builders, and stores can be exercised directly from Vitest.
 
-### Workspace projections and packets
-- Workspace projections are the repo-visible `.loom/<family>/...` exports for canonical records; they are review and reconcile surfaces, not canonical truth.
-- Supported projection families today are `constitution`, `research`, `initiatives`, `specs`, `plans`, `docs`, and `tickets`.
-- Critique and Ralph do not project into `.loom/`; their packets and runtime artifacts stay distinct from projection flows.
-- Packets are fresh-process handoff artifacts compiled from canonical state. They are not reconcile targets and they do not autosync from file edits.
-- Use `/loom-status`, `/loom-export`, `/loom-refresh`, and `/loom-reconcile` for the human-facing `.loom/` sync surface. `projection_status` / `projection_write` remain AI tools. Hidden file-save autosync is intentionally unsupported.
-- Ticket projections are high-churn and default to local-only Git hygiene: `.loom/.gitignore` ignores `tickets/` plus `.reconcile/` scratch/conflict leftovers unless a workflow intentionally changes that default.
+### Layer stack
 
-### Layer boundaries
-- Core execution flow: `constitution -> research -> initiatives -> specs -> plans -> tickets`, with `pi-ralph` orchestrating bounded plan/execute/review loops alongside ticket execution rather than replacing the ticket ledger.
-- `pi-critique` is the durable review layer; it does not replace tickets or plans.
-- `pi-ralph` orchestrates bounded plan/execute/review loops across the other layers; it is not a general workflow engine.
-- `pi-docs` is the post-completion explanatory layer.
-- `plans` is the only naming exception among the single-command extension areas: the slash command is `/workplan`, not `/plan`.
-- Command and tool families are paired by layer: `/ticket` + `ticket_*`, `/spec` + `spec_*`, `/workplan` + `plan_*`, `/critique` + `critique_*`, `/docs` + `docs_*`, `/ralph` + `ralph_*`. Cross-layer `.loom` sync is the exception: human-facing commands live under `/loom-*`, while the AI tool surface remains `projection_*`.
+The high-level stack in `README.md` is:
+
+1. constitutional memory
+2. research
+3. initiatives
+4. specs
+5. plans
+6. tickets
+7. Ralph orchestration
+8. critique
+9. docs
+
+### Collaborative preparation vs bounded agent execution
+
+Pi Loom is designed around a deliberate split between two kinds of work:
+
+- collaborative preparation layers — `constitution/`, `research/`, `initiatives/`, `specs/`, `plans/`, and ticket authoring in `ticketing/`
+- bounded execution/review layers — Ralph runs, critiques, and docs updates operating from curated packets against a specific execution target
+
+The preparation side is still usually authored with AI help, but this is where humans stay actively in the loop through conversation and the TUI: dialing in durable project rules, doing research, defining strategic initiatives, writing declarative specs, shaping execution strategy, and deciding the ticket units that are actually worth running.
+
+The execution side should stay tightly bounded. Ralph is not meant to be a forever-chat copilot with drifting context. It is a fresh, packetized execution loop that starts with carefully curated context and aims at one logical unit of work, usually one ticket under one governing plan. Critique and docs updates follow the same philosophy: start from a compact, deliberate packet, do one job, land durable state, stop, then reassess.
+
+Why this matters:
+
+- fresh packets preserve the original strategic context instead of letting repeated compactions erode it
+- one run per logical unit avoids cross-ticket contamination from stale transcript history
+- humans can reassess between runs instead of trying to steer many units through one long conversation
+- if a run misses, improve the upstream context (research, spec, plan, ticket, docs) and rerun instead of piling contradictory steering into the same session
+
+### Repeated package pattern
+
+Most top-level Loom layers follow the same shape:
+
+- `index.ts` — Pi extension entrypoint; registers tools/commands, initializes its ledger on `session_start`, and extends the system prompt on `before_agent_start`
+- `commands/` — when present, human-facing slash command handlers
+- `domain/` — canonical models, store logic, rendering/projection helpers
+- `tools/` — machine-facing tool registration
+- `prompts/` — guidance text injected into the agent system prompt
+- `README.md` — package-specific contract and workflow notes
+- `__tests__/` — per-package unit/integration coverage
+
+Representative files:
+
+- `constitution/index.ts`
+- `research/index.ts`
+- `plans/index.ts`
+- `docs/index.ts`
+- `storage/contract.ts`
+- `storage/workspace.ts`
+- `storage/sqlite.ts`
+- `storage/projections.ts`
+
+### Storage and projection flow
+
+Typical flow is:
+
+1. tool or command handler receives input
+2. layer store in `<layer>/domain/store.ts` validates and normalizes it
+3. shared storage helpers in `storage/` read/write canonical SQLite state
+4. optional packets, overviews, plans, docs, or `.loom/...` projections are rendered from canonical state
+
+Do not treat markdown outputs as authoritative state unless the code explicitly says they are reconcile targets.
+
+Projection rules worth preserving:
+
+- supported projection families today are `constitution`, `research`, `initiatives`, `specs`, `plans`, `docs`, and `tickets`
+- critique and Ralph remain canonical-only layers; they produce packets, runs, and review artifacts but do not project into `.loom/`
+- packets are fresh-process handoff artifacts, not reconcile targets
+- the human sync surface lives in `bidi/` as `/loom-status`, `/loom-export`, `/loom-refresh`, and `/loom-reconcile`; the AI surface is `projection_status` / `projection_write`
+
+Packets matter architecturally. They are the curated context windows that let Ralph, critique, and docs update work from stable intent instead of from a long, drifting transcript.
+
+### Scope model
+
+This repo is multi-repository aware. Do not assume the current working directory uniquely identifies the active repository.
+
+Relevant files:
+
+- `README.md`
+- `storage/workspace.ts`
+- `storage/scope.ts`
+- `storage/runtime-scope.ts`
+
+Important rules:
+
+- repository/worktree selection can be explicit
+- repository-bound operations may require `repositoryId` / `worktreeId`
+- path-bearing references may need repository-qualified paths in ambiguous sessions
+- ambiguity should fail closed, not silently guess
 
 ## Key Directories
-- `bidi/` — cross-layer `.loom` sync command/tool area
-- `constitution/` — constitutional memory area
-- `research/` — research memory area
-- `initiatives/` — initiative memory area
-- `specs/` — specification memory area
-- `plans/` — planning memory area
-- `ticketing/` — ticket execution area
-- `critique/` — critique memory area
-- `ralph/` — Ralph orchestration area
-- `docs/` — documentation memory area
-- `storage/` — internal shared storage-contract area for canonical entities, projections, links, and runtime attachments; not a Pi extension entrypoint.
-- `*/{commands,domain,prompts,tools,ui}/` — area implementation code.
-- `*/__tests__/` — Vitest suites.
-- `.agents/resources/` — reference material; not primary runtime code.
 
-There is no root `scripts/` directory. The root-level `docs/` directory is Pi Loom's documentation extension area, not a generic grab-bag for miscellaneous repository prose. Keep operational/workflow guidance in `README.md` and the area READMEs unless work truly belongs to the docs extension area.
+- `constitution/` — durable project vision, principles, constraints, roadmap, decisions
+- `research/` — exploratory evidence and reusable findings
+- `initiatives/` — strategic outcome tracking across specs/tickets
+- `specs/` — declarative behavior contracts
+- `plans/` — execution strategy bridging specs/initiatives to tickets
+- `ticketing/` — live execution ledger, workbench commands, attachments/checkpoints
+- `critique/` — adversarial review records, findings, verdicts
+- `ralph/` — bounded managed execution/review loops tied to tickets/plans
+- `docs/` — durable high-level documentation records and governed docs workflows
+- `storage/` — SQLite backend, schema/contracts, scope resolution, projections, sync; shared implementation, not a Pi extension entrypoint
+- `.loom/` — derived workspace projections and review surfaces; not canonical storage
+- `bidi/` — bidirectional sync surface between repo-visible Markdown projections and canonical storage; owns `/loom-*` commands plus projection tools
+
+There is no repo-root `scripts/` directory. Operational flows live in npm scripts, package command handlers, and tool modules such as `docs/tools/docs.ts` or `ticketing/commands/ticket.ts`.
+
+## Important Files
+
+- `README.md` — best single overview of the stack, projections, scope model, and development workflow
+- `CONSTITUTION.md` — durable project direction and cross-layer design intent
+- `package.json` — authoritative commands, extension entrypoints, package/runtime metadata
+- `tsconfig.json` — strict TypeScript, `module: Node16`, `target: ES2022`, `noEmit`
+- `biome.json` — formatting/linting defaults
+- `vitest.config.ts` — default test lane
+- `vitest.integration.config.ts` — curated integration lane for heavier cross-package flows
+- `storage/README.md` — canonical storage contract and multi-repo/storage invariants
+- `storage/contract.ts` — canonical storage interfaces and entity types
+- `storage/sqlite.ts` — SQLite backend and schema/migration logic
+- `storage/projections.ts` — `.loom` projection rules and family definitions
+- `plans/README.md`, `ticketing/README.md`, `docs/README.md`, `ralph/README.md` — layer-specific contracts worth reading before large changes
 
 ## Development Commands
-Run from the repo root unless a package README says otherwise:
+
+Use npm. This repo is not set up around Bun.
 
 ```bash
 npm install
+npm run test                # default fast lane
+npm run test:integration    # heavier SQLite/workspace flows
+npm run typecheck
 npm run lint
 npm run lint:fix
-npm run typecheck
-npm run check
-npm run check:ci
-npm run test
+npm run check               # lint + typecheck
+npm run check:ci            # CI-style check
+omp -e .                    # load Pi Loom locally
 ```
 
-Local package loading uses `omp`, for example:
+Practical guidance:
 
-```bash
-omp -e .
+- Start with targeted tests for the package you touched when possible.
+- `npm run test` is the default verification lane.
+- Use `npm run test:integration` when changes affect storage, scope resolution, projections, worktrees, runtime launches, or other cross-layer flows.
+
+## Runtime / Tooling Preferences
+
+- Package manager: `npm`
+- Runtime/module system: Node + ESM (`"type": "module"`)
+- TypeScript: strict, `Node16` module resolution, `ES2022` target, `noEmit`
+- Formatter/linter: Biome
+- Database: SQLite via `better-sqlite3`
+- Local entrypoint: `omp -e .`
+
+There is no build output step in normal development. `npm run typecheck` validates types only; it does not emit artifacts.
+
+Formatting defaults from `biome.json`:
+
+- 2-space indentation
+- 120-column line width
+
+Internal imports use the `#...` alias map from `package.json`, for example:
+
+```ts
+import { findEntityByDisplayId } from "#storage/entities.js";
+import { createConstitutionalStore } from "#constitution/domain/store.js";
 ```
-
-The package manifest is the top-level `package.json`; contributor workflows are rooted there.
 
 ## Code Conventions & Common Patterns
-- Language: TypeScript only.
-- Module/runtime contract: `tsconfig.json` uses `target: ES2022`, `module: Node16`, `moduleResolution: Node16`, `strict: true`, and `noEmit: true`.
-- Formatting/linting: `biome.json` enables Biome’s recommended linter rules, 2-space indentation, and `lineWidth: 120`.
-- Area naming is consistent at the repo root: `<domain>/`.
-- Test files live under `*/__tests__/` and use `*.test.ts`.
-- Common area layout:
-  - `index.ts` — extension entrypoint
-  - `commands/*.ts` — slash command handlers
-  - `tools/*.ts` — AI tool registration
-  - `domain/*.ts` — persistence, rendering, normalization, overviews
-  - `prompts/guidance.ts` and `prompts/base-*.md` — system prompt augmentation
-- Entry points usually register one slash command + one tool family, initialize the store on `session_start` and `before_agent_start`, and expose a `_test` export.
-- Stores increasingly follow a projection + canonical-sync pattern: keep canonical entity/projection data in `pi-loom/storage`, and treat any exported repo artifacts as derived review surfaces rather than primary state.
-- Some areas add domain-specific helpers rather than inventing a new top-level layout: `ticketing` adds `graph/query/journal/attachments/checkpoints`, `specs` adds `analysis/checklist/projection`, and `critique`/`docs`/`ralph` include runtime subprocess helpers.
-- Keep changes aligned with the current repo-materialized + canonical-sync design. If behavior changes, update the store/model/render path, the prompt guidance, the package README, and the matching tests together.
-- Prefer explicit links across layers (`initiative`, `spec`, `ticket`, `worker`, `research`, `critique`, `docs`, `ralph`) over implicit inference. The repository is designed around durable IDs and recorded relationships.
 
-## Important Files
-- `README.md` — authoritative high-level architecture and layer semantics.
-- `CONSTITUTION.md` — design direction and repository-wide intent behind the Loom stack.
-- `package.json` — root scripts, workspace definition, extension registration.
-- `tsconfig.json` — strict TypeScript contract.
-- `biome.json` — formatting/lint rules and included file set.
-- `vitest.config.ts` — Node test environment and test discovery glob.
-- `storage/README.md` and `storage/` — storage migration boundary and shared canonical storage contract.
-- `README.md` plus `*/README.md` — package and area-specific behavior, layout, and local `omp -e .` usage.
-- `*/index.ts` — fastest way to understand an area’s command/tool surface.
-- `DATA_PLANE.md` — current-state map of the SQLite-backed canonical storage plane.
-- Package and area READMEs may describe future export layouts under `.loom/`; treat those as design intent unless the code path explicitly emits them.
+### Preserve the existing package layout
 
-## Runtime/Tooling Preferences
-- Use npm. The repo is locked by `package-lock.json`; do not switch package managers casually.
-- There is no build step. Validation is `npm run typecheck`, not emitted output.
-- Use root-level commands for linting, type-checking, and tests.
-- Use `omp -e .` from the repo root when you need to load Pi Loom locally.
-- Root `package.json` is the authoritative extension loader. `storage/` participates as shared implementation, not as a `pi.extensions` entrypoint.
-- Vitest is configured from the repo root with `**/__tests__/**/*.test.ts`; run targeted tests from the root so path resolution matches the workspace config.
-- Extension UI has an important interactive-mode quirk: `ctx.ui.setWidget(...)` is funneled through Oh My Pi's `ExtensionUiController.setHookWidget`, which calls `statusLine.setHookStatus(key, String(content))`. In practice that means interactive widgets are flattened into a single status-line string; arrays are stringified, newlines are sanitized away, and `undefined` can render literally if passed through the widget path.
-- For live one-line extension status in interactive sessions, prefer `ctx.ui.setStatus(key, text)` and clear it with `ctx.ui.setStatus(key, undefined)`. Reserve `setWidget` for RPC mode or for hosts that truly honor widget lines/components, and verify behavior in the actual Pi TUI before depending on multiline rendering.
+If you add behavior to a Loom layer, prefer the established structure instead of inventing a parallel one:
+
+- extension wiring in `index.ts`
+- persistence and domain logic in `domain/`
+- tool registration in `tools/`
+- prompt text in `prompts/`
+- tests in `__tests__/`
+
+### Canonical state vs derived artifacts
+
+Keep the boundary honest:
+
+- SQLite-backed stores are canonical
+- `.loom/` projections are derived review surfaces
+- packets, overviews, and rendered docs/plans are outputs, not alternate stores
+
+If a change appears to require updating both SQLite-backed truth and a checked-in projection manually, verify whether the projection should instead be regenerated.
+
+### Scope-sensitive code should fail closed
+
+When touching workspace/repository-bound logic:
+
+- prefer explicit repository/worktree identity over cwd inference
+- preserve repository-qualified path handling in ambiguous multi-repo sessions
+- do not add "best guess" fallbacks that hide scope mistakes
+
+### Follow existing layer contracts
+
+Each layer has a distinct role. Preserve those boundaries:
+
+- constitution stores durable project policy and roadmap intent
+- research stores discovery, evidence, hypotheses, and artifacts
+- initiatives store strategic outcomes and milestones
+- specs describe intended behavior
+- plans describe execution strategy
+- tickets carry live execution state and define the unit of bounded execution Ralph should work against
+- critique stores review findings
+- docs explain accepted system reality
+
+Treat finalized specs and durable critique/docs records as governed history, not scratch space for ad hoc execution notes.
+
+Ralph, critique, and docs update should be treated as packetized fresh-context runs, not as places to compensate for weak upstream artifacts. When execution quality is poor, fix the constitution/research/spec/plan/ticket inputs first.
+
+Avoid moving responsibilities between layers just to simplify one local change.
 
 ## Testing & QA
-- Framework: Vitest (`vitest.config.ts`), Node environment.
-- Test discovery is root-scoped across the top-level areas.
-- Tests are also part of root type-checking because `tsconfig.json` includes every top-level area's `**/*.ts`.
-- Store tests commonly create a temp workspace and override `PI_LOOM_ROOT`; mirror that pattern when adding new ledger/store coverage.
-- Many suites freeze time with `vi.useFakeTimers()` + `vi.setSystemTime(...)` so IDs, timestamps, and JSONL records stay deterministic.
-- Common suite pattern across areas: `index.test.ts`, `commands.test.ts`, `tools.test.ts`, `store.test.ts`, and `prompt-guidance.test.ts`.
-- Area-specific suites cover the domain-specific pieces:
-  - `ticketing`: `graph`, `attachments`, `journal`, `checkpoints`
-  - `specs`: `analysis`, `checklist`, `projection`
-  - `initiatives`: `overview`
-  - `research`: `integration-smoke`
-  - `critique`, `docs`, `ralph`: `runtime`
-- Runtime tests often assert repo-relative path rendering and CLI spawn resolution; avoid introducing absolute-path assumptions in overviews, prompts, or launch descriptors.
-- No coverage thresholds are configured in `vitest.config.ts`; rely on symmetric test updates instead. If you change a store, tool, command, runtime adapter, or prompt builder, add or update the corresponding test file in the same package.
-- Prompt guidance is part of the product. Changes to `prompts/` should be reflected in `prompt-guidance.test.ts`.
 
-## Practical Editing Advice For AI Assistants
-- Start at `README.md` and `CONSTITUTION.md`, then read the target area README, then open that area’s `index.ts`.
-- Follow the existing area pattern instead of introducing a new layout.
-- Treat SQLite-backed canonical state as the source of truth. Exported `.loom/` material, when present, is derived and one-way.
-- When projections are involved, distinguish repo-visible projections from packets: projections may be exported and reconciled explicitly, while packets are fresh handoff artifacts that are never the source of truth.
-- Use `projection_status` before reconcile when you need to know whether a projected file is clean, modified, missing, or not exported. Use `projection_write` for explicit export/refresh/reconcile operations instead of assuming file edits are imported automatically.
-- When asked what to build next or how mature a subsystem is, prefer `CONSTITUTION.md`, constitutional memory, package READMEs, shipped code, tests, and `DATA_PLANE.md` over hypothetical future `.loom/` exports.
-- Do not assume a documented `.loom` subtree exists yet; confirm code paths and actual files before depending on them. `pi-ralph` documents run artifacts even when none are exported in this checkout.
-- When adding a new cross-layer feature, check whether the right home is research, initiative, spec, plan, ticket, critique, Ralph, or docs before wiring code.
-- Avoid creating new top-level structure unless the repo already uses it. In particular, do not invent root `scripts/` or new sibling top-level content areas for work that belongs in the existing area directories or the package/area READMEs.
+Tests are organized per package under `__tests__/`:
+
+- `docs/__tests__/`
+- `plans/__tests__/`
+- `ticketing/__tests__/`
+- `storage/__tests__/`
+- similar layouts exist across the other Loom layers
+
+Common test patterns:
+
+- temp workspaces and isolated `PI_LOOM_ROOT`
+- seeded git fixtures via `storage/__tests__/helpers/git-fixture.ts`
+- exact prompt/tool registration assertions
+- runtime/worktree coverage in the integration lane
+- backend-parity storage coverage against both in-memory and SQLite catalogs where the existing suite already does so
+
+When adding tests:
+
+- place them next to the layer you changed
+- follow existing `*.test.ts` naming under that layer's `__tests__/`
+- prefer real store/runtime flows for storage- or scope-heavy behavior
+- update prompt-guidance or tool-contract tests when changing agent-facing text or tool schemas
+
+`vitest.integration.config.ts` is a manual allowlist, not a glob. If you add an integration-style test, include it there or it will not run in `npm run test:integration`.
+
+## Assistant Working Notes
+
+Before changing a subsystem, read its local `README.md` and one representative `index.ts` + `domain/store.ts` pair. For cross-layer work, also read `README.md` and the relevant `storage/` files first.
+
+Good first reads for most tasks:
+
+- `README.md`
+- `package.json`
+- `storage/README.md`
+- the target layer's `README.md`
+- the target layer's `index.ts`
+- the target layer's `domain/store.ts`
+
+When projections are involved, use `projection_status` to confirm whether a family is clean/modified/missing/not exported before reconcile, and use `projection_write` for explicit export, refresh, or reconcile actions rather than assuming file edits autosync.
+
+When reasoning about an agentic workflow problem, ask first whether it belongs on the preparation side or the execution side. If the run is under-specified, resist adding more in-run steering; improve the upstream research/spec/plan/ticket packet inputs and rerun in fresh context.
+
+When documenting or reviewing docs behavior, distinguish carefully between:
+
+- canonical docs records in `docs/`
+- repo-visible projections in `.loom/docs/`
+- historical projections under `.loom/docs/history/`

@@ -3,7 +3,7 @@
     {
       "baseVersion": null,
       "canonicalRef": "constitution:constraints",
-      "contentHash": "c10408532066b47d9d72b3eb45dbbcf3e3bf7b16fbfe81dd08fec4b3dc816490",
+      "contentHash": "2249984a9bd52eceaa7c72a3e9357b33757c3e5d2f6a0eeb52f8a9bd76f1c659",
       "editability": {
         "editableSections": [
           "Architectural and Business Constraints"
@@ -11,12 +11,12 @@
         "mode": "sections"
       },
       "relativePath": "constraints.md",
-      "revisionToken": "50632828437d1251748f3be441cbe393bb0b94ffc5086c249bd2bbe7948944a5"
+      "revisionToken": "0eecefd02c6cc4fc1a0cc582b6e5ca3113ae50fada4149396605294c36cea83a"
     },
     {
       "baseVersion": null,
       "canonicalRef": "constitution:principles",
-      "contentHash": "4c7ebf6ea18c34a2bd08cb386645b32e09100ee94138bddaf9de49bc644fe845",
+      "contentHash": "89c49b64b8492b178ab82a616ab5b19ff06c563914248d5c007beb3dc3192a20",
       "editability": {
         "editableSections": [
           "Guiding Principles"
@@ -24,12 +24,12 @@
         "mode": "sections"
       },
       "relativePath": "principles.md",
-      "revisionToken": "00854b391a84b9ac7cf2dcef024517850d4824aeab54f226c2c99a204e07b62a"
+      "revisionToken": "3f9d8da1e49f786534408c06de44f98005442f55d0977a00269c4a2077950486"
     },
     {
       "baseVersion": null,
       "canonicalRef": "constitution:roadmap",
-      "contentHash": "c2bd4bc101a36071a0f3cbc36715b0867f5545599fe8e6091cbc9ab77d6898a0",
+      "contentHash": "ec641f2b6cc3c7761fb81a3ffe33015a583882ad887034b74cbbde88f1482bb8",
       "editability": {
         "editableSections": [
           "Current Focus",
@@ -38,12 +38,12 @@
         "mode": "sections"
       },
       "relativePath": "roadmap.md",
-      "revisionToken": "41e79ae811461c72bd4341f2635837b8ef368a04b04bbf71d3fe44a082eca5ed"
+      "revisionToken": "e2f9f25305a1dce53ba68fcec0f20ad21a09749b3bc9076bf13e46f845d696bd"
     },
     {
       "baseVersion": null,
       "canonicalRef": "constitution:vision",
-      "contentHash": "4765f57719eaad5b1d1b119c54dd8f2474e9b4408dcb153d41a793e528222200",
+      "contentHash": "a60a28eea0efbb6f85965a716b0d6075948d3c956fc3485d59dfb70e066147cb",
       "editability": {
         "editableSections": [
           "Vision Narrative",
@@ -52,7 +52,7 @@
         "mode": "sections"
       },
       "relativePath": "vision.md",
-      "revisionToken": "7fa4a62cbd4a7229eabfc0babf714704f1c94c7b45dbd903897c066be79a0bdf"
+      "revisionToken": "fd5c1a554fa4f038a9e9ac1b08c4bb7c08702c54170eb40d3e9159ef767ce174"
     }
   ],
   "family": "constitution",

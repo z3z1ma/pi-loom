@@ -1,17 +1,17 @@
 ---
 project: pi-loom
 items: 5
-updated-at: 2026-03-26T07:17:03.487Z
+updated-at: 2026-03-27T21:03:14.761Z
 ---
 
 ## Strategic Direction
-Solidify Pi Loom as a layered, adapter-friendly coordination substrate: keep the data plane canonical and portable, keep layer boundaries explicit, keep Ralph bounded while deferring any future workspace-backed execution control plane to a greenfield redesign, and add a coherent widget-first human UX without losing headless tool parity.
+Solidify Pi Loom as a layered, adapter-friendly coordination substrate: keep the data plane canonical and portable, keep layer boundaries explicit, keep collaborative preparation and packetized fresh-context execution central, keep Ralph bounded while deferring any future execution control-plane rethink to a greenfield redesign, and improve human-facing UX without losing headless parity.
 
 ## Current Focus
-- Define the shared widget-first human UX framework across Loom subsystems while preserving authoritative slash-command, tool, and headless recovery surfaces.
-- Keep Ralph, critique, and docs as separate first-class orchestration, review, and explanatory layers rather than letting execution collapse into one workflow bucket.
-- Preserve direct Ralph orchestration today while deferring any future workspace-backed manager/worker control plane to a later greenfield redesign instead of carrying the removed chief-wiggum prototype.
-- Stabilize the canonical SQLite data plane as the adapter contract by hardening link, event, runtime-attachment, and artifact-projection conventions while keeping exports derived.
+- Keep Ralph, critique, and docs as distinct bounded fresh-context layers rather than letting execution collapse into one transcript-driven workflow bucket.
+- Preserve rich human-facing UX only when it remains truthful to the same underlying command, tool, packet, and headless recovery surfaces.
+- Stabilize the canonical SQLite data plane, explicit graph semantics, projections, and scope/routing behavior as the adapter contract for multi-repository Loom spaces.
+- Strengthen the collaborative-preparation side of the system by making constitution, research, initiatives, specs, plans, and tickets the highest-leverage place for human-in-the-loop steering and durable context curation.
 
 ## Now
 - item-001 [now/completed] Canonical data plane cutover milestone
@@ -40,16 +40,13 @@ Solidify Pi Loom as a layered, adapter-friendly coordination substrate: keep the
   Specs: first-class-multi-repository-loom-spaces
 
 ## Later
-- item-003 [later/paused] Workspace-backed execution and bounded orchestration redesign
-  Summary: Pause the current workspace-backed execution/control-plane effort after removing the shipped `pi-chief-wiggum` package. Any future manager/worker orchestration should restart from a greenfield design while `pi-ralph-wiggum` remains the only shipped orchestration package.
-  Rationale: Removing `pi-chief-wiggum` avoids hardening a manager-first implementation the project no longer wants to carry forward. Keeping the roadmap item, but pausing and rewording it, preserves the strategic problem statement and linked research/spec context without implying that the removed package still represents active shipped architecture.
+- item-003 [later/paused] Workspace-backed execution substrate redesign
+  Summary: Pause the current workspace-backed execution/control-plane effort after removing the shipped `pi-chief-wiggum` package. Any future execution-substrate redesign should restart from a greenfield design while Ralph remains the only shipped orchestration package.
+  Rationale: Removing `pi-chief-wiggum` avoids hardening an execution-control-plane implementation the project no longer wants to carry forward. Keeping the roadmap item, but rewording it in Ralph-native terms, preserves the strategic problem statement and linked research/spec context without implying a current worker/manager architecture.
   Research: evaluate-pi-control-surfaces-for-long-lived-workers, prepare-manager-worker-architecture-from-pi-supervisor-and-pi-extension-interfaces, state-of-the-art-for-ralph-loop-orchestration
   Specs: add-inbox-driven-manager-worker-control-plane, add-ralph-loop-orchestration-extension, add-workspace-backed-manager-worker-substrate
 
 ## Recent Constitutional Decisions
-- 2026-03-20T00:57:06.128Z [clarification] How should constitutional memory describe the initiatives and specs layers?
-  Answer: Treat initiatives as the strategic-memory layer above specs and tickets, and treat specs as the bounded bridge layer between strategy and execution. `/initiative` + `initiative_*` and `/spec` + `spec_*` are first-class surfaces over canonical SQLite-backed state; both layers also initialize their ledgers during session_start and before_agent_start and append layer-specific guidance at agent start. Initiative summaries, spec reviews, checklists, and dashboards are derived artifacts rather than canonical truth. Specs preserve append-only clarification history and own spec-to-ticket alignment once a spec is finalized, including propagation of initiative provenance into linked execution tickets; spec-to-ticket sync is a canonical-memory operation, not a file-generation workflow.
-  Affects: constitution:constraints, constitution:principles, constitution:roadmap:item-002, constitution:vision
 - 2026-03-20T00:57:33.292Z [clarification] How should constitutional memory describe the workers/manager and critique layers?
   Answer: Treat workers as the workspace-backed execution substrate and critique as the distinct durable review layer, both backed by canonical SQLite state. `/worker` + `worker_*`, `/manager` + `manager_*`, and `/critique` + `critique_*` are first-class surfaces over that state; these layers also initialize their ledgers during session_start and before_agent_start and append layer-specific guidance at agent start. Workers are not session branches or generic subprocesses, managers are a bounded control plane rather than a top-level Loom layer, tickets remain the live execution ledger, and runtime workspaces plus launch descriptors remain ephemeral or runtime-only. Critique owns fresh-review packets, launches, runs, findings, and follow-up ticket linkage without replacing tickets or genericizing review into prose.
   Affects: constitution:constraints, constitution:principles, constitution:roadmap:item-003, constitution:vision
@@ -77,3 +74,6 @@ Solidify Pi Loom as a layered, adapter-friendly coordination substrate: keep the
 - 2026-03-26T07:17:03.487Z [clarification] How should Pi Loom treat specifications when describing them across modules and durable guidance?
   Answer: Specifications are standalone declarative behavior contracts for intended system behavior. A spec must make sense in isolation, remain truthful even if implementation strategy changes, and be titled as a stable capability or behavior rather than an implementation delta or rollout task. Plans own execution strategy and ticket linkage; tickets own live execution truth.
   Affects: constitution/prompts/base-constitutional-guidance.md, docs:specification-layer-semantics, docs/prompts/base-docs-guidance.md, initiatives/prompts/base-initiative-guidance.md, plans/prompts/base-plan-guidance.md, README.md, research/prompts/base-research-guidance.md, specs/prompts/base-spec-guidance.md, ticketing/prompts/base-ticketing-guidance.md
+- 2026-03-27T20:55:55.597Z [revision] How should Pi Loom's constitution describe the current architecture now that the old worker/manager worldview no longer matches the shipped system?
+  Answer: The constitution now centers a layered SQLite-first coordination substrate with collaborative preparation on the upstream side and bounded packetized fresh-context execution on the downstream side. Workers and managers are no longer described as first-class durable coordination layers; any surviving terminology is treated as local runtime/control-plane vocabulary rather than as the core architecture. Tickets remain the live execution ledger, plans own execution strategy and ticket linkage, Ralph remains bounded orchestration over ticket-sized runs, critique remains durable adversarial review, and docs remain post-completion explanatory memory. Canonical truth lives in SQLite, while packets, projections, and other rendered surfaces are explicitly derived exports.
+  Affects: AGENTS.md, constitution:constraints, constitution:principles, constitution:roadmap, constitution:vision, CONSTITUTION.md, README.md

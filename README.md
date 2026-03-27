@@ -85,6 +85,34 @@ Critique is the durable review layer for judging a ticket, spec, initiative, res
 
 Documentation is the post-completion explanatory layer. It keeps architecture overviews, usage guides, conceptual docs, and operational procedures truthful after tangible codebase changes are actually complete. Critique tests the work before sign-off, plans sequence the live work, and documentation updates the durable system narrative after the accepted reality is known.
 
+## Operating model: collaborative preparation, bounded fresh-context execution
+
+Pi Loom is designed around a deliberate split between preparation work that benefits from humans staying deeply in the loop and execution work that benefits from humans moving up to the supervisory layer.
+
+On the preparation side, humans and AI collaborate to create and maintain the durable context that makes later runs predictable. The artifacts may still be authored by AI, but this is the phase where human conversation, steering, and review add the most value:
+
+- constitution defines the hard project rules and durable direction
+- research captures durable knowledge before execution outruns understanding
+- initiatives connect codebase work to business or product strategy
+- specs declare the behavior the system is supposed to exhibit
+- plans translate those contracts into execution strategy
+- tickets define the concrete units of work worth attempting
+
+This is where goals are clarified, tradeoffs are resolved, ambiguity is squeezed out, and execution units are shaped. Pi Loom treats that collaborative preparation as a first-class engineering activity, not as overhead.
+
+On the execution side, Ralph, critique, and docs update consume that curated context through bounded packets. A packet is the carefully assembled opening context window for one fresh run: it gathers the strategic why, the execution strategy, the concrete target, and the supporting research/docs/spec context needed for one job.
+
+That design is intentional:
+
+- it avoids the gradual context drift and compaction loss that plague long-running steering conversations
+- it keeps one logical unit of work from biasing the next one with stale transcript residue
+- it lets humans pause between units, reassess outcomes, and decide what the next best action actually is
+- it makes a weak result a signal to improve the packet inputs, not an excuse to keep layering contradictory guidance into one exhausted session
+
+In practice, a Ralph run is usually tightly bound to one ticket under one governing plan. It is a one-shot attempt against one logical unit of work, not a roaming multi-task agent. Multiple Ralph iterations are normal: a run may checkpoint, update the ticket, refresh the packet with the latest state plus a concise handoff, and try again. The power comes from re-curating the context window each time rather than dragging along every prior token forever.
+
+Critique and docs updates follow the same philosophy. A critique packet gives the reviewer the surrounding constitution/research/spec/plan/ticket context, so review is grounded in the intended outcome rather than just a git diff. A docs packet gives the maintainer the accepted reality and surrounding context, so the resulting documentation is consolidated and truthful rather than patchy chat residue.
+
 ## Execution ledger layer
 
 The execution layer focuses on durable ticket state:
@@ -95,7 +123,9 @@ The execution layer focuses on durable ticket state:
 
 Ralph composes with plans, tickets, critique, docs, and related Loom artifacts as the bounded orchestration surface instead of acting as a generic workflow engine.
 
-Workers are the local execution substrate: they keep control-plane and runtime-adjacent scratch state local to a worktree, but they are not themselves the shared execution ledger. Tickets are synchronized from the SQLite-backed execution layer via pi-storage.
+Ralph runs use local runtime and worktree substrate that stays clone-local, but that runtime state is not itself the shared execution ledger. Tickets remain synchronized from the SQLite-backed execution layer via pi-storage.
+
+Ticket lifecycle and Ralph iteration are intentionally coupled. A ticket may need several bounded Ralph runs before it closes; intermediate runs can checkpoint, journal progress, and refine the next packet without pretending the work is already complete.
 
 ## Worktree branch-family model
 
@@ -149,7 +179,7 @@ Treat repo-visible artifacts as exports or review surfaces, not as canonical sta
 - Store any exported path references as workspace-root-relative values, never as absolute clone-local paths.
 - Commit generated review surfaces only when a workflow explicitly needs them for review.
 - Do not commit machine-oriented metadata, state, overviews, or cached views; these are derived from SQLite and should not be duplicated in git.
-- Do not commit local durable runtime/control-plane artifacts whose job is to attach execution to one clone instead of defining shared state. If future one-way `.loom/` exports return, that includes paths such as `.loom/workers/`, `.loom/**/launch.json`, and `.loom/runtime/`.
+- Do not commit local durable runtime/control-plane artifacts whose job is to attach execution to one clone instead of defining shared state. If future one-way `.loom/` exports return, that includes paths such as `.loom/**/launch.json` and `.loom/runtime/`.
 - If an artifact is not an intentional export for humans, let it live in SQLite alone.
 
 ## Planning layer
@@ -160,6 +190,8 @@ The Loom layer between specs and ticket execution is durable planning memory:
 - each plan keeps planning state in SQLite via pi-storage
 - generated plan documents are intentionally self-contained and ExecPlan-shaped: they give a novice-facing execution guide with milestones, validation, recovery notes, interfaces, and revision history while referencing linked tickets instead of replacing their execution detail
 - linked tickets remain the live execution system of record, while the plan stays the durable execution-strategy container
+
+Plans sit on the preparation side of the operating model. Their job is to make later bounded runs boringly well-specified.
 
 ## Critique layer
 
@@ -172,6 +204,8 @@ The critique layer provides durable adversarial review memory:
 - accepted findings can create follow-up tickets without collapsing critique into ticket metadata
 - critique remains reusable by loop orchestration as an independent review layer
 
+Critique is powerful because it reviews with full strategic context, not just with a diff. The critique packet should explain what the work was trying to achieve, what contract it had to satisfy, and what evidence would falsify success.
+
 ## Ralph orchestration layer
 
 The bounded Ralph loop layer provides durable orchestration over the lower Loom artifacts:
@@ -181,6 +215,8 @@ The bounded Ralph loop layer provides durable orchestration over the lower Loom 
 - Ralph orchestrates bounded plan → execute → critique → revise loops without replacing plans, tickets, critique, or docs as canonical records
 - fresh iterations are expected to rehydrate from durable Loom context rather than from one unbounded transcript
 - loop control is policy-driven and intended to expose explicit continuation, pause, escalation, and stop decisions
+
+Ralph is best understood as packetized one-shot execution with durable iteration, not as a general conversational shell. The run should start from a meticulously curated context window, attempt one bounded ticket-sized unit, land truthful ticket/checkpoint state, and stop or rerun with a refreshed packet.
 
 ## Documentation layer
 
@@ -192,6 +228,8 @@ The final Loom memory layer is durable documentation memory:
 - `/docs update` opens a fresh session handoff, while `docs_update` executes the same packet in a separate fresh `pi` process and requires the canonical SQLite-backed revision to land
 - the layer stays high-level and explanatory rather than turning into API reference generation
 
+Documentation updates are another bounded fresh-context pass. The maintainer should receive the accepted context needed to consolidate the narrative, not a long transcript of every intermediate attempt.
+
 ## Spec-driven workflow layer
 
 The Loom layer between research and planning is durable specification memory:
@@ -200,6 +238,8 @@ The Loom layer between research and planning is durable specification memory:
 - spec renderings may be generated for review, but SQLite remains the canonical store
 - specs translate research and initiative context into declarative behavior contracts that remain valid even if the implementation changes
 - plans are the execution bridge from finalized specs and broader context into linked ticket execution, while specs remain declarative contracts instead of execution ledgers
+
+Specs are preparation-side artifacts. If Ralph or critique is struggling, the right fix is often to sharpen the spec and plan rather than to add more in-run improvisation.
 
 ## Initiative memory layer
 
@@ -211,6 +251,8 @@ The Loom coordination layer between research and specs is durable initiative mem
 - linked specs and tickets retain explicit initiative membership for cross-layer traceability
 - overviews summarize strategic status over linked specs, tickets, milestones, and risks
 
+Initiatives are where human operators connect the codebase to business reality. They should explain why a body of work matters before execution tooling ever starts running tickets.
+
 ## Research memory layer
 
 The Loom layer upstream of initiatives is durable research memory:
@@ -221,3 +263,5 @@ The Loom layer upstream of initiatives is durable research memory:
 - research remains distinct from constitutional memory: it informs project choices, but it does not replace the durable constitutional source of truth
 - linked initiatives, specs, and tickets can retain explicit research provenance for cross-layer traceability
 - the layer stays focused on durable findings rather than execution logs or speculative runtime features
+
+Research is one of the highest-leverage human activities in the system. If bounded execution is repeatedly underperforming, assume missing or weak research is a first-class candidate root cause.

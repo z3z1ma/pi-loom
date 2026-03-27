@@ -1,729 +1,329 @@
-# The AI Harness Constitution
+# Pi Loom Constitution
 
 ## 1. Purpose
 
-The AI Harness is a persistent coordination system for long-horizon AI knowledge work.
+Pi Loom exists to make long-horizon AI work durable, inspectable, and governable.
 
-The system exists to enable fleets of AI workers and humans to collaboratively execute complex technical and intellectual work over extended time horizons. It establishes durable structures for reasoning, memory, work decomposition, coordination, critique, and continuous improvement.
+The project is not a pile of prompts, chats, or one-off agent runs. It is a layered coordination substrate where durable project policy, evidence, strategy, behavior contracts, execution records, review, and documentation all have explicit homes.
 
-The harness treats AI work not as isolated prompts or transient agent runs, but as a persistent evolving system composed of workers, artifacts, knowledge, and relationships.
+Pi Loom exists to preserve and coordinate:
 
-The harness exists to manage:
+- project-defining intent
+- research and evidence
+- strategic outcomes
+- declarative behavior contracts
+- execution strategy
+- execution truth
+- adversarial review
+- accepted explanatory knowledge
 
-* work intent
-* reasoning processes
-* execution activity
-* knowledge accumulation
-* coordination between participants
-* verification and correctness
-* continuous improvement of both the project and the harness itself
-
-The harness defines primitives that allow users to build coordination systems rather than prescribing a single rigid workflow.
-
----
-
-# 2. Core Design Principles
-
-## 2.1 Minimal Core, Composable System
-
-The harness is intentionally minimal in its core assumptions.
-
-The system defines primitives for:
-
-* workers
-* tickets
-* memory
-* artifacts
-* messages
-* workspaces
-* initiatives
-* relationships between entities
-
-The harness does not prescribe a single workflow, architecture, or methodology. Instead, it provides composable building blocks that allow different work styles to emerge.
-
-The harness is not primarily configured through static configuration but through the interaction of system primitives.
+The system should let humans and AI collaborate over the same durable substrate without requiring transcript archaeology to understand what happened or what should happen next.
 
 ---
 
-## 2.2 Persistent Cognition
+## 2. Core Design Principles
 
-Workers are persistent participants in the system.
+### 2.1 Layered, composable Loom stack
 
-Workers are not ephemeral agent invocations but long-lived reasoning entities that:
+Pi Loom should remain a small set of explicit coordination layers rather than collapsing into a monolithic workflow engine.
 
-* maintain identity
-* accumulate context
-* maintain message histories
-* retain work history
-* persist reasoning progress
+The core stack is:
 
-Persistent cognition allows long-horizon work to be executed across many reasoning cycles without losing context.
+- constitution
+- research
+- initiatives
+- specs
+- plans
+- tickets
+- Ralph
+- critique
+- docs
+- shared storage and projection infrastructure
 
----
+Each layer exists because it answers a different coordination question. The system should stay modular enough that humans and AI can inspect, update, or reuse one layer without flattening the rest.
 
-## 2.3 Work as a Graph
+### 2.2 Canonical truth with derived exports
 
-All work in the harness forms a graph of relationships.
+Canonical operational truth lives in SQLite-backed Loom records.
 
-Entities relate to one another in structured ways, including:
+Packets, markdown, `.loom/...` projections, dashboards, status surfaces, and other renderings are derived review or handoff surfaces. They are not a competing source of truth when canonical storage exists.
 
-* tickets depending on other tickets
-* tickets referencing specifications
-* tickets emerging from research
-* workers attached to tickets
-* messages referencing workers or tickets
-* artifacts linked to research or execution
-* initiatives grouping sets of tickets
-* repositories linking to workspaces
+No projection, packet, or cached artifact may masquerade as canonical state.
 
-This graph allows reasoning about dependencies, coordination, and progress.
+### 2.3 Collaborative preparation before bounded execution
 
-The system must preserve these relationships as first-class structures.
+Pi Loom is designed around a deliberate split between two modes of work.
 
----
+The first mode is collaborative preparation. Humans stay actively in the loop, using conversation, steering, review, and the TUI while AI helps author the durable context that makes execution predictable:
 
-## 2.4 Ticket-Based Persistence
+- constitution
+- research
+- initiatives
+- specs
+- plans
+- tickets
 
-The harness integrates a ticket-based persistence model at its core.
+The second mode is bounded fresh-context execution. Ralph, critique, and docs update consume carefully assembled packets against one bounded objective at a time.
 
-Tickets represent units of work and intent within the system. They serve as anchors for:
+The project should privilege improving upstream context over extending one drifting execution transcript.
 
-* reasoning
-* execution
-* documentation
-* testing
-* coordination
+### 2.4 One layer, one responsibility
 
-Tickets allow work to be:
+Each layer must keep a truthful boundary.
 
-* sequenced
-* parallelized
-* prioritized
-* tracked
-* decomposed
-* linked to other work
+- constitution is durable project policy and roadmap intent
+- research is evidence, discovery, and open questions
+- initiatives are strategic outcome containers
+- specs are declarative behavior contracts
+- plans are execution strategy and ticket linkage
+- tickets are the live execution ledger
+- Ralph is bounded orchestration over execution records
+- critique is adversarial review
+- docs are accepted explanatory memory
 
-Tickets persist beyond the lifespan of any individual worker.
+If a layer starts carrying another layer's job, the system becomes harder to reason about and easier to corrupt.
 
----
+### 2.5 Tickets remain the live execution ledger
 
-## 2.5 Continuous Knowledge Accumulation
+Tickets are the canonical shared ledger for live execution truth.
 
-The harness accumulates knowledge continuously as work progresses.
+Plans, Ralph runs, critiques, docs, and related runtime state may surround execution, but they must not become shadow ledgers for what is currently true about a unit of work.
 
-Knowledge artifacts generated during work are preserved as system memory.
+### 2.6 Explicit graph and provenance over folklore
 
-The system must prevent knowledge loss during long reasoning processes.
+Relationships across layers should be explicit through stable ids, links, provenance, and scope-aware references.
 
-Knowledge generated during work contributes to:
+Humans and AI should not need to reconstruct meaning from path conventions, transcript memory, or package-local folklore.
 
-* improved understanding of the system
-* improved planning
-* improved execution
-* improved documentation
-* improved future work
+### 2.7 Portable shared truth, local runtime boundaries
 
----
+Shared records must remain portable across repositories, worktrees, machines, and future backends.
 
-## 2.6 Shared Canonical State, Local Runtime, And Review Surfaces
+Clone-local runtime details belong in runtime attachments or other local-only state, not in canonical records. Absolute paths, local process ids, and machine-specific launch details are not durable project truth.
 
-The harness may persist canonical operational state in a shared database-backed substrate rather than requiring every durable record to remain a repo-local file.
+### 2.8 Verification, critique, and documentation before confidence
 
-When a shared canonical store exists:
+Plausible output is not sufficient.
 
-* globally meaningful entities must not derive their identity from local file paths
-* machine-oriented metadata and current-state records may live in the canonical store
-* clone-local runtime/control-plane details may remain local when sharing them would create stale or misleading global state
-* human-facing markdown bodies and review surfaces may remain repo-native when grepability, code review, and long-term readability benefit from that materialization
+Pi Loom should privilege explicit verification evidence, adversarial critique, and truthful documentation updates over optimistic model self-reporting. Accepted reality is what survives testing, review, and reconciliation against the surrounding project context.
 
-The system must preserve a truthful distinction between:
+### 2.9 Humans and AI operate over the same substrate
 
-* canonical shared state
-* repo-materialized review surfaces
-* clone-local runtime state
+Every major layer should remain usable through human-facing surfaces and AI-facing tool families backed by the same durable records.
 
-No projection or cached artifact may masquerade as canonical truth once a different substrate owns the truth.
+Human UX improvements must not create a second truth system separate from the one that headless tools and fresh processes use.
 
 ---
 
-# 3. System Entities
+## 3. Operating Model
 
-The harness is composed of several classes of entities.
+### 3.1 Collaborative preparation
 
-Each entity participates in the system graph and may relate to other entities.
+Preparation is first-class engineering work, not overhead.
 
-Primary entity types include:
+This is where humans and AI collaboratively:
 
-* Workers
-* Tickets
-* Initiatives
-* Artifacts
-* Messages
-* Workspaces
-* Repositories
-* Memory Domains
+- clarify goals
+- resolve tradeoffs
+- reduce ambiguity
+- connect technical work to business or product intent
+- shape execution into ticket-sized units
+- decide what evidence and constraints matter before automation runs
 
----
+Weak preparation produces weak execution. The project should treat work on constitution, research, initiatives, specs, plans, and tickets as the highest-leverage place for human judgment.
 
-# 4. Workers
+### 3.2 Bounded fresh-context execution
 
-## 4.1 Worker Identity
+Execution should not depend on one endlessly extended transcript.
 
-Workers are persistent processes that participate in system activity.
+Pi Loom instead favors packetized runs that begin with a meticulously curated opening context window. A packet should consolidate the strategic why, current plan, concrete target, and relevant supporting context needed for one job.
 
-Each worker possesses:
+This design exists to:
 
-* a stable identity
-* a reasoning loop
-* a workspace
-* a message inbox
-* a message history
-* a context window
-* relationships to tickets and artifacts
+- preserve strategic context instead of letting compaction erode it
+- avoid cross-ticket contamination from stale transcript history
+- give humans clean pause points between units of work
+- make a weak run a prompt to improve the packet inputs rather than to pile more contradictory steering into the same session
 
-Workers are observable system participants.
+Human steering should primarily happen between iterations as additive packet/context improvement, not as prolonged in-run negotiation inside one exhausted execution session.
 
----
+### 3.3 Iteration through packet refresh, not transcript accretion
 
-## 4.2 Worker Autonomy
+Multiple Ralph iterations are normal.
 
-Workers perform reasoning and execution related to assigned work.
+A ticket may require several bounded runs before it closes. Intermediate runs may checkpoint, update the ticket, and refresh the packet with the latest state plus a concise handoff.
 
-Workers may:
-
-* analyze problems
-* generate hypotheses
-* create artifacts
-* modify code
-* produce research
-* execute tests
-* communicate with other workers
-* generate new work items
-
-Workers operate within the system's coordination structures rather than outside them.
+The power comes from re-curating context for the next attempt, not from dragging every prior token forward forever.
 
 ---
 
-## 4.3 Worker Communication
+## 4. Durable Layer Model
 
-Workers communicate with each other through the harness messaging system.
+### 4.1 Constitution
 
-Workers may:
+Constitution is the highest-order project context.
 
-* send peer-to-peer messages
-* request assistance
-* share artifacts
-* escalate issues
-* coordinate execution
+It captures durable vision, principles, constraints, roadmap items, and strategic decisions that govern the lower layers. Constitutional state should remain more stable and more deliberate than ordinary execution notes.
 
-Messages may be attached to tickets to create durable records of coordination and reasoning.
+In the current implementation, that truth lives as a single mutable constitution aggregate with embedded roadmap items, an append-only decision history, and a generated brief derived from the canonical record.
 
----
+Operational guidance such as `AGENTS.md` may explain how to work in the repository, but it does not replace constitutional truth about what the project is and what its durable boundaries are.
 
-## 4.4 Worker Collaboration
+### 4.2 Research
 
-Workers may collaborate across shared work.
+Research records discovery, evidence, methodology, constraints, rejected paths, conclusions, and open questions before execution outruns understanding.
 
-Workers can:
+Research should remain distinct from execution history.
 
-* reference other workersÕ artifacts
-* inspect other workersÕ workspaces
-* exchange research
-* coordinate execution across related tickets
+### 4.3 Initiatives
 
-Collaboration enables coordinated multi-worker problem solving.
+Initiatives hold strategic outcomes that span multiple specs, plans, or tickets.
 
----
+They are the layer where codebase work connects back to business or product reality.
 
-## 4.5 Worker Subagents
+### 4.4 Specs
 
-Workers may spawn subagents for bounded tasks.
+Specs define intended behavior declaratively.
 
-Subagents remain subordinate to the originating worker.
+A spec should still make sense if the eventual implementation changes. Specs are not rollout notes or execution journals.
 
-The originating worker retains responsibility for the broader work context.
+### 4.5 Plans
 
----
+Plans translate specs and broader context into execution strategy.
 
-# 5. Manager Processes
+They compile bounded packets from the surrounding layers, carry sequencing rationale, and own ticket linkage without replacing ticket-level execution truth.
 
-Managers are specialized workers responsible for coordination across the system.
+### 4.6 Tickets
 
-Managers operate at a meta level relative to implementation work.
+Tickets are detail-first execution records and the live ledger of work.
 
-Manager responsibilities include:
+A ticket should be complete enough to define why the work exists, what generally needs to happen, what constraints matter, and what evidence proves it is done.
 
-* assigning tickets
-* reprioritizing work
-* decomposing initiatives
-* coordinating worker activity
-* detecting stalled workers
-* managing workload distribution
-* responding to changing context
+### 4.7 Ralph
 
-Managers may operate autonomously or under human supervision.
+Ralph is bounded orchestration, not a general workflow engine.
 
-Humans may also directly fulfill the managerial role.
+A Ralph run is usually bound to one ticket and optionally one governing plan. It should operate from a carefully curated fresh context window, land truthful execution state, and stop or rerun with a refreshed packet.
 
----
+### 4.8 Critique
 
-# 6. Modes of Operation
+Critique is durable adversarial review.
 
-The harness supports multiple operational modes.
+A critique packet should include the surrounding constitution, research, initiative, spec, plan, and ticket context so review is grounded in the intended outcome rather than only in a diff.
 
-The system does not enforce a single workflow.
+### 4.9 Docs
 
-Possible operational modes include:
+Docs are post-completion explanatory memory.
 
-### Human-Led Mode
-
-Humans act as managers while workers assist with tasks.
-
-### Ralph Loop Mode
-
-A worker iterates through cycles of:
-
-* planning
-* execution
-* critique
-* revision
-
-### Manager-Worker Mode
-
-Manager processes coordinate multiple workers across tickets.
-
-### Research Mode
-
-Workers perform exploration and knowledge gathering without immediate execution goals.
-
-### Critique Mode
-
-Workers review prior work and generate improvements or issue reports.
+They should capture accepted architecture, workflows, concepts, and operational understanding after the relevant work is actually complete.
 
 ---
 
-# 7. Ticket System
+## 5. Storage, Scope, and Projections
 
-## 7.1 Definition
+### 5.1 SQLite-first canonical substrate
 
-Tickets represent persistent work items.
+Pi Loom is SQLite-first today, but the meaning of its records must survive future backend changes.
 
-Tickets define intent within the system.
+The storage substrate should preserve durable entities, links, events, runtime attachments, and related artifacts without making the architecture dependent on SQLite-specific quirks.
 
----
+### 5.2 Explicit multi-repository scope
 
-## 7.2 Ticket Responsibilities
+The canonical coordination boundary is a Loom space, not merely one cwd-derived repository.
 
-Tickets capture:
+Repository and worktree scope must be explicit when ambiguity exists. Runtime launches and path-bearing records should fail closed rather than guessing the wrong repository identity.
 
-* work goals
-* execution progress
-* related artifacts
-* reasoning records
-* dependencies
-* ownership
+### 5.3 Derived `.loom` review surfaces
 
----
+Workspace projections under `.loom/<family>/...` are review and reconcile surfaces for canonical records.
 
-## 7.3 Ticket Relationships
+Supported projection families today are:
 
-Tickets may relate to:
+- constitution
+- research
+- initiatives
+- specs
+- plans
+- docs
+- tickets
 
-* other tickets
-* initiatives
-* research artifacts
-* specifications
-* documentation
-* workers
+Critique and Ralph remain canonical-only layers. Packets are not projections and are never reconcile targets.
 
-These relationships form the system work graph.
+### 5.4 No clone-local leakage into canonical state
 
----
+Canonical records must remain intelligible without one specific machine, clone, or process.
 
-## 7.4 Ticket Discovery
-
-Tickets may originate from:
-
-* human planning
-* system critique
-* research discoveries
-* bug detection
-* architectural analysis
-* worker observations
-
-The system must allow tickets to be created at any stage of work.
+Clone-local worktree paths, runtime scratch state, and control-plane details belong in local runtime attachments or other local-only state.
 
 ---
 
-# 8. Initiatives
+## 6. Execution and Runtime Model
 
-Initiatives represent large-scale efforts composed of multiple tickets.
+### 6.1 Ticket-bound orchestration
 
-Initiatives correspond to strategic goals such as:
+Ralph should orchestrate bounded plan → execute → critique → revise loops over durable records without replacing those records.
 
-* roadmap items
-* major features
-* system migrations
-* research programs
+It must stay ticket-bound, packet-driven, and honest about progress, blockers, and verification.
 
-Initiatives provide context for groups of tickets.
+When a governing plan exists, Ralph should remain plan-aware as well as ticket-bound. Background Ralph jobs and per-iteration runtime artifacts are observability and execution substrate, not a separate orchestration layer.
 
-Tickets may belong to one or more initiatives.
+### 6.2 Branch and worktree truth are durable intent, not heuristics
 
----
+Execution should use durable branch intent and worktree state rather than inferring merge or lineage truth from ad hoc local git observations.
 
-# 9. Memory Domains
+### 6.3 Ralph runs are the active execution model
 
-The harness divides memory into several persistent domains.
+Pi Loom's active execution model is Ralph runs bound to tickets and, when applicable, governing plans.
 
-Each domain captures a different form of knowledge.
+The constitution should describe execution in terms of Ralph runs, ticket state, runtime artifacts, worktrees, and packet refresh. It should not introduce extra execution personas beyond the current Ralph-run model.
 
 ---
 
-## 9.1 Ticket Memory
+## 7. Quality, Review, and Accepted Reality
 
-Ticket memory contains:
+### 7.1 Testing and verification
 
-* work items
-* progress
-* work state
-* work history
-* relationships between tasks
+Correctness must be established through verification evidence, not self-report.
 
----
+Changes should be tested at the layer where they matter, especially when they affect storage semantics, projections, scope routing, packets, or orchestration boundaries.
 
-## 9.2 Research Memory
+### 7.2 Adversarial critique
 
-Research memory captures knowledge generated during exploration.
+Critique should remain a first-class challenge mechanism.
 
-Research artifacts include:
+Review should test not just whether a diff looks reasonable, but whether the work satisfied the right contract under the right strategic and architectural context.
 
-* research notes
-* experimental results
-* investigations
-* observations
-* system analysis
+### 7.3 Truthful documentation
 
-Research memory forms a corpus of evolving system knowledge.
+Documentation updates should consolidate accepted reality from bounded packets rather than preserving every intermediate attempt.
+
+Docs must stay explanatory and high-level, not devolve into pre-completion scratch notes or generated API reference.
 
 ---
 
-## 9.3 Specification Memory
+## 8. Strategic Direction
 
-Specification memory contains formal descriptions of system behavior.
+Pi Loom's current direction is:
 
-Specifications may include:
-
-* system designs
-* implementation plans
-* execution plans
-* architecture explanations
-
-Specifications bridge research and execution.
-
----
-
-## 9.4 Documentation Memory
-
-Documentation memory contains explanatory materials intended for both humans and workers.
-
-Documentation describes:
-
-* system architecture
-* usage
-* operational procedures
-* conceptual explanations
-
-Documentation supports onboarding and knowledge transfer.
+- harden the canonical SQLite-backed data plane as the adapter contract
+- preserve the layered coordination stack and its explicit boundaries
+- keep collaborative preparation and packetized fresh-context execution as the core operating model
+- keep Ralph bounded rather than letting orchestration collapse the rest of the stack into one workflow engine
+- strengthen explicit multi-repository space/repository/worktree behavior
+- improve human-facing UX without sacrificing headless parity or creating a second truth system
+- keep execution language centered on Ralph runs, ticket truth, and explicit orchestration boundaries
 
 ---
 
-## 9.5 Process Memory
+## 9. System Vision
 
-Process memory records how work is performed.
+Pi Loom should become a durable operating system for long-horizon AI work in which humans and AI collaborate to prepare high-quality context, then execute, review, and document work through bounded fresh-context loops over one shared substrate of truth.
 
-It includes:
+The system succeeds when:
 
-* workflows
-* retrospectives
-* lessons learned
-* operational procedures
-* continuous improvement insights
-
----
-
-## 9.6 Constitutional Memory
-
-Constitutional memory contains the core guiding principles of the project.
-
-This includes:
-
-* project vision
-* roadmap
-* guiding values
-* architectural constraints
-* strategic direction
-
-Workers reference constitutional memory when making decisions.
-
----
-
-# 10. Research and Discovery
-
-The harness recognizes research as a distinct phase of knowledge work.
-
-Research may involve:
-
-* exploration
-* hypothesis formation
-* experimentation
-* knowledge synthesis
-
-Research generates artifacts that contribute to system knowledge.
-
-Research work may later be formalized into specifications and tickets.
-
----
-
-# 11. Hypothesis Tracking
-
-Workers maintain explicit hypotheses during investigations.
-
-Hypotheses may include:
-
-* supporting evidence
-* experiments
-* results
-* confidence levels
-
-Rejected hypotheses remain visible as part of the reasoning history.
-
-Preserving rejected hypotheses prevents repeated failed exploration.
-
----
-
-# 12. Workspaces
-
-Workspaces are persistent environments associated with workers or tickets.
-
-A workspace may contain:
-
-* repository worktrees
-* artifacts
-* logs
-* experiments
-* intermediate outputs
-
-Workspaces persist across reasoning cycles.
-
-Workspaces may be inspected by other workers for collaboration or debugging.
-
-Workspaces may be checkpointed and resumed.
-
----
-
-# 13. Multi-Repository Coordination
-
-The harness supports work across multiple repositories.
-
-Tickets may span repositories.
-
-Workers may operate across repository boundaries.
-
-The system must preserve relationships between work items and repositories.
-
-Cross-repository dependencies must remain visible.
-
----
-
-# 14. Testing and Correctness
-
-Correctness is a first-class concern in the harness.
-
-Workers are expected to:
-
-* generate tests
-* execute tests
-* validate hypotheses
-* verify changes
-
-Testing should occur locally whenever possible.
-
-External continuous integration systems may be integrated as extensions.
-
-The harness does not assume a specific CI system.
-
----
-
-# 15. Critique System
-
-The harness integrates critique as a core capability.
-
-Critique involves workers reviewing prior work to identify:
-
-* bugs
-* weaknesses
-* missing tests
-* architectural issues
-* documentation gaps
-* potential improvements
-
-Critique may produce new tickets for improvement.
-
-Critique supports continuous improvement of both code and processes.
-
----
-
-# 16. Adversarial Review
-
-The system supports critic workers.
-
-Critic workers perform adversarial review of other workersÕ outputs.
-
-Critics aim to identify:
-
-* hidden flaws
-* unsafe assumptions
-* incomplete reasoning
-* missing edge cases
-
-Critique and execution operate as complementary processes.
-
----
-
-# 17. Ralph Looping
-
-The harness integrates iterative reasoning loops for long-horizon work.
-
-These loops involve repeated cycles of:
-
-* planning
-* execution
-* critique
-* revision
-
-Looping continues until work goals are satisfied.
-
----
-
-# 18. Observability
-
-Observability is a core capability of the harness.
-
-The system must expose visibility into:
-
-* worker activity
-* ticket state
-* dependency relationships
-* work progress
-* research artifacts
-* communication between workers
-
-Possible views of the system include:
-
-* activity streams
-* ticket timelines
-* dependency graphs
-* research maps
-* initiative overviews
-
-Observability allows humans and workers to understand system state.
-
----
-
-# 19. System Improvement
-
-Workers may generate improvement tickets about the system itself.
-
-Examples include:
-
-* fragile tests
-* confusing architecture
-* missing documentation
-* inefficient processes
-
-Improvement work ensures the system evolves over time.
-
----
-
-# 20. Reasoning Checkpoints
-
-Workers periodically produce reasoning checkpoints.
-
-Checkpoints summarize:
-
-* current understanding
-* active hypotheses
-* recent discoveries
-* next intended actions
-
-Checkpoints allow humans or other workers to understand long-running efforts quickly.
-
----
-
-# 21. System Knowledge Graph
-
-Over time, the harness accumulates knowledge about the system.
-
-Workers contribute knowledge regarding:
-
-* services
-* APIs
-* dependencies
-* architectures
-* boundaries between systems
-
-This knowledge forms an evolving internal graph of the system.
-
----
-
-# 22. Model Diversity
-
-The harness supports multiple frontier models.
-
-Different models may specialize in different cognitive roles, including:
-
-* planning
-* coding
-* critique
-* research
-* adversarial review
-
-The system may route work to different models based on role.
-
----
-
-# 23. Extension System
-
-The harness supports integration with external systems.
-
-Extensions may include:
-
-* testing frameworks
-* CI platforms
-* deployment platforms
-* observability systems
-* security scanners
-* architecture analysis tools
-* code search systems
-* infrastructure providers
-
-The harness core remains focused on coordination and reasoning workflows.
-
----
-
-# 24. The System Vision
-
-The AI Harness exists to coordinate long-horizon AI knowledge work.
-
-Within the system:
-
-* tickets capture intent
-* workers perform reasoning and execution
-* memory accumulates knowledge
-* tests validate correctness
-* managers coordinate large initiatives
-* critique drives improvement
-* humans remain able to participate at any level
-
-The harness transforms AI work from isolated prompts into a persistent evolving ecosystem of cognition, coordination, and execution.
+- durable intent survives beyond any one transcript
+- execution units are clear, bounded, and reproducible
+- weak runs improve preparation rather than corrupting execution with transcript drift
+- humans can intervene, reassess, and redirect between iterations without losing system truth
+- review and documentation are grounded in full project context rather than isolated diffs
+- every layer tells the truth about what it is responsible for and nothing else

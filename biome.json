@@ -39,7 +39,8 @@
       "vitest.config.ts",
       "vitest.integration.config.ts",
       "biome.json",
-      "README.md"
+      "README.md",
+      "AGENTS.md"
     ]
   }
 }
