@@ -20,6 +20,7 @@ const SpecStatusEnum = StringEnum([
 const SpecWriteActionEnum = StringEnum([
   "init",
   "propose",
+  "retitle",
   "clarify",
   "specify",
   "finalize",
@@ -301,6 +302,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
       "A good specification stands on its own: someone reading only the spec should understand the capability, the conditions that must hold, and why the behavior matters.",
       "When proposing a specification, title it around the behavior or capability being specified rather than an implementation-task verb or migration delta.",
       "Reject titles or summaries that read like migration steps, code churn, or work-order commands instead of stable capability names and behavior contracts.",
+      "Use `retitle` to fix mutable specs whose titles still read like implementation tasks before you finalize or archive them.",
       "Keep specifications declarative and implementation-decoupled; use `specify` to record capabilities and design notes, then create or update a plan when the specification is ready to drive implementation.",
       "`clarify`, `specify`, and other spec mutations are for mutable specs only. After `finalize`, the spec becomes read-only; after `archive`, it is terminal and remains available only for reading, lineage, and capability provenance.",
       "Use `delete` only to remove mutable specs that should not survive as durable history. Delete is blocked once a spec is finalized, archived, or still referenced by other durable records.",
@@ -325,6 +327,22 @@ export function registerSpecTools(pi: ExtensionAPI): void {
             operation: "spec_write propose",
             families: ["specs"],
             action: () => store.createChange({ title, summary: params.summary }),
+            refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+          });
+          return machineResult({ action: params.action, change }, renderSpecDetail(change));
+        }
+        case "retitle": {
+          if (!params.title?.trim()) throw new Error("title is required for retitle");
+          const title = params.title;
+          const change = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "spec_write retitle",
+            families: ["specs"],
+            action: () =>
+              store.retitleChange(requireRef(params.ref), {
+                title,
+                proposalSummary: params.summary,
+              }),
             refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
           });
           return machineResult({ action: params.action, change }, renderSpecDetail(change));

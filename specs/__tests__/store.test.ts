@@ -162,6 +162,42 @@ describe("SpecStore durable memory", () => {
     ).rejects.toThrow("Spec immutable-lifecycle is archived and cannot change specification details.");
   });
 
+  it("retitles mutable specs before finalize and archive", async () => {
+    const store = createSpecStore(workspace);
+
+    const created = await store.createChange({
+      title: "Add historical specification cleanup",
+      summary: "Archive a previously delta-styled spec truthfully.",
+    });
+
+    await store.updatePlan(created.summary.id, {
+      designNotes: "Keep the contract behavior-first before governing history freezes it.",
+      capabilities: [
+        {
+          title: "Historical cleanup",
+          requirements: ["Mutable specs can be retitled before finalize."],
+          acceptance: ["Finalization succeeds after the title is made behavior-first."],
+          scenarios: ["An old draft spec needs to be archived instead of deleted."],
+        },
+      ],
+    });
+
+    await expect(store.finalizeChange(created.summary.id)).rejects.toThrow(
+      "Spec add-historical-specification-cleanup failed analysis and cannot be finalized.",
+    );
+
+    const retitled = await store.retitleChange(created.summary.id, {
+      title: "Historical specification cleanup",
+    });
+    expect(retitled.state.title).toBe("Historical specification cleanup");
+
+    const finalized = await store.finalizeChange(created.summary.id);
+    expect(finalized.state.status).toBe("finalized");
+
+    const archived = await store.archiveChange(created.summary.id);
+    expect(archived.state.status).toBe("archived");
+  });
+
   it("deletes mutable specs and rejects deleting referenced or finalized specs", async () => {
     const store = createSpecStore(workspace);
 

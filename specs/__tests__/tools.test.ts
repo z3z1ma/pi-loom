@@ -89,6 +89,9 @@ describe("spec tools", () => {
       "Reject titles or summaries that read like migration steps, code churn, or work-order commands instead of stable capability names and behavior contracts.",
     );
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
+      "Use `retitle` to fix mutable specs whose titles still read like implementation tasks before you finalize or archive them.",
+    );
+    expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
       "`clarify`, `specify`, and other spec mutations are for mutable specs only. After `finalize`, the spec becomes read-only; after `archive`, it is terminal and remains available only for reading, lineage, and capability provenance.",
     );
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
@@ -200,6 +203,68 @@ describe("spec tools", () => {
         },
       });
 
+      const deltaDraft = await specWrite.execute(
+        "call-2b",
+        {
+          action: "propose",
+          title: "Add orchestration cleanup",
+          summary: "Turn a delta-style draft into governed history.",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(deltaDraft.details).toMatchObject({
+        action: "propose",
+        change: { summary: { id: "add-orchestration-cleanup", status: "proposed" } },
+      });
+
+      await specWrite.execute(
+        "call-2c",
+        {
+          action: "specify",
+          ref: "add-orchestration-cleanup",
+          designNotes: "Archive this spec after converting it to a behavior-first title.",
+          capabilities: [
+            {
+              title: "Cleanup capability",
+              requirements: ["Mutable specs can be retitled before finalize."],
+              acceptance: ["A delta-style title can be corrected."],
+              scenarios: ["A historical draft is archived."],
+            },
+          ],
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      await expect(
+        specWrite.execute(
+          "call-2d",
+          { action: "finalize", ref: "add-orchestration-cleanup" },
+          undefined,
+          undefined,
+          ctx,
+        ),
+      ).rejects.toThrow("Spec add-orchestration-cleanup failed analysis and cannot be finalized.");
+
+      const retitled = await specWrite.execute(
+        "call-2e",
+        {
+          action: "retitle",
+          ref: "add-orchestration-cleanup",
+          title: "Orchestration cleanup",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(retitled.details).toMatchObject({
+        action: "retitle",
+        change: { state: { title: "Orchestration cleanup", status: "specified" } },
+      });
+
       const analyzed = await specAnalyze.execute(
         "call-3",
         { ref: "dark-theme-support", mode: "both" },
@@ -229,12 +294,12 @@ describe("spec tools", () => {
 
       const listed = await specList.execute("call-5", { includeArchived: true }, undefined, undefined, ctx);
       expect(listed.details).toMatchObject({
-        changes: [
+        changes: expect.arrayContaining([
           expect.objectContaining({
             id: "dark-theme-support",
             repository: expect.objectContaining({ id: expect.any(String), slug: expect.any(String) }),
           }),
-        ],
+        ]),
       });
 
       const read = await specRead.execute("call-6", { ref: "dark-theme-support" }, undefined, undefined, ctx);

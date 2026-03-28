@@ -706,6 +706,23 @@ export class SpecStore {
     return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
   }
 
+  async retitleChange(ref: string, input: { title: string; proposalSummary?: string }): Promise<SpecChangeRecord> {
+    const record = await this.loadCanonicalChange(ref);
+    assertMutableSpec(record, "change title");
+    const trimmedTitle = input.title.trim();
+    if (!trimmedTitle) {
+      throw new Error("title is required for retitle");
+    }
+    const state = this.normalizeState({
+      ...record.state,
+      title: trimmedTitle,
+      proposalSummary:
+        input.proposalSummary !== undefined ? input.proposalSummary.trim() : record.state.proposalSummary,
+      updatedAt: currentTimestamp(),
+    });
+    return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
+  }
+
   async setInitiativeIds(ref: string, initiativeIds: string[]): Promise<SpecChangeRecord> {
     const record = await this.loadCanonicalChange(ref);
     assertMutableSpec(record, "change initiative links");

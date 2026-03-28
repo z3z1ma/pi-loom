@@ -6,6 +6,8 @@ When active, the extension teaches the model to use specifications as declarativ
 
 Specification lifecycle is strict: proposed/clarifying/specified specs are mutable, and mutable specs may be deleted if they should not survive as durable history. Finalized specs are read-only, and archived specs are terminal. Supersession is lineage metadata captured while specifying a new spec; archived records are not editable successors.
 
+Mutable specs can also be retitled before finalize. This is the truthful path when an early draft was created with a delta-style title like `Add dark mode` and later needs to be brought into behavior-first form before the spec becomes governed history.
+
 ## Features
 
 - durable specification records persisted in SQLite
