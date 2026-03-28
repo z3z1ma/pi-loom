@@ -16,8 +16,8 @@ audience:
   - ai
   - human
 source: workspace:pi-loom
-verified-at: 2026-03-27T23:25:30.000Z
-verification-source: manual:docs-zero-drift-review-2026-03-27
+verified-at: 2026-03-28T03:18:30.000Z
+verification-source: manual:docs-tool-semantics-review-2026-03-28
 successor: null
 successor-title: null
 predecessors: []
@@ -50,13 +50,27 @@ Each record carries governance metadata that makes the corpus explainable instea
 
 That metadata lets Pi Loom distinguish the current owner for a topic from companion material and from superseded or archived history. Discovery is intentionally curated around current topic owners and active governance debt by default, while supporting or historical material is available when a reader asks for it explicitly.
 
-## Update flow
+## Two maintenance paths, two jobs
 
-Documentation maintenance is intentionally packetized and fresh-context.
+The docs layer intentionally has two different write paths.
 
-A maintainer should start from the document's packet, which compiles the current governance state plus any linked constitution, research, initiative, spec, plan, ticket, and critique context that still matters for the explanation. `docs_update` uses that packet to launch a fresh Pi process, and the maintainer session is expected to land the revision durably through `docs_write`.
+### `docs_write`
 
-That keeps documentation updates bounded and reviewable. The packet supplies context, `docs_write` appends revision history in canonical storage, and the resulting document becomes the durable explanation. Documentation is therefore maintained like the other bounded Loom layers: assemble the right context, do one explanatory job, persist the truth, stop.
+`docs_write` is the canonical mutation primitive.
+
+Use it when you already know the exact durable mutation to apply:
+
+- direct content edits
+- metadata repair
+- verification refreshes
+- create/supersede/archive flows
+- explicit upstream-ingestion changes
+
+### `docs_update`
+
+`docs_update` is the managed fresh-context maintenance workflow built on top of `docs_write`.
+
+Use it when the job is not "apply this exact mutation" but rather "run a bounded documentation-maintainer pass from compiled context." It should compile the packet, launch a fresh maintainer, and require that the resulting pass persists through `docs_write`.
 
 ## Governance and audit
 
@@ -76,6 +90,4 @@ Linked output paths are also descriptive rather than magical. They tell Loom whi
 
 ## Practical implication
 
-When accepted understanding changes, update documentation memory deliberately. If a document is stale, overlapping, orphaned, or unverified, fix that state in the docs layer rather than leaving the explanation fragmented across tickets, critique runs, or chat residue.
-
-The documentation layer is where Pi Loom turns finished work into durable, queryable explanation for both humans and future AI sessions.
+When accepted understanding changes, choose the maintenance path deliberately. Use `docs_write` for deterministic mutation and `docs_update` for packetized maintainer passes. If a document is stale, overlapping, orphaned, or unverified, fix that state in the docs layer rather than leaving the explanation fragmented across tickets, critique runs, or chat residue.

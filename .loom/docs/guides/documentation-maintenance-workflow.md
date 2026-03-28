@@ -16,8 +16,8 @@ audience:
   - ai
   - human
 source: workspace:pi-loom
-verified-at: 2026-03-28T00:10:30.000Z
-verification-source: manual:docs-coverage-review-2026-03-28
+verified-at: 2026-03-28T03:18:30.000Z
+verification-source: manual:docs-tool-semantics-review-2026-03-28
 successor: null
 successor-title: null
 predecessors: []
@@ -42,7 +42,12 @@ That keeps the corpus consolidated instead of spawning parallel active docs for 
 
 ## Use packets and updates deliberately
 
-When documentation reality changes after implementation, use bounded maintenance passes that start from the right context rather than from chat residue.
+When documentation reality changes after implementation, choose the right path explicitly:
+
+- use `docs_write` for direct, known, deterministic mutations
+- use `docs_update` when the job is to run a bounded maintainer pass from compiled context
+
+`docs_update` is orchestration built on top of `docs_write`, not just a second generic way to edit docs. It exists for the higher-order case where Loom should compile the packet, launch a fresh maintainer, and require that a durable revision lands.
 
 ## Audit for drift
 

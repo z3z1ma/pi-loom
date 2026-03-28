@@ -33,12 +33,12 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:documentation-maintenance-workflow",
-      "contentHash": "04301e94a438a063afd48441cf612399355a8fddd8c2c60903fcafb7f63a22a6",
+      "contentHash": "4286e6327583de273e30462b94686931a70124d37bd7971461e54a3bbd6fabbd",
       "editability": {
         "mode": "full"
       },
       "relativePath": "guides/documentation-maintenance-workflow.md",
-      "revisionToken": "597a655b328968fd68076dc349645a502d620f45b75823bda0800611695e7adf"
+      "revisionToken": "41902818e1b826f1540326904048a318f4fe0a44c1c3c4fa9ff325d812588ca3"
     },
     {
       "baseVersion": null,
@@ -83,12 +83,12 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:specification-authoring-workflow",
-      "contentHash": "f497a9c7752535942d167052ef97c0da53b46cf22dad508b43afb19ac21a39ca",
+      "contentHash": "1b927fcf9653a750c1afbcc9e2e87734f1e72bd906e88e265a49fe8302a371d2",
       "editability": {
         "mode": "full"
       },
       "relativePath": "guides/specification-authoring-workflow.md",
-      "revisionToken": "978a099128a7fd0f6844ffcdc383f3a218f57fdf0489c6f1a08ea3803d3d91b5"
+      "revisionToken": "f86523bfc52958faff2abdbbad5f02bc8bae45950226712e2067779883e472fa"
     },
     {
       "baseVersion": null,
@@ -193,12 +193,12 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:documentation-memory-overview",
-      "contentHash": "91bc8d6f5cbb0b3279a402691b6b1df7eaa7f8b1cc8f5f072b8c0b9c89c45a71",
+      "contentHash": "bdceb4b4bbfe3645aa40b7b80e86c00d8dc312c838e3546ae91da9b1904af877",
       "editability": {
         "mode": "full"
       },
       "relativePath": "overviews/documentation-memory-overview.md",
-      "revisionToken": "a7bd846e6236fa18f76a882049fb386f31628e06e6fda6530ff207c6b0a72e46"
+      "revisionToken": "d8ba0b6bf8fb36e218dd7cce5fb3b169e4c12caa257513a53ee374c19cb6146d"
     },
     {
       "baseVersion": null,

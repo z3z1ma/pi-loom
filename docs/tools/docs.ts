@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { type Static, Type } from "@sinclair/typebox";
 import type { CritiqueReadResult } from "#critique/domain/models.js";
 import { createCritiqueStore } from "#critique/domain/store.js";
-import { analyzeListQuery, renderAnalyzedListQuery, type AnalyzedListQuery } from "#storage/list-query.js";
+import { type AnalyzedListQuery, analyzeListQuery, renderAnalyzedListQuery } from "#storage/list-query.js";
 import { LOOM_LIST_SORTS, type LoomListSort } from "#storage/list-search.js";
 import { hasExportedProjectionFamily, runProjectionAwareOperation } from "#storage/projection-lifecycle.js";
 import {
@@ -269,10 +269,7 @@ function groupDocsByTopic(docs: DocumentationSummary[]): Array<{
 
 function renderDocsTopicGroups(docs: DocumentationSummary[]): string {
   return groupDocsByTopic(docs)
-    .map((group) => [
-      `${group.label}:`,
-      ...group.docs.map((doc) => `- ${renderDocsListItem(doc)}`),
-    ].join("\n"))
+    .map((group) => [`${group.label}:`, ...group.docs.map((doc) => `- ${renderDocsListItem(doc)}`)].join("\n"))
     .join("\n");
 }
 
@@ -565,10 +562,12 @@ export function registerDocsTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "docs_write",
     label: "docs_write",
-    description: "Create, update, or archive durable documentation records in local Loom memory.",
+    description: "Directly create, update, supersede, or archive durable documentation records in local Loom memory.",
     promptSnippet:
-      "You **MUST** persist high-level documentation state durably. Do not leave architecture or workflow explanations in chat. Ingest existing repository docs (READMEs, etc.) using `upstreamPath` to build a reasoned knowledge base.",
+      "Use this as the canonical documentation-mutation primitive when you already know what durable document state should be written. Do not leave architecture or workflow explanations in chat. Ingest existing repository docs (READMEs, etc.) using `upstreamPath` to build a reasoned knowledge base.",
     promptGuidelines: [
+      "Use docs_write for direct, known, deterministic mutations: creating a doc, applying a specific content update, repairing metadata, refreshing verification fields, superseding an owner, or archiving a doc.",
+      'If the job is instead "perform a bounded documentation-maintainer pass from compiled context", prefer docs_update; docs_update is orchestration built on top of this primitive.',
       "Create the documentation record before repeated updates so revisions accumulate on a stable durable id instead of scattering explanation across ad hoc notes.",
       "Use update with document content after completed work changes system understanding; write self-contained, high-context explanation rather than API reference snippets or shallow summaries.",
       "Use topicId plus topicRole to record governed ownership explicitly; missing topic ownership is legacy migration debt, not truth the caller should infer from titles or file paths.",
@@ -657,10 +656,12 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     name: "docs_update",
     label: "docs_update",
     description:
-      "Execute a fresh-process documentation maintenance pass and verify that a durable revision was persisted.",
+      "Execute the managed fresh-context documentation-maintainer workflow and verify that it lands a durable docs_write revision.",
     promptSnippet:
-      "Run documentation maintenance in a separate fresh process after implementation is complete so the updater can write a high-context, bounded explanation instead of a saturated-session blurb.",
+      'Use this when the job is "run a bounded documentation-maintainer pass from compiled context", not when you already know the exact mutation to apply. It runs documentation maintenance in a separate fresh process so the maintainer can write a high-context bounded revision instead of a saturated-session blurb.',
     promptGuidelines: [
+      "Prefer docs_update when you want Loom's managed path: compile the packet, launch a fresh maintainer, and require that the resulting pass persists through docs_write.",
+      "Prefer docs_write instead for deterministic content edits, metadata repair, verification-only refreshes, or any direct mutation where the desired document state is already known.",
       "Use this tool only after implementation reality is known and the surrounding understanding actually changed.",
       "The updater should enrich durable documentation with rationale, assumptions, scope boundaries, dependencies, risks, examples, and verification context where relevant instead of producing a thin recap.",
       "The fresh updater must persist its revision through docs_write; this tool should fail if no durable revision lands.",

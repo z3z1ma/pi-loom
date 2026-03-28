@@ -229,7 +229,9 @@ describe("docs tools", () => {
       expect(tool.promptGuidelines).toEqual(expect.arrayContaining([expect.any(String)]));
     }
 
-    expect(getTool(mockPi, "docs_update").promptSnippet).toContain("fresh process");
+    expect(getTool(mockPi, "docs_update").promptSnippet).toContain(
+      "bounded documentation-maintainer pass from compiled context",
+    );
     expect(getTool(mockPi, "docs_list").promptSnippet).toContain("durable explanations stay consolidated");
     expect(getTool(mockPi, "docs_list").parameters).toMatchObject({
       properties: {
@@ -239,6 +241,12 @@ describe("docs tools", () => {
       },
     });
     expect(getTool(mockPi, "docs_write").promptGuidelines).toContain(
+      "Use docs_write for direct, known, deterministic mutations: creating a doc, applying a specific content update, repairing metadata, refreshing verification fields, superseding an owner, or archiving a doc.",
+    );
+    expect(getTool(mockPi, "docs_write").promptGuidelines).toContain(
+      'If the job is instead "perform a bounded documentation-maintainer pass from compiled context", prefer docs_update; docs_update is orchestration built on top of this primitive.',
+    );
+    expect(getTool(mockPi, "docs_write").promptGuidelines).toContain(
       "Use update with document content after completed work changes system understanding; write self-contained, high-context explanation rather than API reference snippets or shallow summaries.",
     );
     expect(getTool(mockPi, "docs_write").promptGuidelines).toContain(
@@ -246,6 +254,12 @@ describe("docs tools", () => {
     );
     expect(getTool(mockPi, "docs_read").promptSnippet).toContain("existing context, rationale, and boundaries");
     expect(getTool(mockPi, "docs_audit").promptSnippet).toContain("stale, overlapping, orphaned, and unverified");
+    expect(getTool(mockPi, "docs_update").promptGuidelines).toContain(
+      "Prefer docs_update when you want Loom's managed path: compile the packet, launch a fresh maintainer, and require that the resulting pass persists through docs_write.",
+    );
+    expect(getTool(mockPi, "docs_update").promptGuidelines).toContain(
+      "Prefer docs_write instead for deterministic content edits, metadata repair, verification-only refreshes, or any direct mutation where the desired document state is already known.",
+    );
     expect(getTool(mockPi, "docs_audit").parameters).toMatchObject({
       properties: {
         persistCritique: expect.objectContaining({ type: "boolean" }),
@@ -537,7 +551,10 @@ describe("docs tools", () => {
       expect(ownerlessSearch.details).toMatchObject({
         docs: [],
         suppressedMatches: expect.arrayContaining([
-          expect.objectContaining({ id: ownerlessId, governance: expect.objectContaining({ publicationStatus: "governed-without-owner" }) }),
+          expect.objectContaining({
+            id: ownerlessId,
+            governance: expect.objectContaining({ publicationStatus: "governed-without-owner" }),
+          }),
         ]),
       });
       if (ownerlessSearch.content[0]?.type !== "text") {

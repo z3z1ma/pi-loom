@@ -31,12 +31,22 @@ Curated documentation remains trustworthy only if drift becomes observable.
 `pi-loom` keeps documentation maintenance as the post-completion explanatory layer, distinct from critique and planning.
 
 - documentation records are high-level explanatory memory for architecture, workflows, concepts, and operations, not API reference material
-- `docs_update` compiles the packet, launches a fresh `pi` process, and expects that fresh maintainer session to persist a revision through `docs_write`
+- `docs_write` is the canonical mutation primitive for direct, known, deterministic documentation changes
+- use `docs_write` when you already know exactly what state should be persisted: direct content edits, metadata repair, verification refreshes, create/supersede/archive flows, or explicit upstream-ingestion changes
+- `docs_update` is the managed fresh-context maintenance workflow built on top of `docs_write`: it compiles the packet, launches a fresh `pi` process, and expects that fresh maintainer session to persist a revision through `docs_write`
+- use `docs_update` when the job is "perform a bounded documentation-maintainer pass from compiled context" rather than "apply this exact mutation"
 - active documents remain editable; every `docs_write` update or archive appends a new revision to the canonical SQLite history
 - archived documents preserve their document body and revision timeline as historical truth, but they are no longer mutable through `docs_write` update flows
 - updating `contextRefs` replaces the stored ref buckets you send, so incorrect refs can be removed by passing empty arrays for the buckets that should be cleared
 - use `upstreamPath` to link a Loom Doc record to an existing repository file (e.g. `README.md`); this establishes the file as the content source while Loom owns the reasoning layer
 - maintained document views are rendered from the canonical record and remain accessible through queries and explicit export
+
+In practice, the split should be read this way:
+
+- `docs_write` is the direct mutation API
+- `docs_update` is the orchestration workflow that uses packets plus a fresh maintainer pass and then expects `docs_write` to land the durable revision
+
+If you find yourself saying "I already know the exact fields/body to change," prefer `docs_write`. If you are saying "I need Loom to assemble context and run a bounded maintainer pass," prefer `docs_update`.
 
 ## Multi-repository documentation flows
 
