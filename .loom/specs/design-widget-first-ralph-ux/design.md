@@ -1,9 +1,9 @@
 ---
 id: design-widget-first-ralph-ux
 title: "Design widget-first Ralph UX"
-status: specified
+status: archived
 created-at: 2026-03-17T05:56:15.232Z
-updated-at: 2026-03-17T05:59:05.726Z
+updated-at: 2026-03-28T00:12:48.628Z
 research: []
 initiatives: []
 capabilities:

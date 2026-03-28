@@ -1,9 +1,9 @@
 ---
 id: canonical-graph-cutover-phase-1
 title: "Canonical graph cutover phase 1"
-status: finalized
+status: archived
 created-at: 2026-03-19T01:07:20.929Z
-updated-at: 2026-03-19T07:28:32.294Z
+updated-at: 2026-03-28T00:10:02.402Z
 research:
   - sqlite-data-plane-audit-and-enrichment-opportunities
 initiatives:

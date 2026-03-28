@@ -16,8 +16,8 @@ audience:
   - ai
   - human
 source: workspace:pi-loom
-verified-at: 2026-03-27T21:52:00.000Z
-verification-source: "Reviewed CONSTITUTION.md, README.md, constitution/README.md, constitution_read(all), and constitution_overview against the current governed documentation state."
+verified-at: 2026-03-27T23:25:30.000Z
+verification-source: manual:docs-zero-drift-review-2026-03-27
 successor: null
 successor-title: null
 predecessors: []
@@ -32,15 +32,15 @@ upstream-path: CONSTITUTION.md
 
 ## Purpose and scope
 
-Constitutional memory is Pi Loom's highest-order project context. Its role is to keep the project's durable identity, governing principles, hard constraints, roadmap direction, and strategic decisions in one place that survives beyond any single run, transcript, or implementation cycle.
+Constitutional memory is Pi Loom's highest-order project context. It keeps the project's durable identity — vision, governing principles, hard constraints, roadmap direction, and strategic decisions — available as shared truth across sessions, tools, and repo-visible surfaces.
 
-That layer is intentionally narrower than the rest of the Loom stack. It is not a substitute for execution tracking, design notes, or operator instructions. Instead, it preserves the truths that should keep shaping lower-layer work even as plans, tickets, docs, and runtime behavior evolve.
+That layer is intentionally narrower than the rest of the Loom stack. It does not replace specifications, plans, tickets, critique, docs, or execution guidance. Its job is to preserve the durable truths that should continue to govern those lower layers even as implementation details, workflow surfaces, and repository projections evolve.
 
 ## Current storage model
 
-Pi Loom currently implements constitutional memory as a single mutable constitution aggregate persisted canonically in SQLite via pi-storage. The aggregate holds the project's vision, principles, constraints, embedded roadmap items, open constitutional questions, strategic direction, current focus, append-only decision history, and generated brief material used for prompt grounding.
+Pi Loom currently models constitutional memory as one mutable constitution aggregate persisted canonically in SQLite via pi-storage. That aggregate carries the project's vision, principles, constraints, strategic direction, current focus, open constitutional questions, embedded roadmap items, append-only decision history, and the compiled constitutional brief used for prompt grounding.
 
-This model matters because the constitution is meant to remain durable even when repository layout, projections, or future storage backends change. The canonical record carries the meaning; human-readable renderings are derived from that stored state.
+The important boundary is that the aggregate is the meaning-bearing record. `CONSTITUTION.md`, constitutional tool output, and repo-visible `.loom/...` review surfaces are all derived publications or projections of that canonical state. They matter because they make the constitution reviewable and queryable, but they do not become alternate truth just because they are easier to read in a repository.
 
 ## Constitutional memory versus operational guidance
 
@@ -67,19 +67,23 @@ These surfaces are related, but they are not interchangeable.
 
 ### Canonical constitutional memory
 
-The SQLite-backed constitutional record is the authoritative source of truth. It is where Pi Loom stores the current vision, principles, constraints, roadmap intent, and constitutional decisions for the workspace.
+The SQLite-backed constitutional record is the authoritative source of truth. It is where Pi Loom stores the current vision, principles, constraints, roadmap intent, current focus, open questions, and constitutional decisions for the workspace.
 
 ### This governed overview
 
-This documentation record is the maintained explanatory owner document for the `constitutional-memory` topic. Its job is to explain what the constitutional layer means, how it is modeled today, and how readers should interpret it relative to the rest of the system. It is durable high-level explanation, not the operational store.
+This documentation record is the maintained explanatory owner document for the `constitutional-memory` topic. Its current-owner publication status means it is the canonical explanation of the topic inside the governed docs corpus, not a second constitutional store. Its job is to explain what the constitutional layer means, how it is modeled today, and how readers should interpret it relative to the rest of Pi Loom.
 
-Because it lives in the governed docs layer, it also carries explicit verification and publication metadata. That makes it a maintained interpretation surface for humans and AI memory, not a competing copy of the constitution.
+Because it lives in the docs layer, it also carries explicit governance and verification metadata. That makes it a maintained interpretation surface for humans and AI memory, not a competing copy of the constitution.
 
 ### `CONSTITUTION.md`
 
 `CONSTITUTION.md` is the repo-visible publication of the constitution's substantive content. It makes the current constitutional shape reviewable from the working tree and easy to cite during design or implementation work. Its authority depends on staying aligned with canonical constitutional memory rather than bypassing it.
 
-In short: canonical constitutional memory is the source of truth, this governed overview explains the concept and current shape, and `CONSTITUTION.md` is the repository publication surface for the constitution itself.
+### Repo-visible document projections
+
+The rendered file under `.loom/docs/overviews/constitutional-memory-overview.md` is the projection of this governed overview into the repository. It is a review surface for the current owner document, not an independent source of explanatory or constitutional truth. If that projection drifts, the fix belongs in the canonical docs record and projection workflow rather than in a parallel hand-maintained copy.
+
+In short: canonical constitutional memory is the source of truth, this governed overview is the current owner explanation of the topic, `CONSTITUTION.md` publishes the constitution itself for repository readers, and the docs projection is the rendered review surface for this explanation.
 
 ## Current constitutional shape
 
@@ -100,6 +104,8 @@ The constitution's current focus is on hardening the canonical SQLite-backed dat
 
 ## How to read this layer
 
-The constitutional layer should be read as durable project policy and strategic direction, not as a changelog, API reference, or execution plan. It should move when accepted reality changes Pi Loom's identity, durable boundaries, or roadmap intent—not whenever implementation detail shifts somewhere below it.
+The constitutional layer should be read as durable project policy and strategic direction, not as a changelog, API reference, or execution plan. It should move when accepted reality changes Pi Loom's identity, durable boundaries, or roadmap intent — not whenever implementation detail shifts somewhere below it.
 
 That slower cadence is deliberate. It keeps the highest-order context stable enough to govern the rest of the system while still leaving room for durable strategic decisions and roadmap changes when project reality actually moves.
+
+Verification-only refreshes are also legitimate when the governed publication surface changes without changing the meaning of the constitutional layer itself. Projection stabilization, topic-governance cleanup, or broader docs-corpus maintenance may require this overview's explanation or verification evidence to be refreshed so the published owner surface stays truthful without inventing a parallel overview or pretending the constitution changed when it did not.

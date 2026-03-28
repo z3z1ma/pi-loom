@@ -278,6 +278,29 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "plan:specification-corpus-cleanup-and-re-baselining",
+      "contentHash": "768c116865fec478ab0d50903b5219238ff71f3a56d759cba09dad5ff9fc6cde",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/specification-corpus-cleanup-and-re-baselining.md",
+      "revisionToken": "9de30fe70d357f4f0c5468ebd79f00b7b3a4aae611d68ddf773feebb37d8d7b4"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "plan:ticket-workspace-ui-revamp",
       "contentHash": "02f3582b02e29dee437d535c326c735bbc1613fce1bf231f088f2d427c8245de",
       "editability": {

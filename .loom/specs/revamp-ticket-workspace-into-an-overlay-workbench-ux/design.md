@@ -1,9 +1,9 @@
 ---
 id: revamp-ticket-workspace-into-an-overlay-workbench-ux
 title: "Revamp ticket workspace into an overlay workbench UX"
-status: finalized
+status: archived
 created-at: 2026-03-17T19:30:22.208Z
-updated-at: 2026-03-17T19:32:54.334Z
+updated-at: 2026-03-28T00:10:08.421Z
 research: []
 initiatives: []
 capabilities:

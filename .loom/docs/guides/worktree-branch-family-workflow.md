@@ -16,8 +16,8 @@ audience:
   - ai
   - human
 source: workspace:workspace
-verified-at: 2026-03-27T23:04:49.000Z
-verification-source: manual:pl-0131-iter-001
+verified-at: 2026-03-27T23:25:30.000Z
+verification-source: manual:docs-zero-drift-review-2026-03-27
 successor: null
 successor-title: null
 predecessors: []

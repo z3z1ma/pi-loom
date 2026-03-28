@@ -1,9 +1,9 @@
 ---
 id: design-widget-first-plans-ux
 title: "Design widget-first plans UX"
-status: specified
+status: archived
 created-at: 2026-03-17T05:56:14.588Z
-updated-at: 2026-03-26T06:22:02.404Z
+updated-at: 2026-03-28T00:10:35.587Z
 research:
   - plan-and-ticket-orchestration-workflow-design
 initiatives: []

@@ -1,9 +1,9 @@
 ---
 id: design-widget-first-specs-ux
 title: "Design widget-first specs UX"
-status: specified
+status: archived
 created-at: 2026-03-17T05:56:14.424Z
-updated-at: 2026-03-17T05:58:07.061Z
+updated-at: 2026-03-28T00:13:15.947Z
 research: []
 initiatives: []
 capabilities:

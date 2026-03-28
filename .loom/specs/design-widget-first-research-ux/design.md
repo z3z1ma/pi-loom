@@ -1,9 +1,9 @@
 ---
 id: design-widget-first-research-ux
 title: "Design widget-first research UX"
-status: specified
+status: archived
 created-at: 2026-03-17T05:56:14.169Z
-updated-at: 2026-03-17T05:57:17.541Z
+updated-at: 2026-03-28T00:13:30.857Z
 research: []
 initiatives: []
 capabilities:

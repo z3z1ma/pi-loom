@@ -1,9 +1,9 @@
 ---
 id: design-widget-first-critique-ux
 title: "Design widget-first critique UX"
-status: specified
+status: archived
 created-at: 2026-03-17T05:56:15.052Z
-updated-at: 2026-03-17T05:59:05.549Z
+updated-at: 2026-03-28T00:12:58.373Z
 research: []
 initiatives: []
 capabilities:

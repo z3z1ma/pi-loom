@@ -3,7 +3,7 @@ id: add-workspace-backed-manager-worker-substrate
 title: "Add workspace-backed manager-worker substrate"
 status: specified
 created-at: 2026-03-15T23:56:44.247Z
-updated-at: 2026-03-21T06:05:11.420Z
+updated-at: 2026-03-28T00:10:55.844Z
 research:
   - assess-vendoring-the-oh-my-pi-task-subagent-executor-into-pi-ralph
   - evaluate-pi-control-surfaces-for-long-lived-workers

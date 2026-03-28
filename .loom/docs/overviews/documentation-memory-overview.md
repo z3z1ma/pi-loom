@@ -16,8 +16,8 @@ audience:
   - ai
   - human
 source: workspace:pi-loom
-verified-at: 2026-03-27T22:48:17.104Z
-verification-source: "Reviewed docs/README.md, README.md, docs/tools/docs.ts, and docs/domain/store.ts against the shipped documentation update, audit, governance, and upstream-ingestion behavior."
+verified-at: 2026-03-27T23:25:30.000Z
+verification-source: manual:docs-zero-drift-review-2026-03-27
 successor: null
 successor-title: null
 predecessors: []

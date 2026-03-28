@@ -1,9 +1,9 @@
 ---
 id: sqlite-first-canonical-storage-substrate
 title: "SQLite-first canonical storage substrate"
-status: finalized
+status: archived
 created-at: 2026-03-16T17:12:54.867Z
-updated-at: 2026-03-17T00:40:26.902Z
+updated-at: 2026-03-28T00:10:15.991Z
 research:
   - sqlite-first-storage-substrate-and-sync-architecture
 initiatives:

@@ -1,9 +1,9 @@
 ---
 id: design-widget-first-ticketing-ux
 title: "Design widget-first ticketing UX"
-status: finalized
+status: archived
 created-at: 2026-03-17T05:56:14.750Z
-updated-at: 2026-03-17T06:16:00.890Z
+updated-at: 2026-03-28T00:10:11.857Z
 research: []
 initiatives: []
 capabilities:

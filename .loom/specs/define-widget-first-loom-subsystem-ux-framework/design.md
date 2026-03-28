@@ -1,9 +1,9 @@
 ---
 id: define-widget-first-loom-subsystem-ux-framework
 title: "Define widget-first Loom subsystem UX framework"
-status: specified
+status: archived
 created-at: 2026-03-17T05:53:45.644Z
-updated-at: 2026-03-17T05:54:44.688Z
+updated-at: 2026-03-28T00:13:49.177Z
 research: []
 initiatives: []
 capabilities:

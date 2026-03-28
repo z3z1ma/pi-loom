@@ -1,9 +1,9 @@
 ---
 id: design-widget-first-constitution-ux
 title: "Design widget-first constitution UX"
-status: specified
+status: archived
 created-at: 2026-03-17T05:56:14.023Z
-updated-at: 2026-03-17T05:57:17.346Z
+updated-at: 2026-03-28T00:13:40.833Z
 research: []
 initiatives: []
 capabilities:

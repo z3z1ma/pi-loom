@@ -1,9 +1,9 @@
 ---
 id: design-widget-first-workers-ux
 title: "Design widget-first workers UX"
-status: specified
+status: archived
 created-at: 2026-03-17T05:56:14.921Z
-updated-at: 2026-03-17T05:59:05.301Z
+updated-at: 2026-03-28T00:13:05.937Z
 research: []
 initiatives: []
 capabilities:

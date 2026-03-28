@@ -1,9 +1,9 @@
 ---
 id: design-widget-first-docs-ux
 title: "Design widget-first docs UX"
-status: specified
+status: archived
 created-at: 2026-03-17T05:56:15.396Z
-updated-at: 2026-03-17T05:59:05.868Z
+updated-at: 2026-03-28T00:12:41.290Z
 research: []
 initiatives: []
 capabilities:

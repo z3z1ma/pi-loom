@@ -16,8 +16,8 @@ audience:
   - ai
   - human
 source: workspace:pi-loom
-verified-at: 2026-03-27T22:35:30.916Z
-verification-source: "Reviewed documentation:ticket-ledger-and-execution-records-overview:packet plus ticketing/README.md, plans/README.md, ralph/README.md, README.md, and governed overviews for integrated-plan-authoring and loom-ralph-orchestration against the current repository state."
+verified-at: 2026-03-27T23:25:30.000Z
+verification-source: manual:docs-zero-drift-review-2026-03-27
 successor: null
 successor-title: null
 predecessors: []

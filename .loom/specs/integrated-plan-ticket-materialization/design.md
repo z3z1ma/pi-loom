@@ -1,9 +1,9 @@
 ---
 id: integrated-plan-ticket-materialization
 title: "Integrated plan ticket materialization"
-status: specified
+status: archived
 created-at: 2026-03-26T07:19:38.989Z
-updated-at: 2026-03-26T07:19:53.019Z
+updated-at: 2026-03-28T00:10:28.359Z
 research: []
 initiatives: []
 capabilities:

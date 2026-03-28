@@ -1,9 +1,9 @@
 ---
 id: session-based-ralph-and-chief-iteration-execution
 title: "Session-based Ralph and Chief iteration execution"
-status: specified
+status: archived
 created-at: 2026-03-21T00:55:54.148Z
-updated-at: 2026-03-21T02:05:07.948Z
+updated-at: 2026-03-28T00:12:30.424Z
 research: []
 initiatives: []
 capabilities:

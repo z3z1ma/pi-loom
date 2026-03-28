@@ -16,8 +16,8 @@ audience:
   - ai
   - human
 source: workspace:workspace:pi-loom
-verified-at: 2026-03-27T22:11:54.000Z
-verification-source: "Reviewed DATA_PLANE.md, README.md, storage/README.md, and storage/contract.ts against the current repository state."
+verified-at: 2026-03-27T23:25:30.000Z
+verification-source: manual:docs-zero-drift-review-2026-03-27
 successor: null
 successor-title: null
 predecessors: []

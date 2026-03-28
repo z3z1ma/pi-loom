@@ -1,9 +1,9 @@
 ---
 id: canonical-data-plane-completion
 title: "Canonical data plane completion"
-status: finalized
+status: archived
 created-at: 2026-03-19T07:51:58.382Z
-updated-at: 2026-03-19T07:54:09.862Z
+updated-at: 2026-03-28T00:09:59.164Z
 research:
   - sqlite-data-plane-audit-and-enrichment-opportunities
 initiatives:

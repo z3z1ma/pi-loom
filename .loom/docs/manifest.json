@@ -12,6 +12,46 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "doc:constitutional-memory-maintenance-guide",
+      "contentHash": "b6a72e7de31322c5d14dd21a3ca84931d445af8298d5fb583e20fad6bf847059",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/constitutional-memory-maintenance-guide.md",
+      "revisionToken": "517890ca552372959667c4aa9b00118e48149495276c134afc1be2c6a503f150"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:critique-packet-and-finding-workflow",
+      "contentHash": "c4d212fc1aa1ca0f40d7b53003a7618309c10d99a793f97fc1853578a5fcc0f7",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/critique-packet-and-finding-workflow.md",
+      "revisionToken": "28df5c5ff6a5d6a27b524ed5d3d5a5cff2783107015ea73876c63700ed6bcad4"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:documentation-maintenance-workflow",
+      "contentHash": "04301e94a438a063afd48441cf612399355a8fddd8c2c60903fcafb7f63a22a6",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/documentation-maintenance-workflow.md",
+      "revisionToken": "597a655b328968fd68076dc349645a502d620f45b75823bda0800611695e7adf"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:initiative-linkage-and-milestone-guide",
+      "contentHash": "e90bc31064b64ba9d43b7795e1e6d65ffc19d20ca33cbed566132f8198f7a346",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/initiative-linkage-and-milestone-guide.md",
+      "revisionToken": "c0ed34c6202356f3f9adfb884a9e8e98988de50d709a0cc1e6d8da62d3bcf940"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "doc:integrated-plan-authoring-workflow",
       "contentHash": "2c80e3ed366bab4c2bdbe167d6fe7ae4cee941c17b947f2da870e9b930f179f9",
       "editability": {
@@ -19,6 +59,46 @@
       },
       "relativePath": "guides/integrated-plan-authoring-workflow.md",
       "revisionToken": "6fd298b1537b746c1f415a68235478703712a2ec5754346b11ee3e4b88e5492c"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:planning-packet-and-linked-ticket-workflow",
+      "contentHash": "618c74ebabb2b05ab67e9b870ee98c9426cd7ca79dca4b38b473e8c0c13003ba",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/planning-packet-and-linked-ticket-workflow.md",
+      "revisionToken": "c13e537346e96e1fb7a4a9cc96b218c8d2de8bbaea20d6449b6854d085c05d11"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:research-investigation-workflow",
+      "contentHash": "2351124f976921912937701ed6f2e8b5283585012df09db2ea8da48e15b2e63c",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/research-investigation-workflow.md",
+      "revisionToken": "63b0828d16f63ec3e1c848baffc01c471127e438c673fbb358bd26e41c2c34d0"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:specification-authoring-workflow",
+      "contentHash": "f497a9c7752535942d167052ef97c0da53b46cf22dad508b43afb19ac21a39ca",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/specification-authoring-workflow.md",
+      "revisionToken": "978a099128a7fd0f6844ffcdc383f3a218f57fdf0489c6f1a08ea3803d3d91b5"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:ticket-ledger-maintenance-guide",
+      "contentHash": "0ad90fb0b9ff623b01edd09440ac6086833fc1dd5a5e42571eda88cbff75e8d9",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "guides/ticket-ledger-maintenance-guide.md",
+      "revisionToken": "83996d04f3c2c4569b93d11b0a09f2b633a84ad95260b73afab729731632bbc6"
     },
     {
       "baseVersion": null,
@@ -33,7 +113,7 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:worktree-branch-family-workflow",
-      "contentHash": "b99d58056590f97c6147a2b9600089e38fb2085ce3de8ddfa4ce948a1957927a",
+      "contentHash": "34203838054198c0cdebaaea915b2660b99b2b312d8e0ecb3f12ed20b0aa8acc",
       "editability": {
         "mode": "full"
       },
@@ -73,7 +153,7 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:canonical-data-plane-and-storage-model-overview",
-      "contentHash": "e31a09ebd56a0faa222bb14e593c22f6af86b204763246e2f6aa18ff83265900",
+      "contentHash": "b85aa812dc5f47e21a0b40522b1d0b4e4aad05fc1e0554aad46c45887c7ebc70",
       "editability": {
         "mode": "full"
       },
@@ -83,12 +163,22 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:constitutional-memory-overview",
-      "contentHash": "d5e463d2a2952b2f2d700975b491bca24e935171f44d7eacced5cafa9a72bfe4",
+      "contentHash": "dc3f46c0556e18cdfb06a3571a1985e2c8f9df325581c1c9042486a0d3f6c3f3",
       "editability": {
         "mode": "full"
       },
       "relativePath": "overviews/constitutional-memory-overview.md",
-      "revisionToken": "484ebb03ee2591e89d2874f97539a98474bc7a2cc2eb0b23a23fb4925349872b"
+      "revisionToken": "735af101d51e6ad655f684185e46be741372b3704297f3243d91fd0b593a1fb6"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:critique-memory-overview",
+      "contentHash": "ecdb47e6670a0e93f4781012aec761c7d9a7ba180c35ae88808b5c78c203db54",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/critique-memory-overview.md",
+      "revisionToken": "1dace09f2249407f9dd77abda5d160d4bba2ec227b69ed89c97ec735af66641d"
     },
     {
       "baseVersion": null,
@@ -103,12 +193,22 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:documentation-memory-overview",
-      "contentHash": "86c5358b609d1e72734e50db67c12a2a0d58595af2357a07a1d7c7a45e93e645",
+      "contentHash": "91bc8d6f5cbb0b3279a402691b6b1df7eaa7f8b1cc8f5f072b8c0b9c89c45a71",
       "editability": {
         "mode": "full"
       },
       "relativePath": "overviews/documentation-memory-overview.md",
       "revisionToken": "a7bd846e6236fa18f76a882049fb386f31628e06e6fda6530ff207c6b0a72e46"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:initiative-memory-overview",
+      "contentHash": "c6cf6a8a1e8a3b62a2874ad9141c2157615885e4eb7605826050d00f3b7d381c",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/initiative-memory-overview.md",
+      "revisionToken": "006d00e59b993fb8c6ce0a6b149fa8fa7ffef2337acbe85c7371d41c7a12b9e2"
     },
     {
       "baseVersion": null,
@@ -152,6 +252,16 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "doc:planning-memory-overview",
+      "contentHash": "562f64cbd91d55079d98faf4c07dea5f97f0ef52875ebda1e32d2136d03a1c6c",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/planning-memory-overview.md",
+      "revisionToken": "8143b03d698fb341a84838b35a6dcce06c9fe1f5fd6fb607b929bddb984f8455"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "doc:ralph-runtime-execution-and-observability-overview",
       "contentHash": "144431775a9cf738dbeb852a36a49067347a1c60e505678ed3e012f9531ad61b",
       "editability": {
@@ -159,6 +269,16 @@
       },
       "relativePath": "overviews/ralph-runtime-execution-and-observability-overview.md",
       "revisionToken": "a373d6cd180082b83bf9c0283f2c4f2a7b367f1d6d3b7227943aa159eb79fd46"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "doc:research-memory-overview",
+      "contentHash": "9bc2b97e11d8dc6ce58f0e1e0e9175bf5013893bc81d04ea63403f626217fa3d",
+      "editability": {
+        "mode": "full"
+      },
+      "relativePath": "overviews/research-memory-overview.md",
+      "revisionToken": "258d1989e37377f98f0cc12429daa63bce3a81c42723b3220a0ec38c6618e9da"
     },
     {
       "baseVersion": null,
@@ -183,7 +303,7 @@
     {
       "baseVersion": null,
       "canonicalRef": "doc:ticket-ledger-and-execution-records-overview",
-      "contentHash": "0cddf07ab75abd94e26f7b2a2c2fca5038fcd28e713d8388f946184b8f40e187",
+      "contentHash": "623632c2b3b02892f0443be460c6e661f1e694f4c64ee45f4004bca8a0a14805",
       "editability": {
         "mode": "full"
       },
