@@ -48,6 +48,29 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "plan:first-pass-subsystem-specification-backfill",
+      "contentHash": "ec468ab6e2d44f32444c91e6ee7c7fc650033c9264d909f657222a4469a6634f",
+      "editability": {
+        "editableSections": [
+          "Artifacts and Notes",
+          "Concrete Steps",
+          "Context and Orientation",
+          "Idempotence and Recovery",
+          "Interfaces and Dependencies",
+          "Milestones",
+          "Outcomes & Retrospective",
+          "Plan of Work",
+          "Purpose / Big Picture",
+          "Risks and Open Questions",
+          "Validation and Acceptance"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "2026/first-pass-subsystem-specification-backfill.md",
+      "revisionToken": "eb8057bf65742fda54f95a101dc218cfe255cecb07e448d4d9216bbaf3f70d74"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "plan:hybrid-branch-family-allocation-for-ralph-worktree-runs",
       "contentHash": "5b79659b49b2929cd1a7261293503aba099fcf992d922c7740313f25e6124bd5",
       "editability": {

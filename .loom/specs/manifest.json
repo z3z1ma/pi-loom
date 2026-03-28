@@ -2,6 +2,66 @@
   "entries": [
     {
       "baseVersion": null,
+      "canonicalRef": "spec:bounded-documentation-maintenance:artifact:design",
+      "contentHash": "3a2a6ef6b83a8db155447fee1baf6cf37daba741bb4b45b77530e90cdad555bd",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "bounded-documentation-maintenance/design.md",
+      "revisionToken": "4daa4643ab14a0de41af54fccc256563d963ff35b404ab53dd0df7bc8e6c0647"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:bounded-documentation-maintenance:artifact:proposal",
+      "contentHash": "d303207b75f0732a99eef91e7936f0f46f31f5fab9e53e817eed9f848203494d",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "bounded-documentation-maintenance/proposal.md",
+      "revisionToken": "b999cf913cdddd16262f782853ae59c0ffec5d7b2470fca2f275e969fab75b1f"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:canonical-loom-storage-substrate:artifact:design",
+      "contentHash": "d36163b58c78605c75e44a688da16b3cc80aaece3266fa0bd1384e1ea2c51c32",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "canonical-loom-storage-substrate/design.md",
+      "revisionToken": "877d182c4166dbe8bfaf341175437b5db1abce43417cf3d30af79554e7d93693"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:canonical-loom-storage-substrate:artifact:proposal",
+      "contentHash": "4f4af49fe2da080482988ea71cdb24fe20e744f67844c49d7831bd400f54965e",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "canonical-loom-storage-substrate/proposal.md",
+      "revisionToken": "be95c426b833e192959710bc3b8f7d5911c57af1bceec277863c34f5a6fa3d38"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:constitutional-memory-management:artifact:design",
+      "contentHash": "eb55c8e21ce1d07c7bff014f00d7c5cb9adbc1f3c3e2fcb68ded3e866e533979",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "constitutional-memory-management/design.md",
+      "revisionToken": "e05cfee60359d2b33779483ecbf4d01e6fb45cce2575b98e57d2ba172edeb911"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:constitutional-memory-management:artifact:proposal",
+      "contentHash": "cdc3e292289b88cbe1ae23fc6f6b16ca6ec68eddc912d4de2a0e95f4dd9c4eca",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "constitutional-memory-management/proposal.md",
+      "revisionToken": "3aef10b83b11440956f02ad2042deb6d02b38306404cf6064bf2ee3d626dc8fc"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "spec:curated-documentation-governance:artifact:design",
       "contentHash": "3c991890e41144047a581f07fc28c6b1394c4fd8516c2802985ffe709c69a3a5",
       "editability": {
@@ -22,6 +82,66 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "spec:durable-adversarial-critique:artifact:design",
+      "contentHash": "b0ab1d0be2a6d85bad09d4a5585293d62828a4a1690803d6d75240d2e9325f0d",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "durable-adversarial-critique/design.md",
+      "revisionToken": "50692d3ecb640737bbde08070d999da993bd84af94432bd372c141234f1d7367"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:durable-adversarial-critique:artifact:proposal",
+      "contentHash": "9a612e7d81d510f8f720c216af2ace47af049327921d92475e5f8588697a666e",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "durable-adversarial-critique/proposal.md",
+      "revisionToken": "2be9388be4cb28aa10c8951eca9007621cc828a67ff3f5fa37d3ec5a015fadf1"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:durable-specification-lifecycle:artifact:design",
+      "contentHash": "fe588bbba13bdae860c4c20936f7d540d3b55e273ab29393f05283c53f5e945f",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "durable-specification-lifecycle/design.md",
+      "revisionToken": "db3fc75caa7952ac2e1e2f4529b3dc9d4184720662054b8f0e944f00044df35d"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:durable-specification-lifecycle:artifact:proposal",
+      "contentHash": "9a98d1519bbf1b93440e2247d179905ecfbd5d799172b563578c0aa111d9cc4e",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "durable-specification-lifecycle/proposal.md",
+      "revisionToken": "80b7bc2d4c97585e75860712bb577249e2d2684ea88c69cf9236fce7ed4d1e86"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:execution-planning-and-linked-rollout-strategy:artifact:design",
+      "contentHash": "2e5f86fae286d9302f7dc928b7467696eb2d558411ab8921232c509857ca86fa",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "execution-planning-and-linked-rollout-strategy/design.md",
+      "revisionToken": "8a5f8819b958f5f8af136e3f77d733ba7df4f1d3b88b5e19700b14ab52f39774"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:execution-planning-and-linked-rollout-strategy:artifact:proposal",
+      "contentHash": "2070ad16848b0b49f46603b8ed786e834dff7cc363d5bcd5ef690c67028a7fef",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "execution-planning-and-linked-rollout-strategy/proposal.md",
+      "revisionToken": "1f2807831010bd494b739fa06ee2856272ac354586cb16430c23a53ebffb2ba3"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "spec:first-class-multi-repository-loom-spaces:artifact:design",
       "contentHash": "75bb387931ec35abdeae0fb4ecd27fbc9611ef9a284a918c378f32850f5d669b",
       "editability": {
@@ -39,6 +159,86 @@
       },
       "relativePath": "first-class-multi-repository-loom-spaces/proposal.md",
       "revisionToken": "39986806f6b04358ad43608d241da84ad60fa322a70e7161276a6bff314b86d5"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:research-knowledge-records:artifact:design",
+      "contentHash": "5dd94ba23d99e51038b96b97bd0319c250417ddd69a369a6d740798683904abc",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "research-knowledge-records/design.md",
+      "revisionToken": "75228df1d0a7fc25fb9f4ffbe5a60e705373a272d93c13c908682cda8a72ecad"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:research-knowledge-records:artifact:proposal",
+      "contentHash": "3406b6c1797c3ccca43c3cf57fc1cfc97ee1ff3efcd1cd2ec76801cd96d86afe",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "research-knowledge-records/proposal.md",
+      "revisionToken": "219029e5c0630c3b329fbfa8efcb73b50259e12d81e9013d88ace9b6efe4741f"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:strategic-initiative-tracking:artifact:design",
+      "contentHash": "d504cb93434291f2f1ce8142c72c994823ded29f54fddc12b1a2e9ca6aa6f817",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "strategic-initiative-tracking/design.md",
+      "revisionToken": "706db2dc52612187f642169c172ee1473ed885c0be309c6d36bc650148038f62"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:strategic-initiative-tracking:artifact:proposal",
+      "contentHash": "8efd620e52538fb64e6193a48a035b1a00a348a44e5ad3b3dd0f692aa0cb5808",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "strategic-initiative-tracking/proposal.md",
+      "revisionToken": "4c0e4564ace7799bc3e522e4c8fb5e19a310e0a323d50386b08a68bbdea0b0c1"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:ticket-bound-ralph-orchestration:artifact:design",
+      "contentHash": "98fce42fec24331de31ecbebf6618fb98f29458949e3adb9ee7a12bab3c353a4",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "ticket-bound-ralph-orchestration/design.md",
+      "revisionToken": "77c745b4e5dbc3e27429c3ba5b7ef6c37f71f444f6aec46510ff683f6481b8d4"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:ticket-bound-ralph-orchestration:artifact:proposal",
+      "contentHash": "78eec889ac78dbe855c6c2d07682647a37fa4d1e145556476535c35892d1bc3e",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "ticket-bound-ralph-orchestration/proposal.md",
+      "revisionToken": "d2a94f973d8eda79fb93a2095075fabcafa6d1513b89d096112cd84b3defa16d"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:ticket-execution-ledger:artifact:design",
+      "contentHash": "eb6b1da31fefdbafd62c1966eb3fba0f65c2effd2fb3554edd238156b816d520",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "ticket-execution-ledger/design.md",
+      "revisionToken": "657ca599e61d8387f5059e557770b95e9719329012ac76ffd46761d8f335df8f"
+    },
+    {
+      "baseVersion": null,
+      "canonicalRef": "spec:ticket-execution-ledger:artifact:proposal",
+      "contentHash": "d6ba11a9f9c719e8a7755dcaffb9d159732f62f7303314f52c80d63e4f35cd38",
+      "editability": {
+        "mode": "read_only"
+      },
+      "relativePath": "ticket-execution-ledger/proposal.md",
+      "revisionToken": "94b27a32284b2b5c27eb660a58ff867e792ebb1c39460d3a89a49d1eeeae195c"
     },
     {
       "baseVersion": null,

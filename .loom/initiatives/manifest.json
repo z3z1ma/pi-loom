@@ -62,6 +62,26 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "initiative:subsystem-specification-backfill",
+      "contentHash": "c94241073ab2d6e7e68c325dabd4f17f54d8e618dd4436b6c2c3c137f74dc8ad",
+      "editability": {
+        "editableSections": [
+          "Milestones",
+          "Non-Goals",
+          "Objective",
+          "Outcomes",
+          "Risks",
+          "Scope",
+          "Status Summary",
+          "Success Metrics"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "subsystem-specification-backfill.md",
+      "revisionToken": "897c9d6bf7137bf191f92c8ed0772d3703d73c434e990adb361e406b9b0ea7f7"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "initiative:widget-first-human-centric-loom-subsystem-ux",
       "contentHash": "0228249cc62eaee458b02c25036adb1f0181579a4fd26955ce03d1eab095c3c5",
       "editability": {

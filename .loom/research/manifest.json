@@ -354,6 +354,28 @@
     },
     {
       "baseVersion": null,
+      "canonicalRef": "research:reverse-engineered-specification-backfill-for-pi-loom",
+      "contentHash": "d0887f3d04a0416aa0700882ea351e9419434ca001f006594b4ac8ca9a7bc6c3",
+      "editability": {
+        "editableSections": [
+          "Conclusions",
+          "Keywords",
+          "Methodology",
+          "Non-Goals",
+          "Objective",
+          "Open Questions",
+          "Question",
+          "Recommendations",
+          "Scope",
+          "Status Summary"
+        ],
+        "mode": "sections"
+      },
+      "relativePath": "reverse-engineered-specification-backfill-for-pi-loom.md",
+      "revisionToken": "d7ea56ddc99be9faf289976b23810944697ed34e25bb66b4318480d9b3f49db3"
+    },
+    {
+      "baseVersion": null,
       "canonicalRef": "research:sqlite-data-plane-audit-and-enrichment-opportunities",
       "contentHash": "1938edb6f8fd9958cd5ad09a7b700cbd1a075a1c7335da52472964406e12f22c",
       "editability": {
