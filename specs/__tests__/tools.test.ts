@@ -91,6 +91,9 @@ describe("spec tools", () => {
     expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
       "`clarify`, `specify`, and other spec mutations are for mutable specs only. After `finalize`, the spec becomes read-only; after `archive`, it is terminal and remains available only for reading, lineage, and capability provenance.",
     );
+    expect(getTool(mockPi, "spec_write").promptGuidelines).toContain(
+      "Use `delete` only to remove mutable specs that should not survive as durable history. Delete is blocked once a spec is finalized, archived, or still referenced by other durable records.",
+    );
     expect(getTool(mockPi, "spec_write").description).toContain(
       "keeping specifications declarative and implementation-decoupled while plans and tickets stay execution-aware",
     );
@@ -294,6 +297,41 @@ describe("spec tools", () => {
           ctx,
         ),
       ).rejects.toThrow("Spec dark-theme-support is archived and cannot change specification details.");
+
+      const disposable = await specWrite.execute(
+        "call-11",
+        {
+          action: "propose",
+          title: "Disposable draft spec",
+          summary: "A draft that should be deleted before it becomes history.",
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(disposable.details).toMatchObject({
+        action: "propose",
+        change: { summary: { id: "disposable-draft-spec", status: "proposed" } },
+      });
+
+      const deleted = await specWrite.execute(
+        "call-12",
+        { action: "delete", ref: "disposable-draft-spec" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(deleted.details).toMatchObject({
+        action: "delete",
+        result: { action: "delete", deletedChangeId: "disposable-draft-spec" },
+      });
+      expect((deleted.content as Array<{ text: string }>)[0]?.text).toContain(
+        "Deleted specification disposable-draft-spec.",
+      );
+
+      await expect(
+        specRead.execute("call-13", { ref: "disposable-draft-spec" }, undefined, undefined, ctx),
+      ).rejects.toThrow("Unknown capability: disposable-draft-spec");
     } finally {
       cleanup();
     }

@@ -164,7 +164,13 @@ export interface SpecPlanInput {
   capabilities: SpecPlanCapabilityInput[];
 }
 
+export interface DeleteSpecResult {
+  action: "delete";
+  deletedChangeId: string;
+}
+
 export interface SpecWriteResult {
   action: string;
-  change: SpecChangeRecord;
+  change?: SpecChangeRecord;
+  result?: DeleteSpecResult;
 }

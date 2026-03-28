@@ -3,7 +3,7 @@
     {
       "baseVersion": null,
       "canonicalRef": "spec:add-inbox-driven-manager-worker-control-plane:artifact:design",
-      "contentHash": "a96a239394b5b33abb92660b9adc348fd525a86a3f07f21493d387f47e9ea1b3",
+      "contentHash": "be15667164449e9022790bfe757b56fc1e6cbd1ce1c96395988d72da3aa4bdd4",
       "editability": {
         "editableSections": [
           "Design Notes"
@@ -11,12 +11,12 @@
         "mode": "sections"
       },
       "relativePath": "add-inbox-driven-manager-worker-control-plane/design.md",
-      "revisionToken": "af91b5ca89b844495f66a65075b6731e054b97bef61b67287d9a75f118895ca2"
+      "revisionToken": "b84e0b118d8d5785fdc1573f9e98073801ab10a4ce84e2f643915e08f5c7976c"
     },
     {
       "baseVersion": null,
       "canonicalRef": "spec:add-inbox-driven-manager-worker-control-plane:artifact:proposal",
-      "contentHash": "555a4c69089332a6b2ce44018fceb46f24961d6c1e18cefa30c8f86f46fb7fe0",
+      "contentHash": "38ca7d3266e9919f4a7ca640de127cdd3e1c8dd0af100d7a27a89636f31e0097",
       "editability": {
         "editableSections": [
           "Overview"
@@ -24,12 +24,12 @@
         "mode": "sections"
       },
       "relativePath": "add-inbox-driven-manager-worker-control-plane/proposal.md",
-      "revisionToken": "37abd2d9bbefe556f7e3ae235f62a0b9a98f2ce6813f036d26daaa5eecf95ffe"
+      "revisionToken": "a7fa6b5d9de2bef3705062741a9dfc45c68802140c145dda10f12ed5fa8d12c5"
     },
     {
       "baseVersion": null,
       "canonicalRef": "spec:add-ralph-loop-orchestration-extension:artifact:design",
-      "contentHash": "17980fc04820ea25a8d30c73ec6e1f614ef66321935effe35df88232957a2c44",
+      "contentHash": "b9644317409706015cd68a77a567a39111ef944effc9dfbb4f4980b06420d427",
       "editability": {
         "editableSections": [
           "Design Notes"
@@ -37,12 +37,12 @@
         "mode": "sections"
       },
       "relativePath": "add-ralph-loop-orchestration-extension/design.md",
-      "revisionToken": "c2e6e9f2f5ef618652e361239327709e90a31c774783b8adc3c9393c2f29bc8f"
+      "revisionToken": "d117d07dc868f862fa870f66207f905361dfadc272f5aecd82cd112f96c68eb1"
     },
     {
       "baseVersion": null,
       "canonicalRef": "spec:add-ralph-loop-orchestration-extension:artifact:proposal",
-      "contentHash": "8b82ccffc3583a247b22aeda71dda42336e1bcd58a54899f22fc94b268f4ef10",
+      "contentHash": "a9e90eb5722192f61c817f4e8e542237e09265b93b01bedf28b7b757ddcf4b9f",
       "editability": {
         "editableSections": [
           "Overview"
@@ -50,12 +50,12 @@
         "mode": "sections"
       },
       "relativePath": "add-ralph-loop-orchestration-extension/proposal.md",
-      "revisionToken": "ab2622c88a72ba713fabc4f066efe1ddd4627345d297e6b256a1bcb081d4d2b8"
+      "revisionToken": "2062b84f7e7a7f494112f4aa1a2f144161c38762d11bb3974154231e88ee3b59"
     },
     {
       "baseVersion": null,
       "canonicalRef": "spec:add-workspace-backed-manager-worker-substrate:artifact:design",
-      "contentHash": "68826f08ebc39425d7bf0a111769922cb78d25ac8cfa67174125232402d994ea",
+      "contentHash": "3a488f7a5f836f79adb9a541a642f5583328efe1dca3c8b56d309d3a3ad2549d",
       "editability": {
         "editableSections": [
           "Design Notes"
@@ -63,12 +63,12 @@
         "mode": "sections"
       },
       "relativePath": "add-workspace-backed-manager-worker-substrate/design.md",
-      "revisionToken": "26b25e50f13e306f9487deecaed244e4ef354184fdf50104b1f0d06cffe6a799"
+      "revisionToken": "683592fe7f83804d2e89277b4a4715b872bc26bba0c80f9a8c6ba3adc099dcdb"
     },
     {
       "baseVersion": null,
       "canonicalRef": "spec:add-workspace-backed-manager-worker-substrate:artifact:proposal",
-      "contentHash": "81e774d640e044fa068396f725d71c80d48fc87a517714753b61db0ad44018aa",
+      "contentHash": "22d17f5b9d5bf69250052d8ef173eb1a954a0ea10ac636eddb484357e9828688",
       "editability": {
         "editableSections": [
           "Overview"
@@ -76,7 +76,7 @@
         "mode": "sections"
       },
       "relativePath": "add-workspace-backed-manager-worker-substrate/proposal.md",
-      "revisionToken": "9015128400c1c98e8a9d2460ae5a3138357eceffa5f1cd312473e2bd6dd55372"
+      "revisionToken": "c71b18a1313f87063bad52b60c88ee2002957ab2079bd3a9103a3040a6c0a539"
     },
     {
       "baseVersion": null,
@@ -117,32 +117,6 @@
       },
       "relativePath": "first-class-multi-repository-loom-spaces/proposal.md",
       "revisionToken": "39986806f6b04358ad43608d241da84ad60fa322a70e7161276a6bff314b86d5"
-    },
-    {
-      "baseVersion": null,
-      "canonicalRef": "spec:ticket-archive-support-and-list-search:artifact:design",
-      "contentHash": "23f1f7f4bda783fd50316ca8e868ea883d575096e89f3e2d48a7ed59d28ba0af",
-      "editability": {
-        "editableSections": [
-          "Design Notes"
-        ],
-        "mode": "sections"
-      },
-      "relativePath": "ticket-archive-support-and-list-search/design.md",
-      "revisionToken": "69b33e1601e1cce3a6f6fea49756e6f99d51e83a1f225dd19168dec7db1893c2"
-    },
-    {
-      "baseVersion": null,
-      "canonicalRef": "spec:ticket-archive-support-and-list-search:artifact:proposal",
-      "contentHash": "34a8efe821f26fd1756a60633377f5554042ab115a92d08fb34f3dc151e6995d",
-      "editability": {
-        "editableSections": [
-          "Overview"
-        ],
-        "mode": "sections"
-      },
-      "relativePath": "ticket-archive-support-and-list-search/proposal.md",
-      "revisionToken": "75fe59f09266f7167453ecb38f1adc5b15336a5473a0be2259814f3489dc239b"
     },
     {
       "baseVersion": null,

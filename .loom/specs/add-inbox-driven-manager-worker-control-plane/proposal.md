@@ -3,7 +3,7 @@ id: add-inbox-driven-manager-worker-control-plane
 title: "Add inbox-driven manager-worker control plane"
 status: specified
 created-at: 2026-03-16T02:32:10.521Z
-updated-at: 2026-03-21T06:05:11.410Z
+updated-at: 2026-03-28T02:55:10.276Z
 research:
   - assess-vendoring-the-oh-my-pi-task-subagent-executor-into-pi-ralph
   - evaluate-pi-control-surfaces-for-long-lived-workers

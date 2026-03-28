@@ -4,7 +4,7 @@
 
 When active, the extension teaches the model to use specifications as declarative, implementation-decoupled statements of intended program behavior. A spec should still make sense when read in isolation: it names a stable capability, declares what must be true, and remains useful even if the implementation path changes. Specs define the desired capability, constraints, scenarios, and acceptance independent of today's code shape; plans turn that accepted behavior into implementation strategy and linked execution work, and tickets carry the execution truth. Specification state is persisted in SQLite via pi-storage, with durable spec records, canonical capability summaries, append-only clarification decisions, spec-quality analysis, checklist artifacts, and explicit initiative membership.
 
-Specification lifecycle is strict: proposed/clarifying/specified specs are mutable, finalized specs are read-only, and archived specs are terminal. Supersession is lineage metadata captured while specifying a new spec; archived records are not editable successors.
+Specification lifecycle is strict: proposed/clarifying/specified specs are mutable, and mutable specs may be deleted if they should not survive as durable history. Finalized specs are read-only, and archived specs are terminal. Supersession is lineage metadata captured while specifying a new spec; archived records are not editable successors.
 
 ## Features
 
@@ -27,7 +27,7 @@ Spec titles should name the behavior or capability being specified, not an imple
 
 Spec state and metadata are persisted in SQLite via pi-storage. Plans connect finalized specs to linked tickets.
 
-Finalization freezes the spec record, including clarifications, design notes, analysis, checklist output, initiative links, research links, and capability mappings. Archive is only allowed after finalize; it preserves the frozen record for reading, lineage, and canonical capability provenance.
+Finalization freezes the spec record, including clarifications, design notes, analysis, checklist output, initiative links, research links, and capability mappings. Archive is only allowed after finalize; it preserves the frozen record for reading, lineage, and canonical capability provenance. Delete is only allowed while the spec is still mutable and is blocked if other durable records still reference the spec.
 
 ## Development
 

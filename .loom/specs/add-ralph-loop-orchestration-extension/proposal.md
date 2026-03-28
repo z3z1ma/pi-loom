@@ -3,7 +3,7 @@ id: add-ralph-loop-orchestration-extension
 title: "Add Ralph loop orchestration extension"
 status: specified
 created-at: 2026-03-15T20:16:36.905Z
-updated-at: 2026-03-21T06:05:11.416Z
+updated-at: 2026-03-28T02:55:10.277Z
 research:
   - assess-vendoring-the-oh-my-pi-task-subagent-executor-into-pi-ralph
   - ralph-backed-worker-manager-architecture-cutover

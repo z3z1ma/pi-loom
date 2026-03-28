@@ -17,7 +17,15 @@ const SpecStatusEnum = StringEnum([
   "archived",
   "superseded",
 ] as const);
-const SpecWriteActionEnum = StringEnum(["init", "propose", "clarify", "specify", "finalize", "archive"] as const);
+const SpecWriteActionEnum = StringEnum([
+  "init",
+  "propose",
+  "clarify",
+  "specify",
+  "finalize",
+  "archive",
+  "delete",
+] as const);
 const SpecAnalyzeModeEnum = StringEnum(["analysis", "checklist", "both"] as const);
 const LoomListSortEnum = StringEnum(LOOM_LIST_SORTS);
 
@@ -295,6 +303,7 @@ export function registerSpecTools(pi: ExtensionAPI): void {
       "Reject titles or summaries that read like migration steps, code churn, or work-order commands instead of stable capability names and behavior contracts.",
       "Keep specifications declarative and implementation-decoupled; use `specify` to record capabilities and design notes, then create or update a plan when the specification is ready to drive implementation.",
       "`clarify`, `specify`, and other spec mutations are for mutable specs only. After `finalize`, the spec becomes read-only; after `archive`, it is terminal and remains available only for reading, lineage, and capability provenance.",
+      "Use `delete` only to remove mutable specs that should not survive as durable history. Delete is blocked once a spec is finalized, archived, or still referenced by other durable records.",
       "Use `supersedes` to record lineage to earlier specs during specification. Do not treat archived specs as mutable successors or editable placeholders.",
     ],
     parameters: SpecWriteParams,
@@ -364,6 +373,16 @@ export function registerSpecTools(pi: ExtensionAPI): void {
             refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
           });
           return machineResult({ action: params.action, change }, renderSpecDetail(change));
+        }
+        case "delete": {
+          const result = await runProjectionAwareOperation({
+            repositoryRoot: ctx.cwd,
+            operation: "spec_write delete",
+            families: ["specs"],
+            action: () => store.deleteChange(requireRef(params.ref)),
+            refresh: () => refreshSpecProjectionsIfExported(ctx.cwd),
+          });
+          return machineResult({ action: params.action, result }, `Deleted specification ${result.deletedChangeId}.`);
         }
       }
     },

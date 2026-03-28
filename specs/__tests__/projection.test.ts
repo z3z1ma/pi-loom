@@ -135,7 +135,31 @@ describe("spec workspace projections", () => {
     const exported = await exportSpecProjections(workspace);
     expect(exported.records).toEqual([]);
     expect(exported.files).toEqual([]);
-    expect(exported.prunedRelativePaths).toEqual(["workspace-projections/design.md", "workspace-projections/proposal.md"]);
+    expect(exported.prunedRelativePaths).toEqual([
+      "workspace-projections/design.md",
+      "workspace-projections/proposal.md",
+    ]);
+    expect(exported.manifest.entries).toEqual([]);
+    expect(() => readFileSync(proposalPath, "utf-8")).toThrow();
+    expect(() => readFileSync(designPath, "utf-8")).toThrow();
+  });
+
+  it("omits deleted mutable specs from projections and prunes their files", async () => {
+    const store = await seedMutableSpec();
+    await exportSpecProjections(workspace);
+
+    const proposalPath = join(workspace, ".loom", "specs", "workspace-projections", "proposal.md");
+    const designPath = join(workspace, ".loom", "specs", "workspace-projections", "design.md");
+
+    await store.deleteChange("workspace-projections");
+
+    const exported = await exportSpecProjections(workspace);
+    expect(exported.records).toEqual([]);
+    expect(exported.files).toEqual([]);
+    expect(exported.prunedRelativePaths).toEqual([
+      "workspace-projections/design.md",
+      "workspace-projections/proposal.md",
+    ]);
     expect(exported.manifest.entries).toEqual([]);
     expect(() => readFileSync(proposalPath, "utf-8")).toThrow();
     expect(() => readFileSync(designPath, "utf-8")).toThrow();

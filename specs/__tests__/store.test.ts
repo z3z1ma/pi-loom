@@ -1,6 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createInitiativeStore } from "#initiatives/domain/store.js";
+import { findEntityByDisplayId } from "#storage/entities.js";
+import { openWorkspaceStorage } from "#storage/workspace.js";
 import { createSpecStore } from "../domain/store.js";
 
 describe("SpecStore durable memory", () => {
@@ -157,5 +160,82 @@ describe("SpecStore durable memory", () => {
         ],
       }),
     ).rejects.toThrow("Spec immutable-lifecycle is archived and cannot change specification details.");
+  });
+
+  it("deletes mutable specs and rejects deleting referenced or finalized specs", async () => {
+    const store = createSpecStore(workspace);
+
+    vi.setSystemTime(new Date("2026-03-16T09:00:00.000Z"));
+    const deletable = await store.createChange({
+      title: "Temporary workspace projections",
+      summary: "Discard this exploratory spec.",
+    });
+    await store.updatePlan(deletable.summary.id, {
+      designNotes: "This remains mutable and can be removed.",
+      capabilities: [
+        {
+          title: "Temporary projection idea",
+          requirements: ["Capture an experimental idea before deleting it."],
+          acceptance: ["The exploratory spec can be removed cleanly."],
+          scenarios: ["An author abandons the draft before finalizing it."],
+        },
+      ],
+    });
+
+    const deleted = await store.deleteChange(deletable.summary.id);
+    expect(deleted).toEqual({ action: "delete", deletedChangeId: deletable.summary.id });
+    await expect(store.readChange(deletable.summary.id)).rejects.toThrow(`Unknown spec: ${deletable.summary.id}`);
+    expect((await store.listChanges({ includeArchived: true })).map((entry) => entry.id)).toEqual([]);
+
+    const { storage, identity } = await openWorkspaceStorage(workspace);
+    expect(await findEntityByDisplayId(storage, identity.space.id, "spec_change", deletable.summary.id)).toBeNull();
+
+    const linked = await store.createChange({
+      title: "Linked mutable spec",
+      summary: "A spec that is already attached to another durable record.",
+    });
+    await store.updatePlan(linked.summary.id, {
+      designNotes: "This spec is referenced by an initiative and should not delete in place.",
+      capabilities: [
+        {
+          title: "Linked draft capability",
+          requirements: ["Keep the draft linked to one initiative."],
+          acceptance: ["Delete is blocked until the link is removed."],
+          scenarios: ["An initiative still points at the mutable spec."],
+        },
+      ],
+    });
+
+    const initiativeStore = createInitiativeStore(workspace);
+    await initiativeStore.createInitiative({
+      title: "Linked draft initiative",
+      objective: "Track one mutable specification before it is removed.",
+      specChangeIds: [linked.summary.id],
+    });
+
+    await expect(store.deleteChange(linked.summary.id)).rejects.toThrow(
+      "Spec linked-mutable-spec cannot be deleted while referenced by initiative:linked-draft-initiative. Unlink those records first.",
+    );
+
+    const finalized = await store.createChange({
+      title: "Deletion lifecycle guard",
+      summary: "Prove finalized specs cannot be deleted.",
+    });
+    await store.updatePlan(finalized.summary.id, {
+      designNotes: "Finalize this spec before attempting deletion.",
+      capabilities: [
+        {
+          title: "Deletion guard capability",
+          requirements: ["Finalized specs reject delete operations."],
+          acceptance: ["Delete attempts fail after finalize."],
+          scenarios: ["An operator tries to delete finalized history."],
+        },
+      ],
+    });
+    await store.finalizeChange(finalized.summary.id);
+
+    await expect(store.deleteChange(finalized.summary.id)).rejects.toThrow(
+      "Spec deletion-lifecycle-guard is finalized and cannot be deleted.",
+    );
   });
 });

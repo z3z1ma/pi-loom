@@ -20,6 +20,7 @@ import { parseMarkdownArtifact } from "./frontmatter.js";
 import type {
   CanonicalCapabilityRecord,
   CreateSpecChangeInput,
+  DeleteSpecResult,
   SpecArtifactName,
   SpecArtifactStatus,
   SpecChangeRecord,
@@ -131,6 +132,15 @@ function assertFinalizable(record: SpecChangeRecord): void {
   }
   if (record.state.status !== "specified") {
     throw new Error(`Spec ${record.state.changeId} must be specified before finalize.`);
+  }
+}
+
+function assertDeletable(record: SpecChangeRecord): void {
+  if (record.state.status === "finalized" || record.state.status === "archived") {
+    throw new Error(`Spec ${record.state.changeId} is ${record.state.status} and cannot be deleted.`);
+  }
+  if (!["proposed", "clarifying", "specified"].includes(record.state.status)) {
+    throw new Error(`Spec ${record.state.changeId} is ${record.state.status} and cannot be deleted.`);
   }
 }
 
@@ -768,6 +778,46 @@ export class SpecStore {
       updatedAt: archivedAt,
     });
     return this.persistCanonicalChange(state, record.decisions, record.analysis, record.checklist);
+  }
+
+  async deleteChange(ref: string): Promise<DeleteSpecResult> {
+    const record = await this.loadCanonicalChange(ref);
+    assertDeletable(record);
+
+    const { storage, identity } = await this.openRepositoryWorkspaceStorage();
+    await storage.transact(async (tx) => {
+      const entity = await findEntityByDisplayId(tx, identity.space.id, SPEC_CHANGE_ENTITY_KIND, record.state.changeId);
+      if (!entity) {
+        throw new Error(`Unknown spec: ${ref}`);
+      }
+
+      const incomingReferences = new Set<string>();
+      for (const link of await tx.listLinks(entity.id)) {
+        if (link.toEntityId !== entity.id || link.fromEntityId === entity.id) {
+          continue;
+        }
+        const sourceEntity = await tx.getEntity(link.fromEntityId);
+        if (!sourceEntity) {
+          continue;
+        }
+        incomingReferences.add(`${sourceEntity.kind}:${sourceEntity.displayId}`);
+      }
+
+      if (incomingReferences.size > 0) {
+        throw new Error(
+          `Spec ${record.state.changeId} cannot be deleted while referenced by ${[...incomingReferences]
+            .sort((left, right) => left.localeCompare(right))
+            .join(", ")}. Unlink those records first.`,
+        );
+      }
+
+      await tx.removeEntity(entity.id);
+    });
+
+    return {
+      action: "delete",
+      deletedChangeId: record.state.changeId,
+    };
   }
 }
 
