@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { assertProtectedProjectionContentUnchanged } from "#storage/projection-markdown.js";
 import {
   type LoomProjectionSelectionInput,
@@ -48,6 +48,7 @@ export interface SpecProjectionExportResult {
   manifest: LoomProjectionManifest;
   files: SpecProjectionFileResult[];
   records: SpecChangeRecord[];
+  prunedRelativePaths: string[];
 }
 
 function buildSpecProjectionManifest(sources: SpecProjectionSource[]): LoomProjectionManifest {
@@ -64,12 +65,12 @@ function normalizeEditableText(value: string | undefined): string {
 
 async function loadSpecProjectionSources(cwd: string): Promise<SpecProjectionSource[]> {
   const store = createSpecStore(cwd);
-  const summaries = await store.listChanges({ includeArchived: true });
+  const summaries = await store.listChanges({ includeArchived: false });
   const records = await Promise.all(summaries.map((summary) => store.readChange(summary.id)));
   return records
     .sort((left, right) => left.state.changeId.localeCompare(right.state.changeId))
     .flatMap((record) => {
-      const readOnly = record.state.status === "finalized" || record.state.status === "archived";
+      const readOnly = record.state.status === "finalized";
       return [
         {
           record,
@@ -122,11 +123,22 @@ export async function exportSpecProjections(cwd: string): Promise<SpecProjection
     };
   });
   const manifest = buildSpecProjectionManifest(sources);
+  const previousManifest = readProjectionManifest(resolveProjectionFilePath(cwd, SPEC_FAMILY, "manifest.json"));
+  const retainedRelativePaths = new Set(files.map((file) => file.entry.relativePath));
+  const prunedRelativePaths =
+    previousManifest?.entries
+      .map((entry) => entry.relativePath)
+      .filter((relativePath) => !retainedRelativePaths.has(relativePath))
+      .sort((left, right) => left.localeCompare(right)) ?? [];
+  for (const relativePath of prunedRelativePaths) {
+    rmSync(resolveProjectionFilePath(cwd, SPEC_FAMILY, relativePath), { force: true });
+  }
   writeProjectionManifest(resolveProjectionFilePath(cwd, SPEC_FAMILY, "manifest.json"), manifest);
   return {
     manifest,
     files,
     records: [...new Map(sources.map((source) => [source.record.state.changeId, source.record])).values()],
+    prunedRelativePaths,
   };
 }
 
