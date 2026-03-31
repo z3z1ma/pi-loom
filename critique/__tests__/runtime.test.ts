@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSeededGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
+import { PI_LOOM_DISABLED_TOOLS_ENV } from "#storage/runtime-tools.js";
 import { resolveExtensionPackageRoot, runCritiqueLaunch } from "../domain/runtime.js";
 import { createCritiqueStore } from "../domain/store.js";
 
@@ -70,6 +71,9 @@ describe("critique worktree branch policy", () => {
 
       expect(provisionSpy).toHaveBeenCalledWith(workspace.cwd, "UDP-100");
       expect(harnessSpy).toHaveBeenCalled();
+      expect(harnessSpy.mock.calls[0]?.[4]).toMatchObject({
+        [PI_LOOM_DISABLED_TOOLS_ENV]: "critique_launch",
+      });
     } finally {
       workspace.cleanup();
     }

@@ -11,6 +11,7 @@ import {
   resolveEntityRuntimeScope,
   resolveRuntimeScopeCwd,
 } from "#storage/runtime-scope.js";
+import { isRuntimeToolDisabled } from "#storage/runtime-tools.js";
 import type { CreateDocumentationInput, DocumentationSummary, UpdateDocumentationInput } from "../domain/models.js";
 import {
   DOC_AUDIENCES,
@@ -652,86 +653,93 @@ export function registerDocsTools(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerTool({
-    name: "docs_update",
-    label: "docs_update",
-    description:
-      "Execute the managed fresh-context documentation-maintainer workflow and verify that it lands a durable docs_write revision.",
-    promptSnippet:
-      'Use this when the job is "run a bounded documentation-maintainer pass from compiled context", not when you already know the exact mutation to apply. It runs documentation maintenance in a separate fresh process so the maintainer can write a high-context bounded revision instead of a saturated-session blurb.',
-    promptGuidelines: [
-      "Prefer docs_update when you want Loom's managed path: compile the packet, launch a fresh maintainer, and require that the resulting pass persists through docs_write.",
-      "Prefer docs_write instead for deterministic content edits, metadata repair, verification-only refreshes, or any direct mutation where the desired document state is already known.",
-      "Use this tool only after implementation reality is known and the surrounding understanding actually changed.",
-      "The updater should enrich durable documentation with rationale, assumptions, scope boundaries, dependencies, risks, examples, and verification context where relevant instead of producing a thin recap.",
-      "The fresh updater must persist its revision through docs_write; this tool should fail if no durable revision lands.",
-    ],
-    parameters: DocsUpdateParams,
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      return runProjectionAwareOperation({
-        repositoryRoot: ctx.cwd,
-        operation: "docs_update",
-        families: ["docs"],
-        action: async () => {
-          const ambientStore = getStore(ctx);
-          const existing = await ambientStore.readDoc(params.ref);
-          const runtimeScope = await resolveEntityRuntimeScope(ctx.cwd, "documentation", existing.state.docId);
-          const store = createDocumentationStore(ctx.cwd, {
-            repositoryId: runtimeScope.repositoryId,
-            worktreeId: runtimeScope.worktreeId,
-          });
-          const prepared = params.updateReason
-            ? await store.updateDoc(existing.state.docId, { updateReason: params.updateReason })
-            : existing;
-          if (params.updateReason) {
-            await refreshDocumentationProjectionsIfExported(ctx.cwd);
-          }
-          const previousRevisionId = prepared.state.lastRevisionId;
-          const execution = await runDocsUpdate(
-            ctx.cwd,
-            renderUpdatePrompt(ctx.cwd, prepared),
-            signal,
-            (text) => {
-              onUpdate?.({
-                content: [{ type: "text", text }],
-                details: {
-                  documentation: prepared.summary,
-                  execution: { status: "running" },
-                },
-              });
-            },
-            runtimeScope,
-            params.worktreeTicketRef,
+  if (!isRuntimeToolDisabled("docs_update")) {
+    pi.registerTool({
+      name: "docs_update",
+      label: "docs_update",
+      description:
+        "Execute the managed fresh-context documentation-maintainer workflow and verify that it lands a durable docs_write revision.",
+      promptSnippet:
+        'Use this when the job is "run a bounded documentation-maintainer pass from compiled context", not when you already know the exact mutation to apply. It runs documentation maintenance in a separate fresh process so the maintainer can write a high-context bounded revision instead of a saturated-session blurb.',
+      promptGuidelines: [
+        "Prefer docs_update when you want Loom's managed path: compile the packet, launch a fresh maintainer, and require that the resulting pass persists through docs_write.",
+        "Prefer docs_write instead for deterministic content edits, metadata repair, verification-only refreshes, or any direct mutation where the desired document state is already known.",
+        "Use this tool only after implementation reality is known and the surrounding understanding actually changed.",
+        "The updater should enrich durable documentation with rationale, assumptions, scope boundaries, dependencies, risks, examples, and verification context where relevant instead of producing a thin recap.",
+        "The fresh updater must persist its revision through docs_write; this tool should fail if no durable revision lands.",
+      ],
+      parameters: DocsUpdateParams,
+      async execute(_toolCallId, params, signal, onUpdate, ctx) {
+        if (isRuntimeToolDisabled("docs_update")) {
+          throw new Error(
+            "docs_update is unavailable inside a docs_update-launched headless session; persist the revision through docs_write instead.",
           );
-          const refreshed = await store.readDoc(existing.state.docId);
-          if (execution.exitCode !== 0) {
-            throw new Error(
-              [
-                `Documentation update process failed with exit code ${execution.exitCode}.`,
-                execution.stderr.trim() || execution.output.trim() || prepared.packet,
-              ]
-                .filter(Boolean)
-                .join("\n\n"),
+        }
+        return runProjectionAwareOperation({
+          repositoryRoot: ctx.cwd,
+          operation: "docs_update",
+          families: ["docs"],
+          action: async () => {
+            const ambientStore = getStore(ctx);
+            const existing = await ambientStore.readDoc(params.ref);
+            const runtimeScope = await resolveEntityRuntimeScope(ctx.cwd, "documentation", existing.state.docId);
+            const store = createDocumentationStore(ctx.cwd, {
+              repositoryId: runtimeScope.repositoryId,
+              worktreeId: runtimeScope.worktreeId,
+            });
+            const prepared = params.updateReason
+              ? await store.updateDoc(existing.state.docId, { updateReason: params.updateReason })
+              : existing;
+            if (params.updateReason) {
+              await refreshDocumentationProjectionsIfExported(ctx.cwd);
+            }
+            const previousRevisionId = prepared.state.lastRevisionId;
+            const execution = await runDocsUpdate(
+              ctx.cwd,
+              renderUpdatePrompt(ctx.cwd, prepared),
+              signal,
+              (text) => {
+                onUpdate?.({
+                  content: [{ type: "text", text }],
+                  details: {
+                    documentation: prepared.summary,
+                    execution: { status: "running" },
+                  },
+                });
+              },
+              runtimeScope,
+              params.worktreeTicketRef,
             );
-          }
-          if (refreshed.state.lastRevisionId === previousRevisionId) {
-            throw new Error(
-              execution.output.trim() ||
-                "Fresh documentation updater completed without persisting a revision through docs_write.",
+            const refreshed = await store.readDoc(existing.state.docId);
+            if (execution.exitCode !== 0) {
+              throw new Error(
+                [
+                  `Documentation update process failed with exit code ${execution.exitCode}.`,
+                  execution.stderr.trim() || execution.output.trim() || prepared.packet,
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
+              );
+            }
+            if (refreshed.state.lastRevisionId === previousRevisionId) {
+              throw new Error(
+                execution.output.trim() ||
+                  "Fresh documentation updater completed without persisting a revision through docs_write.",
+              );
+            }
+            return machineResult(
+              {
+                documentation: refreshed,
+                execution,
+                previousRevisionId,
+              },
+              execution.output || renderDocumentationDetail(refreshed),
             );
-          }
-          return machineResult(
-            {
-              documentation: refreshed,
-              execution,
-              previousRevisionId,
-            },
-            execution.output || renderDocumentationDetail(refreshed),
-          );
-        },
-      });
-    },
-  });
+          },
+        });
+      },
+    });
+  }
 
   pi.registerTool({
     name: "docs_audit",

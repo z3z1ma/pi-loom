@@ -5,6 +5,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@mariozechn
 import { describe, expect, it, vi } from "vitest";
 import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-fixture.js";
 import type { LoomRuntimeScope } from "#storage/runtime-scope.js";
+import { PI_LOOM_DISABLED_TOOLS_ENV } from "#storage/runtime-tools.js";
 import { openWorkspaceStorage } from "#storage/workspace.js";
 
 let persistDurableRun = true;
@@ -98,6 +99,26 @@ function createContext(cwd: string): ExtensionContext {
 }
 
 describe("critique tools", () => {
+  it("omits critique_launch registration inside critique_launch-launched headless sessions", async () => {
+    const previous = process.env[PI_LOOM_DISABLED_TOOLS_ENV];
+    process.env[PI_LOOM_DISABLED_TOOLS_ENV] = "critique_launch";
+
+    try {
+      const mockPi = createMockPi();
+      const { registerCritiqueTools } = await import("../tools/critique.js");
+      registerCritiqueTools(mockPi as unknown as ExtensionAPI);
+
+      expect(mockPi.tools.has("critique_launch")).toBe(false);
+      expect(mockPi.tools.has("critique_run")).toBe(true);
+    } finally {
+      if (previous === undefined) {
+        delete process.env[PI_LOOM_DISABLED_TOOLS_ENV];
+      } else {
+        process.env[PI_LOOM_DISABLED_TOOLS_ENV] = previous;
+      }
+    }
+  });
+
   it("registers tool definitions with prompt snippets and prompt guidelines", async () => {
     const mockPi = createMockPi();
     const { registerCritiqueTools } = await import("../tools/critique.js");

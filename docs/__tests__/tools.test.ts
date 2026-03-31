@@ -8,6 +8,7 @@ import { createSeededParentGitWorkspace } from "#storage/__tests__/helpers/git-f
 import { upsertEntityByDisplayIdWithLifecycleEvents } from "#storage/entities.js";
 import { createPortableRepositoryPath } from "#storage/repository-path.js";
 import type { LoomRuntimeScope } from "#storage/runtime-scope.js";
+import { PI_LOOM_DISABLED_TOOLS_ENV } from "#storage/runtime-tools.js";
 import { openRepositoryWorkspaceStorage, openWorkspaceStorage } from "#storage/workspace.js";
 
 const runDocsUpdate = vi.fn(
@@ -208,7 +209,27 @@ async function seedCanonicalDocumentationSnapshot(cwd: string): Promise<string> 
 }
 
 describe("docs tools", () => {
-  it("registers tool definitions with prompt snippets and guidelines", async () => {
+  it("omits docs_update registration inside docs_update-launched headless sessions", async () => {
+    const previous = process.env[PI_LOOM_DISABLED_TOOLS_ENV];
+    process.env[PI_LOOM_DISABLED_TOOLS_ENV] = "docs_update";
+
+    try {
+      const mockPi = createMockPi();
+      const { registerDocsTools } = await import("../tools/docs.js");
+      registerDocsTools(mockPi as unknown as ExtensionAPI);
+
+      expect(mockPi.tools.has("docs_update")).toBe(false);
+      expect(mockPi.tools.has("docs_write")).toBe(true);
+    } finally {
+      if (previous === undefined) {
+        delete process.env[PI_LOOM_DISABLED_TOOLS_ENV];
+      } else {
+        process.env[PI_LOOM_DISABLED_TOOLS_ENV] = previous;
+      }
+    }
+  });
+
+  it("registers tool definitions with prompt snippets and prompt guidelines", async () => {
     const mockPi = createMockPi();
     const { registerDocsTools } = await import("../tools/docs.js");
     registerDocsTools(mockPi as unknown as ExtensionAPI);

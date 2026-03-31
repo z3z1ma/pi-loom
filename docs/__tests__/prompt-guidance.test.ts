@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PI_LOOM_DISABLED_TOOLS_ENV } from "#storage/runtime-tools.js";
 import { buildDocsSystemPrompt, getBaseDocsGuidance } from "../prompts/guidance.js";
 
 describe("docs prompt guidance", () => {
@@ -34,5 +35,23 @@ describe("docs prompt guidance", () => {
       "Governed docs expose topic ownership, lifecycle, publication truth, and successor state explicitly",
     );
     expect(prompt).toContain("detail-first, self-contained explanations");
+  });
+
+  it("adds an explicit recursion guard note inside docs_update-launched sessions", () => {
+    const previous = process.env[PI_LOOM_DISABLED_TOOLS_ENV];
+    process.env[PI_LOOM_DISABLED_TOOLS_ENV] = "docs_update";
+
+    try {
+      const prompt = buildDocsSystemPrompt("/tmp/pi-docs-guidance");
+      expect(prompt).toContain("This session was launched by docs_update.");
+      expect(prompt).toContain("docs_update is unavailable here to prevent recursive fresh-maintainer launches");
+      expect(prompt).toContain("persist the bounded revision through docs_write instead");
+    } finally {
+      if (previous === undefined) {
+        delete process.env[PI_LOOM_DISABLED_TOOLS_ENV];
+      } else {
+        process.env[PI_LOOM_DISABLED_TOOLS_ENV] = previous;
+      }
+    }
   });
 });

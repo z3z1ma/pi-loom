@@ -7,6 +7,7 @@ import {
   PI_LOOM_RUNTIME_WORKTREE_ID_ENV,
   PI_LOOM_RUNTIME_WORKTREE_PATH_ENV,
 } from "#storage/runtime-scope.js";
+import { PI_LOOM_DISABLED_TOOLS_ENV } from "#storage/runtime-tools.js";
 import type { DocumentationGovernanceSurface, DocumentationReadResult, DocumentationState } from "../domain/models.js";
 import { buildDocumentationOverview } from "../domain/overview.js";
 import { renderUpdateDescriptor, renderUpdatePrompt } from "../domain/render.js";
@@ -111,6 +112,7 @@ describe("docs runtime spawn resolution", () => {
 
     expect(launch.extensionRoot).toBe(resolveDocsPackageRoot());
     expect(launch.env).toEqual({
+      [PI_LOOM_DISABLED_TOOLS_ENV]: "docs_update",
       [PI_LOOM_RUNTIME_SPACE_ID_ENV]: "space-001",
       [PI_LOOM_RUNTIME_REPOSITORY_ID_ENV]: "repo-001",
       [PI_LOOM_RUNTIME_WORKTREE_ID_ENV]: "worktree-001",

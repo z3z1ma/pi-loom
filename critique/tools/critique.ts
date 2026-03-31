@@ -8,6 +8,7 @@ import {
   resolveEntityRuntimeScope,
   resolveRuntimeScopeCwd,
 } from "#storage/runtime-scope.js";
+import { isRuntimeToolDisabled } from "#storage/runtime-tools.js";
 import { renderCritiqueDetail, renderOverview } from "../domain/render.js";
 import { runCritiqueLaunch } from "../domain/runtime.js";
 import { createCritiqueStore } from "../domain/store.js";
@@ -413,79 +414,86 @@ export function registerCritiqueTools(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerTool({
-    name: "critique_launch",
-    label: "critique_launch",
-    description: "Launch a fresh critic process for a critique packet and return its result.",
-    promptSnippet:
-      "Use this tool to execute a fresh-context critique in a separate process rather than grading the work inside the same saturated session; allow a long timeout because the call blocks until the critic exits after producing a thoroughly substantiated durable run.",
-    promptGuidelines: [
-      "This tool must run the critique in a separate fresh process and return the result synchronously.",
-      "Call this tool with a long timeout for non-trivial reviews because the fresh critic process blocks until completion.",
-      "The critique record and launch descriptor remain durable even though the review executes immediately.",
-      "The fresh critic must append a durable critique_run before exit; successful process completion without a landed run is a failure.",
-      "The landed run should explain the verdict with evidence, reasoning, verification status, and residual risk rather than a bare pass/fail statement.",
-    ],
-    parameters: CritiqueLaunchParams,
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const ambientStore = getStore(ctx);
-      const existing = await ambientStore.readCritiqueAsync(params.ref);
-      const runtimeScope = await resolveEntityRuntimeScope(ctx.cwd, "critique", existing.state.critiqueId);
-      const store = createCritiqueStore(ctx.cwd, {
-        repositoryId: runtimeScope.repositoryId,
-        worktreeId: runtimeScope.worktreeId,
-      });
-      const launched = await store.launchCritiqueAsync(existing.state.critiqueId);
-      const previousLastRunId = launched.critique.state.lastRunId;
-      const execution = await runCritiqueLaunch(
-        ctx.cwd,
-        launched.launch,
-        signal,
-        (text) => {
-          onUpdate?.({
-            content: [{ type: "text", text }],
-            details: {
-              launch: launched.launch,
-              execution: {
-                status: "running",
+  if (!isRuntimeToolDisabled("critique_launch")) {
+    pi.registerTool({
+      name: "critique_launch",
+      label: "critique_launch",
+      description: "Launch a fresh critic process for a critique packet and return its result.",
+      promptSnippet:
+        "Use this tool to execute a fresh-context critique in a separate process rather than grading the work inside the same saturated session; allow a long timeout because the call blocks until the critic exits after producing a thoroughly substantiated durable run.",
+      promptGuidelines: [
+        "This tool must run the critique in a separate fresh process and return the result synchronously.",
+        "Call this tool with a long timeout for non-trivial reviews because the fresh critic process blocks until completion.",
+        "The critique record and launch descriptor remain durable even though the review executes immediately.",
+        "The fresh critic must append a durable critique_run before exit; successful process completion without a landed run is a failure.",
+        "The landed run should explain the verdict with evidence, reasoning, verification status, and residual risk rather than a bare pass/fail statement.",
+      ],
+      parameters: CritiqueLaunchParams,
+      async execute(_toolCallId, params, signal, onUpdate, ctx) {
+        if (isRuntimeToolDisabled("critique_launch")) {
+          throw new Error(
+            "critique_launch is unavailable inside a critique_launch-launched headless session; land the review through critique_run instead.",
+          );
+        }
+        const ambientStore = getStore(ctx);
+        const existing = await ambientStore.readCritiqueAsync(params.ref);
+        const runtimeScope = await resolveEntityRuntimeScope(ctx.cwd, "critique", existing.state.critiqueId);
+        const store = createCritiqueStore(ctx.cwd, {
+          repositoryId: runtimeScope.repositoryId,
+          worktreeId: runtimeScope.worktreeId,
+        });
+        const launched = await store.launchCritiqueAsync(existing.state.critiqueId);
+        const previousLastRunId = launched.critique.state.lastRunId;
+        const execution = await runCritiqueLaunch(
+          ctx.cwd,
+          launched.launch,
+          signal,
+          (text) => {
+            onUpdate?.({
+              content: [{ type: "text", text }],
+              details: {
+                launch: launched.launch,
+                execution: {
+                  status: "running",
+                },
               },
-            },
-          });
-        },
-        runtimeScope,
-        params.worktreeTicketRef,
-      );
-      const critique = await store.readCritiqueAsync(existing.state.critiqueId);
-      if (execution.exitCode !== 0) {
-        throw new Error(
-          [
-            `Critique process failed with exit code ${execution.exitCode}.`,
-            execution.stderr.trim() || execution.output.trim() || launched.text,
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
+            });
+          },
+          runtimeScope,
+          params.worktreeTicketRef,
         );
-      }
-      if (critique.state.lastRunId === previousLastRunId) {
-        throw new Error(
-          [
-            "Fresh critique process completed without appending a durable critique run through critique_run.",
-            execution.output.trim(),
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
+        const critique = await store.readCritiqueAsync(existing.state.critiqueId);
+        if (execution.exitCode !== 0) {
+          throw new Error(
+            [
+              `Critique process failed with exit code ${execution.exitCode}.`,
+              execution.stderr.trim() || execution.output.trim() || launched.text,
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+          );
+        }
+        if (critique.state.lastRunId === previousLastRunId) {
+          throw new Error(
+            [
+              "Fresh critique process completed without appending a durable critique run through critique_run.",
+              execution.output.trim(),
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+          );
+        }
+        return machineResult(
+          {
+            critique,
+            launch: launched.launch,
+            execution,
+          },
+          execution.output || renderCritiqueDetail(critique),
         );
-      }
-      return machineResult(
-        {
-          critique,
-          launch: launched.launch,
-          execution,
-        },
-        execution.output || renderCritiqueDetail(critique),
-      );
-    },
-  });
+      },
+    });
+  }
 
   pi.registerTool({
     name: "critique_run",

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PI_LOOM_DISABLED_TOOLS_ENV } from "#storage/runtime-tools.js";
 import { buildCritiqueSystemPrompt, getBaseCritiqueGuidance } from "../prompts/guidance.js";
 
 describe("critique prompt guidance", () => {
@@ -47,5 +48,23 @@ describe("critique prompt guidance", () => {
     expect(prompt).toContain("Critique state is persisted in SQLite via pi-storage.");
     expect(prompt).toContain("Prefer critique packets and durable findings over inline self-review.");
     expect(prompt).toContain("self-contained and detail-first at the critique layer");
+  });
+
+  it("adds an explicit recursion guard note inside critique_launch-launched sessions", () => {
+    const previous = process.env[PI_LOOM_DISABLED_TOOLS_ENV];
+    process.env[PI_LOOM_DISABLED_TOOLS_ENV] = "critique_launch";
+
+    try {
+      const prompt = buildCritiqueSystemPrompt("/tmp/pi-critique-guidance");
+      expect(prompt).toContain("This session was launched by critique_launch.");
+      expect(prompt).toContain("critique_launch is unavailable here to prevent recursive fresh-critic launches");
+      expect(prompt).toContain("land the review through critique_run and critique_finding instead");
+    } finally {
+      if (previous === undefined) {
+        delete process.env[PI_LOOM_DISABLED_TOOLS_ENV];
+      } else {
+        process.env[PI_LOOM_DISABLED_TOOLS_ENV] = previous;
+      }
+    }
   });
 });

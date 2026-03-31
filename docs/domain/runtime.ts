@@ -1,6 +1,7 @@
 import { type HarnessExecutionResult, resolveExtensionRoot, runHarnessLaunch } from "#ralph/domain/harness.js";
 import { getWorktreeEnv, provisionWorktree, resolveManagedWorktreeBranchName } from "#ralph/domain/worktree.js";
 import { type LoomRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
+import { withDisabledRuntimeTools } from "#storage/runtime-tools.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 
 export type DocsExecutionResult = HarnessExecutionResult;
@@ -23,9 +24,10 @@ export function getDocsUpdateLaunchConfig(
   scope: LoomRuntimeScope | undefined,
 ): DocsUpdateLaunchConfig {
   const extensionRoot = resolveDocsPackageRoot();
+  const env = withDisabledRuntimeTools(scope ? runtimeScopeToEnv(scope) : {}, ["docs_update"]);
   return {
     extensionRoot,
-    env: scope ? runtimeScopeToEnv(scope) : {},
+    env,
   };
 }
 
@@ -59,10 +61,13 @@ export async function runDocsUpdate(
     worktreeEnv = getWorktreeEnv(cwd);
   }
 
-  const env = {
-    ...(scope ? runtimeScopeToEnv(scope) : {}),
-    ...worktreeEnv,
-  };
+  const env = withDisabledRuntimeTools(
+    {
+      ...(scope ? runtimeScopeToEnv(scope) : {}),
+      ...worktreeEnv,
+    },
+    ["docs_update"],
+  );
 
   // runHarnessLaunch handles the session dir, tailing, and output parsing
   return runHarnessLaunch(

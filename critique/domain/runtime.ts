@@ -1,6 +1,7 @@
 import { type HarnessExecutionResult, resolveExtensionRoot, runHarnessLaunch } from "#ralph/domain/harness.js";
 import { getWorktreeEnv, provisionWorktree, resolveManagedWorktreeBranchName } from "#ralph/domain/worktree.js";
 import { type LoomRuntimeScope, runtimeScopeToEnv } from "#storage/runtime-scope.js";
+import { withDisabledRuntimeTools } from "#storage/runtime-tools.js";
 import { createTicketStore } from "#ticketing/domain/store.js";
 import type { CritiqueLaunchDescriptor } from "./models.js";
 import { renderLaunchPrompt } from "./render.js";
@@ -44,10 +45,13 @@ export async function runCritiqueLaunch(
     worktreeEnv = getWorktreeEnv(cwd);
   }
 
-  const env = {
-    ...(scope ? runtimeScopeToEnv(scope) : {}),
-    ...worktreeEnv,
-  };
+  const env = withDisabledRuntimeTools(
+    {
+      ...(scope ? runtimeScopeToEnv(scope) : {}),
+      ...worktreeEnv,
+    },
+    ["critique_launch"],
+  );
 
   return runHarnessLaunch(
     finalCwd,
